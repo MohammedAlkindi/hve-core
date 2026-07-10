@@ -2,7 +2,7 @@
 title: Build System and Validation
 description: Understand the plugin generation pipeline, schema validation system, npm scripts, and CI checks for customizing and extending HVE Core
 author: Microsoft
-ms.date: 2026-06-27
+ms.date: 2026-07-08
 ms.topic: how-to
 keywords:
   - build system
@@ -44,6 +44,8 @@ determine which schema applies to each file.
 
 ### Schema Files
 
+:::table{caption="Frontmatter schemas and the files they validate"}
+
 | Schema                                   | Applies To                        |
 |------------------------------------------|-----------------------------------|
 | `docs-frontmatter.schema.json`           | `docs/**/*.md`                    |
@@ -55,6 +57,8 @@ determine which schema applies to each file.
 | `collection-manifest.schema.json`        | Collection YAML manifests         |
 | `root-community-frontmatter.schema.json` | Root files (README, CONTRIBUTING) |
 | `base-frontmatter.schema.json`           | Default fallback                  |
+
+:::
 
 ### Pattern Mapping
 
