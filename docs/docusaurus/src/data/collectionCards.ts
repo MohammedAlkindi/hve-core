@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
-import { labelRegistry } from './labelRegistry';
+import { labelRegistry } from './labelRegistry.ts';
 
 export interface CollectionCardData {
   name: string;

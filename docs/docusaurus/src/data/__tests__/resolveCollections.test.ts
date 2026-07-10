@@ -4,7 +4,7 @@ import {
   collectionCardDefinitions,
   resolveCollectionCards,
   resolveMetaCollections,
-} from '../collectionCards';
+} from '../collectionCards.ts';
 
 describe('resolveCollectionCards', () => {
   it('maps declared counts onto the matching collection', () => {

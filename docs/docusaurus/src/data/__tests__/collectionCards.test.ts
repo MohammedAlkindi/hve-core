@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
-import { collectionCardDefinitions, resolveCollectionCards, resolveMetaCollections } from '../collectionCards';
-import type { CollectionCardData } from '../collectionCards';
+import { collectionCardDefinitions, resolveCollectionCards, resolveMetaCollections } from '../collectionCards.ts';
+import type { CollectionCardData } from '../collectionCards.ts';
 import * as fs from 'fs';
 import * as path from 'path';
 
