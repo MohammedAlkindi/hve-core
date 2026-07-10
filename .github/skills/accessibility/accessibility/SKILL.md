@@ -22,6 +22,10 @@ This skill is the canonical accessibility reference contract for HVE Core. Agent
 * [Section 508](references/frameworks/section-508.md)
 * [EN 301 549](references/frameworks/en-301-549.md)
 
+Assessment reference (cross-cutting, not a conformance framework):
+
+* [Assistive-technology announcement model](references/frameworks/at-announcement-model.md) — read this when deciding the announcement-class criteria (WCAG 1.3.1, 4.1.2, 4.1.3): what a screen-reader user should hear, and how to decide it with an accessibility-tree assertion or a manual AT pass.
+
 ## Accessibility Planner workflow
 
 The Accessibility Planner runs six phases, each keyed to a state id:
@@ -41,6 +45,44 @@ The Accessibility Planner runs six phases, each keyed to a state id:
 * Phase 4 — Plan Risk Assessment: [capture-coaching.md](references/phases/capture-coaching.md) governs the questioning posture when escalation triggers reopen scoping; tier criteria are applied per the Accessibility Planner identity instructions and recorded as `riskClassification.tier`. No dedicated file — the accessibility risk surface is narrow enough to stay inline.
 * Phase 5 — Impact and Evidence: [impact-assessment.md](references/phases/impact-assessment.md) — read this when building the evidence register, tradeoff log, and seed work-items.
 * Phase 6 — Backlog Handoff: [backlog-handoff.md](references/phases/backlog-handoff.md) — read this when rendering work items and validating handoff gates.
+
+## Method adequacy (decide vs inform)
+
+Method adequacy is the doctrine that a verification method may only be recorded as satisfying a success criterion when that method can actually *decide* the criterion. A method that can observe a related signal but cannot confirm the user-facing outcome only *informs* the criterion; it raises or lowers suspicion but never closes it. This section is the canonical definition; the planner evidence register, the reviewer verdict logic, and the runtime probe harness all resolve adequacy through it.
+
+The machine-readable adequacy source is [scripts/runtime_a11y/probe-criteria-map.json](scripts/runtime_a11y/probe-criteria-map.json). Each probe entry lists the criteria it `decides` and the criteria it only `informs`. A result counts as adequate only when the winning method appears in the `decides` list for that criterion and state.
+
+### Failure classes and adequate methods
+
+Accessibility defects generalize into five classes. Static analysis (axe, `eslint-plugin-jsx-a11y`, snapshot structure counts) can decide only the first class; the remaining four require an interaction-state probe or an assistive-technology (AT) pass to be decided rather than merely informed.
+
+| Class | Representative WCAG SC | What static analysis can do | Adequate method to decide |
+|-------|------------------------|-----------------------------|---------------------------|
+| **Static-decidable structure** | 1.1.1, 1.4.3, 4.1.2 (name present), 2.4.2, 3.1.1 | Decide | axe / static scan |
+| **Interaction behavior** | 2.1.1, 2.1.2, 2.4.3, 2.4.7, 2.4.11 | Inform only | Keyboard/interaction probe driving keys across `focus`/`open` states, or manual keyboard pass |
+| **Announcement correctness** | 1.3.1, 4.1.2 (computed name/role), 4.1.3 | Inform only | Accessibility-tree assertion of computed name/role/live, or manual AT pass (NVDA/JAWS/VoiceOver) |
+| **Adaptive rendering** | 1.4.4, 1.4.10, 1.4.12, 2.4.11 | Inform only | Rendered probe at 200% zoom, 320px reflow, and text-spacing states |
+| **Faux semantics** | 1.3.1 (faux headings), 2.4.3 (faux controls) | Cannot see | Heuristic source pass plus accessibility-tree assertion; no element exists for a rule engine to flag |
+
+For the announcement class, the [assistive-technology announcement model](references/frameworks/at-announcement-model.md) specifies what the user should hear per criterion and how to decide it. For the interaction and faux-semantics classes, the [focus-management anti-pattern catalog](references/frameworks/aria-apg.md#focus-management-anti-patterns) enumerates the defects that pass a static scan yet break keyboard and screen-reader users.
+
+### Adequacy rule
+
+* A control in the interaction, announcement, adaptive-rendering, or faux-semantics classes cannot be recorded as fully satisfied on static evidence alone. Static evidence caps such a control at a partial state until an adequate method is attached.
+* A criterion whose winning method only `informs` it is never a conformance verdict; it is a lead that routes to an adequate method or a manual pass.
+* Preserve the adequacy determination alongside the status so downstream planners and reviewers do not re-promote an inadequately verified control.
+
+This doctrine and its class taxonomy are repository-original content licensed under CC BY 4.0; the underlying success-criterion definitions remain with WCAG 2.2 as cited in [wcag-22.md](references/frameworks/wcag-22.md).
+
+### Gate strictness by assessment tier
+
+The enforcement posture for the interaction, announcement, adaptive-rendering, and faux-semantics classes graduates with the assessment depth tier recorded in `riskClassification.tier`, so the gate inherits the rigor a project opted into rather than applying one global switch:
+
+* `basic` — the adequate-method probes (keyboard, widget-keyboard, live-region, aria-tree, virtual-sr) report **advisory** (warn-only); the always-decidable core probes still block.
+* `standard` (default) — **ratchet**: the adequate-method probes block on new or changed surfaces and stay advisory over the existing backlog, so no new defect in these classes ships while legacy content is surfaced without freezing the project.
+* `comprehensive` — the adequate-method probes **block** on every in-scope surface.
+
+The always-decidable core probes (axe, DOM hygiene, broken links, console errors, target size, contrast, reflow/resize) block at every tier. The CI workflow template implements this dial through the `A11Y_TIER` and `A11Y_RATCHET_SURFACES` inputs; the Accessibility Reviewer applies the same graduation to its FAIL and PARTIAL verdicts.
 
 ## Tooling
 
@@ -120,12 +162,14 @@ The runtime probe harness ([scripts/runtime_a11y](scripts/runtime_a11y)) runs Pl
 ```bash
 uv run python -m runtime_a11y run-all --config a11y-runtime.config.json --out results.json
 uv run python -m runtime_a11y probe <probeId> --config a11y-runtime.config.json
+uv run python -m runtime_a11y render-artifacts --matrix coverage-matrix-repo.json --output-dir .copilot-tracking/accessibility/coverage --repo-slug repo
 ```
 
 * `--out` writes the aggregated JSON document to disk.
 * `--base-url` overrides the configured base URL.
 * `--trace` captures Playwright traces and screenshots.
 * `--allow-external` confirms intentional probing of a non-loopback host.
+* `render-artifacts` turns a rendered matrix JSON document into the complete coverage evidence bundle.
 
 #### Config summary
 
@@ -162,6 +206,8 @@ WCAG and ARIA APG probes:
 * `probe-audio-control` (1.4.2)
 * `probe-timing` (2.2.1)
 * `probe-zoom-blocker` (1.4.4, informs 1.4.10)
+* `probe-virtual-sr` (4.1.2 name/role announcement captured from a virtual screen reader's spoken-phrase log; informs 1.3.1)
+* `probe-real-sr` (real NVDA/VoiceOver announcement assertions through a Guidepup adapter; only decides when configured expectations are present and the AT stack is available)
 
 Non-WCAG defect-scan probes (framework `defect-scan`):
 
@@ -174,24 +220,32 @@ Method adequacy is encoded in [scripts/runtime_a11y/probe-criteria-map.json](scr
 
 #### Coverage engine outputs
 
-The matrix engine in [scripts/runtime_a11y/matrix](scripts/runtime_a11y/matrix) expands the criterion x surface x state grid, merges updates deterministically, and preserves human-confirmed findings over lower-priority automation. It computes adequate-coverage percentages by framework and overall, then renders coverage-matrix JSON and markdown outputs named `coverage-matrix-{repo-slug}.json` and `coverage-matrix-{repo-slug}.md`.
+The matrix engine in [scripts/runtime_a11y/matrix](scripts/runtime_a11y/matrix) expands the criterion x surface x state grid, merges updates deterministically, and preserves human-confirmed findings over lower-priority automation. It computes adequate-coverage percentages by framework and overall. The `render-artifacts` command emits a deterministic bundle containing `coverage-matrix-{repo-slug}.json`, `coverage-matrix-{repo-slug}.md`, `accessibility-results-{repo-slug}.earl.jsonld`, `manual-at-testplan-{repo-slug}.md`, `manual-at-testplan-{repo-slug}.yaml`, and `accessibility-artifacts-{repo-slug}.json`.
+
+The EARL (Evaluation and Report Language) JSON-LD export is the normalized results contract for interoperability with the ACT Rules ecosystem and downstream VPAT or EAA review. Each evaluated cell becomes one stable `earl:Assertion` that records subject, criterion, state, method, method adequacy, result date, and evidence. A result whose winning method only informs its criterion is `earl:cantTell`, never a false `earl:passed`. Inapplicable cells are `earl:inapplicable`; unevaluated cells are omitted. The paired manual plans contain cells that still require a human-deciding method and provide blank result fields for evidence writeback.
 
 #### Exit codes
 
 * `0` indicates the harness completed successfully, even when probes reported findings.
-* Non-zero exit codes indicate a harness error such as invalid config, a failed probe, missing Node.js, missing browser support, or a blocked target.
+* Non-zero exit codes indicate a harness error such as invalid config, a failed probe, missing Node.js, uninstalled harness dependencies, missing browser support, or a blocked target.
 
 #### Runtime dependencies
 
-The harness uses `npx` at run time to install pinned dependencies `playwright@1.61.1` and `@axe-core/playwright@4.12.1`. It targets the system Google Chrome browser through `channel: 'chrome'`, so no skill-local `package.json` or `node_modules` directory is required.
+The harness resolves its Node dependencies from a skill-local package under [scripts/runtime_a11y](scripts/runtime_a11y) (`package.json` plus committed `package-lock.json`), pinning `playwright@1.61.1`, `@axe-core/playwright@4.12.1`, and `@guidepup/virtual-screen-reader@0.32.1`. Install them once with `npm ci` in that directory (set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, since the harness targets the system Google Chrome browser through `channel: 'chrome'` and needs no bundled browser). The probes then resolve their dependencies from the local `node_modules`; the CLI fails fast with an install hint when `node_modules` is absent.
+
+#### Testing
+
+The harness is tested in two tiers. Browserless verdict and pure-helper unit tests run under `node --test` (repo script `test:node`) and cover the decision logic in `runner/_core.mjs` (for example `virtualSrNameRoleStatus` and `liveRegionStatus`). Browser smoke tests under `tests/runtime_a11y/runner/probe-smoke/` launch system Chrome and drive the real capture path against inline fixtures to prove the DOM-to-verdict pipeline (nameless controls, live-region firing). They are named `*.smoke.mjs` so the default browserless run skips them; run them on demand with `npm run test:a11y:smoke` where Chrome and the skill-local `node_modules` are present.
 
 ### CI regression gate
 
 Use the ready-to-copy workflow template at [references/ci/accessibility-coverage.workflow-template.yml](references/ci/accessibility-coverage.workflow-template.yml) as the documentation-first integration point for a target project. Copy it into a real workflow under `.github/workflows/` only after the target project commits an `a11y-runtime.config.json` and has a build/serve path that the template can invoke.
 
-The template mirrors the Docusaurus workflow recipe by provisioning system Chrome, setting up Node 24 plus Python and `uv`, building the target, serving it under a configurable base URL, and running `uv run python -m runtime_a11y run-all --config a11y-runtime.config.json --out results.json`. It treats the high-confidence probes as blocking failures: `probe-axe`, `probe-dom-hygiene`, `probe-broken-links`, `probe-console-errors`, `probe-target-size`, `probe-contrast`, and `probe-reflow-resize`. The heuristic probes such as `use-of-color`, `hover-focus`, `link-purpose`, `name-in-label`, `keyboard-traversal`, `widget-keyboard`, `aria-tree`, and `focus-*` are surfaced as informational results so they can guide follow-up work without blocking initial adoption.
+The template mirrors the Docusaurus workflow recipe by provisioning system Chrome, setting up Node 24 plus Python and `uv`, building the target, serving it under a configurable base URL, and running `uv run python -m runtime_a11y run-all --config a11y-runtime.config.json --out results.json`. The core high-confidence probes always block: `probe-axe`, `probe-dom-hygiene`, `probe-broken-links`, `probe-console-errors`, `probe-target-size`, `probe-contrast`, and `probe-reflow-resize`. The interaction-state and announcement probes (`probe-keyboard-traversal`, `probe-widget-keyboard`, `probe-live-region`, `probe-aria-tree`, `probe-virtual-sr`, `probe-real-sr`) are the adequate method for the classes static analysis only informs, and their blocking posture follows the `A11Y_TIER` dial defined under [Gate strictness by assessment tier](#gate-strictness-by-assessment-tier): `basic` reports them advisory, `standard` ratchets (blocking on the surfaces listed in `A11Y_RATCHET_SURFACES`), and `comprehensive` blocks them everywhere. The remaining heuristic probes such as `use-of-color`, `hover-focus`, `link-purpose`, `name-in-label`, and `focus-*` are surfaced as informational results so they can guide follow-up work without blocking initial adoption. The real-screen-reader probe stays advisory by default unless a project opts into it through configured expected assertions and a supported OS/AT stack; it returns `candidate` when the platform or AT is unavailable rather than pretending a pass or failure. Decisive coverage of the adaptive-rendering class depends on the target committing the `zoom-200`, `reflow-320`, and text-spacing states in its `a11y-runtime.config.json`.
 
 The parity reference at [references/ci/probe-spec-parity.md](references/ci/probe-spec-parity.md) maps each runtime probe to the closest existing Docusaurus e2e spec and highlights gaps where no equivalent spec currently exists.
+
+The [references/ci/act-rule-format.md](references/ci/act-rule-format.md) reference documents how the harness's probes, generated test cases, and EARL results align to the W3C ACT Rules Format (applicability, expectation, passed/failed/inapplicable) so results interoperate with the ACT Rules ecosystem and conformance reporting.
 
 ## Usage notes
 

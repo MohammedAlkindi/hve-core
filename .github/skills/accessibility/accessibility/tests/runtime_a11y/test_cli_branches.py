@@ -52,9 +52,10 @@ def test_iter_runs_yields_scoped_combinations(monkeypatch) -> None:
 
 
 def test_run_probe_raises_on_called_process_error(mocker) -> None:
+    mocker.patch.object(cli, "_NODE_MODULES", cli._PACKAGE_DIR)
     mocker.patch(
         "runtime_a11y.__main__.subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, "npx", stderr="boom"),
+        side_effect=subprocess.CalledProcessError(1, "node", stderr="boom"),
     )
 
     with pytest.raises(ScriptError) as excinfo:
@@ -65,7 +66,21 @@ def test_run_probe_raises_on_called_process_error(mocker) -> None:
     assert "boom" in str(excinfo.value)
 
 
+def test_run_probe_raises_when_dependencies_missing(mocker, tmp_path) -> None:
+    mocker.patch.object(cli, "_NODE_MODULES", tmp_path / "missing")
+    run = mocker.patch("runtime_a11y.__main__.subprocess.run")
+
+    with pytest.raises(ScriptError) as excinfo:
+        cli._run_probe(
+            {}, "probe-axe", "web", "default", "http://127.0.0.1:3000", False
+        )
+
+    assert "npm ci" in str(excinfo.value)
+    run.assert_not_called()
+
+
 def test_run_probe_raises_on_invalid_json(mocker) -> None:
+    mocker.patch.object(cli, "_NODE_MODULES", cli._PACKAGE_DIR)
     mocker.patch(
         "runtime_a11y.__main__.subprocess.run",
         return_value=SimpleNamespace(stdout="not json", stderr=""),

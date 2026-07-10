@@ -77,6 +77,47 @@ class Matrix:
     surfaces: list[Surface]
     cells: list[Cell]
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> Matrix:
+        """Reconstruct a matrix from the rendered JSON representation."""
+        criteria = [
+            Criterion(
+                id=str(item["id"]),
+                framework=str(item["framework"]),
+                title=str(item.get("title", item["id"])),
+                adequateMethods=set(item.get("adequateMethods", [])),
+            )
+            for item in payload.get("criteria", [])
+        ]
+        surfaces = [
+            Surface(
+                id=str(item["id"]),
+                name=str(item.get("name", item["id"])),
+                platform=str(item.get("platform", "web")),
+                states=[str(state) for state in item.get("states", [])],
+            )
+            for item in payload.get("surfaces", [])
+        ]
+        cells = [
+            Cell(
+                criterionId=str(item["criterionId"]),
+                surfaceId=str(item["surfaceId"]),
+                state=str(item.get("state", "default")),
+                status=str(item.get("status", "unknown")),
+                verifiedByMethod=item.get("verifiedByMethod"),
+                date=item.get("date"),
+                evidence=item.get("evidence"),
+                severity=item.get("severity"),
+                rationale=item.get("rationale"),
+                requiredMethods=set(item.get("requiredMethods", [])),
+                adequateMethods=set(item.get("adequateMethods", [])),
+                isApplicable=bool(item.get("isApplicable", True)),
+                methodProvenance=item.get("methodProvenance"),
+            )
+            for item in payload.get("cells", [])
+        ]
+        return cls(criteria=criteria, surfaces=surfaces, cells=cells)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "criteria": [

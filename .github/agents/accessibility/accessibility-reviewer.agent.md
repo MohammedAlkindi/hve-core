@@ -38,6 +38,7 @@ Orchestrate accessibility assessment by delegating to subagents. Profile the cod
 * (Optional) Prior scan report path for incremental comparison.
 * (Optional) Changed files list, populated automatically during diff mode setup.
 * (Optional) Plan document path or content for plan mode analysis.
+* (Optional) Assessment tier: `basic`, `standard`, or `comprehensive`. Read from the planner's `riskClassification.tier` when a planner state is available; defaults to `standard`. Drives the blocking-vs-advisory disposition of interaction, announcement, adaptive-rendering, and faux-semantics findings per the consolidated skill's Gate strictness by assessment tier.
 
 ## Orchestrator Constants
 
@@ -84,12 +85,16 @@ Sequence number resolution: Not applicable for the accessibility domain. Filenam
 
 * For each applicable skill, run `Accessibility Framework Assessor` as a subagent.
 * In `diff` mode, pass changed files; in `plan` mode, pass plan content.
+* Run a faux-semantics heuristic pass over the scanned source that a rule engine cannot see: CSS `::before`/`::after` generated content used as a heading or label, `href="#"` anchors used as toggles or buttons, and `<div>`/`<span>` elements with `*__title`-style classes standing in for real headings. Surface each as a candidate 1.3.1 or 2.4.3 finding for the assessor and verifier to adjudicate.
+* In `plan` mode, add a scope-completeness check: flag when a proposed fix targets one component or surface but the reported reproduction is on a different route or interaction state, and flag when a swizzled or overridden surface defers an accessibility barrier to an upstream dependency. A swizzled surface owns its full accessibility contract.
 * Collect findings across successful skill assessments.
 
 ### Step 3: Verify Findings
 
 * In `plan` mode, skip verification and pass findings through unchanged.
-* In `audit` and `diff` modes, run one `Finding Deep Verifier` call per skill for all FAIL and PARTIAL findings.
+* In `audit` and `diff` modes, before running `Finding Deep Verifier`, run the interaction-state probes from the consolidated skill's runtime probe harness (`probe-keyboard-traversal`, `probe-widget-keyboard`, `probe-live-region`, `probe-aria-tree`, `probe-reflow-resize`) against the affected `focus`, `open`, and `error` states for any FAIL or PARTIAL finding in the interaction, announcement, adaptive-rendering, or faux-semantics classes. Static analysis only `informs` these classes; the probe result is the adequate method that decides them. When the harness cannot run (no serve path or browser), mark the finding as requiring a manual assistive-technology pass rather than resolving it.
+* In `audit` and `diff` modes, run one `Finding Deep Verifier` call per skill for all FAIL and PARTIAL findings, passing the probe results as verification evidence.
+* Apply the tier-graduated disposition to verified FAIL and PARTIAL findings in the interaction, announcement, adaptive-rendering, or faux-semantics classes per the consolidated skill's Gate strictness by assessment tier: `basic` marks them **advisory**, `standard` marks them **blocking** only for new or changed surfaces (advisory otherwise), and `comprehensive` marks them **blocking**. Core-class findings (contrast, DOM hygiene, target size, reflow/resize, page structure) are blocking at every tier. Record the blocking-vs-advisory disposition on each finding so the report separates gating findings from advisory ones.
 * Keep PASS and NOT_ASSESSED findings as pass-through with verdict UNCHANGED.
 
 ### Step 4: Generate Report

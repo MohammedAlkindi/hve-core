@@ -35,7 +35,23 @@ Treat the matrix as a criterion x surface x method grid.
    * `uv run python -m runtime_a11y probe <probeId> --config ...` for probe mode.
    * Add `--trace` when a trace is needed and `--allow-external` only when the target is an approved non-loopback host after explicit confirmation.
 7. Route fail, partial, or blocked cells through the Finding Deep Verifier; involve the Codebase Profiler and Accessibility Framework Assessor by role as needed to interpret findings and close gaps.
-8. Compute coverage, residual gaps, and nextActions with the engine, then persist coverage-matrix-{repo-slug}.json and coverage-matrix-{repo-slug}.md under .copilot-tracking/accessibility/coverage/. Include the canonical accessibility disclaimer and an unchecked human-review checkbox such as "- [ ] Reviewed and validated by a qualified human reviewer" in the markdown artifact.
+8. Compute coverage, residual gaps, and nextActions with the engine, then write the matrix JSON and render the canonical evidence bundle:
+   * `uv run python -m runtime_a11y render-artifacts --matrix coverage-matrix-{repo-slug}.json --output-dir .copilot-tracking/accessibility/coverage --repo-slug {repo-slug}`
+   * Preserve every file listed by the generated artifact manifest. Do not hand-author the EARL or manual test-plan files.
+9. Present the coverage summary, EARL result counts, pending manual test count, and artifact manifest path. The Markdown artifacts retain the canonical accessibility disclaimer and unchecked human-review checkbox.
+
+## Artifact Layout
+
+The `render-artifacts` command writes this deterministic bundle under `.copilot-tracking/accessibility/coverage/`:
+
+* `coverage-matrix-{repo-slug}.json`
+* `coverage-matrix-{repo-slug}.md`
+* `accessibility-results-{repo-slug}.earl.jsonld`
+* `manual-at-testplan-{repo-slug}.md`
+* `manual-at-testplan-{repo-slug}.yaml`
+* `accessibility-artifacts-{repo-slug}.json`
+
+The manifest is the bundle index. The manual test plans contain unresolved applicable cells whose adequate methods require a qualified human tester. A result only changes coverage after its evidence is ingested back into the matrix.
 
 ## Required Protocol
 

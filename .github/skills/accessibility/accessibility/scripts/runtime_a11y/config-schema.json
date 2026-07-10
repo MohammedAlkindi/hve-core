@@ -69,6 +69,20 @@
         },
         "additionalProperties": true
       }
+    },
+    "realScreenReader": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/screenReaderAction" }
+        },
+        "expectedAnnouncements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/expectedAnnouncement" }
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true,
@@ -112,7 +126,41 @@
       "required": ["state"],
       "properties": {
         "state": { "type": "string" },
-        "trigger": { "$ref": "#/$defs/trigger" }
+        "trigger": { "$ref": "#/$defs/trigger" },
+        "realScreenReader": { "$ref": "#/$defs/realScreenReader" }
+      },
+      "additionalProperties": true
+    },
+    "screenReaderAction": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "enum": ["command", "pause"] },
+        "value": { "type": "string" },
+        "durationMs": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "expectedAnnouncement": {
+      "type": "object",
+      "required": ["type", "value"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["contains", "matches", "orderedContains"] },
+        "value": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "realScreenReader": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/screenReaderAction" }
+        },
+        "expectedAnnouncements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/expectedAnnouncement" }
+        }
       },
       "additionalProperties": true
     }
