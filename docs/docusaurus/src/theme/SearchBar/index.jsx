@@ -49,6 +49,11 @@ export default function SearchBarWrapper(props) {
     let lastOpenState = false;
     let announceTimer = null;
     let currentInput = null;
+    // The upstream widget owns a hashed CSS-module "cursor" class for the
+    // highlighted option. When focus roves onto the external "See all results"
+    // footer we borrow that class so the footer shows the same highlight; this
+    // remembers the discovered token across state changes.
+    let footerActiveClass = null;
 
     const clearStatusMessage = () => {
       window.clearTimeout(announceTimer);
@@ -68,6 +73,19 @@ export default function SearchBarWrapper(props) {
     const getSearchInput = () => root.querySelector('input.navbar__search-input');
     const getListbox = () => root.querySelector('[role="listbox"]');
     const getFooterLink = (listboxNode) => (listboxNode ? listboxNode.querySelector('[class*="hitFooter"] a') : null);
+    const getResultOptions = (listboxNode) => Array.from(listboxNode?.querySelectorAll('[role="option"]') ?? []).filter(
+      (option) => !option.closest('[class*="hitFooter"]'),
+    );
+    // Locate whichever element currently carries the upstream "cursor" highlight
+    // class (a hashed CSS-module token such as `cursor_xxxx`) so it can be cleared
+    // from the options while the footer shows its own highlight.
+    const findCursor = (listboxNode) => {
+      const holder = listboxNode ? listboxNode.querySelector('[class*="cursor"]') : null;
+      const cls = holder
+        ? Array.from(holder.classList).find((name) => /cursor/i.test(name))
+        : null;
+      return { holder, cls: cls ?? footerActiveClass };
+    };
 
     const handleInputKeyDown = (event) => {
       const input = getSearchInput();
@@ -77,14 +95,69 @@ export default function SearchBarWrapper(props) {
         return;
       }
 
-      const options = Array.from(listbox.querySelectorAll('[role="option"]')).filter(
-        (option) => !option.closest('[class*="hitFooter"]'),
-      );
+      const options = getResultOptions(listbox);
       const lastOption = options[options.length - 1];
-      if ((event.key === 'ArrowDown' || event.key === 'End') && lastOption) {
+      const activeDescendantId = input.getAttribute('aria-activedescendant');
+      const isOnFooter = activeDescendantId === footerLink.id;
+      const isOnLastOption = Boolean(lastOption) && activeDescendantId === lastOption.id;
+
+      if (event.key === 'Tab') {
+        // Block the upstream widget's Tab handler, which cancels Tab to keep
+        // focus inside the combobox (a WCAG 2.1.2 keyboard trap, exposed under a
+        // screen reader whose focus mode keeps the popup open). Crucially do NOT
+        // call preventDefault: stopImmediatePropagation only suppresses the other
+        // keydown listeners, so the browser still performs its native Tab focus
+        // move out of the widget.
+        event.stopImmediatePropagation();
+        footerLink.classList.remove('search-footer-active');
+        return;
+      }
+
+      // Last option -> footer. The upstream handler would wrap the selection back
+      // to the first option, so stop it and move the active descendant onto the
+      // "See all results" footer ourselves. Clear the upstream option highlight
+      // and apply our own stable highlight class to the footer.
+      if ((event.key === 'ArrowDown' || event.key === 'End') && lastOption && isOnLastOption) {
         event.preventDefault();
+        event.stopImmediatePropagation();
+        const { holder, cls } = findCursor(listbox);
+        if (holder && cls) {
+          footerActiveClass = cls;
+          holder.classList.remove(cls);
+        }
+        footerLink.classList.add('search-footer-active');
         input.setAttribute('aria-activedescendant', footerLink.id);
-        footerLink.focus({ preventScroll: true });
+        footerLink.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+
+      // Footer -> last option. Stop upstream (its internal cursor still points at
+      // the last option) and restore the highlight there.
+      if (event.key === 'ArrowUp' && isOnFooter && lastOption) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        footerLink.classList.remove('search-footer-active');
+        if (footerActiveClass) {
+          lastOption.classList.add(footerActiveClass);
+        }
+        input.setAttribute('aria-activedescendant', lastOption.id);
+        lastOption.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+
+      // Footer -> first option (wrap). Let upstream advance from the last option
+      // to the first; only clear the footer's highlight first.
+      if (event.key === 'ArrowDown' && isOnFooter) {
+        footerLink.classList.remove('search-footer-active');
+        return;
+      }
+
+      // Enter on the footer follows the "See all results" link instead of
+      // activating the upstream widget's last selected option.
+      if (event.key === 'Enter' && isOnFooter) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        footerLink.click();
       }
     };
 
@@ -92,10 +165,10 @@ export default function SearchBarWrapper(props) {
       const input = getSearchInput();
       if (input && input !== currentInput) {
         if (currentInput) {
-          currentInput.removeEventListener('keydown', handleInputKeyDown);
+          currentInput.removeEventListener('keydown', handleInputKeyDown, true);
         }
         currentInput = input;
-        currentInput.addEventListener('keydown', handleInputKeyDown);
+        currentInput.addEventListener('keydown', handleInputKeyDown, { capture: true });
       }
 
       if (input) {
@@ -118,13 +191,13 @@ export default function SearchBarWrapper(props) {
       const isOpen = listboxVisible && query.length > 0;
 
       if (input) {
-        // aria-expanded/aria-controls/aria-activedescendant are only permitted on a
-        // combobox. The upstream widget sets these attributes but does not always
-        // apply the role at rest, so enforce it here (WCAG 4.1.2 / axe aria-allowed-attr).
+        // Keep a stable combobox role on the input. Applying it consistently
+        // (rather than relying on the upstream widget, which only adds the role
+        // once the popup initialises) gives NVDA a stable, complete combobox to
+        // enter focus mode on. This matches the last screen-reader-working state.
         if (input.getAttribute('role') !== 'combobox') {
           input.setAttribute('role', 'combobox');
         }
-
         const nextExpanded = isOpen ? 'true' : 'false';
         if (input.getAttribute('aria-expanded') !== nextExpanded) {
           input.setAttribute('aria-expanded', nextExpanded);
@@ -140,6 +213,17 @@ export default function SearchBarWrapper(props) {
           if (!footerLink.id) {
             footerLink.id = 'search-footer-link';
           }
+        }
+
+        const resultOptions = getResultOptions(listbox);
+        const totalOptions = resultOptions.length + (footerLink ? 1 : 0);
+        resultOptions.forEach((option, index) => {
+          option.setAttribute('aria-posinset', String(index + 1));
+          option.setAttribute('aria-setsize', String(totalOptions));
+        });
+        if (footerLink) {
+          footerLink.setAttribute('aria-posinset', String(totalOptions));
+          footerLink.setAttribute('aria-setsize', String(totalOptions));
         }
 
         const clearButton = root.querySelector('button[type="reset"], button[class*="clear"]');
@@ -247,7 +331,7 @@ export default function SearchBarWrapper(props) {
 
     return () => {
       if (currentInput) {
-        currentInput.removeEventListener('keydown', handleInputKeyDown);
+        currentInput.removeEventListener('keydown', handleInputKeyDown, true);
       }
       observer.disconnect();
       clearStatusMessage();

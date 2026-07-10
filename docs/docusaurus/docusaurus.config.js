@@ -112,7 +112,11 @@ const config = {
         docsDir: '../',
         indexBlog: false,
         language: ['en'],
-        highlightSearchTermsOnTargetPage: true,
+        // Disabled: highlighting search terms on the target page injects <mark>
+        // elements and auto-scrolls to them, which disrupts screen readers
+        // (spurious "highlight" announcements + focus/scroll jumps) with no
+        // keyboard affordance to dismiss it.
+        highlightSearchTermsOnTargetPage: false,
         explicitSearchResultPath: true,
       }),
     ],

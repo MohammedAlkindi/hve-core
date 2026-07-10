@@ -459,6 +459,22 @@ html {
   margin-bottom: 0;
 }
 
+/* Search: highlight the "See all results" footer while it is the active combobox
+   option (aria-activedescendant is roved onto it after the last result), so the
+   selection is visible instead of appearing to jump straight back to the top.
+   Match the result-option highlight exactly (upstream options use
+   background-color: var(--search-local-highlight-color, var(--ifm-color-primary)))
+   and force a contrasting text color, since the footer link is muted gray by
+   default. Keep the link underline in the active state (WCAG 1.4.1: underline is
+   a non-color distinction and must not be removed on selection). */
+[class*='hitFooter'] a.search-footer-active {
+  background-color: var(--search-local-highlight-color, var(--ifm-color-primary));
+  color: #ffffff;
+  border-radius: 4px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Dark mode: derived from MS Learn dark theme (extracted via Chrome DevTools) */
 [data-theme='dark'] {
   --ifm-color-primary: #75b6e7;
