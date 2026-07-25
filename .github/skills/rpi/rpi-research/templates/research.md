@@ -29,13 +29,13 @@ Fill every `{{placeholder}}`. Update this file continuously during research, not
 
 <!-- Confirm scope and select one research posture before substantial research. Record whether the caller, an applicable codebase instruction, or the default selected it. Record every explicit limit or deadline without inventing additional ceilings. If a required field is missing and blocks progress, ask the smallest useful batch of clarifying questions, then proceed. -->
 
-| Field                                | Value                                                                                                              |
-|--------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| Research question(s)                 | {{primary_question}}                                                                                               |
-| Codebase scope                       | {{repos / paths / modules in scope, or "none"}}                                                                    |
-| External scope                       | {{domains / doc sets / "open web", or "none"}}                                                                     |
-| Initial internal candidate areas      | {{starting workspace paths, artifacts, contracts, or "none"}}                                                      |
-| Initial external candidate areas      | {{starting official documentation, standards, repositories, or "none"}}                                            |
+| Field                            | Value                                                                   |
+|----------------------------------|-------------------------------------------------------------------------|
+| Research question(s)             | {{primary_question}}                                                    |
+| Codebase scope                   | {{repos / paths / modules in scope, or "none"}}                         |
+| External scope                   | {{domains / doc sets / "open web", or "none"}}                          |
+| Initial internal candidate areas | {{starting workspace paths, artifacts, contracts, or "none"}}           |
+| Initial external candidate areas | {{starting official documentation, standards, repositories, or "none"}} |
 | Research posture                     | {{expansive | balanced | focused}}                                                                                 |
 | Posture provenance                   | {{caller-specified | applicable codebase instruction | default}}                                                   |
 | Explicit limits / deadline           | {{caller- or codebase-provided limit or deadline, or "none"}}                                                     |
@@ -60,11 +60,11 @@ Fill every `{{placeholder}}`. Update this file continuously during research, not
 
 <!-- Use vscode_askQuestions only when answers materially change research. Batch a small number of decision-relevant questions, prefer fixed options plus freeform where useful, do not request secrets, and continue when interaction is sufficient, declined, unavailable, or unnecessary. Write the record before continuing. -->
 
-| Checkpoint       | Questions or no-interaction rationale                          | Answers / unanswered      | Resulting decision or selected further research    |
-|------------------|----------------------------------------------------------------|---------------------------|----------------------------------------------------|
-| Intake           | {{topic_scope_criteria_or_priority_questions_or_rationale}}    | {{answers_or_unanswered}} | {{resulting_scope_or_priority_decision}}           |
-| Direction change | {{material_direction_question_or_rationale}}                   | {{answers_or_unanswered}} | {{revised_brief_or_revalidation_decision}}         |
-| Convergence      | {{further_research_defer_or_stop_question_or_rationale}}       | {{answers_or_unanswered}} | {{selected_items_deferred_items_or_stop_decision}} |
+| Checkpoint       | Questions or no-interaction rationale                       | Answers / unanswered      | Resulting decision or selected further research    |
+|------------------|-------------------------------------------------------------|---------------------------|----------------------------------------------------|
+| Intake           | {{topic_scope_criteria_or_priority_questions_or_rationale}} | {{answers_or_unanswered}} | {{resulting_scope_or_priority_decision}}           |
+| Direction change | {{material_direction_question_or_rationale}}                | {{answers_or_unanswered}} | {{revised_brief_or_revalidation_decision}}         |
+| Convergence      | {{further_research_defer_or_stop_question_or_rationale}}    | {{answers_or_unanswered}} | {{selected_items_deferred_items_or_stop_decision}} |
 
 ## Scope and Success Criteria
 
@@ -88,8 +88,8 @@ Fill every `{{placeholder}}`. Update this file continuously during research, not
 
 <!-- Treat caller controls as active boundaries. Persist every material change before the next research action. Specific-only requests and exclusions constrain contrarian research as well as wider and deeper research. -->
 
-| Control type (add / change / narrow / exclude / discard) | Direction or boundary | Source / checkpoint | Effect on active brief, evidence, or revalidation |
-|----------------------------------------------------------|-----------------------|---------------------|---------------------------------------------------|
+| Control type (add / change / narrow / exclude / discard) | Direction or boundary | Source / checkpoint  | Effect on active brief, evidence, or revalidation |
+|----------------------------------------------------------|-----------------------|----------------------|---------------------------------------------------|
 | {{control_type}}                                         | {{direction}}         | {{user_or_evidence}} | {{remaining_work_or_complete_cycle_required}}     |
 
 ## Research Questions
@@ -147,9 +147,9 @@ The parent alone records accepted, rejected, and deferred material. Workers retu
 
 #### Parent Synthesis and Disposition
 
-| Material / claim | Evidence IDs or worker pointers | Parent disposition (accepted / rejected / deferred) | Evidence-based rationale | Primary-artifact treatment |
-|------------------|---------------------------------|-----------------------------------------------------|--------------------------|----------------------------|
-| {{material}}     | {{C1_W1_or_worker_pointer}}     | {{disposition}}                                   | {{rationale}}            | {{finding_decision_or_gap}} |
+| Material / claim | Evidence IDs or worker pointers | Parent disposition (accepted / rejected / deferred) | Evidence-based rationale | Primary-artifact treatment  |
+|------------------|---------------------------------|-----------------------------------------------------|--------------------------|-----------------------------|
+| {{material}}     | {{C1_W1_or_worker_pointer}}     | {{disposition}}                                     | {{rationale}}            | {{finding_decision_or_gap}} |
 
 #### Cycle Re-entry Evaluation
 
@@ -289,15 +289,15 @@ Flow diagram (when a multi-component flow is involved):
 
 <!-- Persist durable closeout facts only. The rpi-research reference owns rendered closeout wording. -->
 
-| Field | Record |
-|-------|--------|
-| Research execution status | {{Complete, Partial, Blocked, or Needs clarification}} |
-| Completed waves | {{Wider, Deeper, and Contrarian for each executed cycle, or not executed with reason}} |
-| Lane evidence or inline fallback | {{available delegated lane pointers, or inline fallback and limitation}} |
-| Research disposition | {{executed, reused, or satisfied-and-skipped}} |
-| Planning Readiness | {{Ready, Not ready, Not applicable, or Blocked with evidence IDs}} |
-| Blockers | {{none_or_current_blockers}} |
-| Continuation owner and state | {{user, rpi-quick, manual RPI Agent, or confirmed automatic RPI Agent with advisory, waiting, automatic, or no-handoff state}} |
+| Field                            | Record                                                                                                                         |
+|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Research execution status        | {{Complete, Partial, Blocked, or Needs clarification}}                                                                         |
+| Completed waves                  | {{Wider, Deeper, and Contrarian for each executed cycle, or not executed with reason}}                                         |
+| Lane evidence or inline fallback | {{available delegated lane pointers, or inline fallback and limitation}}                                                       |
+| Research disposition             | {{executed, reused, or satisfied-and-skipped}}                                                                                 |
+| Planning Readiness               | {{Ready, Not ready, Not applicable, or Blocked with evidence IDs}}                                                             |
+| Blockers                         | {{none_or_current_blockers}}                                                                                                   |
+| Continuation owner and state     | {{user, rpi-quick, manual RPI Agent, or confirmed automatic RPI Agent with advisory, waiting, automatic, or no-handoff state}} |
 
 ## Advisory Next Step
 
