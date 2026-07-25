@@ -110,7 +110,7 @@ stimuli:
       pattern: (?i)(discovery strategy|framework family|routes?|surfaces?|scope path)
 - name: ado-backlog-manager-class-recipe
   prompt: |
-    Draft an Azure DevOps user story for "As a customer, I want to download my invoices as PDF." Include acceptance criteria. Write the draft under `.copilot-tracking/workitems/` and tell me the path you wrote it to.
+    Draft an Azure DevOps user story for "As a customer, I want to download my invoices as PDF." Include acceptance criteria. Write the draft under `.copilot-tracking/workitems/`, then report the path and the drafted fields.
   tags:
     category: agent-behavior
     agent: ado-backlog-manager
@@ -1001,7 +1001,7 @@ stimuli:
       negate: true
 - name: pptx-class-recipe
   prompt: |
-    Plan a 5-slide PowerPoint deck about "Q1 engineering velocity highlights." List the phases of the deck build. Write the plan under `.copilot-tracking/ppt/` and report the path.
+    Plan a 5-slide PowerPoint deck about "Q1 engineering velocity highlights." List the three phases of the deck build. Write the plan under `.copilot-tracking/ppt/` and report the path.
   tags:
     category: agent-behavior
     agent: pptx
