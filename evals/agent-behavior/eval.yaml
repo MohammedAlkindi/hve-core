@@ -806,7 +806,7 @@ stimuli:
       pattern: (?i)(dashboard\.py|streamlit)
 - name: github-backlog-manager-class-recipe
   prompt: |
-    The app crashes when clicking the Submit button on the contact form. Generate a GitHub issue draft with title, body, labels, and steps to reproduce. Write the issue draft under `.copilot-tracking/github-issues/` and report the path.
+    The app crashes when clicking the Submit button on the contact form. Generate a GitHub issue draft with title, body, labels, and steps to reproduce. Write the issue draft under `.copilot-tracking/github-issues/`, then report the path and the drafted fields.
   tags:
     category: agent-behavior
     agent: github-backlog-manager
