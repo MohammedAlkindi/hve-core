@@ -1,7 +1,7 @@
 ---
-title: customer-card-render
-description: Generate customer-card PowerPoint content YAML from Design Thinking canonical artifacts and build using the shared PowerPoint skill pipeline
-sidebar_position: 3
+title: copilot-otel-metrics
+description: "Capture and analyze GitHub Copilot OpenTelemetry traces, metrics, and events on a local single-container Grafana stack. Use when setting up, verifying, or querying Copilot Chat telemetry locally."
+sidebar_position: 2
 ms.date: 2026-07-27
 ---
 
@@ -9,7 +9,7 @@ ms.date: 2026-07-27
 | Field       | Value                                              |
 |-------------|----------------------------------------------------|
 | Kind        | skill                                              |
-| Source      | `.github/skills/experimental/customer-card-render` |
+| Source      | `.github/skills/experimental/copilot-otel-metrics` |
 | Invocation  | Loaded on demand by referencing agents             |
 | Interactive | No                                                 |
 <!-- END AUTO-GENERATED: metadata -->
@@ -17,7 +17,7 @@ ms.date: 2026-07-27
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Generate customer-card PowerPoint content YAML from Design Thinking canonical artifacts and build using the shared PowerPoint skill pipeline
+Capture and analyze GitHub Copilot OpenTelemetry traces, metrics, and events on a local single-container Grafana stack. Use when setting up, verifying, or querying Copilot Chat telemetry locally.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it
