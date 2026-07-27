@@ -2,7 +2,7 @@
 title: Build System and Validation
 description: Understand the plugin generation pipeline, schema validation system, npm scripts, and CI checks for customizing and extending HVE Core
 author: Microsoft
-ms.date: 2026-07-16
+ms.date: 2026-07-27
 ms.topic: how-to
 keywords:
   - build system
@@ -142,20 +142,24 @@ The `validate:local` script chains local-safe checks in a fixed sequence:
 4. `lint:yaml` validates YAML file syntax
 5. `lint:json` validates JSON syntax
 6. `lint:links` checks link text language patterns
-7. `lint:frontmatter` validates YAML frontmatter against schemas
-8. `lint:adr-consistency` checks ADR structure and consistency rules
-9. `lint:collections-metadata` confirms collection manifest integrity
-10. `lint:marketplace` validates marketplace manifest
-11. `lint:hooks` validates hook manifests
-12. `lint:version-consistency` checks GitHub Action version alignment
-13. `lint:permissions` validates workflow permissions
-14. `lint:dependency-pinning` checks dependencies are pinned to fixed versions
-15. `lint:ps-module-pins` checks PowerShell module versions are pinned
-16. `lint:py` lints Python scripts via `Invoke-PythonLint.ps1`
-17. `validate:skills` verifies skill directory structure
-18. `lint:ai-artifacts` validates planner AI artifacts
-19. `lint:models` validates model references against the catalog
-20. `validate:devcontainer-lockfile` checks devcontainer lockfile integrity
+7. `lint:md-links` resolves markdown link targets
+8. `lint:frontmatter` validates YAML frontmatter against schemas
+9. `lint:adr-consistency` checks ADR structure and consistency rules
+10. `lint:collections-metadata` confirms collection manifest integrity
+11. `lint:marketplace` validates marketplace manifest
+12. `lint:hooks` validates hook manifests
+13. `lint:version-consistency` checks GitHub Action version alignment
+14. `lint:permissions` validates workflow permissions
+15. `lint:dangerous-workflow` checks workflows for dangerous patterns
+16. `lint:dependency-pinning` checks dependencies are pinned to fixed versions
+17. `lint:pr-gate` validates the pull request validation gate
+18. `lint:ps-module-pins` checks PowerShell module versions are pinned
+19. `lint:py` lints Python scripts via `Invoke-PythonLint.ps1`
+20. `validate:skills` verifies skill directory structure
+21. `lint:ai-artifacts` validates planner AI artifacts
+22. `lint:asset-docs` confirms assets have documentation pages
+23. `lint:models` validates model references against the catalog
+24. `validate:devcontainer-lockfile` checks devcontainer lockfile integrity
 
 Each linter outputs results to `logs/` for inspection. Run individual linters for faster
 feedback during development:
