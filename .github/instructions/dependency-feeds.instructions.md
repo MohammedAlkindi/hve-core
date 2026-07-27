@@ -7,7 +7,7 @@ applyTo: '**/package.json, **/package-lock.json, **/npm-shrinkwrap.json, **/.npm
 
 ## Outcome
 
-Every committed dependency manifest and lockfile resolves from a canonical public package registry so external contributors and CI can restore the repository without Microsoft-internal network or feed access.
+Every committed dependency manifest and lockfile resolves from a canonical public package registry so external contributors and CI can restore the repository without private network or feed access.
 
 ## Required Practice
 
@@ -20,7 +20,7 @@ Every committed dependency manifest and lockfile resolves from a canonical publi
 
 ## Prohibited Sources
 
-Do not commit dependency source URLs containing private or organization-scoped feeds, including Azure Artifacts, `pkgs.visualstudio.com`, `pkgs.dev.azure.com`, `packagefeedproxy.microsoft.io`, authenticated URLs, or registry credentials. Do not commit lockfile entries whose `integrity` value uses an algorithm weaker than `sha512`.
+Do not commit dependency source URLs pointing at private or organization-scoped artifact feeds, corporate or machine-level package proxies, authenticated URLs, or URLs carrying registry credentials. Do not commit lockfile entries whose `integrity` value uses an algorithm weaker than `sha512`.
 
 ## Stop Rule
 

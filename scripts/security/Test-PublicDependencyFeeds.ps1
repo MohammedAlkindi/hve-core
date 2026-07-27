@@ -108,6 +108,8 @@ function Invoke-PublicDependencyFeedScan {
         [string]$RepoRoot
     )
 
+    # Keep this enforcement list aligned with the public ecosystems described in
+    # .github/instructions/dependency-feeds.instructions.md.
     $allowedHosts = @(
         'api.github.com',
         'api.nuget.org',
@@ -165,6 +167,8 @@ function Invoke-PublicDependencyFeedScan {
             # dist.integrity and expose only dist.shasum, which makes npm record a
             # SHA-1 value and silently weakens subresource verification.
             if ($leafName -in @('package-lock.json', 'npm-shrinkwrap.json')) {
+                # npm lockfiles currently emit one SRI hash even though SRI permits
+                # multiple space-separated algorithms.
                 $integrityMatch = [regex]::Match($line, '"integrity"\s*:\s*"(?<algorithm>[^-"]+)-')
                 if ($integrityMatch.Success) {
                     $sourceCount++
