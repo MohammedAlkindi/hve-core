@@ -49,7 +49,7 @@ Two products. Default to the free one.
 
 The free option does not support alerts, reports, library panels, snapshots, playlists, or app plugins. Those absences are the honest reason to upgrade, not the price.
 
-Cost, as recorded during research and worth re-checking against the [Azure Managed Grafana pricing page](https://azure.microsoft.com/pricing/details/managed-grafana/) before quoting it: the Standard SKU ran about $62.78 per month plus about $6 per active user, so roughly $182.78 per month for twenty developers. The free option costs nothing.
+Never quote a price. Rates move, and a stale figure carried in a skill is worse than no figure. State the shape instead: the free option costs nothing, and Azure Managed Grafana bills a per-instance rate plus a per-active-user charge, so its cost scales with how many people get access. Send the user to the [Azure Managed Grafana pricing page](https://azure.microsoft.com/pricing/details/managed-grafana/) for the product and the [Azure Monitor pricing page](https://azure.microsoft.com/pricing/details/monitor/) for ingestion, and let them price it against their own region and tenant.
 
 A user who starts free is not stuck. A saved dashboard can be copied into an Azure Managed Grafana instance later from the portal.
 
@@ -113,5 +113,7 @@ Do not assert that Copilot emits exponential histograms. Application Insights da
 * [Visualize Azure Monitor data with Grafana](https://learn.microsoft.com/azure/azure-monitor/visualize/visualize-grafana-overview)
 * [Use Azure Monitor dashboards with Grafana](https://learn.microsoft.com/azure/azure-monitor/visualize/visualize-use-grafana-dashboards)
 * [Azure Managed Grafana overview](https://learn.microsoft.com/azure/managed-grafana/overview)
+* [Azure Managed Grafana pricing](https://azure.microsoft.com/pricing/details/managed-grafana/)
+* [Azure Monitor pricing](https://azure.microsoft.com/pricing/details/monitor/)
 * [az monitor account](https://learn.microsoft.com/cli/azure/monitor/account)
 

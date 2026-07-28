@@ -6,12 +6,12 @@ ms.date: 2026-07-27
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                              |
-|-------------|----------------------------------------------------|
-| Kind        | skill                                              |
-| Source      | `.github/skills/experimental/customer-card-render` |
-| Invocation  | Loaded on demand by referencing agents             |
-| Interactive | No                                                 |
+| Field       | Value                                                                                  |
+|-------------|----------------------------------------------------------------------------------------|
+| Kind        | skill                                                                                  |
+| Source      | `.github/skills/experimental/customer-card-render`                                     |
+| Invocation  | Invoked directly as `/customer-card-render`, or loaded on demand by referencing agents |
+| Interactive | No                                                                                     |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does

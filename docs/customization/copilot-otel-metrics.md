@@ -15,18 +15,28 @@ keywords:
   - observability
   - token usage
   - azure monitor
-estimated_reading_time: 13
+estimated_reading_time: 18
 ---
 
 GitHub Copilot Chat can export traces, metrics, and events over OpenTelemetry. Point it at a collector you run yourself and you get a measured view of your own agent sessions: which models you use, how long calls take, which tools run most, how many tokens you burn, and how much of that is cache.
 
-Everything below runs on one machine, in one container, and sends nothing anywhere. You do not need an administrator to try it.
+Everything up to [Configuring this for an organization](#configuring-this-for-an-organization) runs on one machine, in one container, and sends nothing anywhere. You do not need an administrator to try it. The sections after that cover pushing the same configuration to a fleet and collecting it in Azure, which does need one.
 
 :::tip Let the skill do it
 The [`copilot-otel-metrics` skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/SKILL.md) walks this guide for you.
 Invoke it explicitly with `/copilot-otel-metrics`; it does not activate on its own.
-It can write the settings after showing you an exact diff, generate the stack and a dashboard, and generate the collector configuration, Bicep, Terraform, and Azure CLI for an organization.
-It generates and hands over; it never runs `docker compose`, `az deployment`, or `terraform apply`.
+
+It has four modes, and you can name one directly or describe what you want and let it pick:
+
+| Mode               | Ask for it when you want to                            |
+|--------------------|--------------------------------------------------------|
+| `local-setup`      | Turn export on for this machine                        |
+| `local-stack`      | Stand up a backend here to receive it                  |
+| `org-distribution` | Push OTel settings to a fleet through managed settings |
+| `azure-capture`    | Collect a fleet's telemetry into Azure and chart it    |
+
+It writes settings only after showing you an exact diff, and it generates and hands over the rest.
+It never runs `docker compose`, `az deployment`, or `terraform apply` for you.
 :::
 
 ![Local Copilot telemetry dashboard in Grafana](../docusaurus/static/img/otel/dashboard-overview.png)
@@ -125,6 +135,45 @@ Add these to your **user** `settings.json`, then reload the window.
 
 > [!IMPORTANT]
 > These settings are application-scoped. They cannot live in workspace `.vscode/settings.json`, and they do not take effect until you run **Developer: Reload Window**. If you enable export and see nothing, the reload is almost always why.
+
+Application scope has a second consequence that is easier to miss. These keys resolve from the **default profile no matter which profile is active**, so editing `User/profiles/<id>/settings.json` accomplishes nothing and tells you nothing: no error, no warning, no telemetry.
+Run **Preferences: Open Application Settings (JSON)** from the command palette and VS Code opens the exact file these settings come from. If you run both stable and Insiders you have two of these files, and only the one belonging to the build you are testing counts.
+
+<details>
+<summary>All eleven settings, and the environment variables that override them</summary>
+
+Three keys turn export on. The other eight tune it. Every name below is prefixed with `github.copilot.chat.otel.`.
+
+| Setting                  | Type    | Default                   | Sets what                                                              |
+|--------------------------|---------|---------------------------|------------------------------------------------------------------------|
+| `enabled`                | boolean | `false`                   | Master switch for trace, metric, and log emission                      |
+| `exporterType`           | string  | `"otlp-http"`             | One of `otlp-grpc`, `otlp-http`, `console`, `file`                     |
+| `otlpEndpoint`           | string  | `"http://localhost:4318"` | Where the data goes                                                    |
+| `protocol`               | string  | `""`                      | `""`, `http/json`, `http/protobuf`, or `grpc`; empty means `http/json` |
+| `headers`                | object  | `{}`                      | Extra OTLP headers, such as auth tokens, sent by the exporter          |
+| `serviceName`            | string  | `""`                      | The `service.name` resource attribute                                  |
+| `resourceAttributes`     | object  | `{}`                      | Extra resource attributes, merged per key with the environment         |
+| `captureContent`         | boolean | `false`                   | Prompts, responses, system instructions, and tool definitions on spans |
+| `maxAttributeSizeChars`  | integer | `0`                       | Truncation limit in characters; `0` disables truncation                |
+| `outfile`                | string  | `""`                      | JSON-lines output path; setting it forces the `file` exporter          |
+| `dbSpanExporter.enabled` | boolean | `false`                   | Local SQLite span exporter; turning it on turns OTel on                |
+
+Resolution order is enterprise policy, then environment variable, then user setting, then default. A setting that looks like it was ignored is usually losing to a policy or a stray environment variable rather than failing to write.
+
+| Setting                 | Environment variable                    |
+|-------------------------|-----------------------------------------|
+| `enabled`               | `COPILOT_OTEL_ENABLED`                  |
+| `captureContent`        | `COPILOT_OTEL_CAPTURE_CONTENT`          |
+| `otlpEndpoint`          | `OTEL_EXPORTER_OTLP_ENDPOINT`           |
+| `protocol`              | `OTEL_EXPORTER_OTLP_PROTOCOL`           |
+| `serviceName`           | `OTEL_SERVICE_NAME`                     |
+| `resourceAttributes`    | `OTEL_RESOURCE_ATTRIBUTES`              |
+| `headers`               | `OTEL_EXPORTER_OTLP_HEADERS`            |
+| `maxAttributeSizeChars` | `COPILOT_OTEL_MAX_ATTRIBUTE_SIZE_CHARS` |
+
+That second table is the practical route for a devcontainer or a CI runner, where editing a global settings file is awkward. `exporterType`, `outfile`, and `dbSpanExporter.enabled` declared no environment variable in the build inspected for this page, so those three come from settings or policy. Check your own installed extension before relying on either table.
+
+</details>
 
 Leave `captureContent` alone. Enabling it writes input and output messages, system instructions, and tool definitions into span attributes; the setting description marks it as containing potentially sensitive data.
 
@@ -249,6 +298,35 @@ Comparing those last two panels is the most valuable thing on the dashboard. Acr
 > [!TIP]
 > Put one TraceQL metrics query per panel. The Tempo datasource names every series after its own label and overwrites the frame `refId` with that name, so two queries in one panel return two identically named lines. Neither `legendFormat` nor a `byFrameRefID` override can separate them.
 
+## The helper scripts
+
+Four small Python scripts sit beside the dashboard in the skill's [examples directory](https://github.com/microsoft/hve-core/tree/main/.github/skills/experimental/copilot-otel-metrics/examples). They use only the standard library, so there is nothing to install, and each answers a question this page raises but cannot answer for your machine.
+
+| Script                  | Answers                                                                     |
+|-------------------------|-----------------------------------------------------------------------------|
+| `verify.py`             | Is the stack healthy, is the delta flag set, and are Copilot signals stored |
+| `inspect_metrics.py`    | What metric names does my installed build actually emit                     |
+| `baseline.py`           | Is this telemetry genuinely Copilot's, or residue from something else       |
+| `validate_dashboard.py` | Does every panel in this dashboard return data                              |
+
+Download them, then run them from wherever you put them:
+
+```bash
+python3 verify.py
+python3 inspect_metrics.py
+```
+
+`inspect_metrics.py` is the answer to "is this metric name still right". Run it before trusting any name copied from documentation, this page included.
+
+`baseline.py` earns its place more than it first looks. The local OTLP endpoint is unauthenticated, so any process on your machine can write series carrying genuine Copilot names. Snapshot before you enable export and diff afterwards, and you get provenance instead of mere presence:
+
+```bash
+python3 baseline.py capture   # before enabling export
+python3 baseline.py diff      # after enabling export and reloading
+```
+
+`validate_dashboard.py` imports with `overwrite: true`, so it replaces any dashboard sharing the same uid. It refuses a Grafana that is not on loopback, and it checks Prometheus and Tempo dashboards only. Point it at the Azure dashboard and it exits rather than handing you results that mean nothing.
+
 ## Things that look broken but are not
 
 Three behaviours cost me time, and all three are working as designed.
@@ -273,6 +351,19 @@ sum by (gen_ai_tool_name) (increase(copilot_chat_tool_call_count_total{gen_ai_to
 Neither approach yields a plugin count or an inventory of loaded plugins.
 
 </details>
+
+### When nothing arrives at all
+
+Work down this list before concluding something is broken. It is ordered by how often each one turns out to be the answer.
+
+1. Was the window reloaded after the settings change? These settings are read at startup.
+2. Was the setting written to the file that actually resolves? Application-scoped keys come from the default profile whichever profile is active.
+3. Is a policy or an environment variable overriding it? **Developer: Policy Diagnostics** answers the policy half.
+4. Is the stack up and listening on the endpoint the setting names?
+5. Has any Copilot activity happened since the reload? An idle editor emits nothing.
+6. For traces only, has 30 seconds elapsed?
+
+If you adapted the compose file, check that `otlp-deltatocumulative` survived. Without it Prometheus drops delta-temporality metrics, and a dropped delta metric can fail the whole batched write, taking unrelated cumulative metrics down with it.
 
 ## Check what your store actually holds
 
@@ -313,13 +404,13 @@ Settings are delivered through the `telemetry` block in Copilot managed settings
 }
 ```
 
-Three delivery channels are available. The highest-precedence channel that supplies any managed settings wins outright rather than merging with the others.
+Three delivery channels are available. The highest-precedence channel that supplies any managed settings wins outright rather than merging with the others. An organization that sets one value by MDM and expects the rest to arrive from a file gets only the MDM value.
 
-| Channel        | Location                                                                                                                    |
-|----------------|-----------------------------------------------------------------------------------------------------------------------------|
-| Native MDM     | macOS managed preferences for `com.github.copilot`; Windows `HKLM\SOFTWARE\Policies\GitHubCopilot`                          |
-| Server-managed | `copilot/managed-settings.json` on the GitHub enterprise or organization                                                    |
-| File-based     | macOS `/Library/Application Support/GitHubCopilot/managed-settings.json`; Linux `/etc/github-copilot/managed-settings.json` |
+| Precedence | Channel        | Location                                                                                                                                                                                  |
+|------------|----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Highest    | Native MDM     | macOS managed preferences for `com.github.copilot`; Windows `HKLM\SOFTWARE\Policies\GitHubCopilot`                                                                                        |
+| Middle     | Server-managed | `copilot/managed-settings.json` on the GitHub enterprise or organization                                                                                                                  |
+| Lowest     | File-based     | macOS `/Library/Application Support/GitHubCopilot/managed-settings.json`; Windows `%ProgramFiles%\GitHubCopilot\managed-settings.json`; Linux `/etc/github-copilot/managed-settings.json` |
 
 :::warning Channel paths and precedence change
 These paths and the precedence rule were current for VS Code 1.128. Confirm against [Manage AI settings in enterprise environments](https://code.visualstudio.com/docs/enterprise/ai-settings) before a rollout, and have one developer run **Developer: Policy Diagnostics** to confirm what actually applies on a real device.
@@ -346,13 +437,67 @@ graph LR
     D --> E["Grafana"]
 ```
 
-Three things are worth knowing before budgeting for this:
+The collector is also where the useful controls live. It is the only place you can strip attributes before they reach billable storage, and the only way to authenticate a fleet without handing every workstation an Azure identity.
 
-* **Start with the free Grafana.** Azure Monitor dashboards with Grafana runs inside the Azure portal at no cost, and Microsoft's own comparison names it the first choice when you only want Azure Monitor data. Azure Managed Grafana is an upgrade for alerting, reports, external data sources, or sharing dashboards without sharing data access.
-* **Free applies to the dashboards, not the data.** Log Analytics bills on ingestion, and `captureContent` is the dominant multiplier because it puts prompt and response text on every span. Set a daily ingestion cap.
-* **A fleet configuration is a shared credential.** Whatever authenticates the collector ends up on every workstation, with no per-user binding and no documented in-place rotation. The blast radius is write-side only, which still permits telemetry injection and cost inflation.
+### Which Grafana
 
-The skill generates the collector configuration, Bicep, Terraform, an Azure CLI script, and a KQL dashboard for this path. It writes them; you deploy them.
+Two products can chart this, and the cheaper one is usually the right one.
+
+**Azure Monitor dashboards with Grafana** renders Grafana dashboards inside the Azure portal at no cost and with no setup. Microsoft's own comparison names it the first choice when the only data you want is Azure Monitor data, which is exactly this scenario. It is also the option you can deploy as code, because those dashboards are ordinary Azure resources of type `Microsoft.Dashboard/dashboards`.
+
+**Azure Managed Grafana** is a full managed Grafana with its own web interface. Reach for it when one of these actually applies, and not before:
+
+* Data sources beyond Azure Monitor, Azure Managed Prometheus, and Azure Resource Graph.
+* Grafana alerting or email notification.
+* Scheduled reports.
+* Sharing a dashboard without also sharing access to the data behind it. The free option authenticates data sources as the current user, so every viewer needs their own data access.
+* Private networking, a deterministic outbound IP, or Grafana Enterprise plugins.
+
+Alerts, reports, library panels, snapshots, playlists, and app plugins are all absent from the free option. Those absences are the honest reason to upgrade. The price is not.
+
+This page does not quote prices, because they move and a stale figure is worse than none. What is stable is the shape: the free option costs nothing, and Azure Managed Grafana bills a per-instance rate plus a per-active-user charge, so its cost scales with the size of the team you give access to.
+Price the product from the [Azure Managed Grafana pricing page](https://azure.microsoft.com/pricing/details/managed-grafana/) and the ingestion separately from the [Azure Monitor pricing page](https://azure.microsoft.com/pricing/details/monitor/), against your own region and tenant. Starting free is not a trap either: a saved dashboard can be copied into a Managed Grafana instance later from the portal.
+
+Free dashboards do not make the telemetry free. Log Analytics bills on what you ingest and retain, and `captureContent` is the dominant multiplier, because turning it on puts prompt text, response text, system instructions, and tool arguments on every span. That is orders of magnitude, not percentages.
+For fleet capture, set `captureContent: false` with `lockCaptureContent: true`, strip content attributes at the collector, and choose retention and a daily ingestion cap deliberately rather than accepting the defaults.
+
+### The credential is the real decision
+
+Whatever channel distributes the collector configuration puts a shared write-side secret on every workstation. There is no per-user binding, and no documented way to rotate it in place.
+
+Write-side is narrower than a data breach, and it is not nothing. Anyone holding that credential can inject fabricated telemetry, which means your dashboards can be made to say whatever they want them to say, and can inflate ingestion volume, which is billed. Revoking it is a fleet-wide redistribution rather than a per-user reset.
+
+Decide that on purpose before anything is generated. The key belongs in a secret store and gets supplied at deploy time, never in a template, a repository, or a chat window.
+
+### What you have to supply
+
+None of these get invented for you, and the skill stops rather than substituting a placeholder that looks real:
+
+* Subscription and tenant.
+* Region, which has to match between the resource group and the dashboard.
+* Resource naming, which usually follows a convention you already have.
+* The principal that gets `Monitoring Reader`, plus `Monitoring Data Reader` where Prometheus data is involved.
+* Retention, which is a cost decision rather than a default.
+
+### What gets generated
+
+| Artifact                             | Produces                                                                                              |
+|--------------------------------------|-------------------------------------------------------------------------------------------------------|
+| `otel-collector-config.yaml`         | A collector pipeline exporting to Application Insights, stripping content attributes before they bill |
+| `main.bicep`                         | Log Analytics workspace, Application Insights, and a `Microsoft.Dashboard/dashboards` dashboard       |
+| `main.tf` and its companions         | The same resources through the AzureRM and AzAPI providers                                            |
+| `deploy.sh`                          | The Azure CLI equivalent, for operators who would rather not adopt an IaC toolchain                   |
+| `dashboards/copilot-otel-azure.json` | A Grafana dashboard querying Log Analytics in KQL                                                     |
+
+Two details will save you a support round trip. `backend.tf` is deliberately missing from the Terraform: remote state belongs to your repository, not to a generated template. And `deploy.sh` checks for the `application-insights` CLI extension and exits if it is absent rather than installing it, because installing an extension changes your CLI rather than your subscription.
+
+Verify every API and provider version against current documentation at deploy time. Do not trust one because a template already contains it.
+
+### The Azure dashboard is a different dashboard
+
+The local dashboard and the Azure one share a subject and nothing else. The local one queries Prometheus and Tempo in PromQL and TraceQL; the Azure one queries Log Analytics in KQL, where Copilot spans arrive as `dependencies` rows with their attributes under `customDimensions`. Panels do not port between them, so import the one that matches your backend.
+
+It needs Grafana 10.0 or later and the Azure Monitor datasource, which both products bundle. Microsoft also publishes a prebuilt Copilot dashboard for Azure Managed Grafana at `aka.ms/amg/dash/gh-copilot`. Treat that as an alternative rather than an equivalent, since its panels have not been compared against the generated one.
 
 :::note The Copilot Metrics API is a different question
 If what you actually want is seat-level adoption across the organization, the GitHub Copilot Metrics API answers that far more cheaply. It returns daily aggregate reports with no spans, tools, tokens, or latency, so it complements this pipeline rather than replacing it.
@@ -378,9 +523,11 @@ To stop exporting, set `github.copilot.chat.otel.enabled` to `false` and reload 
 ## Related reading
 
 * The [copilot-otel-metrics skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/SKILL.md) walks this guide for you and generates the local stack, both dashboards, and the Azure collector and infrastructure templates. It is invoked explicitly and never activates on its own.
+* The skill's [examples directory](https://github.com/microsoft/hve-core/tree/main/.github/skills/experimental/copilot-otel-metrics/examples) holds runnable copies of everything on this page: the compose file, both dashboards, the helper scripts, and the [Azure templates](https://github.com/microsoft/hve-core/tree/main/.github/skills/experimental/copilot-otel-metrics/examples/azure) with their own deploy guide.
 * [Local Telemetry](local-telemetry) covers the hook-based JSONL capture, which records session lifecycle events rather than OTel signals.
 * [Monitor agent usage with OpenTelemetry](https://code.visualstudio.com/docs/agents/guides/monitoring-agents) is the upstream reference for signal names and settings.
 * [Manage AI settings in enterprise environments](https://code.visualstudio.com/docs/enterprise/ai-settings) documents the managed settings channels in full.
+* [Visualize Azure Monitor data with Grafana](https://learn.microsoft.com/azure/azure-monitor/visualize/visualize-grafana-overview) compares the two Grafana products in Microsoft's own words.
 * [OTel GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/gen-ai/) define the `gen_ai.*` attribute namespace.
 
 <!-- markdownlint-disable MD036 -->

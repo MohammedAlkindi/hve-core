@@ -6,12 +6,12 @@ ms.date: 2026-07-27
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                  |
-|-------------|----------------------------------------|
-| Kind        | skill                                  |
-| Source      | `.github/skills/experimental/mural`    |
-| Invocation  | Loaded on demand by referencing agents |
-| Interactive | No                                     |
+| Field       | Value                                                                   |
+|-------------|-------------------------------------------------------------------------|
+| Kind        | skill                                                                   |
+| Source      | `.github/skills/experimental/mural`                                     |
+| Invocation  | Invoked directly as `/mural`, or loaded on demand by referencing agents |
+| Interactive | No                                                                      |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does

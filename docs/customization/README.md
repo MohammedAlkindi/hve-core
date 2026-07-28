@@ -122,7 +122,7 @@ Each HVE role benefits from different customization techniques. The table below 
 8. [Environment Customization](environment.md): DevContainers, VS Code settings, MCP servers
 9. [Team Adoption and Governance](team-adoption.md): Governance, naming, onboarding, change management
 10. [Local Telemetry](local-telemetry.md): Enable local telemetry, review capture and storage schema mechanics, and generate reports
-11. [Copilot OpenTelemetry Metrics](copilot-otel-metrics.md): Export Copilot OTel signals to a local Grafana stack and query agent, token, and latency data
+11. [Copilot OpenTelemetry Metrics](copilot-otel-metrics.md): Export Copilot OTel signals to a local Grafana stack, or to a fleet-wide Azure pipeline, and query agent, token, and latency data
 
 ## Related Resources
 
