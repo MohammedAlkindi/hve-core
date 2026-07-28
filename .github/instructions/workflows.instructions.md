@@ -33,7 +33,9 @@ Local reusable workflows referenced via relative paths are excluded from SHA pin
 
 Workflows MUST declare explicit permissions following the principle of least privilege. The default permission set is `contents: read`. Additional permissions MUST be granted at the job level and only when required for a specific capability.
 
-Every job MUST declare its own `permissions:` block whenever the workflow-level block grants any scope. A job with no block silently inherits the workflow grant, which is neither explicit nor auditable. The one exception is a workflow-level `permissions: {}`, which grants nothing, so a job beneath it can hold no scope regardless of whether it declares a block.
+Every job MUST declare its own `permissions:` block whenever the workflow-level block grants any scope. A job with no block silently inherits the workflow grant, which is neither explicit nor auditable. The one exception is a workflow-level `permissions: {}`, which grants nothing, so a job beneath it that declares no block inherits an empty set and holds no scope.
+
+An empty workflow-level block is a default, not a ceiling. A job that does declare its own block still receives what it declares, because job-level permissions replace the workflow-level set rather than being capped by it.
 
 **Required pattern:**
 

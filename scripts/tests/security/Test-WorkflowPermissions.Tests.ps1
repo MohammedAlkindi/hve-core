@@ -118,6 +118,31 @@ Describe 'Test-WorkflowPermissions' -Tag 'Unit' {
             $result[0].Line | Should -BeGreaterThan 0
         }
 
+        It 'Row 3: ignores a same-named key declared before the jobs block' {
+            $filePath = New-TestWorkflow -Name 'duplicate-key-before-jobs' -Content @'
+name: Duplicate Key Before Jobs
+on:
+  workflow_call:
+    outputs:
+      build:
+        description: A key that shares the job name
+        value: ${{ jobs.build.outputs.result }}
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+'@
+
+            $result = @(Test-WorkflowPermissions -FilePath $filePath)
+            $rawLines = @((Get-Content -Path $filePath -Raw) -split "\r?\n")
+
+            $result | Should -HaveCount 1
+            $rawLines[$result[0].Line - 1] | Should -Match '^\s{2}build\s*:'
+        }
+
         It 'Row 4: populated workflow-level and present job-level yields no violation' {
             $testPath = Join-Path $TestDrive 'matrix-row4'
             New-Item -ItemType Directory -Path $testPath -Force | Out-Null
@@ -548,6 +573,24 @@ jobs:
             $content = Get-Content $outputPath -Raw | ConvertFrom-Json
             $content.Metadata.UnparsedFiles | Should -Be 1
             $content.Metadata.FilesWithPermissions | Should -Be 0
+        }
+
+        It 'Should emit violation paths with forward slashes only' {
+            $testPath = Join-Path $TestDrive 'path-separator'
+            New-Item -ItemType Directory -Path $testPath -Force | Out-Null
+            Copy-Item -Path (Join-Path $script:FixturesPath 'workflow-job-missing-permissions.yml') -Destination $testPath
+            Copy-Item -Path (Join-Path $script:FixturesPath 'workflow-without-permissions.yml') -Destination $testPath
+
+            $outputPath = Join-Path $TestDrive 'path-separator.json'
+
+            Invoke-WorkflowPermissionsCheck -Path $testPath -OutputPath $outputPath
+
+            $content = Get-Content $outputPath -Raw | ConvertFrom-Json
+            @($content.Violations).Count | Should -BeGreaterThan 0
+            foreach ($violation in $content.Violations) {
+                # SARIF artifactLocation.uri must not contain Windows path separators.
+                $violation.File | Should -Not -Match '\\'
+            }
         }
     }
 

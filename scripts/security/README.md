@@ -246,8 +246,11 @@ scope it holds rather than inheriting the workflow grant implicitly.
 | populated            | absent          | inherits the workflow grant        | violation |
 | any                  | present         | job-declared                       | pass      |
 
-An empty workflow-level block grants nothing, so a job beneath it can hold no
-scope regardless of whether it declares a block. That case passes.
+A job beneath an empty workflow-level block that declares no block of its own
+inherits an empty set and therefore holds no scope, so that case passes. An empty
+workflow-level block is a default, not a ceiling: a job that does declare its own
+block still receives what it declares, because job-level permissions replace the
+workflow-level set rather than being capped by it.
 
 #### Features
 

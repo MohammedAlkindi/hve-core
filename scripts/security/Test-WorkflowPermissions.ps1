@@ -25,8 +25,11 @@
     A job that omits its own block under a populated workflow-level block silently
     inherits that grant, which is neither explicit nor auditable.
 
-    An empty workflow-level block grants no scopes at all, so a job beneath it can
-    hold nothing regardless of whether it declares a block. That case passes.
+    A job beneath an empty workflow-level block that declares no block of its own
+    inherits an empty set and therefore holds no scope, so that case passes. Note
+    that an empty workflow-level block is a default, not a ceiling: a job that does
+    declare its own block still receives what it declares, because job-level
+    permissions replace the workflow-level set rather than being capped by it.
 
 .PARAMETER Path
     Directory containing workflow YAML files. Defaults to '.github/workflows'.
@@ -217,8 +220,11 @@ function Get-JobDeclarationLine {
         Finds the 1-based line where a job key is declared, for reporting only.
 
     .DESCRIPTION
-        Returns 0 when the key cannot be located. Job identity always comes from the
-        parsed object graph; this lookup only attributes a line to a known job.
+        Searches only the region after the top-level 'jobs:' key so a same-named key
+        elsewhere in the file, such as one inside an 'outputs:' mapping, cannot be
+        mistaken for the job declaration. Returns 0 when the key cannot be located.
+        Job identity always comes from the parsed object graph; this lookup only
+        attributes a line to a job that is already known.
     #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -232,8 +238,16 @@ function Get-JobDeclarationLine {
         [string]$JobName
     )
 
-    $pattern = '^\s+' + [regex]::Escape($JobName) + '\s*:\s*(#.*)?$'
+    $start = 0
     for ($i = 0; $i -lt $RawLines.Count; $i++) {
+        if ($RawLines[$i] -match '^jobs\s*:\s*(#.*)?$') {
+            $start = $i + 1
+            break
+        }
+    }
+
+    $pattern = '^\s+' + [regex]::Escape($JobName) + '\s*:\s*(#.*)?$'
+    for ($i = $start; $i -lt $RawLines.Count; $i++) {
         if ($RawLines[$i] -match $pattern) {
             return $i + 1
         }
