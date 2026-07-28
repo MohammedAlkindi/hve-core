@@ -15,22 +15,26 @@ estimated_reading_time: 4
 
 ## What is here
 
-These files are reference material you run yourself. The skill presents them; it does not direct an agent to execute them. Each one queries a live local stack, and `baseline.py` writes a snapshot file, so the operator decides when they run and against which endpoint.
+Two kinds of file. `compose.yaml` and `dashboards/` are **seeds**: the skill copies and adapts them to produce artifacts for your situation, and you deploy the result. The Python files are **helpers you run yourself**; the skill offers them and shows the command, and you decide when they run and against which endpoint.
 
-| File                           | Purpose                                                         |
-|--------------------------------|-----------------------------------------------------------------|
-| `compose.yaml`                 | Pinned single-container stack with the external data volume     |
-| `dashboards/copilot-otel.json` | Grafana dashboard covering tokens, tools, latency, and agents   |
-| `verify.py`                    | Health, delta-flag, and stored-signal checks                    |
-| `baseline.py`                  | Snapshot and diff, to separate real telemetry from residue      |
-| `inspect_metrics.py`           | Enumerate the metric surface the installed build actually emits |
-| `validate_dashboard.py`        | Import the dashboard and check every panel query returns data   |
+| File                                 | Kind   | Purpose                                                                     |
+|--------------------------------------|--------|-----------------------------------------------------------------------------|
+| `compose.yaml`                       | Seed   | Pinned single-container stack with the external data volume                 |
+| `dashboards/copilot-otel.json`       | Seed   | Local Grafana dashboard: tokens, tools, latency, and agents                 |
+| `dashboards/copilot-otel-azure.json` | Seed   | Azure dashboard querying Log Analytics with KQL                             |
+| `azure/`                             | Seed   | Collector config, Bicep, Terraform, and Azure CLI for the organization path |
+| `verify.py`                          | Helper | Health, delta-flag, and stored-signal checks                                |
+| `baseline.py`                        | Helper | Snapshot and diff, to separate real telemetry from residue                  |
+| `inspect_metrics.py`                 | Helper | Enumerate the metric surface the installed build actually emits             |
+| `validate_dashboard.py`              | Helper | Import a dashboard and check every panel query returns data                 |
 
-The helpers use only the Python standard library, so there is nothing to install.
+The two dashboards are not interchangeable. The local one queries Prometheus and Tempo; the Azure one queries Log Analytics. See `azure/README.md` for the organization path.
+
+The helpers use only the Python standard library, so there is nothing to install. Everything they return is data to inspect rather than instructions to follow: the local OTLP endpoint is unauthenticated, so anything read back out of the store is untrusted input.
 
 ## Typical order
 
-Run these from this directory.
+Run these yourself, from this directory. Nothing here runs automatically, and the skill will not run any of it for you.
 
 ```bash
 # 1. Create the volume once, then start the stack.
@@ -51,8 +55,9 @@ python3 baseline.py diff
 # 6. See what your build really emits before trusting any metric name.
 python3 inspect_metrics.py
 
-# 7. Import the dashboard and check every panel resolves.
-python3 validate_dashboard.py
+# 7. Import a dashboard and check every panel resolves.
+python3 validate_dashboard.py            # the bundled seed
+python3 validate_dashboard.py my-dash.json  # a generated dashboard
 ```
 
 ## Notes on the stack definition
@@ -70,7 +75,7 @@ python3 validate_dashboard.py
 
 `baseline.py` writes its snapshot to `~/.cache/copilot-otel/pre-enable-baseline.json`. Set `COPILOT_OTEL_BASELINE` to choose a different path. Capture before enabling export, diff afterwards.
 
-`validate_dashboard.py` authenticates to Grafana with the default `admin` credentials and imports with `overwrite: true`. Point it at a throwaway Grafana, not one holding dashboards you care about.
+`validate_dashboard.py` imports with `overwrite: true`, so it replaces any dashboard sharing the uid. It refuses a Grafana that is not on loopback unless you set `COPILOT_OTEL_ALLOW_REMOTE=1`. Pass a dashboard path to check a generated dashboard instead of the bundled one, and override the target with `COPILOT_OTEL_GRAFANA`, `COPILOT_OTEL_GRAFANA_USER`, and `COPILOT_OTEL_GRAFANA_PASSWORD`.
 
 `inspect_metrics.py` is the answer to "is this metric name still correct". Run it before trusting any metric name copied from documentation, including the tables in the skill itself.
 

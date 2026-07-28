@@ -1,29 +1,56 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 # SPDX-License-Identifier: MIT
-"""Import the dashboard and confirm every panel query returns data.
+"""Import a dashboard and confirm every panel query returns data.
 
 A panel can resolve its datasource, raise no error, and still be empty because
 the metric name is wrong. This runs each panel's query against the store so an
 empty panel is distinguishable from a mistyped one.
+
+    validate_dashboard.py [dashboard.json]
+
+Handles Prometheus and Tempo panels only. There is no Azure Monitor path, so
+this cannot validate the Azure dashboard.
+
+The import uses overwrite semantics, so it replaces any dashboard sharing the
+uid. It therefore refuses a non-loopback Grafana unless the target is confirmed
+disposable via COPILOT_OTEL_ALLOW_REMOTE=1.
+
+Environment overrides: COPILOT_OTEL_GRAFANA, COPILOT_OTEL_GRAFANA_USER,
+COPILOT_OTEL_GRAFANA_PASSWORD, COPILOT_OTEL_PROMETHEUS, COPILOT_OTEL_TEMPO.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import os
 import pathlib
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-GRAFANA = "http://localhost:3000"
-PROM = "http://localhost:9090"
-TEMPO = "http://localhost:3200"
-AUTH = "Basic " + base64.b64encode(b"admin:admin").decode()
-DASH = pathlib.Path(__file__).parent / "dashboards" / "copilot-otel.json"
+GRAFANA = os.environ.get("COPILOT_OTEL_GRAFANA", "http://localhost:3000")
+PROM = os.environ.get("COPILOT_OTEL_PROMETHEUS", "http://localhost:9090")
+TEMPO = os.environ.get("COPILOT_OTEL_TEMPO", "http://localhost:3200")
+USER = os.environ.get("COPILOT_OTEL_GRAFANA_USER", "admin")
+PASSWORD = os.environ.get("COPILOT_OTEL_GRAFANA_PASSWORD", "admin")
+AUTH = "Basic " + base64.b64encode(f"{USER}:{PASSWORD}".encode()).decode()
+DASH = (
+    pathlib.Path(sys.argv[1])
+    if len(sys.argv) > 1
+    else pathlib.Path(__file__).parent / "dashboards" / "copilot-otel.json"
+)
+
+_host = (urllib.parse.urlparse(GRAFANA).hostname or "").lower()
+if _host not in ("localhost", "127.0.0.1", "::1") and os.environ.get("COPILOT_OTEL_ALLOW_REMOTE") != "1":
+    sys.exit(
+        f"refusing to import into {GRAFANA}: this overwrites any dashboard with the same uid.\n"
+        "Point COPILOT_OTEL_GRAFANA at a local stack, or set COPILOT_OTEL_ALLOW_REMOTE=1 if the target is disposable."
+    )
 
 
 def req(url: str, data: bytes | None = None, method: str = "GET") -> dict:
@@ -36,6 +63,17 @@ def req(url: str, data: bytes | None = None, method: str = "GET") -> dict:
 
 
 dash = json.loads(DASH.read_text())
+
+# Silently falling through to Tempo for an unknown datasource would produce empty
+# results indistinguishable from a genuinely empty store, which is the exact
+# failure this tool exists to detect.
+_types = {p["datasource"]["type"] for p in dash["panels"] if p.get("type") != "row"}
+if not _types <= {"prometheus", "tempo"}:
+    sys.exit(
+        f"unsupported datasource types: {', '.join(sorted(_types - {'prometheus', 'tempo'}))}.\n"
+        "This tool validates Prometheus and Tempo panels only. The Azure dashboard has no supported path here."
+    )
+
 body = {"dashboard": dash, "overwrite": True, "folderId": 0, "message": "validated against live telemetry"}
 res = req(f"{GRAFANA}/api/dashboards/db", json.dumps(body).encode(), "POST")
 print(f"import: {res.get('status')}  ->  {GRAFANA}{res.get('url')}\n")

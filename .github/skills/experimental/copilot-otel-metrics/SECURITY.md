@@ -1,10 +1,10 @@
 ---
 title: Copilot OTel Metrics Skill Security Model
-description: STRIDE threat model for the copilot-otel-metrics skill organized by assets, adversaries, and trust buckets (editor OTLP ingest, telemetry at rest, reference helper scripts, container image supply chain) with in-design mitigations and acknowledged enterprise readiness gaps
+description: STRIDE threat model for the copilot-otel-metrics skill organized by assets, adversaries, and trust buckets (editor OTLP ingest, telemetry at rest, reference helper scripts, container image supply chain, editor-global configuration mutation, host process control, cloud control-plane artifact generation) with in-design mitigations and acknowledged enterprise readiness gaps
 author: microsoft/hve-core
 ms.date: 2026-07-27
 ms.topic: reference
-estimated_reading_time: 12
+estimated_reading_time: 18
 keywords:
   - security
   - STRIDE
@@ -15,30 +15,32 @@ keywords:
 <!-- markdownlint-disable-file -->
 # Copilot OTel Metrics Skill Security Model
 
-This document records the STRIDE threat model for the copilot-otel-metrics skill. The shipped runtime is `examples/compose.yaml` (the single-container stack definition), `examples/dashboards/copilot-otel.json` (the Grafana dashboard), and four reference helper scripts: `examples/verify.py`, `examples/baseline.py`, `examples/inspect_metrics.py`, and `examples/validate_dashboard.py`. The model is organized by trust bucket: editor OTLP ingest (B1), telemetry at rest and its query surfaces (B2), reference helper scripts to local service APIs (B3), and container image supply chain (B4). Each bucket enumerates all six STRIDE categories. Assets and adversaries are enumerated first. Acknowledged enterprise readiness gaps are listed at the end.
+This document records the STRIDE threat model for the copilot-otel-metrics skill. The shipped runtime is `examples/compose.yaml` (the local stack definition), two Grafana dashboards under `examples/dashboards/`, four reference helper scripts under `examples/`, and the Azure templates under `examples/azure/` (collector configuration, Bicep, Terraform, and an Azure CLI script). The model is organized by trust bucket: editor OTLP ingest (B1), telemetry at rest and its query surfaces (B2), reference helper scripts to local service APIs (B3), container image supply chain (B4), editor-global configuration mutation (B5), host process control (B6), and cloud control-plane artifact generation (B7). Each bucket enumerates all six STRIDE categories. Assets and adversaries are enumerated first. Acknowledged enterprise readiness gaps are listed at the end.
 
-The skill ships no agent-executed code. Every file under `examples/` is reference material an operator runs deliberately. The threat model nonetheless covers that runtime, because the skill instructs a reader to stand up a telemetry endpoint that receives prompt-bearing spans.
+The skill is an assistant rather than a reference pack, and that changes the model materially. It may write the user's global `settings.json` after presenting a diff and obtaining explicit approval, and it generates files intended for the user to execute. It never starts a service and never provisions infrastructure: `docker compose`, `az deployment`, and `terraform apply` are handed to the user, not run. Buckets B5 through B7 exist because generating and writing are themselves exposures, independent of who runs the result.
 
 > **See also: repo-wide STRIDE model.** This skill participates in the repository-wide threat model at [`docs/security/security-model.md`](../../../../docs/security/security-model.md) and is registered in its [Skill Security Models](../../../../docs/security/security-model.md#skill-security-models) section.
 
 ## Executive Summary
 
-The copilot-otel-metrics skill directs an operator to run a local observability stack and point GitHub Copilot Chat's OTLP exporter at it. Its highest-risk property is **not the code, it is the payload**. Spans emitted by the extension were directly observed carrying full prompt text, tool call arguments and results, and system instructions, on a configuration where content capture was left at its default. Anyone who follows this skill therefore accumulates a durable local corpus of prompt content in a Docker volume.
+The copilot-otel-metrics skill helps an operator turn on GitHub Copilot Chat's OTLP export and stand up somewhere for the data to land, locally or in Azure. Its highest-risk property is **not the code, it is the payload**. Spans emitted by the extension were directly observed carrying full prompt text, tool call arguments and results, and system instructions, on a configuration where content capture was left at its default. Anyone who follows this skill therefore accumulates a durable corpus of prompt content, in a Docker volume locally or in a billed Log Analytics workspace for an organization.
 
-The design bounds that exposure by construction rather than by policy: every published port binds to `127.0.0.1`, the stack image tag is pinned, the skill omits `captureContent` from its settings block, and the documentation states plainly that the observed behavior contradicts the documented default so a reader verifies rather than assumes. Residual risk concentrates in three places the skill cannot close: the extension's own span content behavior, the absence of authentication on loopback service APIs, and the lack of encryption or expiry on the persistent volume.
+That exposure is **not harmless and is not accepted silently**. It is rated Medium residual for local single-user capture and is the reason organization capture ships with a collector processor that deletes the six observed content attributes before they reach billable storage. The skill states the same position everywhere it appears: content reaches the store regardless of the `captureContent` setting, so the endpoint and the backing store are sensitive either way, and the user owns the decision.
 
-The four helper scripts are low-risk by comparison. They are read-mostly, use only the Python standard library, target hard-coded loopback URLs, and send no telemetry. The single exception is `validate_dashboard.py`, which authenticates with Grafana's default credentials and imports with `overwrite: true`.
+The design bounds the local case by construction: every published port binds to `127.0.0.1`, the stack image tag is pinned, the documented settings block omits `captureContent`, and the skill supplies a verification command so a reader checks rather than assumes. Residual risk concentrates in three places the skill cannot close: the extension's own span content behavior, the absence of authentication on loopback service APIs, and the lack of encryption or expiry on the persistent volume.
+
+The assistant behaviors add three bounded exposures. The settings write mutates a user-owned JSONC file, which is contained by a mandatory backup, a per-key upsert that never reserializes, an approved diff, and a post-write parse with automatic restore. Generated compose and IaC files are inert until the user runs them, and the agent is prohibited from running them. Organization capture places a shared write-side credential on every workstation with no per-user binding and no documented in-place rotation, which is the single largest new exposure and is the reason the Azure path leads with that fact rather than with the architecture.
 
 ### Security Posture Overview
 
-| Dimension          | Value                                                                                                                                  |
-|--------------------|----------------------------------------------------------------------------------------------------------------------------------------|
-| Runtime surface    | Compose stack definition, Grafana dashboard JSON, four standard-library Python reference helpers                                       |
-| Trust buckets      | B1 editor OTLP ingest, B2 telemetry at rest, B3 helper scripts to local APIs, B4 container image supply chain                          |
-| Credentials        | Grafana default `admin`/`admin`, hard-coded in `validate_dashboard.py`; no tokens, keys, or secrets handled                            |
-| Network egress     | None after the image pull. First run pulls `grafana/otel-lgtm:0.29.2` from a public registry; thereafter inbound OTLP on loopback only |
-| Agent execution    | None. All example files are operator-run reference material                                                                            |
-| Open residual gaps | 9 (highest: InfoDisc-High, prompt content present in spans despite the documented default)                                             |
+| Dimension          | Value                                                                                                                                                                                               |
+|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Runtime surface    | Local compose stack, two Grafana dashboards, four standard-library Python helpers, collector configuration, Bicep, Terraform, and an Azure CLI script                                               |
+| Trust buckets      | B1 editor OTLP ingest, B2 telemetry at rest, B3 helper scripts, B4 image supply chain, B5 editor-global configuration mutation, B6 host process control, B7 cloud control-plane artifact generation |
+| Credentials        | Grafana default `admin`/`admin` for the local stack; an Application Insights connection string for the Azure path, supplied by the operator and never written by the skill                          |
+| Network egress     | None locally after the image pull. The Azure path sends telemetry to a collector the operator runs, which forwards to Application Insights over TLS                                                 |
+| Agent execution    | Writes the user's global `settings.json` after an approved diff; writes generated artifacts to disk. Never starts a service and never provisions infrastructure                                     |
+| Open residual gaps | 16 registered, 5 open (highest: InfoDisc-High, prompt content present in spans despite the documented default)                                                                                      |
 
 ## Contents
 
@@ -50,6 +52,9 @@ The four helper scripts are low-risk by comparison. They are read-mostly, use on
 * [Bucket B2: Telemetry at rest and query surfaces](#bucket-b2-telemetry-at-rest-and-query-surfaces)
 * [Bucket B3: Reference helper scripts to local service APIs](#bucket-b3-reference-helper-scripts-to-local-service-apis)
 * [Bucket B4: Container image supply chain](#bucket-b4-container-image-supply-chain)
+* [Bucket B5: Editor-global configuration mutation](#bucket-b5-editor-global-configuration-mutation)
+* [Bucket B6: Host process control](#bucket-b6-host-process-control)
+* [Bucket B7: Cloud control-plane artifact generation](#bucket-b7-cloud-control-plane-artifact-generation)
 * [Enterprise Readiness Gaps](#enterprise-readiness-gaps)
 * [References](#references)
 
@@ -62,15 +67,24 @@ The four helper scripts are low-risk by comparison. They are read-mostly, use on
 3. `examples/verify.py` — read-only. Queries Grafana, Prometheus, and Tempo health plus stored signal presence. Exits non-zero when the stack is unhealthy.
 4. `examples/baseline.py` — read-mostly. Snapshots Prometheus label values and Tempo trace names, writes one JSON file under the user cache directory, and diffs a later store state against it.
 5. `examples/inspect_metrics.py` — read-only. Enumerates `copilot_chat` and `gen_ai` series with labels and current values.
-6. `examples/validate_dashboard.py` — the only writing helper. Imports the dashboard through the Grafana API with `overwrite: true`, then replays each panel query against Prometheus or Tempo.
+6. `examples/validate_dashboard.py` — the only writing helper. Imports a dashboard through the Grafana API with `overwrite: true`, then replays each panel query against Prometheus or Tempo. Endpoint and credentials come from the environment, and it refuses a non-loopback Grafana unless `COPILOT_OTEL_ALLOW_REMOTE=1` is set.
+7. `examples/dashboards/copilot-otel-azure.json` — Grafana dashboard for the Azure path. Contains KQL queries against Log Analytics only.
+8. `examples/azure/otel-collector-config.yaml` — OpenTelemetry Collector pipeline. Receives OTLP, deletes the six observed plaintext content attributes plus `copilot_chat.reasoning_content` defensively, and exports to Application Insights using a connection string read from the environment.
+9. `examples/azure/main.bicep`, `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, `deploy.sh` — templates that create a Log Analytics workspace, an Application Insights component, an Azure Monitor dashboard, and an optional `Monitoring Reader` role assignment. Inert until an operator deploys them.
+10. `SKILL.md` and `references/` — the instructional surface. It authorizes exactly two write behaviors: a diff-approved per-key upsert into the user's global `settings.json`, and writing generated artifacts to disk.
 
 ### Data Flow
 
 ```mermaid
 flowchart TD
+    subgraph AGENT["Copilot agent running this skill (trust zone)"]
+        SKILL["SKILL.md and references"]
+        WRITE["Diff-approved settings upsert"]
+        GEN["Generated artifacts:<br/>compose, dashboards, IaC"]
+    end
     subgraph EDITOR["VS Code process (operator trust zone)"]
         EXT["Copilot Chat extension<br/>OTel exporter"]
-        SETTINGS["User settings.json<br/>(application-scoped)"]
+        SETTINGS["Global settings.json<br/>(application-scoped, default profile)"]
     end
     subgraph HOST["Operator workstation, loopback only (trust zone)"]
         HELPERS["verify.py / baseline.py<br/>inspect_metrics.py / validate_dashboard.py"]
@@ -86,8 +100,20 @@ flowchart TD
     subgraph REGISTRY["Public container registry (external)"]
         IMG["grafana/otel-lgtm:0.29.2"]
     end
+    subgraph AZURE["Azure subscription (external, operator-owned)"]
+        COLL["OpenTelemetry Collector<br/>holds the connection string"]
+        AI["Application Insights"]
+        LAW[("Log Analytics workspace")]
+        AMD["Azure Monitor dashboards<br/>with Grafana"]
+    end
+    SKILL --> WRITE
+    SKILL --> GEN
+    WRITE -->|"per-key upsert after approved diff"| SETTINGS
+    GEN -.->|"written to disk, never executed by the agent"| HOST
+    GEN -.->|"deployed by the operator"| AZURE
     SETTINGS -->|"configures endpoint"| EXT
     EXT -->|"OTLP/HTTP plaintext, spans carrying prompt content"| OTLP
+    EXT -->|"OTLP over TLS, fleet path"| COLL
     OTLP -->|"metrics"| PROM
     OTLP -->|"traces"| TEMPO
     PROM -->|"persists"| VOL
@@ -96,8 +122,11 @@ flowchart TD
     GRAF -->|"TraceQL"| TEMPO
     HELPERS -->|"HTTP GET, unauthenticated"| PROM
     HELPERS -->|"HTTP GET, unauthenticated"| TEMPO
-    HELPERS -->|"HTTP POST dashboard import, basic auth admin:admin"| GRAF
+    HELPERS -->|"HTTP POST dashboard import, basic auth"| GRAF
     HELPERS -->|"writes snapshot"| SNAP
+    COLL -->|"connection string, content attributes stripped"| AI
+    AI -->|"persists"| LAW
+    AMD -->|"KQL, current-user auth"| LAW
     IMG -.->|"docker pull, tag-pinned"| STACK
 ```
 
@@ -107,11 +136,18 @@ flowchart TD
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
+│ TRUST BOUNDARY: Copilot agent running this skill              │
+│   writes settings (diff-approved) · writes generated files    │
+│   NEVER starts a service · NEVER provisions infrastructure    │
+└───────────┬──────────────────────────────┬────────────────────┘
+            │ per-key upsert                │ file writes only
+┌───────────▼──────────────────────────────▼────────────────────┐
 │ TRUST BOUNDARY: Operator workstation                          │
 │                                                               │
 │  ┌──────────────────┐        ┌────────────────────────────┐  │
 │  │ VS Code +        │        │ Reference helper scripts   │  │
 │  │ Copilot Chat     │        │ (stdlib only, loopback)    │  │
+│  │ global settings  │        │                            │  │
 │  └────────┬─────────┘        └─────────────┬──────────────┘  │
 │           │ OTLP/HTTP                       │ HTTP           │
 │           │ prompt-bearing spans            │ queries        │
@@ -136,36 +172,53 @@ flowchart TD
              │ TRUST BOUNDARY: public       │
              │ container registry           │
              └──────────────────────────────┘
+
+  Organization path only, operator-deployed:
+             ┌──────────────────────────────────────────────┐
+             │ TRUST BOUNDARY: Azure subscription           │
+             │  Collector (holds fleet write credential)    │
+             │       │                                      │
+             │  App Insights ──▶ Log Analytics ──▶ Grafana  │
+             │  content attributes stripped at the collector│
+             └──────────────────────────────────────────────┘
 ```
 
 ### Boundary Descriptions
 
-| Boundary             | Assets Protected                                 | Controls Enforced                                                                                               |
-|----------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
-| Operator workstation | Prompt content in transit, snapshot file         | Loopback-only port publishing; `captureContent` omitted from the documented settings block; stdlib-only helpers |
-| otel-lgtm container  | Stored metrics and traces, Grafana configuration | Container isolation; single named volume; default credentials paired with no off-host listener                  |
-| Public registry      | Image integrity, stack availability              | Tag-pinned image reference; no build step and no third-party plugin installation                                |
+| Boundary             | Assets Protected                                    | Controls Enforced                                                                                                                                                                                 |
+|----------------------|-----------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Copilot agent        | User configuration, host process state, cloud spend | Mandatory backup, per-key upsert, approved diff, post-write parse with restore; generation-only boundary on Docker and infrastructure commands                                                    |
+| Operator workstation | Prompt content in transit, snapshot file            | Loopback-only port publishing; `captureContent` omitted from the documented settings block; stdlib-only helpers                                                                                   |
+| otel-lgtm container  | Stored metrics and traces, Grafana configuration    | Container isolation; single named volume; default credentials paired with no off-host listener                                                                                                    |
+| Public registry      | Image integrity, stack availability                 | Tag-pinned image reference; no build step and no third-party plugin installation                                                                                                                  |
+| Azure subscription   | Fleet telemetry, ingestion spend, ingest credential | Collector strips content attributes before ingestion; connection string supplied from the operator's secret store and never written by the skill; daily ingestion cap defaulted in every template |
 
 ## Assets
 
-| Id | Asset                                 | Lifetime                            | Notes                                                                                         |
-|----|---------------------------------------|-------------------------------------|-----------------------------------------------------------------------------------------------|
-| A1 | Prompt and tool-call content in spans | Persisted in the volume             | Observed present despite content capture being left at its default. Highest-value asset here. |
-| A2 | Usage and cost metrics                | Persisted, 120-day retention        | Token counts, AIU billing proxy, tool call counts. Commercially sensitive in aggregate.       |
-| A3 | `copilot-otel-data` Docker volume     | Persistent until explicitly removed | Unencrypted at rest. Survives `docker compose down` by design.                                |
-| A4 | Grafana instance and dashboards       | Persistent                          | Default `admin`/`admin` credentials; reachable on loopback only.                              |
-| A5 | Baseline snapshot file                | Persistent under the user cache     | Contains metric and service names plus session ids, not content.                              |
-| A6 | Stack container image                 | External, pulled on first run       | `grafana/otel-lgtm:0.29.2`, tag-pinned rather than digest-pinned.                             |
+| Id | Asset                                  | Lifetime                                    | Notes                                                                                                                  |
+|----|----------------------------------------|---------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| A1 | Prompt and tool-call content in spans  | Persisted in the volume                     | Observed present despite content capture being left at its default. Highest-value asset here.                          |
+| A2 | Usage and cost metrics                 | Persisted, 120-day retention                | Token counts, AIU billing proxy, tool call counts. Commercially sensitive in aggregate.                                |
+| A3 | `copilot-otel-data` Docker volume      | Persistent until explicitly removed         | Unencrypted at rest. Survives `docker compose down` by design.                                                         |
+| A4 | Grafana instance and dashboards        | Persistent                                  | Default `admin`/`admin` credentials; reachable on loopback only.                                                       |
+| A5 | Baseline snapshot file                 | Persistent under the user cache             | Contains metric and service names plus session ids, not content.                                                       |
+| A6 | Stack container image                  | External, pulled on first run               | `grafana/otel-lgtm:0.29.2`, tag-pinned rather than digest-pinned.                                                      |
+| A7 | Global `settings.json`                 | Persistent, user-owned                      | JSONC with the user's own comments and formatting. Resolves from the default profile regardless of the active profile. |
+| A8 | Application Insights connection string | Persistent until the component is recreated | Fleet-wide write credential. Supplied by the operator, never written into a generated file.                            |
+| A9 | Generated infrastructure templates     | Persistent in the user's workspace          | Inert until deployed. Deployment creates billable resources and an optional role assignment.                           |
 
 ## Adversaries
 
-| Id    | Adversary                                         | In-scope mitigations                                                                                                                          |
-|-------|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| ADV-a | Off-host network attacker                         | Every published port binds `127.0.0.1`, so no listener is reachable off the host. Default Grafana credentials are never exposed to a network. |
-| ADV-b | Malicious or compromised process on the same host | Not mitigated. Loopback services are unauthenticated and any local process can read or write them (G-SPF-1).                                  |
-| ADV-c | Another user on a shared workstation              | Bounded by Docker socket access and filesystem permissions on the volume. Not otherwise mitigated (G-INF-2).                                  |
-| ADV-d | Upstream image or registry compromise             | Tag pinning limits drift; no digest verification or signature check is performed (G-SUP-1).                                                   |
-| ADV-e | Operator error redirecting the exporter off-host  | Documentation states the endpoint carries prompt content and must be treated as sensitive regardless of the capture setting.                  |
+| Id    | Adversary                                            | In-scope mitigations                                                                                                                                                          |
+|-------|------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ADV-a | Off-host network attacker                            | Every published port binds `127.0.0.1`, so no listener is reachable off the host. Default Grafana credentials are never exposed to a network.                                 |
+| ADV-b | Malicious or compromised process on the same host    | Not mitigated. Loopback services are unauthenticated and any local process can read or write them (G-SPF-1).                                                                  |
+| ADV-c | Another user on a shared workstation                 | Bounded by Docker socket access and filesystem permissions on the volume. Not otherwise mitigated (G-INF-2).                                                                  |
+| ADV-d | Upstream image or registry compromise                | Tag pinning limits drift; no digest verification or signature check is performed (G-SUP-1).                                                                                   |
+| ADV-e | Operator error redirecting the exporter off-host     | Documentation states the endpoint carries prompt content and must be treated as sensitive regardless of the capture setting.                                                  |
+| ADV-f | The agent itself, writing the wrong thing            | Backup before write, per-key upsert that never reserializes, exact diff, explicit approval, post-write parse with automatic restore (G-TAM-2).                                |
+| ADV-g | A fleet member misusing the shared ingest credential | Not mitigated. The credential is write-side only and identical on every workstation, with no per-user binding and no in-place rotation (G-INF-3, G-DOS-2).                    |
+| ADV-h | An operator deploying generated templates carelessly | Every template requires named inputs with no defaults for subscription, region, and naming; the role assignment is opt-in; a daily ingestion cap is set by default (G-EOP-3). |
 
 ## Bucket B1: Editor OTLP ingest
 
@@ -185,7 +238,7 @@ The receiver records no provenance for accepted payloads beyond the resource att
 
 ### Information Disclosure
 
-This is the material risk in the entire model. Spans emitted with content capture left at its documented default were directly observed carrying `copilot_chat.user_request` (full prompt text), `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, and `gen_ai.system_instructions`. The transport is plaintext HTTP. On loopback this is contained; the moment `otlpEndpoint` is redirected to a shared or hosted collector, prompt content leaves the machine in clear text. The skill documents this discrepancy explicitly and supplies a `curl` check so a reader verifies rather than trusts the documented default. Tracked as G-INF-1 and G-TLS-1.
+This is the material risk in the entire model. Spans emitted with content capture left at its documented default were directly observed carrying `copilot_chat.user_request` (full prompt text), `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, and `gen_ai.system_instructions` in plaintext. A seventh, `copilot_chat.reasoning_content`, was present but marked `[encrypted]`. The transport is plaintext HTTP. On loopback this is contained; the moment `otlpEndpoint` is redirected to a shared or hosted collector, prompt content leaves the machine in clear text. The skill documents this discrepancy explicitly and supplies a `curl` check so a reader verifies rather than trusts the documented default. Tracked as G-INF-1 and G-TLS-1.
 
 ### Denial of Service
 
@@ -214,7 +267,7 @@ Grafana ships with `admin`/`admin` and the skill does not change them. Any local
 
 ### Tampering
 
-A Grafana administrator can alter or delete dashboards and datasource definitions. `examples/validate_dashboard.py` performs exactly this operation with `overwrite: true`, which is intended for the skill's own dashboard but would overwrite an unrelated dashboard occupying the same uid. The examples README directs the reader to run it against a throwaway Grafana. Direct volume access permits arbitrary modification of stored series. Tracked as G-TAM-1.
+A Grafana administrator can alter or delete dashboards and datasource definitions. `examples/validate_dashboard.py` performs exactly this operation with `overwrite: true`, which is intended for a dashboard the operator is checking but would overwrite an unrelated dashboard occupying the same uid. The helper refuses a non-loopback Grafana unless the operator sets `COPILOT_OTEL_ALLOW_REMOTE=1`, which confines the overwrite to a local stack by default. Direct volume access permits arbitrary modification of stored series. Tracked as G-TAM-1.
 
 ### Repudiation
 
@@ -234,12 +287,12 @@ Grafana's administrator role is the highest privilege in this bucket and is reac
 
 ### Risk Rating
 
-| Threat                                            | Likelihood | Impact | Residual Risk | Status                                                |
-|---------------------------------------------------|------------|--------|---------------|-------------------------------------------------------|
-| Prompt content readable at rest by any local user | Medium     | High   | Medium        | Unencrypted volume; no expiry on traces (G-INF-2)     |
-| Default Grafana credentials accepted              | High       | Medium | Low           | Loopback-only publishing (G-SPF-1, G-EOP-1)           |
-| Dashboard overwritten by the validation helper    | Low        | Low    | Low           | Documented; run against a throwaway Grafana (G-TAM-1) |
-| Unbounded trace growth exhausts disk              | Low        | Medium | Low           | Accepted; operator removes the volume to reclaim      |
+| Threat                                            | Likelihood | Impact | Residual Risk | Status                                            |
+|---------------------------------------------------|------------|--------|---------------|---------------------------------------------------|
+| Prompt content readable at rest by any local user | Medium     | High   | Medium        | Unencrypted volume; no expiry on traces (G-INF-2) |
+| Default Grafana credentials accepted              | High       | Medium | Low           | Loopback-only publishing (G-SPF-1, G-EOP-1)       |
+| Dashboard overwritten by the validation helper    | Low        | Low    | Low           | Non-loopback targets refused by default (G-TAM-1) |
+| Unbounded trace growth exhausts disk              | Low        | Medium | Low           | Accepted; operator removes the volume to reclaim  |
 
 ## Bucket B3: Reference helper scripts to local service APIs
 
@@ -247,11 +300,11 @@ Covers the four Python files under `examples/`. None is agent-executed.
 
 ### Spoofing
 
-Every helper targets hard-coded `http://localhost` URLs with no certificate or identity verification, which is inherent to plaintext loopback HTTP. A local process that binds one of these ports before the container does can impersonate the service and return fabricated results, causing `verify.py` to report a healthy stack that does not exist. Low likelihood, and it requires an adversary already executing on the host.
+Every helper targets loopback `http://localhost` URLs by default with no certificate or identity verification, which is inherent to plaintext loopback HTTP. A local process that binds one of these ports before the container does can impersonate the service and return fabricated results, causing `verify.py` to report a healthy stack that does not exist. Low likelihood, and it requires an adversary already executing on the host. `validate_dashboard.py` accepts an environment override for its target and refuses a non-loopback host unless the operator sets `COPILOT_OTEL_ALLOW_REMOTE=1`, so redirecting it away from the local stack is a deliberate act rather than an accident.
 
 ### Tampering
 
-Three of the four helpers issue only HTTP GET requests and mutate nothing. `validate_dashboard.py` issues one POST to the Grafana dashboard import API. `baseline.py` writes a single JSON file, defaulting to `~/.cache/copilot-otel/pre-enable-baseline.json` and overridable through `COPILOT_OTEL_BASELINE`. The path is derived from the environment rather than from any service response, so a hostile service cannot redirect the write.
+Three of the four helpers issue only HTTP GET requests and mutate nothing. `validate_dashboard.py` issues one POST to the Grafana dashboard import API with `overwrite: true`, and it refuses to do so against a non-loopback host without an explicit opt-in. `baseline.py` writes a single JSON file, defaulting to `~/.cache/copilot-otel/pre-enable-baseline.json` and overridable through `COPILOT_OTEL_BASELINE`. The path is derived from the environment rather than from any service response, so a hostile service cannot redirect the write.
 
 ### Repudiation
 
@@ -273,11 +326,11 @@ Not applicable. The helpers run with the invoking user's privileges, spawn no su
 
 ### Risk Rating
 
-| Threat                                              | Likelihood | Impact | Residual Risk | Status                                                    |
-|-----------------------------------------------------|------------|--------|---------------|-----------------------------------------------------------|
-| Local port impersonation misleads `verify.py`       | Low        | Low    | Low           | Accepted for loopback plaintext HTTP                      |
-| Hard-coded default credentials in the import helper | Medium     | Low    | Low           | Matches the stack's own default; loopback only (G-TAM-1)  |
-| Sensitive label values reach terminal output        | Medium     | Low    | Low           | Labels only; span content is never enumerated by a helper |
+| Threat                                             | Likelihood | Impact | Residual Risk | Status                                                            |
+|----------------------------------------------------|------------|--------|---------------|-------------------------------------------------------------------|
+| Local port impersonation misleads `verify.py`      | Low        | Low    | Low           | Accepted for loopback plaintext HTTP                              |
+| Import helper overwrites a dashboard it should not | Low        | Low    | Low           | Refuses non-loopback targets without an explicit opt-in (G-TAM-1) |
+| Sensitive label values reach terminal output       | Medium     | Low    | Low           | Labels only; span content is never enumerated by a helper         |
 
 ## Bucket B4: Container image supply chain
 
@@ -315,19 +368,138 @@ The container runs under the Docker daemon with whatever default privileges the 
 | Compromised image gains daemon authority | Low        | High   | Medium        | No added capabilities or host mounts (G-EOP-2)  |
 | Registry outage blocks first run         | Low        | Low    | Low           | Accepted; cached layers make later runs offline |
 
+## Bucket B5: Editor-global configuration mutation
+
+Covers the assisted write into the user's global `settings.json`. This bucket exists because the skill now acts on a file it does not own.
+
+### Spoofing
+
+Not applicable. The write is a local filesystem operation performed by the agent under the user's own identity. No authentication is presented and none is claimed.
+
+### Tampering
+
+This is the material risk in this bucket, and the tampering risk runs toward the user's file rather than from an attacker. `settings.json` is JSONC: it may hold comments, trailing commas, and formatting the user chose. A naive parse-and-reserialize destroys all of it silently. The mitigation is structural rather than advisory: a timestamped backup is taken first, the write is a per-key upsert that replaces only the value spans of the eleven target keys and inserts absent keys before the closing brace, all other content is left byte-identical, the resulting file is re-parsed, and a parse failure triggers an immediate restore from the backup. Concurrent writes by VS Code itself remain possible and are not preventable from outside the editor; the backup is the recovery path. Tracked as G-TAM-2.
+
+### Repudiation
+
+The write leaves the timestamped backup file beside the settings file, which records the pre-change state and the time. There is no per-key change log, so a user reconstructing what changed compares the backup against the current file. The approved diff shown before the write is the contemporaneous record and lives only in the conversation.
+
+### Information Disclosure
+
+The agent reads the whole settings file to perform the upsert, so unrelated settings enter model context. On a developer workstation that file frequently holds API endpoints, internal hostnames, and occasionally tokens that other extensions store there. The skill mitigates exposure in output rather than in reading: the presented diff shows only the changed lines, so unrelated values are not echoed. Tracked as G-INF-4.
+
+### Denial of Service
+
+A corrupted settings file would prevent VS Code from applying user configuration until repaired. The post-write parse plus automatic restore reduces this to a transient condition, and the backup makes it recoverable by hand even if the automatic restore fails.
+
+### Elevation of Privilege
+
+Not applicable. The write occurs under the invoking user's own filesystem privileges, targets a file that user already owns, and requires no elevation. Application-scoped settings confer no authority beyond the editor.
+
+### Risk Rating
+
+| Threat                                                  | Likelihood | Impact | Residual Risk | Status                                                                      |
+|---------------------------------------------------------|------------|--------|---------------|-----------------------------------------------------------------------------|
+| Reserialization destroys user comments and formatting   | Low        | Medium | Low           | Per-key upsert never reserializes; backup taken first (G-TAM-2)             |
+| Write lands in a profile file and silently does nothing | Medium     | Low    | Low           | Procedure requires confirming the path via Open Application Settings (JSON) |
+| Unrelated settings values enter model context           | Medium     | Low    | Low           | Whole file is read; only changed lines are echoed in the diff (G-INF-4)     |
+| Concurrent VS Code write overwrites the change          | Low        | Low    | Low           | Not preventable externally; backup is the recovery path                     |
+| Settings Sync propagates an unwanted change             | Low        | Low    | Low           | Behavior unconfirmed; disclosed as a caveat rather than asserted (G-REP-1)  |
+
+## Bucket B6: Host process control
+
+Covers artifacts the skill generates for the user to execute: the compose file and the local stack it defines.
+
+### Spoofing
+
+Not applicable. Generated files carry no identity claim and authenticate to nothing at generation time.
+
+### Tampering
+
+A generated compose file sits in the user's workspace between generation and execution, so anything with write access to that path can modify it before `docker compose up` runs. That is the ordinary trust model of any file in a workspace and is not specific to this skill. The relevant control is that the user reads and runs the file themselves, which puts a human between generation and execution.
+
+### Repudiation
+
+The generated file is the record of what was proposed. Because the agent does not run it, execution is attributable to the user's own shell history and Docker daemon records rather than to the agent.
+
+### Information Disclosure
+
+The generated compose file contains no credentials. Grafana's default credentials are the image's, not values the skill writes. What the generated stack subsequently collects is covered by B1 and B2.
+
+### Denial of Service
+
+Running the generated stack binds five loopback ports, pulls a multi-hundred-megabyte image, and creates a Docker volume that outlives the container. A port already in use causes the stack to fail to start rather than to displace the existing listener. These are the reasons the skill hands over the command rather than running it: they are consequences a user should choose.
+
+### Elevation of Privilege
+
+**This is the reason the boundary exists.** `docker compose up` executes with Docker daemon authority, which on a typical developer workstation is root-equivalent. An agent that ran generated compose files on the user's behalf would be converting file-write capability into root-equivalent execution without a human decision in between. The skill therefore prohibits it: `docker compose`, `az deployment`, `az group create`, and `terraform apply` are printed for the user, never executed. That prohibition is advisory prose rather than an enforced control, which is its residual weakness. Tracked as G-EOP-4.
+
+### Risk Rating
+
+| Threat                                                         | Likelihood | Impact | Residual Risk | Status                                                                              |
+|----------------------------------------------------------------|------------|--------|---------------|-------------------------------------------------------------------------------------|
+| Agent executes a generated file with daemon authority          | Low        | High   | Medium        | Prohibited in SKILL.md constraints and stop rules; advisory, not enforced (G-EOP-4) |
+| Generated file modified between generation and execution       | Low        | Medium | Low           | User reads and runs it; ordinary workspace trust model                              |
+| Generated stack consumes host ports, disk, and image bandwidth | Medium     | Low    | Low           | Consequences stated before generation; user chooses to run it                       |
+
+## Bucket B7: Cloud control-plane artifact generation
+
+Covers the collector configuration, Bicep, Terraform, and Azure CLI templates under `examples/azure/`, and the organization data path they establish.
+
+### Spoofing
+
+Fleet telemetry authenticates to the collector with whatever static credential the managed settings distribute, because Copilot's exporter can only send a fixed header set. Every workstation therefore presents the same credential and no request is bound to a particular user or device. Anything holding that value can submit telemetry indistinguishable from a real developer's. Tracked as G-INF-3.
+
+### Tampering
+
+The consequence of the shared credential is that dashboards can be made to say anything. An actor holding it can inject fabricated spans carrying real service names and attribute values, so token totals, tool counts, and per-team breakdowns are all forgeable. The blast radius is write-side only: the credential does not grant read access to the workspace, which is governed separately by Azure RBAC.
+
+### Repudiation
+
+Ingested telemetry carries no per-user provenance beyond the resource attributes the sender chose to send, and those are attacker-controlled in the injection case. There is no documented in-place rotation for the connection string, so revoking it means recreating the component and redistributing to the whole fleet. That makes incident response a fleet-wide operation rather than a per-user one.
+
+### Information Disclosure
+
+Prompt and response text has been observed on spans even with `captureContent` disabled, which for the organization path would place developer prompt content into a shared, queryable, billed workspace readable by anyone with `Monitoring Reader`. The generated collector configuration therefore deletes the six attributes observed carrying plaintext content, `copilot_chat.user_request`, `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`, `gen_ai.tool.call.arguments`, and `gen_ai.tool.call.result`, plus `copilot_chat.reasoning_content` defensively, which was observed marked `[encrypted]`. This is the strongest available control, because it acts before data reaches storage. It is defeated by removing the processor, so the configuration says so in place. The Azure dashboard also ships a panel that counts these attributes, so a workspace receiving content is visible rather than silent. Tracked as G-INF-1.
+
+### Denial of Service
+
+The shared credential permits unbounded ingestion against a billed backend, so the practical denial of service is financial rather than availability. Templates default `dailyQuotaGb` to 5 and name it as the only spend guardrail, and disabling the cap requires setting it to -1 deliberately. `captureContent` is named as the dominant volume multiplier wherever cost is discussed. Tracked as G-DOS-2.
+
+### Elevation of Privilege
+
+Deployment creates billable Azure resources and, when a principal is supplied, a `Monitoring Reader` role assignment on the workspace. That authority comes from the operator's own Azure credentials, which the agent never holds and never uses: the agent writes templates and the operator deploys them. The residual concern is a template that over-grants by default, which is why the role assignment is opt-in through an empty-by-default parameter rather than applied automatically. Tracked as G-EOP-3.
+
+### Risk Rating
+
+| Threat                                                    | Likelihood | Impact | Residual Risk | Status                                                                                    |
+|-----------------------------------------------------------|------------|--------|---------------|-------------------------------------------------------------------------------------------|
+| Shared fleet credential enables telemetry forgery         | Low        | Medium | Medium        | Inherent to static-header export; stated before generation (G-INF-3)                      |
+| Credential cannot be rotated without a fleet redeployment | Medium     | Medium | Medium        | No documented in-place rotation; disclosed rather than mitigated (G-INF-3)                |
+| Prompt content reaches a shared billed workspace          | Medium     | High   | Low           | Collector deletes six observed attributes plus one defensively (G-INF-1)                  |
+| Ingestion cost inflation, accidental or deliberate        | Medium     | Medium | Low           | Daily cap defaulted in every template; `captureContent` named as the multiplier (G-DOS-2) |
+| Generated template over-grants access on deployment       | Low        | Medium | Low           | Role assignment opt-in; agent never holds Azure credentials (G-EOP-3)                     |
+
 ## Enterprise Readiness Gaps
 
-| Id      | Severity        | Gap                                                                                                                                                                                                                                      | Status                                                                                                                        |
-|---------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| G-INF-1 | InfoDisc-High   | Spans carry full prompt text, tool call arguments and results, and system instructions on a configuration where content capture was left at its documented default. The skill cannot change extension behavior and applies no redaction. | Documented prominently with a verification command. Contained only by loopback binding. Blocking for any non-local collector. |
-| G-INF-2 | InfoDisc-Med    | The `copilot-otel-data` volume stores captured content unencrypted, with no Tempo retention limit and no expiry, and survives `docker compose down` by design.                                                                           | Accepted for a single-machine demonstration. Teardown documentation states both variants explicitly.                          |
-| G-SPF-1 | Spoofing-Med    | OTLP ingest, Prometheus, and Tempo are unauthenticated, and Grafana accepts published default credentials. Any local process can read or write the store.                                                                                | Mitigated only by `127.0.0.1` port binding. `baseline.py` provides after-the-fact detection of injected series.               |
-| G-SUP-1 | SupplyChain-Med | The stack image is pinned by tag rather than by digest, and no signature or provenance verification is performed before the container runs.                                                                                              | Open. Digest pinning would close the substitution vector at the cost of manual updates.                                       |
-| G-EOP-1 | EoP-Low         | Grafana administrator access is reachable from any local process using published default credentials.                                                                                                                                    | Accepted. The same actor can already read the volume directly, so the escalation does not cross the host user boundary.       |
-| G-EOP-2 | EoP-Med         | A compromised stack image would execute with Docker daemon authority, which is root-equivalent on a typical developer workstation.                                                                                                       | Bounded by the tag pin, by adding no capabilities, and by mounting no host paths beyond the named volume.                     |
-| G-TAM-1 | Tampering-Low   | `validate_dashboard.py` imports with `overwrite: true` using default credentials, so it would replace an unrelated dashboard sharing the same uid.                                                                                       | Documented. The examples README directs the reader to run it against a throwaway Grafana.                                     |
-| G-DOS-1 | DoS-Low         | Delta-to-cumulative conversion state is held in memory and resets on container restart, producing a bounded gap in converted series.                                                                                                     | Accepted. Without the flag the failure mode is worse, because a dropped delta metric can fail an entire batched write.        |
-| G-TLS-1 | InfoDisc-Low    | OTLP ingest and all service queries use plaintext HTTP with no transport security.                                                                                                                                                       | Acceptable on loopback. Material the moment `otlpEndpoint` targets a remote collector, which the skill states explicitly.     |
+| Id      | Severity        | Gap                                                                                                                                                                                                                                       | Status                                                                                                                                                                                                                                                                 |
+|---------|-----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| G-INF-1 | InfoDisc-High   | Spans carry full prompt text, tool call arguments and results, and system instructions on a configuration where content capture was left at its documented default. The skill cannot change extension behavior.                           | Local: documented prominently with a verification command, contained only by loopback binding. Organization: the generated collector deletes seven content attributes before export, and the Azure dashboard counts them so a leak is visible.                         |
+| G-INF-2 | InfoDisc-Med    | The `copilot-otel-data` volume stores captured content unencrypted, with no Tempo retention limit and no expiry, and survives `docker compose down` by design.                                                                            | Open, and stated as a real exposure rather than a harmless local condition. `SKILL.md` and this model agree that the store holds prompt content regardless of the capture setting; the user owns the decision. Teardown documentation states both variants explicitly. |
+| G-INF-3 | InfoDisc-Med    | Organization capture distributes one static write-side credential to every workstation, with no per-user binding and no documented in-place rotation. Anything holding it can inject telemetry indistinguishable from a real developer's. | Open. Inherent to static-header export against a credentialed backend. Disclosed before any Azure artifact is generated, with the write-side-only blast radius stated plainly.                                                                                         |
+| G-INF-4 | InfoDisc-Low    | The assisted settings write reads the whole global `settings.json`, so unrelated values in that file enter model context.                                                                                                                 | Accepted. Reading the whole document is required to preserve it; only the changed lines are echoed in the presented diff.                                                                                                                                              |
+| G-SPF-1 | Spoofing-Med    | OTLP ingest, Prometheus, and Tempo are unauthenticated, and Grafana accepts published default credentials. Any local process can read or write the store.                                                                                 | Mitigated only by `127.0.0.1` port binding. `baseline.py` provides after-the-fact detection of injected series.                                                                                                                                                        |
+| G-SUP-1 | SupplyChain-Med | The stack image is pinned by tag rather than by digest, and no signature or provenance verification is performed before the container runs.                                                                                               | Open. Digest pinning would close the substitution vector at the cost of manual updates.                                                                                                                                                                                |
+| G-EOP-1 | EoP-Low         | Grafana administrator access is reachable from any local process using published default credentials.                                                                                                                                     | Accepted. The same actor can already read the volume directly, so the escalation does not cross the host user boundary.                                                                                                                                                |
+| G-EOP-2 | EoP-Med         | A compromised stack image would execute with Docker daemon authority, which is root-equivalent on a typical developer workstation.                                                                                                        | Bounded by the tag pin, by adding no capabilities, and by mounting no host paths beyond the named volume.                                                                                                                                                              |
+| G-TAM-1 | Tampering-Low   | `validate_dashboard.py` imports with `overwrite: true`, so it would replace an unrelated dashboard sharing the same uid.                                                                                                                  | Constrained. The helper refuses a non-loopback Grafana unless `COPILOT_OTEL_ALLOW_REMOTE=1` is set, and endpoint and credentials come from the environment rather than being hard-coded.                                                                               |
+| G-TAM-2 | Tampering-Med   | The assisted settings write mutates a user-owned JSONC file that may hold comments, formatting, and unrelated configuration the skill did not create.                                                                                     | Mitigated structurally: timestamped backup, per-key upsert that never reserializes, exact diff, explicit approval, post-write parse with automatic restore. Concurrent VS Code writes remain unpreventable.                                                            |
+| G-REP-1 | Repudiation-Low | Settings Sync conflict behavior for a write made outside the running VS Code instance was never confirmed.                                                                                                                                | Open. Disclosed to the user as a caveat before the write rather than asserted in either direction.                                                                                                                                                                     |
+| G-DOS-1 | DoS-Low         | Delta-to-cumulative conversion state is held in memory and resets on container restart, producing a bounded gap in converted series.                                                                                                      | Accepted. Without the flag the failure mode is worse, because a dropped delta metric can fail an entire batched write.                                                                                                                                                 |
+| G-DOS-2 | DoS-Low         | The shared fleet credential permits unbounded ingestion against a billed backend, so the practical denial of service is financial.                                                                                                        | Mitigated by a 5 GB daily cap defaulted in every generated template, and by naming `captureContent` as the dominant volume multiplier wherever cost is discussed.                                                                                                      |
+| G-EOP-3 | EoP-Med         | Generated infrastructure templates provision billable Azure resources and can create a `Monitoring Reader` role assignment when deployed.                                                                                                 | Bounded. The agent never holds Azure credentials and never deploys; the role assignment is opt-in through an empty-by-default parameter; required inputs have no defaults.                                                                                             |
+| G-EOP-4 | EoP-Med         | The prohibition on the agent running `docker compose`, `az deployment`, or `terraform apply` is advisory prose in `SKILL.md` rather than an enforced control.                                                                             | Open. Stated in the constraints and the stop rules and exercised by the behavior gate. A hook would make it enforced.                                                                                                                                                  |
+| G-TLS-1 | InfoDisc-Low    | OTLP ingest and all service queries use plaintext HTTP with no transport security.                                                                                                                                                        | Acceptable on loopback. Material the moment `otlpEndpoint` targets a remote collector, which the skill states explicitly.                                                                                                                                              |
 
 ## References
 
@@ -336,6 +508,8 @@ The container runs under the Docker daemon with whatever default privileges the 
 * [OTel GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/gen-ai/)
 * [Grafana OTel-LGTM image](https://github.com/grafana/docker-otel-lgtm)
 * [Prometheus OTLP receiver documentation](https://prometheus.io/docs/guides/opentelemetry/)
+* [Visualize Azure Monitor data with Grafana](https://learn.microsoft.com/azure/azure-monitor/visualize/visualize-grafana-overview)
+* [Azure Monitor OpenTelemetry overview](https://learn.microsoft.com/azure/azure-monitor/app/opentelemetry-overview)
 * [Repo-wide STRIDE model](../../../../docs/security/security-model.md)
 
 🤖 Crafted with precision by ✨Copilot following brilliant human instruction, then carefully refined by our team of discerning human reviewers.

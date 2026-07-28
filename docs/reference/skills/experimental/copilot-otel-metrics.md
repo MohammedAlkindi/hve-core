@@ -1,6 +1,6 @@
 ---
 title: copilot-otel-metrics
-description: "Capture and analyze GitHub Copilot OpenTelemetry traces, metrics, and events on a local single-container Grafana stack. Use when setting up, verifying, or querying Copilot Chat telemetry locally."
+description: "Set up GitHub Copilot OpenTelemetry capture: configure the VS Code export settings, generate a local Grafana stack and dashboard, or generate the Azure collector, infrastructure, and dashboard for an organization."
 sidebar_position: 2
 ms.date: 2026-07-27
 ---
@@ -17,7 +17,7 @@ ms.date: 2026-07-27
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Capture and analyze GitHub Copilot OpenTelemetry traces, metrics, and events on a local single-container Grafana stack. Use when setting up, verifying, or querying Copilot Chat telemetry locally.
+Set up GitHub Copilot OpenTelemetry capture: configure the VS Code export settings, generate a local Grafana stack and dashboard, or generate the Azure collector, infrastructure, and dashboard for an organization.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

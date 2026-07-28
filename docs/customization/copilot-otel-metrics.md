@@ -1,6 +1,6 @@
 ---
 title: Copilot OpenTelemetry Metrics
-description: Capture GitHub Copilot Chat OpenTelemetry signals on your own machine and explore them in a local Grafana stack
+description: Capture GitHub Copilot Chat OpenTelemetry signals on your own machine in a local Grafana stack, or across an organization through Azure
 sidebar_position: 11
 author: Microsoft
 ms.date: 2026-07-27
@@ -14,12 +14,20 @@ keywords:
   - metrics
   - observability
   - token usage
-estimated_reading_time: 12
+  - azure monitor
+estimated_reading_time: 13
 ---
 
 GitHub Copilot Chat can export traces, metrics, and events over OpenTelemetry. Point it at a collector you run yourself and you get a measured view of your own agent sessions: which models you use, how long calls take, which tools run most, how many tokens you burn, and how much of that is cache.
 
 Everything below runs on one machine, in one container, and sends nothing anywhere. You do not need an administrator to try it.
+
+:::tip Let the skill do it
+The [`copilot-otel-metrics` skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/SKILL.md) walks this guide for you.
+Invoke it explicitly with `/copilot-otel-metrics`; it does not activate on its own.
+It can write the settings after showing you an exact diff, generate the stack and a dashboard, and generate the collector configuration, Bicep, Terraform, and Azure CLI for an organization.
+It generates and hands over; it never runs `docker compose`, `az deployment`, or `terraform apply`.
+:::
 
 ![Local Copilot telemetry dashboard in Grafana](../docusaurus/static/img/otel/dashboard-overview.png)
 
@@ -40,6 +48,10 @@ Three signal types, each answering a different kind of question.
 | Metrics | `gen_ai.client.token.usage`, `copilot_chat.tool.call.count`  | Rates, totals, percentiles, long-range trends |
 | Traces  | `invoke_agent`, `chat`, `execute_tool`, `execute_hook` spans | Causality, per-session detail, attribution    |
 | Events  | `copilot_chat.session.start`, `copilot_chat.tool.call`       | Discrete occurrences                          |
+
+:::warning Names in this guide are a snapshot
+Every signal, metric, and attribute name on this page came from one extension build at one moment, and the emitted surface follows the extension rather than this document. Settle names against your own store with `inspect_metrics.py`, and settle settings against the installed extension manifest. A wrong metric name fails silently: Prometheus returns an empty result and Grafana renders an empty panel, indistinguishable from a panel that is correct but idle.
+:::
 
 The split between metrics and traces matters more than it first appears, and the section on [choosing between metrics and traces](#choosing-between-metrics-and-traces) explains why.
 
@@ -114,7 +126,10 @@ Add these to your **user** `settings.json`, then reload the window.
 > [!IMPORTANT]
 > These settings are application-scoped. They cannot live in workspace `.vscode/settings.json`, and they do not take effect until you run **Developer: Reload Window**. If you enable export and see nothing, the reload is almost always why.
 
-Leave `captureContent` alone. Enabling it writes full prompts, file contents, and tool arguments into span attributes.
+Leave `captureContent` alone. Enabling it writes input and output messages, system instructions, and tool definitions into span attributes; the setting description marks it as containing potentially sensitive data.
+
+> [!IMPORTANT]
+> Leaving it alone is not the same as capturing nothing. With `captureContent` disabled I observed six attributes carrying plaintext content on spans, including your full prompt text. See [Check what your store actually holds](#check-what-your-store-actually-holds) before deciding this is fine for your machine.
 
 ## Confirm data is actually landing
 
@@ -154,6 +169,10 @@ The agent metrics that do exist are still worth watching. Turn count in particul
 ## Useful metric queries
 
 Metric names translate from the OTel names by turning dots into underscores, appending `_total` to monotonic counters, and appending a unit suffix when the emitter declares one.
+
+:::warning Verify these names against your own store
+The queries below worked against one build on the date in this page's frontmatter. The translation rule is a rule of thumb, not a guarantee: `gen_ai.client.operation.duration` is emitted with no unit, so its histogram is `gen_ai_client_operation_duration_bucket` and *not* `..._seconds_bucket`. Assuming the suffix produces an empty panel and no error.
+:::
 
 Token totals over rolling windows:
 
@@ -255,17 +274,24 @@ Neither approach yields a plugin count or an inventory of loaded plugins.
 
 </details>
 
-## Verify your prompts are not being stored
+## Check what your store actually holds
 
-`captureContent` defaults to off, and the documentation states that no prompt content, responses, or tool arguments are captured by default. Verify rather than assume:
+`captureContent` defaults to off. That does not settle what is in your store, so check rather than assume:
 
 ```bash
 curl -s --get http://localhost:3200/api/search \
   --data-urlencode 'q={span.copilot_chat.user_request!=""}' | python3 -m json.tool | head
 ```
 
+That command returns your own prompt text. Do not paste its output into a shared log, an issue, a pull request, or a chat transcript.
+
 > [!WARNING]
-> With content capture disabled I still observed populated `copilot_chat.user_request`, `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments`, and `gen_ai.system_instructions` attributes on spans. On a local-only stack whose volume never leaves your machine this is harmless. It matters a great deal before you point `otlpEndpoint` at a shared or hosted collector. Treat the endpoint as sensitive regardless of the setting.
+> With content capture disabled I still observed six attributes populated in plaintext on spans: `copilot_chat.user_request`, `gen_ai.input.messages`,
+> `gen_ai.output.messages`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, and `gen_ai.system_instructions`.
+> A seventh, `copilot_chat.reasoning_content`, was present but marked `[encrypted]`. **Treat the store as holding your prompt text regardless of the setting.**
+> On a local-only stack the data stays on your machine, but the volume is unencrypted, traces have no configured expiry, and `docker compose down` preserves it
+> deliberately, so any local user with Docker or filesystem access can read it. The skill's threat model rates that Medium residual risk and tracks it as an open gap.
+> It stops being a local question entirely the moment `otlpEndpoint` points at a shared or hosted collector. Treat both the endpoint and the volume as sensitive.
 
 ## Configuring this for an organization
 
@@ -295,12 +321,42 @@ Three delivery channels are available. The highest-precedence channel that suppl
 | Server-managed | `copilot/managed-settings.json` on the GitHub enterprise or organization                                                    |
 | File-based     | macOS `/Library/Application Support/GitHubCopilot/managed-settings.json`; Linux `/etc/github-copilot/managed-settings.json` |
 
+:::warning Channel paths and precedence change
+These paths and the precedence rule were current for VS Code 1.128. Confirm against [Manage AI settings in enterprise environments](https://code.visualstudio.com/docs/enterprise/ai-settings) before a rollout, and have one developer run **Developer: Policy Diagnostics** to confirm what actually applies on a real device.
+:::
+
 Worth carrying into a rollout:
 
 * A managed value always wins over environment variables and user settings, so developers cannot redirect telemetry once it is set.
 * Managed `telemetry.headers` apply only to the extension's exporter and are never passed through environment variables, which stops an auth token leaking into spawned tool subprocesses. They are consequently not delivered to the agent host.
 * The agent host computes its telemetry configuration at startup, so changing a managed value requires a VS Code reload.
 * Channel precedence enforcement begins in VS Code 1.128.
+
+### Where the fleet's telemetry actually goes
+
+Managed settings only decide where Copilot sends data. Something has to receive it, and for an organization that is rarely a container on someone's laptop.
+
+The intuitive answer, pointing `endpoint` straight at Azure Monitor, does not work. Copilot's exporter sends a fixed set of headers configured once, while Azure Monitor's OTLP ingestion requires Microsoft Entra credentials that rotate. **A collector between the two is mandatory, not an optimization.**
+
+```mermaid
+graph LR
+    A["Copilot<br/>VS Code"] -->|OTLP| B["OTel Collector<br/>holds the identity"]
+    B --> C["Application<br/>Insights"]
+    C --> D["Log Analytics"]
+    D --> E["Grafana"]
+```
+
+Three things are worth knowing before budgeting for this:
+
+* **Start with the free Grafana.** Azure Monitor dashboards with Grafana runs inside the Azure portal at no cost, and Microsoft's own comparison names it the first choice when you only want Azure Monitor data. Azure Managed Grafana is an upgrade for alerting, reports, external data sources, or sharing dashboards without sharing data access.
+* **Free applies to the dashboards, not the data.** Log Analytics bills on ingestion, and `captureContent` is the dominant multiplier because it puts prompt and response text on every span. Set a daily ingestion cap.
+* **A fleet configuration is a shared credential.** Whatever authenticates the collector ends up on every workstation, with no per-user binding and no documented in-place rotation. The blast radius is write-side only, which still permits telemetry injection and cost inflation.
+
+The skill generates the collector configuration, Bicep, Terraform, an Azure CLI script, and a KQL dashboard for this path. It writes them; you deploy them.
+
+:::note The Copilot Metrics API is a different question
+If what you actually want is seat-level adoption across the organization, the GitHub Copilot Metrics API answers that far more cheaply. It returns daily aggregate reports with no spans, tools, tokens, or latency, so it complements this pipeline rather than replacing it.
+:::
 
 ## Stopping and repeating
 
@@ -321,7 +377,7 @@ To stop exporting, set `github.copilot.chat.otel.enabled` to `false` and reload 
 
 ## Related reading
 
-* The [copilot-otel-metrics skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/SKILL.md) packages the runnable assets from this guide, plus a threat model for the telemetry endpoint.
+* The [copilot-otel-metrics skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/SKILL.md) walks this guide for you and generates the local stack, both dashboards, and the Azure collector and infrastructure templates. It is invoked explicitly and never activates on its own.
 * [Local Telemetry](local-telemetry) covers the hook-based JSONL capture, which records session lifecycle events rather than OTel signals.
 * [Monitor agent usage with OpenTelemetry](https://code.visualstudio.com/docs/agents/guides/monitoring-agents) is the upstream reference for signal names and settings.
 * [Manage AI settings in enterprise environments](https://code.visualstudio.com/docs/enterprise/ai-settings) documents the managed settings channels in full.
