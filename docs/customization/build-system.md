@@ -2,7 +2,7 @@
 title: Build System and Validation
 description: Understand the plugin generation pipeline, schema validation system, npm scripts, and CI checks for customizing and extending HVE Core
 author: Microsoft
-ms.date: 2026-07-27
+ms.date: 2026-07-28
 ms.topic: how-to
 keywords:
   - build system
@@ -152,14 +152,15 @@ The `validate:local` script chains local-safe checks in a fixed sequence:
 14. `lint:permissions` validates workflow permissions
 15. `lint:dangerous-workflow` checks workflows for dangerous patterns
 16. `lint:dependency-pinning` checks dependencies are pinned to fixed versions
-17. `lint:pr-gate` validates the pull request validation gate
-18. `lint:ps-module-pins` checks PowerShell module versions are pinned
-19. `lint:py` lints Python scripts via `Invoke-PythonLint.ps1`
-20. `validate:skills` verifies skill directory structure
-21. `lint:ai-artifacts` validates planner AI artifacts
-22. `lint:asset-docs` confirms assets have documentation pages
-23. `lint:models` validates model references against the catalog
-24. `validate:devcontainer-lockfile` checks devcontainer lockfile integrity
+17. `lint:public-dependency-feeds` confirms dependency sources use canonical public feeds
+18. `lint:pr-gate` validates the pull request validation gate
+19. `lint:ps-module-pins` checks PowerShell module versions are pinned
+20. `lint:py` lints Python scripts via `Invoke-PythonLint.ps1`
+21. `validate:skills` verifies skill directory structure
+22. `lint:ai-artifacts` validates planner AI artifacts
+23. `lint:asset-docs` confirms assets have documentation pages
+24. `lint:models` validates model references against the catalog
+25. `validate:devcontainer-lockfile` checks devcontainer lockfile integrity
 
 Each linter outputs results to `logs/` for inspection. Run individual linters for faster
 feedback during development:
