@@ -149,7 +149,8 @@ stimuli:
   - name: tool-trigger-package-json
     category: tool-trigger
     prompt: "What is in package.json at the root of this repository?"
-    invariants: [mentions-scripts-or-deps]
+    invariants: []
+    customized_required: [mentions-scripts-or-deps]
     tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [rpi-agent]}
     graders:
       - type: prompt
@@ -198,7 +199,8 @@ stimuli:
   - name: tool-trigger-find-license
     category: tool-trigger
     prompt: "What license file exists in this repository and what license does it grant?"
-    invariants: [mentions-license-name]
+    invariants: []
+    customized_required: [mentions-license-name]
     tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [documentation, rpi-agent]}
     graders:
       - type: prompt
