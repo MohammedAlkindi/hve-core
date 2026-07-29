@@ -22,6 +22,17 @@ Every committed dependency manifest and lockfile resolves from a canonical publi
 
 Do not commit dependency source URLs pointing at private or organization-scoped artifact feeds, corporate or machine-level package proxies, authenticated URLs, or URLs carrying registry credentials. Do not commit lockfile entries whose `integrity` value uses an algorithm weaker than `sha512`.
 
+## Restricted Networks
+
+When a network blocks the public registries, route installs through the approved proxy from your own environment and never from a tracked file.
+
+* Set the override with an environment variable or a CLI flag. A user-level `~/.npmrc` is outranked by this repository's committed `.npmrc`, because npm resolves configuration in the order `cli > env > project .npmrc > user .npmrc > global`.
+* Restrict proxied use to restore commands such as `npm ci`, `uv sync --frozen`, and `pip install -r`. They read committed lockfiles and verify committed hashes, and `npm ci` does not write `package-lock.json`.
+* Do not resolve dependencies through a proxy. `npm install`, `npm update`, `npm audit fix`, `uv lock`, and `uv add` write the proxy's own URLs into the lockfile, and an npm proxy that omits `dist.integrity` also downgrades the recorded integrity to `sha1`.
+* Generate lockfile changes where the public registry is reachable. Dependabot covers version bumps of existing dependencies. To add a new dependency, edit the manifest, push the branch, and let an agent or CI job with direct public registry access produce the lockfile.
+* Do not hand-repair a proxy-generated lockfile. Restoring the `resolved` URL leaves the weakened `integrity` value in place, and recomputing the hash from proxy-served bytes attests only to what the proxy returned.
+* Keep the proxy address out of every tracked file, including `.npmrc`, workflows, and `devcontainer.json`.
+
 ## Stop Rule
 
 If a required dependency is unavailable from an approved public registry, stop the dependency update and record the publication blocker. Do not substitute an internal mirror, private feed, unpublished tarball, or credentialed source.
