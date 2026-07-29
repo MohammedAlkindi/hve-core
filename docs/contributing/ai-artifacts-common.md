@@ -3,7 +3,7 @@ title: 'AI Artifacts Common Standards'
 description: 'Common standards and quality gates for all AI artifact contributions to hve-core'
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-07-29
 ms.topic: reference
 ---
 
@@ -123,8 +123,8 @@ Use explicit model selection for cost optimization:
 | Tier     | Multiplier  | Use When                                                | Example Models                 |
 |----------|-------------|---------------------------------------------------------|--------------------------------|
 | Fast     | 0.25x–0.33x | Read-only research, mechanical file ops, classification | Claude Haiku 4.5, GPT-5.4 mini |
-| Standard | 1x          | Code generation, architecture, complex synthesis        | Claude Sonnet 4.6, GPT-5.4     |
-| Premium  | 3x–15x      | Vision-capable tasks, complex architectural decisions   | Claude Opus 4.6, GPT-5.5       |
+| Standard | 1x          | Code generation, architecture, complex synthesis        | Claude Sonnet 5, GPT-5.4       |
+| Premium  | 3x–15x      | Vision-capable tasks, complex architectural decisions   | Claude Opus 5, GPT-5.5         |
 
 ### Cost Tier Constraint
 

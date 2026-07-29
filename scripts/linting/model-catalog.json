@@ -11,7 +11,8 @@
             "name": "Claude Sonnet 4 (copilot)",
             "tier": "standard",
             "multiplier": 1,
-            "status": "ga",
+            "status": "retiring",
+            "retiredDate": "2026-05-01",
             "provider": "Anthropic"
         },
         {
@@ -64,10 +65,18 @@
             "provider": "Anthropic"
         },
         {
+            "name": "Claude Opus 5 (copilot)",
+            "tier": "premium",
+            "multiplier": 15,
+            "status": "ga",
+            "provider": "Anthropic"
+        },
+        {
             "name": "GPT-4.1 (copilot)",
             "tier": "free",
             "multiplier": 0,
-            "status": "ga",
+            "status": "retiring",
+            "retiredDate": "2026-06-01",
             "provider": "OpenAI"
         },
         {
@@ -81,14 +90,16 @@
             "name": "GPT-5.2 (copilot)",
             "tier": "standard",
             "multiplier": 1,
-            "status": "ga",
+            "status": "retiring",
+            "retiredDate": "2026-06-01",
             "provider": "OpenAI"
         },
         {
             "name": "GPT-5.2-Codex (copilot)",
             "tier": "standard",
             "multiplier": 1,
-            "status": "ga",
+            "status": "retiring",
+            "retiredDate": "2026-06-01",
             "provider": "OpenAI"
         },
         {
@@ -170,10 +181,11 @@
             "provider": "OpenAI"
         },
         {
-            "status": "preview",
+            "status": "retiring",
             "tier": "ultra",
             "multiplier": 30.0,
             "name": "Claude Opus 4.6 (fast mode) (preview) (copilot)",
+            "retiredDate": "2026-06-29",
             "provider": "Anthropic"
         },
         {
@@ -191,10 +203,11 @@
             "provider": "Unknown"
         },
         {
-            "status": "preview",
+            "status": "retiring",
             "tier": "free",
             "multiplier": 0,
             "name": "Goldeneye (copilot)",
+            "retiredDate": "2026-09-27",
             "provider": "Unknown"
         },
         {
@@ -203,6 +216,48 @@
             "multiplier": 0.33,
             "status": "ga",
             "provider": "Microsoft"
+        },
+        {
+            "name": "Claude Fable 5 (copilot)",
+            "tier": "ultra",
+            "multiplier": 30.0,
+            "status": "ga",
+            "provider": "Anthropic"
+        },
+        {
+            "name": "Claude Opus 4.8 (fast mode) (preview) (copilot)",
+            "tier": "ultra",
+            "multiplier": 30.0,
+            "status": "ga",
+            "provider": "Anthropic"
+        },
+        {
+            "name": "Gemini 3.5 Flash (copilot)",
+            "tier": "ultra",
+            "multiplier": 14,
+            "status": "ga",
+            "provider": "Google"
+        },
+        {
+            "name": "Gemini 3.6 Flash (copilot)",
+            "tier": "standard",
+            "multiplier": 1,
+            "status": "ga",
+            "provider": "Google"
+        },
+        {
+            "name": "Kimi K2.7 Code (copilot)",
+            "tier": "standard",
+            "multiplier": 1,
+            "status": "ga",
+            "provider": "Unknown"
+        },
+        {
+            "name": "Grok 4.5 (copilot)",
+            "tier": "standard",
+            "multiplier": 1,
+            "status": "ga",
+            "provider": "xAI"
         }
     ],
     "providerAllowlist": [
@@ -212,6 +267,6 @@
         "Microsoft"
     ],
     "$schema": "./schemas/model-catalog.schema.json",
-    "lastUpdated": "2026-07-09",
+    "lastUpdated": "2026-07-29",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models"
 }

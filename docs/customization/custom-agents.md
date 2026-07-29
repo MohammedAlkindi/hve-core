@@ -2,7 +2,7 @@
 title: Creating Custom Agents
 description: Build specialized agents with tool restrictions, subagent delegation, and mode-based workflows for your team
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-07-29
 ms.topic: how-to
 keywords:
   - agents
@@ -239,7 +239,7 @@ Specifies a preferred AI model as a single string or prioritized fallback array.
 
 ```yaml
 # Single model
-model: Claude Sonnet 4.6 (copilot)
+model: Claude Sonnet 5 (copilot)
 ```
 
 ```yaml

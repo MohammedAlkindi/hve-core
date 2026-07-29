@@ -25,7 +25,7 @@
     },
     "model": {
       "type": "string",
-      "description": "The language model to use (e.g., 'Claude Sonnet 4')"
+      "description": "The language model to use (e.g., 'Claude Sonnet 5')"
     },
     "version": {
       "type": "string",

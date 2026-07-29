@@ -4,8 +4,8 @@ description: "Revise one assigned RPI plan phase and matching phase details with
 user-invocable: false
 agents: []
 model:
-  - GPT-5.6 Terra (copilot)
   - Claude Sonnet 5 (copilot)
+  - GPT-5.6 Terra (copilot)
   - MAI-Code-1-Flash (copilot)
 tools:
   - read/readFile

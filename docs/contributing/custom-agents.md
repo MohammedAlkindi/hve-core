@@ -3,7 +3,7 @@ title: 'Contributing Agents to HVE Core'
 description: 'Requirements and standards for contributing GitHub Copilot agent files to hve-core'
 sidebar_position: 5
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-07-29
 ms.topic: how-to
 ---
 
@@ -95,7 +95,7 @@ Focus on agents that:
 
 All agents **MUST** target models listed in the model catalog (`scripts/linting/model-catalog.json`). The catalog defines which models are available in GitHub Copilot and which providers are accepted via the `providerAllowlist` field.
 
-Accepted: Any model in the catalog whose provider appears in `providerAllowlist` and whose status is `ga` or `preview` (e.g., `Claude Sonnet 4.6 (copilot)`, `GPT-5.4 (copilot)`, `Gemini 2.5 Pro (copilot)`)
+Accepted: Any model in the catalog whose provider appears in `providerAllowlist` and whose status is `ga` or `preview` (e.g., `Claude Sonnet 5 (copilot)`, `GPT-5.4 (copilot)`, `Gemini 2.5 Pro (copilot)`)
 
 Not Accepted: Models not present in the catalog, models from providers outside the `providerAllowlist`, custom/fine-tuned models, models with `retiring` or `retired` status
 
