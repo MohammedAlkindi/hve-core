@@ -129,6 +129,63 @@ Describe 'Measure-CompareTrials' -Tag 'Unit' {
     }
 }
 
+Describe 'Measure-CompareTrials against captured Vally 0.10 output' -Tag 'Unit' {
+    # Fixture provenance: captured from Vally CLI 0.10.0 by running two temporary
+    # eval specs (benign arithmetic and geography prompts, executor copilot-sdk,
+    # model gpt-5.6-luna) and comparing the two run directories with
+    # `vally compare --baseline <dir> --treatment <dir> --judge-model claude-haiku-4.5`.
+    # Judge and grader rationale text was replaced during sanitization; every
+    # structural field the parser reads is preserved verbatim.
+    #
+    # Capture limitation: the temporary specs lived outside the `paths.evals`
+    # root configured in .vally.yaml. These fixtures are evidence of record shape
+    # only, not of eval-spec path or skill-resolution behavior.
+    BeforeAll {
+        $script:V010Lines = @(Get-Content -LiteralPath (Join-Path $script:FixturesRoot 'vally-0.10-comparison.jsonl'))
+        $script:V010Tally = Measure-CompareTrials -Lines $script:V010Lines
+        $script:V010Record = $script:V010Lines[0] | ConvertFrom-Json -Depth 100
+    }
+
+    It 'Parses the 0.10 comparison record without contract changes' {
+        $script:V010Tally.Total | Should -Be 2
+        $script:V010Tally.Ties | Should -Be 2
+        $script:V010Tally.AWins | Should -Be 0
+        $script:V010Tally.BWins | Should -Be 0
+    }
+
+    It 'Consumes native 0.10 summary statistics' {
+        $script:V010Tally.SummaryCount | Should -Be 1
+        $script:V010Tally.MeanScore | Should -Be 0.0
+        $script:V010Tally.WinRate | Should -Be 0.0
+        $script:V010Tally.CiLow | Should -Be 0.0
+        $script:V010Tally.CiHigh | Should -Be 0.0
+    }
+
+    It 'Groups 0.10 trials per stimulus' {
+        $script:V010Tally.PerStimulus.Keys | Should -Contain 'smoke-arithmetic'
+        $script:V010Tally.PerStimulus.Keys | Should -Contain 'smoke-capital'
+    }
+
+    It 'Retains the 0.10 unmatched arrays that the tally does not currently count' {
+        # Documents a known gap: unmatched trajectories never reach the tally, so
+        # Total reflects only matched pairs. Policy work in a later phase makes
+        # these counts observable rather than silent.
+        @($script:V010Record.unmatchedBaseline).Count | Should -Be 1
+        @($script:V010Record.unmatchedTreatment).Count | Should -Be 1
+        $script:V010Tally.Total | Should -Be 2
+    }
+
+    It 'Exposes the 0.10 summary fields the reporting contract depends on' {
+        $summary = $script:V010Record.summary
+        $summary.trialCount | Should -Be 2
+        $summary.erroredCount | Should -Be 0
+        $summary.PSObject.Properties.Name | Should -Contain 'wins'
+        $summary.PSObject.Properties.Name | Should -Contain 'losses'
+        $summary.PSObject.Properties.Name | Should -Contain 'mcnemar'
+        $summary.PSObject.Properties.Name | Should -Contain 'metricDeltas'
+    }
+}
+
 Describe 'Measure-InvariantFailures' -Tag 'Unit' {
     BeforeAll {
         $script:Pass = [char]::ConvertFromUtf32(0x2705)
