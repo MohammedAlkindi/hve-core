@@ -35,7 +35,7 @@ function Get-PythonSkill {
     Push-Location $RepoRoot
     try {
         $skills = Get-ChildItem -Path . -Filter 'pyproject.toml' -Recurse -Force -File |
-            Where-Object { $_.FullName -notmatch 'node_modules' -and $_.FullName -notmatch 'plugins' } |
+            Where-Object { $_.FullName -notmatch 'node_modules' } |
             ForEach-Object { $_.Directory.FullName }
         return @($skills)
     } finally {

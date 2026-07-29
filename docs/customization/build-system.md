@@ -36,11 +36,10 @@ npm run plugin:generate
 > Files under `plugins/` are generated output. Do not edit them directly.
 > Changes made to plugin files are overwritten on the next generation run.
 
-Because every file under `plugins/` is a copy of an already-validated source under
-`.github/`, the generated tree is excluded from source-level checks that would otherwise
-re-scan the copies (spell check, CodeQL, Python project discovery for tests, fuzzing, and
-pip-audit, and code coverage). Validation of the generated output is handled by
-`plugin:validate` and `lint:marketplace` instead.
+Each plugin directory contains a generated `README.md` and
+`.github/plugin/plugin.json`. The manifest references canonical artifacts under the
+repository's root `.github/` directory. Validate generated output with
+`plugin:validate`, which includes marketplace validation.
 
 ## Schema Validation System
 
