@@ -549,8 +549,27 @@ Describe 'Invoke-WorkflowPermissionsCheck' -Tag 'Integration' {
             $content.Metadata.FilesWithPermissions | Should -Be 1
             $content.Metadata.FileLevelViolations | Should -Be 0
             $content.Metadata.JobChecks | Should -Be 2
-            $content.Metadata.JobsWithPermissions | Should -Be 1
+            $content.Metadata.JobsPassing | Should -Be 1
+            $content.Metadata.JobsDeclaringOwnBlock | Should -Be 1
             $content.Metadata.JobLevelViolations | Should -Be 1
+        }
+
+        It 'Should not credit a job passing by empty-block inheritance as declaring its own block' {
+            $testPath = Join-Path $TestDrive 'inherited-not-declared'
+            New-Item -ItemType Directory -Path $testPath -Force | Out-Null
+            Copy-Item -Path (Join-Path $script:FixturesPath 'workflow-lock-file-shape.yml') -Destination $testPath
+
+            $outputPath = Join-Path $TestDrive 'inherited-not-declared.json'
+
+            Invoke-WorkflowPermissionsCheck -Path $testPath -OutputPath $outputPath
+
+            $content = Get-Content $outputPath -Raw | ConvertFrom-Json
+            # Both jobs pass, but only 'agent' declares a block; 'pre_activation' passes
+            # by inheriting an empty workflow-level grant.
+            $content.Metadata.JobChecks | Should -Be 2
+            $content.Metadata.JobsPassing | Should -Be 2
+            $content.Metadata.JobsDeclaringOwnBlock | Should -Be 1
+            $content.Metadata.JobLevelViolations | Should -Be 0
         }
 
         It 'Should report an unparseable workflow without counting it as compliant' {

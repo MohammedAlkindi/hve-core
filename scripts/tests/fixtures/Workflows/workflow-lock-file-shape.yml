@@ -1,8 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # SPDX-License-Identifier: MIT
 #
-# Shaped after a gh-aw generated lock file: an empty workflow-level block means
-# no job beneath it can hold any scope, so a job without its own block passes.
+# Shaped after a gh-aw generated lock file: a job beneath an empty workflow-level
+# block that declares no block of its own inherits an empty set, so it passes.
 # The nested step-level 'permissions' key exists to catch naive text matching.
 name: CI Lock File Shape
 on: push

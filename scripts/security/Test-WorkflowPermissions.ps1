@@ -473,7 +473,8 @@ function Invoke-WorkflowPermissionsCheck {
     $filesWithPermissions = 0
     $fileViolationCount = 0
     $jobChecks = 0
-    $jobsWithPermissions = 0
+    $jobsPassing = 0
+    $jobsDeclaringOwnBlock = 0
     $jobViolationCount = 0
     $unparsedFiles = 0
 
@@ -505,7 +506,10 @@ function Invoke-WorkflowPermissionsCheck {
         if ($model.WorkflowState -ne 'Absent') {
             $modelJobCount = @($model.Jobs).Count
             $jobChecks += $modelJobCount
-            $jobsWithPermissions += ($modelJobCount - $jobLevel.Count)
+            $jobsPassing += ($modelJobCount - $jobLevel.Count)
+            # Counted separately from passing jobs: under an empty workflow-level block a
+            # job passes by inheriting nothing, which is not the same as declaring a block.
+            $jobsDeclaringOwnBlock += @($model.Jobs | Where-Object { $_.HasPermissions }).Count
         }
 
         $fileViolationCount += $fileLevel.Count
@@ -537,19 +541,21 @@ function Invoke-WorkflowPermissionsCheck {
     }
 
     $report.TotalDependencies = $fileChecks + $jobChecks
-    $report.PinnedDependencies = $filesWithPermissions + $jobsWithPermissions
+    $report.PinnedDependencies = $filesWithPermissions + $jobsPassing
     $report.CalculateScore()
 
     $report.Metadata['FileChecks'] = $fileChecks
     $report.Metadata['FilesWithPermissions'] = $filesWithPermissions
     $report.Metadata['FileLevelViolations'] = $fileViolationCount
     $report.Metadata['JobChecks'] = $jobChecks
-    $report.Metadata['JobsWithPermissions'] = $jobsWithPermissions
+    $report.Metadata['JobsPassing'] = $jobsPassing
+    $report.Metadata['JobsDeclaringOwnBlock'] = $jobsDeclaringOwnBlock
     $report.Metadata['JobLevelViolations'] = $jobViolationCount
     $report.Metadata['UnparsedFiles'] = $unparsedFiles
 
     Write-SecurityLog "Workflow-level: $filesWithPermissions/$fileChecks declare permissions ($fileViolationCount violation(s))" -Level Info
-    Write-SecurityLog "Job-level: $jobsWithPermissions/$jobChecks declare their own permissions ($jobViolationCount violation(s))" -Level Info
+    Write-SecurityLog "Job-level: $jobsPassing/$jobChecks pass the job-level check ($jobViolationCount violation(s))" -Level Info
+    Write-SecurityLog "Job-level: $jobsDeclaringOwnBlock/$jobChecks declare their own permissions block; the remainder pass by inheriting an empty workflow-level block" -Level Info
     if ($unparsedFiles -gt 0) {
         Write-SecurityLog "Unparsed workflows: $unparsedFiles (not evaluated, not counted as compliant)" -Level Warning
     }
@@ -559,7 +565,7 @@ function Invoke-WorkflowPermissionsCheck {
     $output = switch ($Format) {
         'console' {
             if ($report.Violations.Count -eq 0) {
-                "All $fileChecks workflow(s) and $jobChecks job(s) declare permissions."
+                "All $fileChecks workflow(s) and $jobChecks job(s) passed the permissions check."
             }
             else {
                 $lines = @("Workflow permissions violations found:`n")
@@ -599,7 +605,8 @@ function Invoke-WorkflowPermissionsCheck {
         "| Workflows With Top-Level Permissions | $filesWithPermissions |"
         "| Workflows Missing Top-Level Permissions | $fileViolationCount |"
         "| Jobs Checked | $jobChecks |"
-        "| Jobs With Own Permissions | $jobsWithPermissions |"
+        "| Jobs Passing Job-Level Check | $jobsPassing |"
+        "| Jobs Declaring Their Own Block | $jobsDeclaringOwnBlock |"
         "| Jobs Missing Own Permissions | $jobViolationCount |"
         "| Compliance Score | $($report.ComplianceScore)% |"
     )
@@ -636,7 +643,7 @@ function Invoke-WorkflowPermissionsCheck {
         }
     }
     else {
-        Write-SecurityLog "All workflows and jobs declare permissions" -Level Success
+        Write-SecurityLog "All workflows and jobs passed the permissions check" -Level Success
     }
 
     return $exitCode
