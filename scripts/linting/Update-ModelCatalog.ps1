@@ -149,6 +149,39 @@ function ConvertTo-ProviderName {
     }
 }
 
+function Get-ArchivedModelData {
+    <#
+    .SYNOPSIS
+    Returns the last-known upstream metadata for a model no longer published upstream.
+
+    .DESCRIPTION
+    Once a model leaves the upstream tables the generator can no longer resolve its provider or
+    price, so a retiring entry would otherwise freeze whatever values it happened to hold when it
+    dropped out. Records here preserve the values from the final upstream revision that published
+    the model.
+
+    .PARAMETER Name
+    Catalog model name, including the '(copilot)' suffix.
+
+    .OUTPUTS
+    [hashtable] Provider and Tier, or $null when no archived record exists.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    # Goldeneye: github/docs @ f4829a84 (2026-05-19) was the last revision to publish it, listing
+    # provider 'github' and an input price of $1.25, which Get-CostTier classifies as standard.
+    $archived = @{
+        'Goldeneye (copilot)' = @{ Provider = 'GitHub'; Tier = 'standard' }
+    }
+
+    if ($archived.ContainsKey($Name)) { return $archived[$Name] }
+    return $null
+}
+
 function Get-InputPrice {
     <#
     .SYNOPSIS
@@ -373,7 +406,7 @@ function Invoke-ModelCatalogUpdate {
             foreach ($m in $diff.added) { Write-Host "    + $($m['name']) (tier: $($m['tier']))" -ForegroundColor Green }
         }
         if ($diff.removed.Count -gt 0) {
-            Write-Host "`n  Removed models (marking as retiring):" -ForegroundColor Yellow
+            Write-Host "`n  Models no longer published upstream:" -ForegroundColor Yellow
             foreach ($m in $diff.removed) { Write-Host "    - $($m.name)" -ForegroundColor Yellow }
         }
         if ($diff.changed.Count -gt 0) {
@@ -392,6 +425,7 @@ function Invoke-ModelCatalogUpdate {
 
         # Mark removed models as retiring instead of deleting
         $finalModels = @()
+        $prunedModels = @()
         $removedNames = @($diff.removed | ForEach-Object { $_.name })
         foreach ($curr in $currentModels) {
             if ($curr.name -in $removedNames) {
@@ -403,11 +437,25 @@ function Invoke-ModelCatalogUpdate {
                     (Get-Date).AddDays(60).ToString('yyyy-MM-dd')
                 }
 
+                # Once the grace period ends the model is gone, so drop it and let a lingering
+                # reference escalate from a retiring warning to an unrecognized-model error. An
+                # unparsable date is kept rather than deleted on a value we cannot reason about.
+                $parsedRetiredDate = [datetime]::MinValue
+                if ([datetime]::TryParse($retiredDate, [ref]$parsedRetiredDate) -and
+                    $parsedRetiredDate.Date -lt (Get-Date).Date) {
+                    $prunedModels += $curr.name
+                    continue
+                }
+
+                # Prefer archived upstream values; the previous record may hold placeholders that
+                # predate the model ever being reconciled against upstream.
+                $archived = Get-ArchivedModelData -Name $curr.name
+
                 $finalModels += [PSCustomObject]@{
                     name        = $curr.name
-                    tier        = $curr.tier
+                    tier        = if ($archived) { $archived.Tier } else { $curr.tier }
                     status      = 'retiring'
-                    provider    = $curr.provider
+                    provider    = if ($archived) { $archived.Provider } else { $curr.provider }
                     retiredDate = $retiredDate
                 }
             }
@@ -416,12 +464,24 @@ function Invoke-ModelCatalogUpdate {
                 $finalModels += @($discoveredModels | Where-Object { $_.name -eq $curr.name })
             }
         }
+
+        if ($prunedModels.Count -gt 0) {
+            Write-Host "`n  Pruned models past their retirement date:" -ForegroundColor Yellow
+            foreach ($name in $prunedModels) { Write-Host "    x $name" -ForegroundColor Yellow }
+        }
+
         # Add new models
         $finalModels += $diff.added
     }
     else {
         Write-Host "  No existing catalog found. Creating new catalog." -ForegroundColor Yellow
         $finalModels = $discoveredModels
+    }
+
+    foreach ($m in $finalModels) {
+        if ($m.provider -eq 'Unknown') {
+            Write-Warning "Model '$($m.name)' has an unresolved provider. Map its upstream slug in ConvertTo-ProviderName, or add an archived record to Get-ArchivedModelData once it leaves upstream."
+        }
     }
 
     if ($DryRun) {

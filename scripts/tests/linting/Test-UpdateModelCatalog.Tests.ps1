@@ -247,6 +247,26 @@ Describe 'Merge-ModelData' -Tag 'Unit' {
 
 #endregion Merge-ModelData Tests
 
+#region Get-ArchivedModelData Tests
+
+Describe 'Get-ArchivedModelData' -Tag 'Unit' {
+    Context 'when the model has an archived upstream record' {
+        It 'Returns the last-known provider and tier' {
+            $result = Get-ArchivedModelData -Name 'Goldeneye (copilot)'
+            $result.Provider | Should -Be 'GitHub'
+            $result.Tier | Should -Be 'standard'
+        }
+    }
+
+    Context 'when the model has no archived record' {
+        It 'Returns null' {
+            Get-ArchivedModelData -Name 'Claude Sonnet 5 (copilot)' | Should -BeNullOrEmpty
+        }
+    }
+}
+
+#endregion Get-ArchivedModelData Tests
+
 #region Compare-Catalogs Tests
 
 Describe 'Compare-Catalogs' -Tag 'Unit' {
@@ -492,13 +512,15 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
     Context 'when models are removed' {
         BeforeAll {
             $script:RemovedPath = Join-Path $script:CatalogDir 'removed-catalog.json'
+            # Unexpired, so the entry exercises retiredDate preservation rather than pruning.
+            $script:PreservedRetiredDate = (Get-Date).AddDays(30).ToString('yyyy-MM-dd')
             $existingCatalog = @{
                 lastUpdated = '2026-01-01'
                 source      = 'https://example.com'
                 models      = @(
                     @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
                     @{ name = 'Model B (copilot)'; tier = 'premium'; status = 'ga'; provider = 'OpenAI' }
-                    @{ name = 'Model C (copilot)'; tier = 'fast'; status = 'retiring'; provider = 'OpenAI'; retiredDate = '2026-01-15' }
+                    @{ name = 'Model C (copilot)'; tier = 'fast'; status = 'retiring'; provider = 'OpenAI'; retiredDate = $script:PreservedRetiredDate }
                 )
             }
             $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:RemovedPath -Encoding utf8
@@ -550,7 +572,7 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 if ($_ -is [hashtable]) { $_['name'] -eq 'Model C (copilot)' }
                 else { $_.name -eq 'Model C (copilot)' }
             }
-            $stillRetiring.retiredDate | Should -Be '2026-01-15'
+            $stillRetiring.retiredDate | Should -Be $script:PreservedRetiredDate
         }
 
         It 'Sets retiredDate as future date on removed model' {
@@ -568,6 +590,86 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 else { $_.name -eq 'Model A (copilot)' }
             }
             $kept | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context 'when a retiring model reaches its retirement date' {
+        BeforeAll {
+            $script:PrunePath = Join-Path $script:CatalogDir 'prune-catalog.json'
+            $existingCatalog = @{
+                lastUpdated = '2026-01-01'
+                source      = 'https://example.com'
+                models      = @(
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
+                    @{ name = 'Expired (copilot)'; tier = 'fast'; status = 'retiring'; provider = 'OpenAI'; retiredDate = (Get-Date).AddDays(-1).ToString('yyyy-MM-dd') }
+                    @{ name = 'Retiring Today (copilot)'; tier = 'fast'; status = 'retiring'; provider = 'OpenAI'; retiredDate = (Get-Date).ToString('yyyy-MM-dd') }
+                    @{ name = 'Malformed (copilot)'; tier = 'fast'; status = 'retiring'; provider = 'OpenAI'; retiredDate = 'not-a-date' }
+                )
+            }
+            $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:PrunePath -Encoding utf8
+
+            $release = @(@{ name = 'Model A'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Model A'; input = '$2.00'; provider = 'openai' })
+
+            $script:PruneResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:PrunePath
+        }
+
+        It 'Drops an entry whose retirement date has passed' {
+            $script:PruneResult.finalModels.name | Should -Not -Contain 'Expired (copilot)'
+        }
+
+        It 'Keeps an entry retiring today for the whole of its final day' {
+            $script:PruneResult.finalModels.name | Should -Contain 'Retiring Today (copilot)'
+        }
+
+        It 'Keeps an entry whose retirement date cannot be parsed' {
+            $script:PruneResult.finalModels.name | Should -Contain 'Malformed (copilot)'
+        }
+
+        It 'Leaves active models untouched' {
+            $script:PruneResult.finalModels.name | Should -Contain 'Model A (copilot)'
+        }
+    }
+
+    Context 'when a removed model has an archived upstream record' {
+        BeforeAll {
+            $script:ArchivedPath = Join-Path $script:CatalogDir 'archived-catalog.json'
+            $existingCatalog = @{
+                lastUpdated = '2026-01-01'
+                source      = 'https://example.com'
+                models      = @(
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
+                    @{ name = 'Goldeneye (copilot)'; tier = 'free'; status = 'ga'; provider = 'Unknown' }
+                )
+            }
+            $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:ArchivedPath -Encoding utf8
+
+            $release = @(@{ name = 'Model A'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Model A'; input = '$2.00'; provider = 'openai' })
+
+            $script:ArchivedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:ArchivedPath
+        }
+
+        It 'Replaces the placeholder provider with the archived value' {
+            $entry = $script:ArchivedResult.finalModels | Where-Object { $_.name -eq 'Goldeneye (copilot)' }
+            $entry.provider | Should -Be 'GitHub'
+        }
+
+        It 'Replaces the placeholder tier with the archived value' {
+            $entry = $script:ArchivedResult.finalModels | Where-Object { $_.name -eq 'Goldeneye (copilot)' }
+            $entry.tier | Should -Be 'standard'
+        }
+    }
+
+    Context 'when a provider cannot be resolved from upstream or name' {
+        It 'Warns instead of writing the Unknown sentinel silently' {
+            $unresolvedPath = Join-Path $script:CatalogDir 'unresolved-catalog.json'
+            $release = @(@{ name = 'Mystery Model'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Mystery Model'; input = '$2.00'; provider = 'new_vendor' })
+
+            Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $unresolvedPath | Out-Null
+
+            Should -Invoke Write-Warning -ParameterFilter { $Message -like '*unresolved provider*' } -Times 1 -Exactly
         }
     }
 

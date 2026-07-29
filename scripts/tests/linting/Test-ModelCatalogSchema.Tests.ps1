@@ -53,4 +53,9 @@ Describe 'model-catalog.json invariants the schema cannot express' -Tag 'Unit' {
         $duplicates = @($script:catalog.models.name | Group-Object | Where-Object { $_.Count -gt 1 })
         $duplicates.Count | Should -Be 0 -Because "duplicate names break catalog lookups: $($duplicates.Name -join ', ')"
     }
+
+    It 'Resolves a real provider for every model' {
+        $unresolved = @($script:catalog.models | Where-Object { $_.provider -eq 'Unknown' })
+        $unresolved.Count | Should -Be 0 -Because "'Unknown' is a generator sentinel, not a provider: $($unresolved.name -join ', ')"
+    }
 }
