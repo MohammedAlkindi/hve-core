@@ -15,12 +15,6 @@
       "description": "Architecture Decision Records under docs/planning/adrs/NNNN-{kebab-case}.md"
     },
     {
-      "pattern": "scripts/linting/rules/adr-consistency-rules.json",
-      "scope": "adr-consistency-rules",
-      "schema": "adr-consistency-rules.schema.json",
-      "description": "ADR consistency rule registry consumed by Validate-AdrConsistency.ps1"
-    },
-    {
       "pattern": "docs/**/*.md",
       "scope": "docs",
       "schema": "docs-frontmatter.schema.json",
