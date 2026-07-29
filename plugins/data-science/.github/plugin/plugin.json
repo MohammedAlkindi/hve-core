@@ -13,11 +13,7 @@
   ],
   "skills": [
     "skills/project-planning/",
-    "skills/rai/"
-  ],
-  "rules": [
-    "instructions/coding-standards/",
-    "instructions/rai-planning/",
-    "instructions/shared/"
+    "skills/rai/",
+    "skills/rpi/"
   ]
 }

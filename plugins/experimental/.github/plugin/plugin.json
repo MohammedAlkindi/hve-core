@@ -4,17 +4,14 @@
   "version": "3.3.101",
   "agents": [
     "agents/experimental/",
-    "agents/experimental/subagents/"
+    "agents/experimental/subagents/",
+    "agents/hve-core/subagents/"
   ],
   "commands": [
     "commands/experimental/"
   ],
   "skills": [
-    "skills/experimental/"
-  ],
-  "rules": [
-    "instructions/experimental/",
-    "instructions/experimental/mural/",
-    "instructions/shared/"
+    "skills/experimental/",
+    "skills/rpi/"
   ]
 }
