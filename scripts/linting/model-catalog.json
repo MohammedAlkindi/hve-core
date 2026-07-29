@@ -233,8 +233,8 @@
         },
         {
             "name": "Gemini 3.5 Flash (copilot)",
-            "tier": "ultra",
-            "multiplier": 14,
+            "tier": "standard",
+            "multiplier": 1,
             "status": "ga",
             "provider": "Google"
         },
@@ -250,7 +250,7 @@
             "tier": "standard",
             "multiplier": 1,
             "status": "ga",
-            "provider": "Unknown"
+            "provider": "Moonshot AI"
         },
         {
             "name": "Grok 4.5 (copilot)",

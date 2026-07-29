@@ -108,6 +108,7 @@ function Get-ModelProvider {
         @{ Pattern = '^GPT-|^o\d'; Provider = 'OpenAI' }
         @{ Pattern = '^Gemini';    Provider = 'Google' }
         @{ Pattern = '^Grok';      Provider = 'xAI' }
+        @{ Pattern = '^Kimi';      Provider = 'Moonshot AI' }
     )
 
     foreach ($entry in $providerPatterns) {
