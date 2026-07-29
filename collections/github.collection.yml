@@ -1,14 +1,17 @@
 id: github
 name: GitHub Backlog Management
-description: GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts
+description: GitHub issue grooming, discovery, triage, sprint planning, and backlog execution agents and prompts
 tags:
   - github
   - issues
   - backlog
+  - grooming
   - triage
   - sprint
 items:
   # Agents
+  - path: .github/agents/github/backlog-grooming.agent.md
+    kind: agent
   - path: .github/agents/github/github-backlog-manager.agent.md
     kind: agent
   # Prompts
@@ -26,6 +29,8 @@ items:
     kind: prompt
   # Instructions
   - path: .github/instructions/github/github-backlog-discovery.instructions.md
+    kind: instruction
+  - path: .github/instructions/github/github-backlog-grooming.instructions.md
     kind: instruction
   - path: .github/instructions/github/github-backlog-planning.instructions.md
     kind: instruction

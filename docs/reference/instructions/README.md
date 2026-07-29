@@ -2,7 +2,7 @@
 title: Instructions
 description: Reference documentation for HVE Core instructions.
 sidebar_position: 0
-ms.date: 2026-07-23
+ms.date: 2026-07-29
 ---
 
 <!-- BEGIN AUTO-GENERATED: index -->
@@ -46,6 +46,7 @@ This page lists the generated reference documentation for HVE Core instructions.
 | [Experimental/Pptx](experimental/pptx.md)                                                         | Shared conventions for PowerPoint Builder agent, subagent, and powerpoint skill                                                                                                                                                                                                       |
 | [Github/Community Interaction](github/community-interaction.md)                                   | Community interaction voice, tone, and response templates for GitHub-facing agents and prompts                                                                                                                                                                                        |
 | [Github/Github Backlog Discovery](github/github-backlog-discovery.md)                             | GitHub issue backlog discovery: artifact-driven, user-centric, search-based                                                                                                                                                                                                           |
+| [Github/Github Backlog Grooming](github/github-backlog-grooming.md)                               | GitHub backlog grooming policy for complete coverage, advisory assessment, bounded reporting, and approved writeback                                                                                                                                                                  |
 | [Github/Github Backlog Planning](github/github-backlog-planning.md)                               | GitHub backlog management: planning files, search protocols, similarity assessment, and state persistence                                                                                                                                                                             |
 | [Github/Github Backlog Triage](github/github-backlog-triage.md)                                   | GitHub issue backlog triage: label suggestion, milestone assignment, and duplicate detection                                                                                                                                                                                          |
 | [Github/Github Backlog Update](github/github-backlog-update.md)                                   | GitHub issue backlog execution: consumes planning handoffs and runs issue operations                                                                                                                                                                                                  |

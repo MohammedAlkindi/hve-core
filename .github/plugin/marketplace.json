@@ -42,7 +42,7 @@
     {
       "name": "github",
       "source": "github",
-      "description": "GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts",
+      "description": "GitHub issue grooming, discovery, triage, sprint planning, and backlog execution agents and prompts",
       "version": "3.3.101"
     },
     {

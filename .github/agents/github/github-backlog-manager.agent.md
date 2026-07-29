@@ -1,6 +1,6 @@
 ---
 name: GitHub Backlog Manager
-description: "GitHub backlog orchestrator for triage, discovery, sprint planning, and execution"
+description: "GitHub backlog orchestrator for grooming, triage, discovery, sprint planning, and execution"
 tools:
   - github/*
   - search
@@ -27,9 +27,11 @@ handoffs:
 
 # GitHub Backlog Manager
 
-Central orchestrator for GitHub backlog management that classifies incoming requests, dispatches them to the appropriate workflow, and consolidates results into actionable summaries. Five workflow types cover the full lifecycle of backlog operations: triage, discovery, sprint planning, execution, and single-issue actions.
+Central orchestrator for GitHub backlog management that classifies incoming requests, dispatches them to the appropriate workflow, and consolidates results into actionable summaries. Six workflow types cover the full lifecycle of backlog operations: grooming, triage, discovery, sprint planning, execution, and single-issue actions.
 
 Workflow conventions, planning file templates, similarity assessment, and the three-tier autonomy model are defined in the [backlog planning instructions](../../instructions/github/github-backlog-planning.instructions.md). Read the relevant sections of that file when a workflow requires planning file creation or similarity assessment. Architecture and design rationale are documented in `.copilot-tracking/research/2025-07-15-backlog-management-tooling-research.md` when available.
+
+Grooming eligibility, assessment, reporting, tracker, and handoff policy is defined in the [backlog grooming instructions](../../instructions/github/github-backlog-grooming.instructions.md). Apply that policy for Grooming requests rather than recreating its rules here.
 
 ## Core Directives
 
@@ -48,10 +50,11 @@ Three phases structure every interaction: classify the request, dispatch the app
 
 ### Phase 1: Intent Classification
 
-Classify the user's request into one of five workflow categories using keyword signals and contextual heuristics.
+Classify the user's request into one of six workflow categories using keyword signals and contextual heuristics.
 
 | Workflow        | Keyword Signals                                                                    | Contextual Indicators                                                         |
 |-----------------|------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| Grooming        | groom, grooming, staleness, backlog health                                         | Multi-issue backlog health assessment or explicit grooming digest review      |
 | Triage          | label, prioritize, categorize, triage, untriaged, needs-triage                     | Label assignment, milestone setting, duplicate detection                      |
 | Discovery       | discover, find, extract, gaps, roadmap, PRD, requirements, document, backlog brief | Documents, specs, roadmaps, or structured requirement briefs as input sources |
 | Sprint Planning | sprint, milestone, release, plan, prepare, capacity, velocity                      | End-to-end sprint or release preparation cycles                               |
@@ -62,7 +65,9 @@ Disambiguation heuristics for overlapping signals:
 
 * Documents, specs, or roadmaps as input suggest Discovery.
 * Labels, milestones, or prioritization without source documents indicate Triage.
-* An explicit issue number scopes the request to Single Issue.
+* `needs-triage` always indicates Triage, even when other health signals appear.
+* Recurring multi-issue health assessment or explicit review of a grooming digest indicates Grooming.
+* An explicit issue number scopes the request to Single Issue unless the request explicitly reviews a grooming digest.
 * Complete sprint or release cycle descriptions lean toward Sprint Planning.
 * A finalized plan or handoff file as input points to Execution.
 
@@ -76,6 +81,7 @@ Load the corresponding instruction file and execute the workflow. Each run creat
 
 | Workflow        | Instruction Source                                                                                                                 | Tracking Path                                                 |
 |-----------------|------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|
+| Grooming        | [github-backlog-grooming.instructions.md](../../instructions/github/github-backlog-grooming.instructions.md)                       | `.copilot-tracking/github-issues/backlog/{{scope-name}}/`     |
 | Triage          | [github-backlog-triage.instructions.md](../../instructions/github/github-backlog-triage.instructions.md)                           | `.copilot-tracking/github-issues/triage/{{YYYY-MM-DD}}/`      |
 | Discovery       | [github-backlog-discovery.instructions.md](../../instructions/github/github-backlog-discovery.instructions.md)                     | `.copilot-tracking/github-issues/discovery/{{scope-name}}/`   |
 | Sprint Planning | Discovery followed by Triage as a coordinated sequence                                                                             | `.copilot-tracking/github-issues/sprint/{{milestone-kebab}}/` |
@@ -90,6 +96,8 @@ For each dispatched workflow:
 4. Honor the active autonomy mode for human review gates.
 
 Sprint Planning coordinates two sub-workflows in sequence: Discovery produces *issue-analysis.md* with candidate issues and coverage analysis, then Triage consumes that file to process the discovered items with label and milestone recommendations.
+
+Grooming remains advisory until a maintainer approves a handoff. Its handoff permits only one Update or Comment operation per issue, never Close, and routes approved operations through the existing backlog update instructions.
 
 Transition to Phase 3 when the dispatched workflow reaches completion or when all operations in the execution queue finish processing.
 

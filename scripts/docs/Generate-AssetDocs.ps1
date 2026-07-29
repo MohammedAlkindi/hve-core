@@ -319,6 +319,12 @@ function New-AssetDocContent {
             throw "Overview markers missing in $($Model.DocRel); refusing to regenerate because doing so would discard human-authored sections. Restore the AUTO-GENERATED markers (or delete the page to re-scaffold) and re-run."
         }
         $humanTail = $split.After
+        if (-not $Model.Interactive) {
+            $howToUse = [regex]::Match($humanTail, '(?ms)^## How to use it\s*\r?\n(?<body>.*?)(?=^## |\z)')
+            if ($howToUse.Success -and $howToUse.Groups['body'].Value.Contains('<!-- asset-docs:stub -->')) {
+                $humanTail = Remove-HowToUseSection -Tail $humanTail
+            }
+        }
     }
     else {
         $msDate = $today

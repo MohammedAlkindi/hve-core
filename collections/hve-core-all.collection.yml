@@ -71,6 +71,8 @@ items:
   kind: agent
 - path: .github/agents/experimental/subagents/pptx-subagent.agent.md
   kind: agent
+- path: .github/agents/github/backlog-grooming.agent.md
+  kind: agent
 - path: .github/agents/github/github-backlog-manager.agent.md
   kind: agent
 - path: .github/agents/hve-core/documentation.agent.md
@@ -416,6 +418,8 @@ items:
 - path: .github/instructions/github/community-interaction.instructions.md
   kind: instruction
 - path: .github/instructions/github/github-backlog-discovery.instructions.md
+  kind: instruction
+- path: .github/instructions/github/github-backlog-grooming.instructions.md
   kind: instruction
 - path: .github/instructions/github/github-backlog-planning.instructions.md
   kind: instruction

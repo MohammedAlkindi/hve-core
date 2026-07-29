@@ -1,8 +1,8 @@
 ---
 title: GitHub Backlog Manager
-description: "GitHub backlog orchestrator for triage, discovery, sprint planning, and execution"
-sidebar_position: 1
-ms.date: 2026-07-03
+description: "GitHub backlog orchestrator for grooming, triage, discovery, sprint planning, and execution"
+sidebar_position: 2
+ms.date: 2026-07-29
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -17,7 +17,7 @@ ms.date: 2026-07-03
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-GitHub backlog orchestrator for triage, discovery, sprint planning, and execution
+GitHub backlog orchestrator for grooming, triage, discovery, sprint planning, and execution
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

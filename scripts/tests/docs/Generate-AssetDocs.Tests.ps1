@@ -475,6 +475,26 @@ Describe 'Invoke-AssetDocsGeneration - interactivity' -Tag 'Unit' {
     }
 }
 
+Describe 'Invoke-AssetDocsGeneration - interactivity migration' -Tag 'Unit' {
+    BeforeAll {
+        $script:repo = New-AssetFixtureRepo
+        Invoke-AssetDocsGeneration -RepoRoot $script:repo -TemplatePath $script:TemplatePath | Out-Null
+        $agentPath = Join-Path $script:repo '.github/agents/hve-core/alpha-agent.agent.md'
+        $agent = Get-Content -LiteralPath $agentPath -Raw
+        $agent = $agent -replace '(?m)^description:', "user-invocable: false`ndescription:"
+        Set-Content -LiteralPath $agentPath -Value $agent -Encoding utf8NoBOM -NoNewline
+        Invoke-AssetDocsGeneration -RepoRoot $script:repo -TemplatePath $script:TemplatePath | Out-Null
+        $script:content = Get-Content -LiteralPath (Join-Path $script:repo 'docs/reference/agents/hve-core/alpha-agent.md') -Raw
+    }
+
+    It 'removes untouched interactive scaffolding when an existing agent becomes background-only' {
+        $script:content | Should -Match 'Background agent'
+        $script:content | Should -Match '(?m)^\| Interactive\s+\| No\s+\|$'
+        $script:content | Should -Not -Match '## How to use it'
+        $script:content | Should -Match '## Example usage'
+    }
+}
+
 Describe 'Invoke-AssetDocsGeneration - WhatIf' -Tag 'Unit' {
     BeforeAll {
         $script:repo = New-AssetFixtureRepo

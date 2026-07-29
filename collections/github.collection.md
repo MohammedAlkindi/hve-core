@@ -8,9 +8,10 @@ Manage GitHub issue backlogs with agents for discovery, triage, sprint planning,
 
 ### Chat Agents
 
-| Name                       | Description                                                                       |
-|----------------------------|-----------------------------------------------------------------------------------|
-| **github-backlog-manager** | GitHub backlog orchestrator for triage, discovery, sprint planning, and execution |
+| Name                       | Description                                                                                                           |
+|----------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| **backlog-grooming**       | Assesses open GitHub issues for backlog health and returns bounded advisory reports without mutating candidate issues |
+| **github-backlog-manager** | GitHub backlog orchestrator for grooming, triage, discovery, sprint planning, and execution                           |
 
 ### Prompts
 
@@ -29,6 +30,7 @@ Manage GitHub issue backlogs with agents for discovery, triage, sprint planning,
 |-------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **github/community-interaction**    | Community interaction voice, tone, and response templates for GitHub-facing agents and prompts                                                                                                                                                              |
 | **github/github-backlog-discovery** | GitHub issue backlog discovery: artifact-driven, user-centric, search-based                                                                                                                                                                                 |
+| **github/github-backlog-grooming**  | GitHub backlog grooming policy for complete coverage, advisory assessment, bounded reporting, and approved writeback                                                                                                                                        |
 | **github/github-backlog-planning**  | GitHub backlog management: planning files, search protocols, similarity assessment, and state persistence                                                                                                                                                   |
 | **github/github-backlog-triage**    | GitHub issue backlog triage: label suggestion, milestone assignment, and duplicate detection                                                                                                                                                                |
 | **github/github-backlog-update**    | GitHub issue backlog execution: consumes planning handoffs and runs issue operations                                                                                                                                                                        |

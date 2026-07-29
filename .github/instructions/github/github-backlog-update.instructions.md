@@ -61,6 +61,8 @@ Validate the handoff before processing:
 * Call `mcp_github_list_issue_types` to confirm whether the organization supports issue types before using the `type` field.
 * Map temporary ID placeholders (`{{TEMP-N}}` and namespaced variants) to execution order so parent issues are created before children that reference them.
 * Apply the Content Sanitization Guards from #file:./github-backlog-planning.instructions.md to all GitHub-bound fields (issue titles, bodies, comments, and other text fields) to resolve `.copilot-tracking/` paths, planning reference IDs (`IS[NNN]`, `WI-SEC-{NNN}`, `WI-RAI-{NNN}`, `WI-SSSC-{NNN}`), and template ID placeholders before execution.
+* Parse each optional `Expected Updated At` value as an RFC 3339 timestamp. Do not process a guarded operation when the value is malformed.
+* For a Grooming handoff, reject Close and all operations other than Update or Comment, require `Expected Updated At` on every operation, and require at most one mutating operation per issue.
 * When validation fails for a non-critical field (invalid label, unknown milestone), log a warning and continue. When validation fails for a critical field (missing repository, authentication error), abort with a message.
 
 ### Step 2: Process Operations
@@ -80,6 +82,8 @@ Checkpoint after each operation completes:
 * After each Create, resolve the temporary ID placeholder (whether `{{TEMP-N}}` or a namespaced variant) to the actual issue number returned by `mcp_github_issue_write`. Record the mapping in handoff-logs.md.
 * When a temporary ID reference appears in a Link or Update operation, resolve it from the mapping table before calling the MCP tool.
 * Before each API call, re-apply the Planning Reference ID Guard from #file:./github-backlog-planning.instructions.md to catch planning reference IDs (such as `IS002`, `WI-SEC-001`, `WI-RAI-001`) that became resolvable after new temporary ID mappings were established.
+* Immediately before an Update or Comment carrying `Expected Updated At`, call `mcp_github_issue_read` with method `get`. Compare the returned `updated_at` string exactly with the recorded value; the initialization read does not satisfy this check.
+* When the timestamps differ, do not call a mutation tool. Mark the operation complete as `Skipped: stale approval`, record `Expected Updated At` and `Observed Updated At` in handoff-logs.md, invalidate the prior approval for that issue, and continue. The manager must rehydrate the issue and obtain renewed approval before proposing another operation.
 * Update the checkbox to `[x]` in handoff.md after each operation completes.
 * Append an entry to handoff-logs.md recording the issue number, action taken, and any notes.
 * On failure, log the error and continue processing remaining operations. Do not abort the batch for a single failure.
@@ -113,6 +117,8 @@ When an operation has no pending changes:
 | Set PR Labels    | `mcp_github_issue_write`       | `update` | owner, repo, issue_number (PR number), labels    |
 | Set PR Assignees | `mcp_github_issue_write`       | `update` | owner, repo, issue_number (PR number), assignees |
 
+`Expected Updated At` is an optional freshness precondition for Update and Comment operations and is required by Grooming handoffs. It is evidence captured during approval, not a replacement for the immediate pre-mutation read.
+
 Pull request field operations use `mcp_github_issue_write` because GitHub treats pull requests as a superset of issues sharing the same number space. Pass the PR number as `issue_number` to set milestones, labels, or assignees on a pull request. The `mcp_github_update_pull_request` tool does not support these fields.
 
 When an operation produces community-visible output (closing issues, requesting information, acknowledging contributions), follow the scenario templates in #file:./community-interaction.instructions.md. Apply the comment-before-closure pattern: call `mcp_github_add_issue_comment` with the appropriate scenario template before any state-changing call such as `mcp_github_issue_write` with closure.
@@ -130,6 +136,10 @@ Log the error in handoff-logs.md with `Failed` status. Skip dependent child issu
 ### Failed Update
 
 Log the error in handoff-logs.md with `Failed` status. Continue processing remaining operations.
+
+### Stale Approval
+
+When an immediate freshness read returns an `updated_at` value different from `Expected Updated At`, make no mutation call. Log `Skipped: stale approval` with the expected and observed values, invalidate the prior approval, and continue processing other issues. Rehydration and renewed approval are required before retrying that issue.
 
 ### Issue Not Found (404)
 

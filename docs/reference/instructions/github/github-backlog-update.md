@@ -1,8 +1,8 @@
 ---
 title: Github/Github Backlog Update
 description: "GitHub issue backlog execution: consumes planning handoffs and runs issue operations"
-sidebar_position: 5
-ms.date: 2026-07-03
+sidebar_position: 6
+ms.date: 2026-07-29
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
