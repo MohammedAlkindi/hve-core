@@ -3,26 +3,38 @@
   "description": "Security review, planning, incident response, risk assessment, and vulnerability analysis",
   "version": "3.3.101",
   "agents": [
-    "agents/hve-core/subagents/",
-    "agents/rai-planning/",
-    "agents/rai-planning/subagents/",
-    "agents/security/",
-    "agents/security/subagents/"
+    "../../.github/agents/hve-core/subagents/",
+    "../../.github/agents/rai-planning/",
+    "../../.github/agents/rai-planning/subagents/",
+    "../../.github/agents/security/",
+    "../../.github/agents/security/subagents/"
   ],
   "commands": [
-    "commands/rai-planning/",
-    "commands/security/"
+    "../../.github/prompts/rai-planning/",
+    "../../.github/prompts/security/"
   ],
   "skills": [
-    "skills/project-planning/",
-    "skills/rai/",
-    "skills/rpi/",
-    "skills/security/",
-    "skills/shared/"
+    "../../.github/skills/project-planning/rai-planner",
+    "../../.github/skills/project-planning/security-planning",
+    "../../.github/skills/rai/rai-standards",
+    "../../.github/skills/rpi/rpi-research",
+    "../../.github/skills/security/owasp-agentic",
+    "../../.github/skills/security/owasp-cicd",
+    "../../.github/skills/security/owasp-infrastructure",
+    "../../.github/skills/security/owasp-llm",
+    "../../.github/skills/security/owasp-mcp",
+    "../../.github/skills/security/owasp-top-10",
+    "../../.github/skills/security/secure-by-design",
+    "../../.github/skills/security/security-reviewer-formats",
+    "../../.github/skills/security/supply-chain-security",
+    "../../.github/skills/security/vex",
+    "../../.github/skills/shared/backlog-templates",
+    "../../.github/skills/shared/pr-reference",
+    "../../.github/skills/shared/telemetry-foundations"
   ],
   "rules": [
-    "instructions/rai-planning/",
-    "instructions/security/",
-    "instructions/shared/"
+    "../../.github/instructions/rai-planning/",
+    "../../.github/instructions/security/",
+    "../../.github/instructions/shared/"
   ]
 }

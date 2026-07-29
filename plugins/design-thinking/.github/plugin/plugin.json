@@ -3,21 +3,28 @@
   "description": "Design Thinking coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods",
   "version": "3.3.101",
   "agents": [
-    "agents/design-thinking/",
-    "agents/hve-core/",
-    "agents/hve-core/subagents/"
+    "../../.github/agents/design-thinking/",
+    "../../.github/agents/hve-core/",
+    "../../.github/agents/hve-core/subagents/"
   ],
   "commands": [
-    "commands/design-thinking/",
-    "commands/hve-core/"
+    "../../.github/prompts/design-thinking/",
+    "../../.github/prompts/hve-core/"
   ],
   "skills": [
-    "skills/design-thinking/",
-    "skills/rpi/",
-    "skills/shared/"
+    "../../.github/skills/design-thinking/dt-coaching-foundation",
+    "../../.github/skills/design-thinking/dt-curriculum",
+    "../../.github/skills/design-thinking/dt-methods",
+    "../../.github/skills/design-thinking/dt-rpi-integration",
+    "../../.github/skills/rpi/rpi-implement",
+    "../../.github/skills/rpi/rpi-plan",
+    "../../.github/skills/rpi/rpi-plan-critique",
+    "../../.github/skills/rpi/rpi-research",
+    "../../.github/skills/rpi/rpi-review",
+    "../../.github/skills/shared/telemetry-foundations"
   ],
   "rules": [
-    "instructions/",
-    "instructions/shared/"
+    "../../.github/instructions/shared/",
+    "../../.github/skills/design-thinking/dt-methods/references/"
   ]
 }

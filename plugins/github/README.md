@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # GitHub Backlog Management
-
-GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts
-
-## Overview
 
 Manage GitHub issue backlogs with agents for discovery, triage, sprint planning, and execution. This collection brings structured backlog management workflows directly into VS Code.
 
@@ -47,14 +42,3 @@ Manage GitHub issue backlogs with agents for discovery, triage, sprint planning,
 | **gh-code-scanning** | Retrieves and groups GitHub code scanning alerts by rule and severity using the gh CLI |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install github@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

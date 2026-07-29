@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # Coding Standards
-
-Language-specific coding instructions and pre-PR code review agents for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform projects
-
-## Overview
 
 Enforce language-specific coding conventions and best practices across your projects, with pre-PR code review agents for catching functional defects early. This collection provides instructions for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform that are automatically applied based on file patterns, plus agents that review branch diffs before opening pull requests.
 
@@ -61,14 +56,3 @@ Enforce language-specific coding conventions and best practices across your proj
 | **telemetry-foundations** | Declarative OpenTelemetry-aligned telemetry vocabulary and instrumentation conventions for traces, metrics, logs, and PII handling                                                                                                                                                               |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install coding-standards@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

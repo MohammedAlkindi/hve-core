@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # Jira Integration
-
-Jira backlog management, PRD issue planning, and issue operations through agents, prompts, instructions, and a Python skill
-
-## Overview
 
 Manage Jira backlog workflows and PRD-driven issue planning from VS Code. This collection adds dedicated Jira agents, prompts, and instructions on top of the Jira skill so discovery, triage, execution, and planning workflows use the same tracking and handoff patterns as the rest of HVE Core.
 
@@ -46,14 +41,3 @@ Manage Jira backlog workflows and PRD-driven issue planning from VS Code. This c
 | **jira** | Jira issue workflows for search, issue updates, transitions, comments, and field discovery via the Jira REST API. Use when you need to search with JQL, inspect an issue, create or update work items, move an issue between statuses, post comments, or discover required fields for issue creation. |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install jira@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

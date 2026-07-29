@@ -1,11 +1,4 @@
-<!-- markdownlint-disable-file -->
 # Experimental
-
-Experimental and preview artifacts not yet promoted to stable collections
-
-> **⚠️ Experimental** — This collection is experimental. Contents and behavior may change or be removed without notice.
-
-## Overview
 
 Experimental and preview artifacts not yet promoted to stable collections. Items in this collection may change or be removed without notice.
 
@@ -59,14 +52,3 @@ Experimental and preview artifacts not yet promoted to stable collections. Items
 | **vscode-playwright**    | VS Code screenshot capture using Playwright MCP with serve-web for slide decks and documentation                                                                                                                                        |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install experimental@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

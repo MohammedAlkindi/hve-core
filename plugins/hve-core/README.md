@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # HVE Core Workflow
-
-Opinionated, rapidly evolving agentic SDLC patterns for RPI workflows, HVE Builder, and Git operations
-
-## Overview
 
 HVE Core provides the flagship RPI (Research, Plan, Implement, Review, Follow-up) workflow for completing complex tasks through an evidence-led lifecycle. The RPI workflow coordinates skills and bounded delegation to deliver researched, planned, implemented, reviewed, and routed outcomes. This collection also includes Git workflow prompts for commit messages, merge operations, repository setup, and pull request management.
 
@@ -102,14 +97,3 @@ HVE Core provides the flagship RPI (Research, Plan, Implement, Review, Follow-up
 | **telemetry** | Records Copilot session lifecycle events to local telemetry for reporting. |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install hve-core@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

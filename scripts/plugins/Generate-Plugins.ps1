@@ -9,8 +9,9 @@
 
 .DESCRIPTION
     Reads collection YAML manifests from the collections/ directory and generates
-    plugin directories under plugins/ with copied source artifacts, plugin.json
-    manifests, and auto-generated README files.
+    plugin.json and README.md files under plugins/. Each plugin.json references
+    the collection's canonical source artifacts under the repository .github tree,
+    while README.md initially mirrors the refreshed collection markdown.
 
     Supports generating all plugins or specific collections. Existing plugin
     directories are replaced with complete generated trees.
@@ -267,9 +268,8 @@ function Invoke-PluginGeneration {
 
     .DESCRIPTION
         Loads collection manifests from the collections/ directory, optionally
-        filters to specified IDs, and generates plugin directory structures
-        under plugins/. Each plugin receives copied source artifacts,
-        a plugin.json manifest, and an auto-generated README.
+        filters to specified IDs, and generates plugin.json manifests under
+        plugins/. Component paths reference canonical repository source artifacts.
 
     .PARAMETER RepoRoot
         Absolute path to the repository root directory.
@@ -278,7 +278,7 @@ function Invoke-PluginGeneration {
         Optional. Array of collection IDs to generate. Generates all when omitted.
 
     .PARAMETER Refresh
-        Accepted for compatibility. Complete plugin trees are always replaced.
+        Accepted for compatibility. Generated plugin roots are always replaced.
 
     .PARAMETER DryRun
         When specified, logs actions without creating files or directories.
@@ -461,7 +461,7 @@ function Invoke-PluginGeneration {
                 -DryRun
 
             if (Get-Item -LiteralPath $pluginDir -Force -ErrorAction SilentlyContinue) {
-                Write-Host "  [DRY RUN] Would replace complete plugin tree: $pluginDir" -ForegroundColor Yellow
+                Write-Host "  [DRY RUN] Would replace plugin root: $pluginDir" -ForegroundColor Yellow
             }
         }
         else {

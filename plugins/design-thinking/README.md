@@ -1,11 +1,4 @@
-<!-- markdownlint-disable-file -->
 # Design Thinking
-
-Design Thinking coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods
-
-> **🔍 Preview** — This collection is in preview. Core features are complete and functional but refinements may follow.
-
-## Overview
 
 Coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods. The collection supports the HVE Design Thinking pyramid structure spanning Problem, Solution, and Implementation spaces.
 
@@ -69,14 +62,3 @@ Coaching identity, quality constraints, and methodology skills for AI-enhanced d
 | **telemetry-foundations**  | Declarative OpenTelemetry-aligned telemetry vocabulary and instrumentation conventions for traces, metrics, logs, and PII handling                                                                                                                                                                                    |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install design-thinking@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # GitLab Integration
-
-GitLab merge request and pipeline workflows through a Python skill
-
-## Overview
 
 Use GitLab merge request and pipeline workflows from VS Code through a focused Python skill for inspecting merge requests, posting notes, triggering pipelines, and reading job logs.
 
@@ -24,14 +19,3 @@ Use GitLab merge request and pipeline workflows from VS Code through a focused P
 | **gitlab** | Manage GitLab merge requests and pipelines with a Python CLI |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install gitlab@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

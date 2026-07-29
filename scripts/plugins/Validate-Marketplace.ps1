@@ -221,10 +221,10 @@ function Get-RegularObjectError {
 function Test-PluginPackageContent {
     <#
     .SYNOPSIS
-        Validates that a packaged plugin contains real content expected by the marketplace manifest.
+        Validates a generated plugin and its repository source references.
 
     .PARAMETER PluginRoot
-        Absolute path to the plugin package directory.
+        Absolute path to the generated plugin root.
 
     .PARAMETER PluginName
         Marketplace plugin name for error messages.
@@ -232,8 +232,11 @@ function Test-PluginPackageContent {
     .PARAMETER ExpectedVersion
         Expected plugin manifest version.
 
+    .PARAMETER RepoRoot
+        Absolute repository root that must contain every component target.
+
     .OUTPUTS
-        [string[]] Validation errors for missing in-package content.
+        [string[]] Validation errors for invalid manifests or source references.
     #>
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -246,49 +249,53 @@ function Test-PluginPackageContent {
 
         [Parameter(Mandatory = $false)]
         [AllowNull()]
-        [string]$ExpectedVersion
+        [string]$ExpectedVersion,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
     )
 
     $pluginErrors = @()
-    $canonicalRoot = [System.IO.Path]::TrimEndingDirectorySeparator(
+    $canonicalPluginRoot = [System.IO.Path]::TrimEndingDirectorySeparator(
         [System.IO.Path]::GetFullPath($PluginRoot)
     )
-    $rootPrefix = $canonicalRoot + [System.IO.Path]::DirectorySeparatorChar
-    $rootItem = Get-Item -LiteralPath $canonicalRoot -Force -ErrorAction SilentlyContinue
-    if (-not $rootItem -or -not $rootItem.PSIsContainer) {
-        return @("plugin '$PluginName' package directory not found: $PluginRoot")
+    $canonicalRepoRoot = [System.IO.Path]::TrimEndingDirectorySeparator(
+        [System.IO.Path]::GetFullPath($RepoRoot)
+    )
+    $manifestPath = Join-Path $canonicalPluginRoot '.github/plugin/plugin.json'
+    $readmePath = Join-Path $canonicalPluginRoot 'README.md'
+    $manifestError = Get-RegularObjectError -Path $manifestPath -ExpectedType File -DisplayPath '.github/plugin/plugin.json'
+    if ($manifestError) {
+        return @($manifestError)
     }
-    if ($rootItem.LinkType -or ($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-        $pluginErrors += "plugin '$PluginName' package root is a link or reparse point"
-    }
-
-    foreach ($item in Get-ChildItem -LiteralPath $canonicalRoot -Force -Recurse) {
-        if ($item.LinkType -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-            $pluginErrors += "plugin '$PluginName' package contains a link or reparse point: $($item.FullName)"
-        }
-    }
-
-    $readmeError = Get-RegularObjectError -Path (Join-Path $canonicalRoot 'README.md') `
-        -ExpectedType File -DisplayPath 'README.md'
+    $readmeError = Get-RegularObjectError -Path $readmePath -ExpectedType File -DisplayPath 'README.md'
     if ($readmeError) {
         $pluginErrors += $readmeError
     }
 
-    $manifestPath = Join-Path $canonicalRoot '.github/plugin/plugin.json'
-    $manifestError = Get-RegularObjectError -Path $manifestPath -ExpectedType File -DisplayPath '.github/plugin/plugin.json'
-    if ($manifestError) {
-        $pluginErrors += $manifestError
+    $generatedFiles = @(Get-ChildItem -LiteralPath $canonicalPluginRoot -File -Recurse -Force)
+    $expectedFiles = @(
+        [System.IO.Path]::GetFullPath($manifestPath)
+        [System.IO.Path]::GetFullPath($readmePath)
+    )
+    $unexpectedFiles = @($generatedFiles | Where-Object {
+        [System.IO.Path]::GetFullPath($_.FullName) -notin $expectedFiles
+    })
+    if ($unexpectedFiles.Count -gt 0) {
+        $pluginErrors += "plugin '$PluginName' must contain only README.md and .github/plugin/plugin.json"
     }
-    if ($pluginErrors.Count -gt 0) {
-        return @($pluginErrors)
+
+    foreach ($item in Get-ChildItem -LiteralPath $canonicalPluginRoot -Force -Recurse) {
+        if ($item.LinkType -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            $pluginErrors += "plugin '$PluginName' contains a link or reparse point: $($item.FullName)"
+        }
     }
 
     try {
         $manifest = [System.IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json -AsHashtable
     }
     catch {
-        $pluginErrors += "plugin '$PluginName' has invalid plugin.json content"
-        return @($pluginErrors)
+        return @($pluginErrors + "plugin '$PluginName' has invalid plugin.json content")
     }
 
     if ($manifest.name -ne $PluginName) {
@@ -305,17 +312,17 @@ function Test-PluginPackageContent {
         rules    = 'Directory'
         hooks    = 'File'
     }
+    $componentRoot = Join-Path $canonicalRepoRoot '.github'
     foreach ($field in $componentTypes.Keys) {
         if (-not $manifest.ContainsKey($field) -or $null -eq $manifest[$field]) {
             continue
         }
 
-        $fieldValue = $manifest[$field]
-        $declaredPaths = if ($fieldValue -is [string]) {
-            @($fieldValue)
+        $declaredPaths = if ($manifest[$field] -is [string]) {
+            @($manifest[$field])
         }
-        elseif ($fieldValue -is [System.Collections.IEnumerable]) {
-            @($fieldValue)
+        elseif ($manifest[$field] -is [System.Collections.IEnumerable]) {
+            @($manifest[$field])
         }
         else {
             $pluginErrors += "plugin '$PluginName' manifest field '$field' must contain path strings"
@@ -323,30 +330,25 @@ function Test-PluginPackageContent {
         }
 
         foreach ($declaredPath in $declaredPaths) {
-            if ($declaredPath -isnot [string] -or [string]::IsNullOrWhiteSpace($declaredPath)) {
+            if ($declaredPath -isnot [string] -or [string]::IsNullOrWhiteSpace($declaredPath) -or
+                [System.IO.Path]::IsPathRooted($declaredPath)) {
                 $pluginErrors += "plugin '$PluginName' manifest field '$field' contains an invalid path"
                 continue
             }
-            if ([System.IO.Path]::IsPathRooted($declaredPath)) {
-                $pluginErrors += "plugin '$PluginName' manifest field '$field' path escapes plugin root: $declaredPath"
+
+            $resolvedPath = [System.IO.Path]::GetFullPath(
+                (Join-Path -Path $canonicalPluginRoot -ChildPath $declaredPath)
+            )
+            if (-not (Test-PathContainedByRoot -Path $resolvedPath -Root $canonicalRepoRoot) -or
+                -not (Test-PathContainedByRoot -Path $resolvedPath -Root $componentRoot)) {
+                $pluginErrors += "plugin '$PluginName' manifest field '$field' path is not a canonical repository source: $declaredPath"
                 continue
             }
 
-            $resolvedPath = [System.IO.Path]::GetFullPath((Join-Path -Path $canonicalRoot -ChildPath $declaredPath))
-            if (-not $resolvedPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $pluginErrors += "plugin '$PluginName' manifest field '$field' path escapes plugin root: $declaredPath"
-                continue
-            }
-            $targetError = Get-RegularObjectError -Path $resolvedPath -ExpectedType $componentTypes[$field] -DisplayPath $declaredPath
+            $targetError = Get-RegularObjectError -Path $resolvedPath `
+                -ExpectedType $componentTypes[$field] -DisplayPath $declaredPath
             if ($targetError) {
                 $pluginErrors += $targetError
-                continue
-            }
-            if ($field -eq 'rules') {
-                $ruleFiles = @(Get-ChildItem -LiteralPath $resolvedPath -Filter '*.instructions.md' -File -Recurse -Force)
-                if ($ruleFiles.Count -eq 0) {
-                    $pluginErrors += "rules path contains no .instructions.md files: $declaredPath"
-                }
             }
         }
     }
@@ -547,7 +549,7 @@ function Invoke-MarketplaceValidation {
                 else {
                     $pluginPackageRoot = Join-Path -Path $pluginsRoot -ChildPath $plugin.source
                     $pluginErrors += Test-PluginPackageContent -PluginRoot $pluginPackageRoot `
-                        -PluginName $pluginName -ExpectedVersion $expectedVersion
+                        -PluginName $pluginName -ExpectedVersion $expectedVersion -RepoRoot $RepoRoot
                 }
             }
 

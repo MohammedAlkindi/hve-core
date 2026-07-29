@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # Project Planning
-
-PRDs, BRDs, ADRs, and architecture diagrams
-
-## Overview
 
 Create architecture decision records (MADR v4 + Y-Statement) with phase-gated coaching, ASR-trigger validation, supersession lineage, and per-project templates. Build PRDs, BRDs, and architecture diagrams through guided AI workflows. Evaluate AI-powered systems against Responsible AI standards and run STRIDE-based security model analysis with automated backlog generation.
 
@@ -124,14 +119,3 @@ The standalone `brd-author` skill and helper skills were consolidated into the `
 | `.github/skills/project-planning/brd-author/`                      | `.github/skills/project-planning/requirements-author/`                          |
 | `.github/skills/project-planning/brd-author/templates/brd-full.md` | `.github/skills/project-planning/requirements-author/templates/brd/brd-full.md` |
 | `docs/templates/brd-template.md` (deleted)                         | `.github/skills/project-planning/requirements-author/templates/brd/brd-full.md` |
-
-## Install
-
-```bash
-copilot plugin install project-planning@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

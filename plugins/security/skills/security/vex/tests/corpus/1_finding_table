@@ -1,3 +1,0 @@
-0| Vulnerability | Package | Severity |
-| CVE-2024-1234 | pkg:npm/example@1.2.3 | High |
-| GHSA-xxxx-yyyy-zzzz | pkg:pypi/sample@2.0 | Critical |

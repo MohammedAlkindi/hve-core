@@ -1,12 +1,4 @@
-<!-- markdownlint-disable-file -->
 # Security
-
-Security review, planning, incident response, risk assessment, and vulnerability analysis
-
-> [!CAUTION]
-> The security agents and prompts in this collection are **assistive tools only**. They do not replace professional security tooling (SAST, DAST, SCA, penetration testing, compliance scanners) or qualified human review. All AI-generated security artifacts **must** be reviewed and validated by qualified security professionals before use. AI outputs may contain inaccuracies, miss critical threats, or produce recommendations that are incomplete or inappropriate for your environment.
-
-## Overview
 
 Security review, planning, incident response, risk assessment, vulnerability analysis, supply chain security, and responsible AI assessment for cloud and hybrid environments.
 
@@ -101,14 +93,3 @@ Security review, planning, incident response, risk assessment, vulnerability ana
 | **vex**                       | OpenVEX v0.2.0 specification reference plus VEX management playbooks - Brought to you by microsoft/hve-core.                                                                                                                                                                                     |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install security@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

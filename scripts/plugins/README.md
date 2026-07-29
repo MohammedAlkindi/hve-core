@@ -8,10 +8,10 @@ manifests.
 
 ## Scripts
 
-| Script                     | npm Command               | Description                                  |
-|----------------------------|---------------------------|----------------------------------------------|
-| Generate-Plugins.ps1       | `npm run plugin:generate` | Generate plugin directories from collections |
-| Modules/PluginHelpers.psm1 | (library)                 | Plugin symlink, manifest, and packaging      |
+| Script                     | npm Command               | Description                                      |
+|----------------------------|---------------------------|--------------------------------------------------|
+| Generate-Plugins.ps1       | `npm run plugin:generate` | Generate plugin manifests and READMEs             |
+| Modules/PluginHelpers.psm1 | (library)                 | Plugin and marketplace generation helpers        |
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ manifests.
 
 1. Author artifacts in `.github/` (agents, prompts, skills)
 2. Define collections in `collections/*.collection.yml`
-3. Run `npm run plugin:generate` to produce `plugins/`
+3. Run `npm run plugin:generate` to produce each plugin's manifest and README
 4. Commit generated `plugins/` to the repository
 
 ## Refreshing Plugins After Artifact Changes
@@ -31,7 +31,11 @@ manifests.
 npm run plugin:generate
 ```
 
-This regenerates all plugins from their collection manifests.
+This regenerates each `plugins/<collection>/.github/plugin/plugin.json` from its
+collection manifest and initially copies the refreshed collection markdown to
+`plugins/<collection>/README.md`. Component paths in `plugin.json` reference
+canonical artifacts under the repository's root `.github/` directory. README
+generation can evolve independently from collection markdown in future changes.
 
 ---
 

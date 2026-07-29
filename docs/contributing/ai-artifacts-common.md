@@ -229,7 +229,7 @@ When contributing a new artifact:
 4. Update the collection's `tags` array if your artifact introduces a new technology or domain not yet represented
 5. Run `npm run lint:yaml` to validate manifest syntax and schema compliance
 6. Run `npm run plugin:validate` to validate collection manifests
-7. Run `npm run plugin:generate` to regenerate plugin directories
+7. Run `npm run plugin:generate` to regenerate plugin manifests
 8. Run `npm run docs:test` to verify the Docusaurus site reflects the updated collection counts
 
 ### Repo-Specific Artifact Exclusion
@@ -430,7 +430,7 @@ Before submitting: Verify your artifact targets the current latest model version
 
 ## Plugin Generation
 
-The `plugins/` directory contains **auto-generated plugin bundles** created from collection manifests for use with GitHub Copilot CLI. These plugin directories are outputs of the build process and **MUST NOT be edited directly**.
+The `plugins/` directory contains auto-generated plugin manifests and READMEs created from collection sources for use with GitHub Copilot CLI. These files are build outputs and **MUST NOT be edited directly**.
 
 ### Generation Workflow
 
@@ -439,19 +439,17 @@ When you add an artifact to a collection manifest:
 1. Author artifact: Create your agent, prompt, instruction, or skill in `.github/`
 2. Update collection: Add an `items[]` entry to one or more `collections/*.collection.yml` files
 3. Validate collections: Run `npm run plugin:validate` to check manifest correctness
-4. Generate plugins: Run `npm run plugin:generate` to regenerate all plugin directories
+4. Generate plugins: Run `npm run plugin:generate` to regenerate all plugin manifests and READMEs
 5. Commit both: Commit the source artifact, collection manifest updates, AND generated plugin outputs together
 
 ### Plugin Directory Structure
 
-Each generated plugin directory contains:
+Each generated plugin directory contains two files:
 
-| Content              | Description                                                                      |
-|----------------------|----------------------------------------------------------------------------------|
-| Symlinked artifacts  | Direct symlinks to source files in `.github/` (preserves single source of truth) |
-| Generated README     | Auto-generated documentation listing all included artifacts                      |
-| Plugin manifest      | `plugin.json` file for GitHub Copilot CLI plugin system                          |
-| Marketplace metadata | Aggregated data for extension distribution                                       |
+| Content         | Description                                                                           |
+|-----------------|---------------------------------------------------------------------------------------|
+| Plugin manifest | `.github/plugin/plugin.json`, with paths to canonical root `.github/` source artifacts   |
+| Plugin README   | `README.md`, initially generated from the corresponding refreshed collection markdown |
 
 ### Critical Rules for Plugin Files
 
@@ -461,10 +459,9 @@ Each generated plugin directory contains:
 | Rule                     | Description                                                                            |
 |--------------------------|----------------------------------------------------------------------------------------|
 | Regenerate after changes | Always run `npm run plugin:generate` after modifying collection manifests or artifacts |
-| Symlinked files          | Markdown artifacts are symlinked, so edits to plugin files modify source artifacts     |
-| Generated files          | README and JSON files are generated fresh on each run                                  |
-| Durable edits            | Direct edits to plugin files will be overwritten or cause conflicts                    |
-| Source of truth          | Always edit the source artifact in `.github/`, not the plugin copy                     |
+| Generated files          | Each `plugin.json` and `README.md` is generated fresh on each run                       |
+| Durable edits            | Direct edits to generated plugin files will be overwritten                             |
+| Source of truth          | Edit `.github/` artifacts, collection manifests, or collection markdown                |
 
 ### When to Regenerate Plugins
 
@@ -472,8 +469,7 @@ Run `npm run plugin:generate` whenever you:
 
 * Add a new artifact to a collection manifest
 * Remove an artifact from a collection manifest
-* Modify artifact frontmatter (description, dependencies, handoffs)
-* Update artifact file content that affects generated README documentation
+* Modify artifact frontmatter that affects collection metadata
 * Change collection manifest metadata (tags, description, name)
 * Update the `hve-core-all` collection (auto-updated during generation)
 

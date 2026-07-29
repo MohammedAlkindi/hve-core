@@ -185,6 +185,7 @@ items:
     kind: agent
 display: {}
 "@ | Set-Content -Path (Join-Path $collectionsDir 'hve-core-all.collection.yml')
+    '# HVE Core All' | Set-Content -Path (Join-Path $collectionsDir 'hve-core-all.collection.md')
 
         # Deprecated collection
         @"
@@ -207,6 +208,7 @@ items:
   - path: .github/agents/col/test.agent.md
     kind: agent
 "@ | Set-Content -Path (Join-Path $collectionsDir 'experimental-col.collection.yml')
+    '# Experimental Collection' | Set-Content -Path (Join-Path $collectionsDir 'experimental-col.collection.md')
 
     Push-Location $script:maturityDir
     git init --quiet
@@ -317,6 +319,7 @@ items:
 display:
   color: blue
 "@ | Set-Content -Path (Join-Path $collectionsDir 'hve-core-all.collection.yml')
+    '# HVE Core All' | Set-Content -Path (Join-Path $collectionsDir 'hve-core-all.collection.md')
 
     Push-Location $script:tempDir
     git init --quiet
@@ -356,9 +359,14 @@ display:
         Test-Path (Join-Path $pluginDir '.plugin') | Should -BeFalse
     }
 
-    It 'Generates README.md' {
-        $readmePath = Join-Path $script:tempDir 'plugins/hve-core-all/README.md'
-        Test-Path $readmePath | Should -BeTrue
+    It 'Generates only plugin.json and README.md in the plugin root' {
+        $pluginDir = Join-Path $script:tempDir 'plugins/hve-core-all'
+        $generatedFiles = @(Get-ChildItem -LiteralPath $pluginDir -File -Recurse -Force)
+        $generatedFiles.Count | Should -Be 2
+        $generatedFiles.FullName | Should -Contain (Join-Path $pluginDir '.github/plugin/plugin.json')
+        $generatedFiles.FullName | Should -Contain (Join-Path $pluginDir 'README.md')
+        Get-Content -LiteralPath (Join-Path $pluginDir 'README.md') -Raw |
+            Should -BeExactly (Get-Content -LiteralPath (Join-Path $script:tempDir 'collections/hve-core-all.collection.md') -Raw)
     }
 
     It 'Writes one Included Artifacts heading to collection markdown' {
@@ -487,6 +495,9 @@ items:
     kind: prompt
     maturity: experimental
 "@ | Set-Content -Path $mixedPath
+        '# Mixed Collection' | Set-Content -Path (
+            Join-Path (Join-Path $script:tempDir 'collections') 'mixed.collection.md'
+        )
 
         $result = Invoke-PluginGeneration -RepoRoot $script:tempDir -CollectionIds @('mixed') -Refresh -Channel 'Stable'
         $result.Success | Should -BeTrue
@@ -503,10 +514,10 @@ items:
         # Orphan file and its now-empty parent directory are removed
         Test-Path (Join-Path $staleDir 'file.txt') | Should -BeFalse
         Test-Path $staleDir | Should -BeFalse
-        # Plugin directory itself still exists with generated files
+        # Plugin directory itself still exists with its generated manifest
         $pluginDir = Join-Path $script:tempDir 'plugins/hve-core-all'
         Test-Path $pluginDir | Should -BeTrue
-        Test-Path (Join-Path $pluginDir 'README.md') | Should -BeTrue
+        Test-Path (Join-Path $pluginDir '.github/plugin/plugin.json') | Should -BeTrue
     }
 
     It 'Logs DryRun message when refreshing existing plugin' {
@@ -520,7 +531,7 @@ items:
             -CollectionIds @('hve-core-all') `
             -Refresh -DryRun -Channel 'PreRelease' 6>&1
 
-        $dryRunMessages = @($output | Where-Object { "$_" -match 'DRY RUN.*Would replace complete plugin tree' })
+        $dryRunMessages = @($output | Where-Object { "$_" -match 'DRY RUN.*Would replace plugin root' })
         $dryRunMessages.Count | Should -BeGreaterOrEqual 1
     }
 
@@ -560,28 +571,20 @@ items:
             $result = Invoke-PluginGeneration -RepoRoot $script:tempDir -CollectionIds @('hve-core-all') -Refresh -Channel 'PreRelease'
             $result.Success | Should -BeTrue
             Test-Path (Join-Path $staleDir 'leftover.txt') | Should -BeFalse
-            Test-Path (Join-Path $script:tempDir 'plugins/hve-core-all/README.md') | Should -BeTrue
+            Test-Path (Join-Path $script:tempDir 'plugins/hve-core-all/.github/plugin/plugin.json') | Should -BeTrue
         }
 
-        It 'Preserves generated files during cleanup' {
+        It 'Preserves only the generated manifest and README during cleanup' {
             # Run a fresh Refresh to get clean state
             Invoke-PluginGeneration -RepoRoot $script:tempDir -CollectionIds @('hve-core-all') -Refresh -Channel 'PreRelease' | Out-Null
 
             $pluginDir = Join-Path $script:tempDir 'plugins/hve-core-all'
-            Test-Path (Join-Path $pluginDir 'README.md') | Should -BeTrue
             Test-Path (Join-Path $pluginDir '.github/plugin/plugin.json') | Should -BeTrue
-            Test-Path (Join-Path $pluginDir 'docs/templates') | Should -BeTrue
-            Test-Path (Join-Path $pluginDir 'scripts/lib') | Should -BeTrue
+            Test-Path (Join-Path $pluginDir 'README.md') | Should -BeTrue
+            @(Get-ChildItem -LiteralPath $pluginDir -File -Recurse -Force).Count | Should -Be 2
         }
 
-        It 'Preserves copied descendants while removing stale and prefix-sibling orphans' {
-            $sourceRoot = Join-Path $script:tempDir 'docs/templates'
-            New-Item -ItemType Directory -Path (Join-Path $sourceRoot 'nested') -Force | Out-Null
-            'source' | Set-Content -Path (Join-Path $sourceRoot 'nested/source.txt')
-            Push-Location $script:tempDir
-            git add -- 'docs/templates/nested/source.txt'
-            Pop-Location
-
+        It 'Removes prior copied trees and prefix-sibling orphans' {
             $pluginRoot = Join-Path $script:tempDir 'plugins/hve-core-all'
             $copiedRoot = Join-Path $pluginRoot 'docs/templates'
             New-Item -ItemType Directory -Path $copiedRoot -Force | Out-Null
@@ -592,9 +595,9 @@ items:
 
             Invoke-PluginGeneration -RepoRoot $script:tempDir -CollectionIds @('hve-core-all') -Refresh -Channel 'PreRelease' | Out-Null
 
-            Test-Path (Join-Path $copiedRoot 'nested/source.txt') | Should -BeTrue
-            Test-Path (Join-Path $copiedRoot 'stale.txt') | Should -BeFalse
+            Test-Path $copiedRoot | Should -BeFalse
             Test-Path $prefixSibling | Should -BeFalse
+            Test-Path (Join-Path $pluginRoot '.github/plugin/plugin.json') | Should -BeTrue
         }
 
         It 'Removes empty directories after orphan cleanup' {
@@ -616,7 +619,7 @@ items:
                 -CollectionIds @('hve-core-all') `
                 -Refresh -DryRun -Channel 'PreRelease' 6>&1
 
-            $dryRunMessages = @($output | Where-Object { "$_" -match 'DRY RUN.*Would replace complete plugin tree' })
+            $dryRunMessages = @($output | Where-Object { "$_" -match 'DRY RUN.*Would replace plugin root' })
             $dryRunMessages.Count | Should -BeGreaterOrEqual 1
             # File still exists after DryRun
             Test-Path (Join-Path $orphanDir 'persist.txt') | Should -BeTrue

@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # HVE Core Installer
-
-Decision-driven installer skill for deploying HVE Core artifacts across workspace configurations
-
-## Overview
 
 Deploy HVE Core artifacts across workspace configurations with the hve-core-installer skill. This collection provides decision-driven setup for selecting and installing collections, agents, prompts, and instructions via the VS Code extension or clone-based methods.
 
@@ -24,14 +19,3 @@ Deploy HVE Core artifacts across workspace configurations with the hve-core-inst
 | **hve-core-installer** | Decision-driven HVE-Core installer with multiple clone-based and extension install methods, environment detection, and agent customization |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install installer@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

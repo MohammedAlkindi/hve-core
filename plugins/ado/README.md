@@ -1,9 +1,4 @@
-<!-- markdownlint-disable-file -->
 # Azure DevOps Integration
-
-Azure DevOps work item management, build monitoring, and pull request creation
-
-## Overview
 
 Manage Azure DevOps work items, monitor builds, create pull requests, and convert requirements documents into structured work item hierarchies - all from within VS Code.
 
@@ -58,14 +53,3 @@ Manage Azure DevOps work items, monitor builds, create pull requests, and conver
 | **rpi-research**      | Research-only RPI playbook that gathers task evidence, writes dated research artifacts under .copilot-tracking/research/, and hands off planning-ready findings. Use when the user needs evidence, alternatives, or task framing first.                                                          |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
-
-## Install
-
-```bash
-copilot plugin install ado@hve-core
-```
-
----
-
-> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)
-

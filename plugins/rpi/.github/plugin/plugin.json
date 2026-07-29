@@ -3,12 +3,19 @@
   "description": "Skill-forward Research, Plan, Implement, Review, and Follow-up entry points with bounded planning and critique support.",
   "version": "3.3.101",
   "agents": [
-    "agents/hve-core/subagents/"
+    "../../.github/agents/hve-core/subagents/"
   ],
   "skills": [
-    "skills/rpi/"
+    "../../.github/skills/rpi/rpi-challenger",
+    "../../.github/skills/rpi/rpi-implement",
+    "../../.github/skills/rpi/rpi-plan",
+    "../../.github/skills/rpi/rpi-plan-critique",
+    "../../.github/skills/rpi/rpi-quick",
+    "../../.github/skills/rpi/rpi-research",
+    "../../.github/skills/rpi/rpi-review",
+    "../../.github/skills/rpi/rpi-walkthrough"
   ],
   "rules": [
-    "instructions/hve-core/"
+    "../../.github/instructions/hve-core/"
   ]
 }

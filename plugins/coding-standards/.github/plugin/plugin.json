@@ -3,26 +3,28 @@
   "description": "Language-specific coding instructions and pre-PR code review agents for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform projects",
   "version": "3.3.101",
   "agents": [
-    "agents/accessibility/",
-    "agents/accessibility/subagents/",
-    "agents/coding-standards/",
-    "agents/coding-standards/subagents/",
-    "agents/hve-core/subagents/"
+    "../../.github/agents/accessibility/",
+    "../../.github/agents/accessibility/subagents/",
+    "../../.github/agents/coding-standards/",
+    "../../.github/agents/coding-standards/subagents/",
+    "../../.github/agents/hve-core/subagents/"
   ],
   "skills": [
-    "skills/coding-standards/",
-    "skills/rpi/",
-    "skills/shared/"
+    "../../.github/skills/coding-standards/code-review",
+    "../../.github/skills/coding-standards/python-foundational",
+    "../../.github/skills/rpi/rpi-research",
+    "../../.github/skills/shared/pr-reference",
+    "../../.github/skills/shared/telemetry-foundations"
   ],
   "rules": [
-    "instructions/coding-standards/",
-    "instructions/coding-standards/bash/",
-    "instructions/coding-standards/bicep/",
-    "instructions/coding-standards/code-review/",
-    "instructions/coding-standards/csharp/",
-    "instructions/coding-standards/powershell/",
-    "instructions/coding-standards/rust/",
-    "instructions/coding-standards/terraform/",
-    "instructions/shared/"
+    "../../.github/instructions/coding-standards/",
+    "../../.github/instructions/coding-standards/bash/",
+    "../../.github/instructions/coding-standards/bicep/",
+    "../../.github/instructions/coding-standards/code-review/",
+    "../../.github/instructions/coding-standards/csharp/",
+    "../../.github/instructions/coding-standards/powershell/",
+    "../../.github/instructions/coding-standards/rust/",
+    "../../.github/instructions/coding-standards/terraform/",
+    "../../.github/instructions/shared/"
   ]
 }
