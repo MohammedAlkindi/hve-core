@@ -3,7 +3,7 @@ id: "0001"
 title: "Adopt phase-gated ADR Creator aligned with peer planners"
 description: "Adopt a phase-gated ADR Creator agent and supporting skills/instructions that align ADR authoring with peer planners (Security, RAI, SSSC) under MADR v4.0.0 plus hve-core extensions for IDs, lineage, and ASR triggers."
 author: "HVE Core Maintainers"
-ms.date: "2026-07-16"
+ms.date: "2026-07-29"
 ms.topic: "reference"
 status: "accepted"
 proposed_date: "2026-05-01"
@@ -297,7 +297,7 @@ No data migration is required: ADRs are markdown files with stable frontmatter a
 * Disclaimer language: `.github/instructions/shared/disclaimer-language.instructions.md`
 * Skill: `.github/skills/project-planning/adr-author/SKILL.md`
 * Project ADR configuration: `docs/planning/adrs/.adr-config.yml`
-* Frontmatter and consistency schemas: `scripts/linting/schemas/adr-frontmatter.schema.json`, `scripts/linting/schemas/adr-config.schema.json`, `scripts/linting/schemas/adr-consistency-rules.schema.json`, routed via `scripts/linting/schemas/schema-mapping.json`.
+* Frontmatter and consistency schemas: `scripts/linting/schemas/adr-frontmatter.schema.json`, routed to ADR files via `scripts/linting/schemas/schema-mapping.json`; `scripts/linting/schemas/adr-config.schema.json`, associated with `.adr-config.yml` through the `yaml.schemas` map in `.vscode/settings.json`; and `scripts/linting/schemas/adr-consistency-rules.schema.json`, enforced against the rule registry by `scripts/tests/linting/Test-AdrConsistencyRulesSchema.Tests.ps1`.
 * PowerShell frontmatter validation: `scripts/linting/Validate-MarkdownFrontmatter.ps1` consumes the shared schemas through `scripts/linting/Modules/FrontmatterValidation.psm1`.
 * Consistency validator: `scripts/linting/Validate-AdrConsistency.ps1`, driven by `scripts/linting/rules/adr-consistency-rules.json`, implemented in `scripts/linting/Modules/AdrConsistency.psm1` plus `scripts/linting/Modules/AdrBodyParser.psm1`, with Pester coverage in `scripts/tests/linting/AdrConsistency.Tests.ps1`.
 

@@ -58,17 +58,17 @@ Describe 'Get-RemoteYaml' -Tag 'Unit' {
 #region Merge-ModelData Tests
 
 Describe 'Merge-ModelData' -Tag 'Unit' {
-    Context 'when given matching release status and multiplier data' {
+    Context 'when given matching release status and pricing data' {
         BeforeAll {
             $script:ReleaseStatus = @(
                 @{ name = 'Claude Sonnet 4'; release_status = 'GA' }
                 @{ name = 'GPT-5 mini'; release_status = 'Preview' }
             )
-            $script:Multipliers = @(
-                @{ model = 'Claude Sonnet 4'; new_multiplier = 1 }
-                @{ model = 'GPT-5 mini'; new_multiplier = 0 }
+            $script:Pricing = @(
+                @{ model = 'Claude Sonnet 4'; input = '$3.00'; provider = 'anthropic' }
+                @{ model = 'GPT-5 mini'; input = '$0.25'; provider = 'openai' }
             )
-            $script:Result = @(Merge-ModelData -ReleaseStatus $script:ReleaseStatus -Multipliers $script:Multipliers)
+            $script:Result = @(Merge-ModelData -ReleaseStatus $script:ReleaseStatus -Pricing $script:Pricing)
         }
 
         It 'Returns an entry for each model in release status' {
@@ -88,90 +88,125 @@ Describe 'Merge-ModelData' -Tag 'Unit' {
             $script:Result[1].status | Should -Be 'preview'
         }
 
-        It 'Sets correct multiplier values' {
-            $script:Result[0].multiplier | Should -Be 1
-            $script:Result[1].multiplier | Should -Be 0
+        It 'Derives tier from input price' {
+            $script:Result[0].tier | Should -Be 'standard'
+            $script:Result[1].tier | Should -Be 'fast'
+        }
+
+        It 'Takes provider from upstream pricing data' {
+            $script:Result[0].provider | Should -Be 'Anthropic'
+            $script:Result[1].provider | Should -Be 'OpenAI'
+        }
+
+        It 'Emits no multiplier property' {
+            $script:Result[0].Contains('multiplier') | Should -BeFalse
+        }
+
+        It 'Emits fields in a stable order' {
+            @($script:Result[0].Keys) | Should -Be @('name', 'tier', 'status', 'provider')
         }
     }
 
-    Context 'tier classification from multiplier values' {
-        It 'Assigns free tier for multiplier 0' {
+    Context 'tier classification from input price' {
+        It 'Assigns free tier for a zero price' {
             $release = @(@{ name = 'Free Model'; release_status = 'GA' })
-            $mult = @(@{ model = 'Free Model'; new_multiplier = 0 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Free Model'; input = '$0.00'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'free'
         }
 
-        It 'Assigns fast tier for multiplier 0.25' {
+        It 'Assigns fast tier below the first boundary' {
             $release = @(@{ name = 'Fast Model'; release_status = 'GA' })
-            $mult = @(@{ model = 'Fast Model'; new_multiplier = 0.25 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Fast Model'; input = '$0.25'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'fast'
         }
 
-        It 'Assigns fast tier for multiplier 0.33' {
+        It 'Assigns fast tier exactly at the first boundary' {
             $release = @(@{ name = 'Fast Edge'; release_status = 'GA' })
-            $mult = @(@{ model = 'Fast Edge'; new_multiplier = 0.33 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Fast Edge'; input = '$1.00'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'fast'
         }
 
-        It 'Assigns standard tier for multiplier 0.5' {
+        It 'Assigns standard tier just past the first boundary' {
             $release = @(@{ name = 'Standard Low'; release_status = 'GA' })
-            $mult = @(@{ model = 'Standard Low'; new_multiplier = 0.5 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Standard Low'; input = '$1.01'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'standard'
         }
 
-        It 'Assigns standard tier for multiplier 1' {
-            $release = @(@{ name = 'Standard Model'; release_status = 'GA' })
-            $mult = @(@{ model = 'Standard Model'; new_multiplier = 1 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+        It 'Assigns standard tier exactly at the second boundary' {
+            $release = @(@{ name = 'Standard Edge'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Standard Edge'; input = '$3.00'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'standard'
         }
 
-        It 'Assigns premium tier for multiplier 3' {
+        It 'Assigns premium tier just past the second boundary' {
             $release = @(@{ name = 'Premium Model'; release_status = 'GA' })
-            $mult = @(@{ model = 'Premium Model'; new_multiplier = 3 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Premium Model'; input = '$3.01'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'premium'
         }
 
-        It 'Assigns premium tier for multiplier 5' {
+        It 'Assigns premium tier exactly at the third boundary' {
             $release = @(@{ name = 'Premium Edge'; release_status = 'GA' })
-            $mult = @(@{ model = 'Premium Edge'; new_multiplier = 5 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Premium Edge'; input = '$5.00'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'premium'
         }
 
-        It 'Assigns ultra tier for multiplier 15' {
+        It 'Assigns ultra tier past the third boundary' {
             $release = @(@{ name = 'Ultra Model'; release_status = 'GA' })
-            $mult = @(@{ model = 'Ultra Model'; new_multiplier = 15 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
-            $result[0].tier | Should -Be 'ultra'
-        }
-
-        It 'Assigns ultra tier for multiplier 30' {
-            $release = @(@{ name = 'Ultra Max'; release_status = 'GA' })
-            $mult = @(@{ model = 'Ultra Max'; new_multiplier = 30 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Ultra Model'; input = '$10.00'; provider = 'anthropic' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'ultra'
         }
 
         It 'Returns a string tier, not an array' {
             $release = @(@{ name = 'Tier Check'; release_status = 'GA' })
-            $mult = @(@{ model = 'Tier Check'; new_multiplier = 0.25 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $pricing = @(@{ model = 'Tier Check'; input = '$0.25'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -BeOfType [string]
         }
     }
 
-    Context 'when model has no multiplier entry' {
-        It 'Defaults to multiplier 1 and standard tier' {
-            $release = @(@{ name = 'No Mult Model'; release_status = 'GA' })
-            $mult = @(@{ model = 'Other Model'; new_multiplier = 5 })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
-            $result[0].multiplier | Should -Be 1
+    Context 'when a model has no pricing entry' {
+        It 'Warns and falls back to standard tier' {
+            $release = @(@{ name = 'No Price Model'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Other Model'; input = '$5.00'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
+            $result[0].tier | Should -Be 'standard'
+            Should -Invoke Write-Warning -Times 1 -Exactly
+        }
+
+        It 'Falls back to the name-pattern provider matcher' {
+            $release = @(@{ name = 'Claude Unlisted'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Other Model'; input = '$5.00'; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
+            $result[0].provider | Should -Be 'Anthropic'
+        }
+    }
+
+    Context 'when upstream names carry footnote markers' {
+        It 'Strips the marker before matching' {
+            $release = @(@{ name = 'Claude Sonnet 5'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Claude Sonnet 5[^sonnet-5-promo]'; input = '$2.00'; provider = 'anthropic' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
+            $result[0].tier | Should -Be 'standard'
+            $result[0].provider | Should -Be 'Anthropic'
+        }
+    }
+
+    Context 'when a model has one row per context-window band' {
+        It 'Uses the cheapest band' {
+            $release = @(@{ name = 'Banded Model'; release_status = 'GA' })
+            $pricing = @(
+                @{ model = 'Banded Model'; input = '$2.50'; provider = 'openai' }
+                @{ model = 'Banded Model'; input = '$5.00'; provider = 'openai' }
+            )
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'standard'
         }
     }
@@ -183,12 +218,12 @@ Describe 'Merge-ModelData' -Tag 'Unit' {
                 @{ name = 'Model B'; release_status = 'Preview' }
                 @{ name = 'Model C'; release_status = 'GA' }
             )
-            $mult = @(
-                @{ model = 'Model A'; new_multiplier = 0 }
-                @{ model = 'Model B'; new_multiplier = 1 }
-                @{ model = 'Model C'; new_multiplier = 4 }
+            $pricing = @(
+                @{ model = 'Model A'; input = '$0.00'; provider = 'openai' }
+                @{ model = 'Model B'; input = '$2.00'; provider = 'openai' }
+                @{ model = 'Model C'; input = '$4.00'; provider = 'openai' }
             )
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result | Should -HaveCount 3
             $result[0].name | Should -Be 'Model A (copilot)'
             $result[1].name | Should -Be 'Model B (copilot)'
@@ -199,13 +234,13 @@ Describe 'Merge-ModelData' -Tag 'Unit' {
         }
     }
 
-    Context 'when new_multiplier is null' {
-        It 'Defaults to multiplier 1' {
-            $release = @(@{ name = 'Null Mult'; release_status = 'GA' })
-            $mult = @(@{ model = 'Null Mult'; new_multiplier = $null })
-            $result = @(Merge-ModelData -ReleaseStatus $release -Multipliers $mult)
-            $result[0].multiplier | Should -Be 1
+    Context 'when the price cell is empty' {
+        It 'Treats the model as unpriced' {
+            $release = @(@{ name = 'Empty Price'; release_status = 'GA' })
+            $pricing = @(@{ model = 'Empty Price'; input = ''; provider = 'openai' })
+            $result = @(Merge-ModelData -ReleaseStatus $release -Pricing $pricing)
             $result[0].tier | Should -Be 'standard'
+            $result[0].provider | Should -Be 'OpenAI'
         }
     }
 }
@@ -218,8 +253,8 @@ Describe 'Compare-Catalogs' -Tag 'Unit' {
     Context 'when catalogs are identical' {
         It 'Returns empty added, removed, and changed arrays' {
             $models = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'Model B (copilot)'; multiplier = 3 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'Model B (copilot)'; tier = 'premium' }
             )
             $result = Compare-Catalogs -Current $models -Discovered $models
             $result.added | Should -HaveCount 0
@@ -231,11 +266,11 @@ Describe 'Compare-Catalogs' -Tag 'Unit' {
     Context 'when new models are added' {
         It 'Identifies added models' {
             $current = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
             )
             $discovered = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'Model B (copilot)'; multiplier = 3 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'Model B (copilot)'; tier = 'premium' }
             )
             $result = Compare-Catalogs -Current $current -Discovered $discovered
             $result.added | Should -HaveCount 1
@@ -246,11 +281,11 @@ Describe 'Compare-Catalogs' -Tag 'Unit' {
     Context 'when models are removed' {
         It 'Identifies removed models' {
             $current = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'Model B (copilot)'; multiplier = 3 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'Model B (copilot)'; tier = 'premium' }
             )
             $discovered = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
             )
             $result = Compare-Catalogs -Current $current -Discovered $discovered
             $result.removed | Should -HaveCount 1
@@ -258,33 +293,33 @@ Describe 'Compare-Catalogs' -Tag 'Unit' {
         }
     }
 
-    Context 'when multipliers change' {
-        It 'Identifies changed multipliers' {
+    Context 'when tiers change' {
+        It 'Identifies changed tiers' {
             $current = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
             )
             $discovered = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 3 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'premium' }
             )
             $result = Compare-Catalogs -Current $current -Discovered $discovered
             $result.changed | Should -HaveCount 1
             $result.changed[0].name | Should -Be 'Model A (copilot)'
-            $result.changed[0].oldMultiplier | Should -Be 1
-            $result.changed[0].newMultiplier | Should -Be 3
+            $result.changed[0].oldTier | Should -Be 'standard'
+            $result.changed[0].newTier | Should -Be 'premium'
         }
     }
 
     Context 'when all types of changes occur simultaneously' {
         It 'Reports additions, removals, and changes together' {
             $current = @(
-                [PSCustomObject]@{ name = 'Stable (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'Removed (copilot)'; multiplier = 5 }
-                [PSCustomObject]@{ name = 'Changed (copilot)'; multiplier = 1 }
+                [PSCustomObject]@{ name = 'Stable (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'Removed (copilot)'; tier = 'premium' }
+                [PSCustomObject]@{ name = 'Changed (copilot)'; tier = 'standard' }
             )
             $discovered = @(
-                [PSCustomObject]@{ name = 'Stable (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'Changed (copilot)'; multiplier = 3 }
-                [PSCustomObject]@{ name = 'Added (copilot)'; multiplier = 0 }
+                [PSCustomObject]@{ name = 'Stable (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'Changed (copilot)'; tier = 'premium' }
+                [PSCustomObject]@{ name = 'Added (copilot)'; tier = 'free' }
             )
             $result = Compare-Catalogs -Current $current -Discovered $discovered
             $result.added | Should -HaveCount 1
@@ -299,12 +334,12 @@ Describe 'Compare-Catalogs' -Tag 'Unit' {
     Context 'when current catalog is empty' {
         It 'Reports all discovered models as added' {
             $current = @(
-                [PSCustomObject]@{ name = 'placeholder'; multiplier = 0 }
+                [PSCustomObject]@{ name = 'placeholder'; tier = 'free' }
             )
             # Use a single-element to avoid empty array issues; test with actual additions
             $discovered = @(
-                [PSCustomObject]@{ name = 'New A (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'New B (copilot)'; multiplier = 3 }
+                [PSCustomObject]@{ name = 'New A (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'New B (copilot)'; tier = 'premium' }
             )
             $result = Compare-Catalogs -Current $current -Discovered $discovered
             $result.added | Should -HaveCount 2
@@ -312,15 +347,15 @@ Describe 'Compare-Catalogs' -Tag 'Unit' {
         }
     }
 
-    Context 'when multiplier does not change' {
+    Context 'when tier does not change' {
         It 'Does not report unchanged models' {
             $current = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'Model B (copilot)'; multiplier = 3 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'Model B (copilot)'; tier = 'premium' }
             )
             $discovered = @(
-                [PSCustomObject]@{ name = 'Model A (copilot)'; multiplier = 1 }
-                [PSCustomObject]@{ name = 'Model B (copilot)'; multiplier = 3 }
+                [PSCustomObject]@{ name = 'Model A (copilot)'; tier = 'standard' }
+                [PSCustomObject]@{ name = 'Model B (copilot)'; tier = 'premium' }
             )
             $result = Compare-Catalogs -Current $current -Discovered $discovered
             $result.changed | Should -HaveCount 0
@@ -353,12 +388,12 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 @{ name = 'Model A'; release_status = 'GA' }
                 @{ name = 'Model B'; release_status = 'Preview' }
             )
-            $mult = @(
-                @{ model = 'Model A'; new_multiplier = 1 }
-                @{ model = 'Model B'; new_multiplier = 0.25 }
+            $pricing = @(
+                @{ model = 'Model A'; input = '$2.00'; provider = 'openai' }
+                @{ model = 'Model B'; input = '$0.25'; provider = 'openai' }
             )
 
-            $script:NewResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:NewCatalogPath
+            $script:NewResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:NewCatalogPath
         }
 
         It 'Returns created status' {
@@ -395,15 +430,15 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 lastUpdated = '2026-01-01'
                 source      = 'https://example.com'
                 models      = @(
-                    @{ name = 'Model A (copilot)'; tier = 'standard'; multiplier = 1; status = 'ga' }
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
                 )
             }
             $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:UnchangedPath -Encoding utf8
 
             $release = @(@{ name = 'Model A'; release_status = 'GA' })
-            $mult = @(@{ model = 'Model A'; new_multiplier = 1 })
+            $pricing = @(@{ model = 'Model A'; input = '$2.00'; provider = 'openai' })
 
-            $script:UnchangedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:UnchangedPath
+            $script:UnchangedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:UnchangedPath
         }
 
         It 'Returns unchanged status' {
@@ -423,7 +458,7 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 lastUpdated = '2026-01-01'
                 source      = 'https://example.com'
                 models      = @(
-                    @{ name = 'Model A (copilot)'; tier = 'standard'; multiplier = 1; status = 'ga' }
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
                 )
             }
             $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:AddedPath -Encoding utf8
@@ -432,12 +467,12 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 @{ name = 'Model A'; release_status = 'GA' }
                 @{ name = 'Model B'; release_status = 'Preview' }
             )
-            $mult = @(
-                @{ model = 'Model A'; new_multiplier = 1 }
-                @{ model = 'Model B'; new_multiplier = 3 }
+            $pricing = @(
+                @{ model = 'Model A'; input = '$2.00'; provider = 'openai' }
+                @{ model = 'Model B'; input = '$4.00'; provider = 'openai' }
             )
 
-            $script:AddedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:AddedPath
+            $script:AddedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:AddedPath
         }
 
         It 'Returns updated status' {
@@ -461,16 +496,17 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 lastUpdated = '2026-01-01'
                 source      = 'https://example.com'
                 models      = @(
-                    @{ name = 'Model A (copilot)'; tier = 'standard'; multiplier = 1; status = 'ga' }
-                    @{ name = 'Model B (copilot)'; tier = 'premium'; multiplier = 3; status = 'ga' }
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
+                    @{ name = 'Model B (copilot)'; tier = 'premium'; status = 'ga'; provider = 'OpenAI' }
+                    @{ name = 'Model C (copilot)'; tier = 'fast'; status = 'retiring'; provider = 'OpenAI'; retiredDate = '2026-01-15' }
                 )
             }
             $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:RemovedPath -Encoding utf8
 
             $release = @(@{ name = 'Model A'; release_status = 'GA' })
-            $mult = @(@{ model = 'Model A'; new_multiplier = 1 })
+            $pricing = @(@{ model = 'Model A'; input = '$2.00'; provider = 'openai' })
 
-            $script:RemovedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:RemovedPath
+            $script:RemovedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:RemovedPath
         }
 
         It 'Returns updated status' {
@@ -492,13 +528,29 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
             $retiring.status | Should -Be 'retiring'
         }
 
-        It 'Preserves tier and multiplier on retiring model' {
+        It 'Preserves tier and provider on retiring model' {
             $retiring = $script:RemovedResult.finalModels | Where-Object {
                 if ($_ -is [hashtable]) { $_['name'] -eq 'Model B (copilot)' }
                 else { $_.name -eq 'Model B (copilot)' }
             }
             $retiring.tier | Should -Be 'premium'
-            $retiring.multiplier | Should -Be 3
+            $retiring.provider | Should -Be 'OpenAI'
+        }
+
+        It 'Emits no multiplier on retiring model' {
+            $retiring = $script:RemovedResult.finalModels | Where-Object {
+                if ($_ -is [hashtable]) { $_['name'] -eq 'Model B (copilot)' }
+                else { $_.name -eq 'Model B (copilot)' }
+            }
+            $retiring.PSObject.Properties['multiplier'] | Should -BeNullOrEmpty
+        }
+
+        It 'Keeps the original retiredDate on an already-retiring model' {
+            $stillRetiring = $script:RemovedResult.finalModels | Where-Object {
+                if ($_ -is [hashtable]) { $_['name'] -eq 'Model C (copilot)' }
+                else { $_.name -eq 'Model C (copilot)' }
+            }
+            $stillRetiring.retiredDate | Should -Be '2026-01-15'
         }
 
         It 'Sets retiredDate as future date on removed model' {
@@ -519,22 +571,22 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
         }
     }
 
-    Context 'when multipliers change' {
+    Context 'when tiers change' {
         BeforeAll {
             $script:ChangedPath = Join-Path $script:CatalogDir 'changed-catalog.json'
             $existingCatalog = @{
                 lastUpdated = '2026-01-01'
                 source      = 'https://example.com'
                 models      = @(
-                    @{ name = 'Model A (copilot)'; tier = 'standard'; multiplier = 1; status = 'ga' }
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
                 )
             }
             $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:ChangedPath -Encoding utf8
 
             $release = @(@{ name = 'Model A'; release_status = 'GA' })
-            $mult = @(@{ model = 'Model A'; new_multiplier = 5 })
+            $pricing = @(@{ model = 'Model A'; input = '$10.00'; provider = 'openai' })
 
-            $script:ChangedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:ChangedPath
+            $script:ChangedResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:ChangedPath
         }
 
         It 'Returns updated status' {
@@ -543,8 +595,8 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
 
         It 'Reports change in diff' {
             $script:ChangedResult.diff.changed | Should -HaveCount 1
-            $script:ChangedResult.diff.changed[0].oldMultiplier | Should -Be 1
-            $script:ChangedResult.diff.changed[0].newMultiplier | Should -Be 5
+            $script:ChangedResult.diff.changed[0].oldTier | Should -Be 'standard'
+            $script:ChangedResult.diff.changed[0].newTier | Should -Be 'ultra'
         }
     }
 
@@ -555,7 +607,7 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 lastUpdated = '2026-01-01'
                 source      = 'https://example.com'
                 models      = @(
-                    @{ name = 'Model A (copilot)'; tier = 'standard'; multiplier = 1; status = 'ga' }
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
                 )
             }
             $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:DryRunPath -Encoding utf8
@@ -564,12 +616,12 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 @{ name = 'Model A'; release_status = 'GA' }
                 @{ name = 'Model B'; release_status = 'GA' }
             )
-            $mult = @(
-                @{ model = 'Model A'; new_multiplier = 1 }
-                @{ model = 'Model B'; new_multiplier = 3 }
+            $pricing = @(
+                @{ model = 'Model A'; input = '$2.00'; provider = 'openai' }
+                @{ model = 'Model B'; input = '$4.00'; provider = 'openai' }
             )
 
-            $script:DryRunResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:DryRunPath -DryRun
+            $script:DryRunResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:DryRunPath -DryRun
         }
 
         It 'Returns dryrun status' {
@@ -594,15 +646,15 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
                 lastUpdated = '2026-01-01'
                 source      = 'https://example.com'
                 models      = @(
-                    @{ name = 'Model A (copilot)'; tier = 'standard'; multiplier = 1; status = 'ga' }
+                    @{ name = 'Model A (copilot)'; tier = 'standard'; status = 'ga'; provider = 'OpenAI' }
                 )
             }
             $existingCatalog | ConvertTo-Json -Depth 5 | Set-Content -Path $script:DryRunNoChangePath -Encoding utf8
 
             $release = @(@{ name = 'Model A'; release_status = 'GA' })
-            $mult = @(@{ model = 'Model A'; new_multiplier = 1 })
+            $pricing = @(@{ model = 'Model A'; input = '$2.00'; provider = 'openai' })
 
-            $script:DryRunNoChangeResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:DryRunNoChangePath -DryRun
+            $script:DryRunNoChangeResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:DryRunNoChangePath -DryRun
         }
 
         It 'Returns unchanged status' {
@@ -623,9 +675,9 @@ Describe 'Invoke-ModelCatalogUpdate' -Tag 'Unit' {
             }
 
             $release = @(@{ name = 'Model A'; release_status = 'GA' })
-            $mult = @(@{ model = 'Model A'; new_multiplier = 1 })
+            $pricing = @(@{ model = 'Model A'; input = '$2.00'; provider = 'openai' })
 
-            $script:DeepResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Multipliers $mult -CatalogPath $script:DeepPath
+            $script:DeepResult = Invoke-ModelCatalogUpdate -ReleaseStatus $release -Pricing $pricing -CatalogPath $script:DeepPath
         }
 
         It 'Creates directory and writes catalog' {

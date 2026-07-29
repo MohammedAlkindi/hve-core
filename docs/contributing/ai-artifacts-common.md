@@ -118,13 +118,14 @@ The `(copilot)` suffix is required. Run `npm run lint:models` to validate all mo
 
 The `model` frontmatter property is **optional**. When omitted, the agent or prompt inherits the user's session model (whatever is selected in the VS Code model picker).
 
-Use explicit model selection for cost optimization:
+Use explicit model selection for cost optimization. Tiers are derived from the upstream input price per million tokens:
 
-| Tier     | Multiplier  | Use When                                                | Example Models                 |
-|----------|-------------|---------------------------------------------------------|--------------------------------|
-| Fast     | 0.25x–0.33x | Read-only research, mechanical file ops, classification | Claude Haiku 4.5, GPT-5.4 mini |
-| Standard | 1x          | Code generation, architecture, complex synthesis        | Claude Sonnet 5, GPT-5.4       |
-| Premium  | 3x–15x      | Vision-capable tasks, complex architectural decisions   | Claude Opus 5, GPT-5.5         |
+| Tier     | Input price   | Use When                                                | Example Models                 |
+|----------|---------------|---------------------------------------------------------|--------------------------------|
+| Fast     | $1.00 or less | Read-only research, mechanical file ops, classification | Claude Haiku 4.5, GPT-5.4 mini |
+| Standard | Up to $3.00   | Code generation, architecture, complex synthesis        | Claude Sonnet 5, GPT-5.4       |
+| Premium  | Up to $5.00   | Vision-capable tasks, complex architectural decisions   | Claude Opus 5, GPT-5.5         |
+| Ultra    | Above $5.00   | Reserve for work that genuinely needs the top of range  | Claude Fable 5                 |
 
 ### Cost Tier Constraint
 

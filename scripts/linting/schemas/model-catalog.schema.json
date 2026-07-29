@@ -38,7 +38,6 @@
                 "required": [
                     "name",
                     "tier",
-                    "multiplier",
                     "status",
                     "provider"
                 ],
@@ -56,12 +55,7 @@
                             "premium",
                             "ultra"
                         ],
-                        "description": "Cost tier classification"
-                    },
-                    "multiplier": {
-                        "type": "number",
-                        "minimum": 0,
-                        "description": "Request multiplier relative to standard tier"
+                        "description": "Cost tier derived from upstream per-million-token input price: free at 0, fast at or below $1.00, standard at or below $3.00, premium at or below $5.00, ultra above $5.00"
                     },
                     "status": {
                         "type": "string",

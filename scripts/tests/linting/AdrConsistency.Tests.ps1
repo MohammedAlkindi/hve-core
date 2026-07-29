@@ -7,17 +7,12 @@
 param()
 
 BeforeDiscovery {
-    $RuleCases = @(
-        @{ RuleId = 'ADR-CONSISTENCY-001'; Dir = 'affected-components-mirror' }
-        @{ RuleId = 'ADR-CONSISTENCY-002'; Dir = 'success-criteria-source-resolves' }
-        @{ RuleId = 'ADR-CONSISTENCY-003'; Dir = 'state-placeholder-resolved' }
-        @{ RuleId = 'ADR-CONSISTENCY-004'; Dir = 'peer-planner-names' }
-        @{ RuleId = 'ADR-CONSISTENCY-005'; Dir = 'drivers-matrix-cardinality' }
-        @{ RuleId = 'ADR-CONSISTENCY-006'; Dir = 'risks-consequences-pairing' }
-        @{ RuleId = 'ADR-CONSISTENCY-007'; Dir = 'numeric-claim-generalized' }
-        @{ RuleId = 'ADR-CONSISTENCY-008'; Dir = 'driver-trigger-map-complete' }
-        @{ RuleId = 'ADR-CONSISTENCY-009'; Dir = 'affected-components-cited' }
-    )
+    $rulesPath = Join-Path $PSScriptRoot '../../linting/rules/adr-consistency-rules.json'
+    $RuleCases = @((Get-Content -Path $rulesPath -Raw | ConvertFrom-Json).rules |
+            ForEach-Object { @{ RuleId = $_.id; Dir = $_.check } })
+
+    # An empty set would emit zero -ForEach tests and pass vacuously.
+    if ($RuleCases.Count -eq 0) { throw "No rules discovered in $rulesPath" }
 }
 
 BeforeAll {

@@ -10,8 +10,8 @@
 
 .DESCRIPTION
     Fetches structured YAML data files from the github/docs repository that define
-    Copilot model names, release status, and multipliers. Merges these into the
-    local model-catalog.json. Reports additions, removals, and multiplier changes.
+    Copilot model names, release status, and per-token pricing. Merges these into
+    the local model-catalog.json. Reports additions, removals, and tier changes.
 
 .PARAMETER CatalogPath
     Path to the model catalog JSON file to update.
@@ -120,16 +120,96 @@ function Get-ModelProvider {
     return 'Unknown'
 }
 
+function ConvertTo-ProviderName {
+    <#
+    .SYNOPSIS
+    Maps an upstream provider slug to its catalog display name.
+
+    .PARAMETER Slug
+    Provider slug from the pricing table, such as 'moonshot_ai'.
+
+    .OUTPUTS
+    [string] Display name, or $null when the slug is empty or unrecognized.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Slug
+    )
+
+    switch ($Slug) {
+        'anthropic' { return 'Anthropic' }
+        'openai' { return 'OpenAI' }
+        'google' { return 'Google' }
+        'microsoft' { return 'Microsoft' }
+        'github' { return 'GitHub' }
+        'xai' { return 'xAI' }
+        'moonshot_ai' { return 'Moonshot AI' }
+        default { return $null }
+    }
+}
+
+function Get-InputPrice {
+    <#
+    .SYNOPSIS
+    Parses an upstream display price such as '$1.50' into a number.
+
+    .PARAMETER Price
+    Raw price string from the pricing table.
+
+    .OUTPUTS
+    [nullable[double]] Parsed price, or $null when the cell is empty or unparsable.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Price
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Price)) { return $null }
+    $digits = $Price -replace '[^\d.]', ''
+    if ([string]::IsNullOrWhiteSpace($digits)) { return $null }
+
+    $parsed = 0.0
+    if ([double]::TryParse($digits, [ref]$parsed)) { return $parsed }
+    return $null
+}
+
+function Get-CostTier {
+    <#
+    .SYNOPSIS
+    Classifies a model into a cost tier from its per-million-token input price.
+
+    .PARAMETER InputPrice
+    Base input price in USD per million tokens.
+
+    .OUTPUTS
+    [string] One of free, fast, standard, premium, ultra.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [double]$InputPrice
+    )
+
+    if ($InputPrice -eq 0) { return 'free' }
+    if ($InputPrice -le 1.0) { return 'fast' }
+    if ($InputPrice -le 3.0) { return 'standard' }
+    if ($InputPrice -le 5.0) { return 'premium' }
+    return 'ultra'
+}
+
 function Merge-ModelData {
     <#
     .SYNOPSIS
-    Merges model release status and multiplier data into catalog entries.
+    Merges model release status and pricing data into catalog entries.
 
     .PARAMETER ReleaseStatus
     Array of model release status objects from model-release-status.yml.
 
-    .PARAMETER Multipliers
-    Array of model multiplier objects from annual-subscriber-model-multipliers.yml.
+    .PARAMETER Pricing
+    Array of model pricing objects from models-and-pricing.yml.
 
     .OUTPUTS
     [hashtable[]] Array of merged model catalog entries.
@@ -140,12 +220,27 @@ function Merge-ModelData {
         [object[]]$ReleaseStatus,
 
         [Parameter(Mandatory = $true)]
-        [object[]]$Multipliers
+        [object[]]$Pricing
     )
 
-    $multiplierLookup = @{}
-    foreach ($m in $Multipliers) {
-        $multiplierLookup[$m.model] = $m
+    $priceLookup = @{}
+    $providerLookup = @{}
+    foreach ($p in $Pricing) {
+        # Names may carry a footnote marker such as 'Claude Sonnet 5[^sonnet-5-promo]'.
+        $priceName = ($p.model -replace '\[\^.*?\]', '').Trim()
+
+        $upstreamProvider = ConvertTo-ProviderName -Slug $p.provider
+        if ($upstreamProvider -and -not $providerLookup.ContainsKey($priceName)) {
+            $providerLookup[$priceName] = $upstreamProvider
+        }
+
+        $priceValue = Get-InputPrice -Price $p.input
+        if ($null -eq $priceValue) { continue }
+
+        # A model has one row per context-window band; the base band is the cheapest.
+        if (-not $priceLookup.ContainsKey($priceName) -or $priceValue -lt $priceLookup[$priceName]) {
+            $priceLookup[$priceName] = $priceValue
+        }
     }
 
     $models = @()
@@ -153,28 +248,20 @@ function Merge-ModelData {
         $name = $model.name
         $status = if ($model.release_status -eq 'GA') { 'ga' } else { 'preview' }
 
-        # Look up premium-request multiplier from annual-subscriber multiplier data
-        $multiplier = 1.0
-        if ($multiplierLookup.ContainsKey($name)) {
-            $multVal = $multiplierLookup[$name].new_multiplier
-            if ($null -ne $multVal -and "$multVal" -ne '') {
-                $multiplier = [double]$multVal
-            }
+        if ($priceLookup.ContainsKey($name)) {
+            $tier = Get-CostTier -InputPrice $priceLookup[$name]
+        }
+        else {
+            Write-Warning "No upstream price for '$name'. Defaulting tier to 'standard'."
+            $tier = 'standard'
         }
 
-        # Determine tier from multiplier
-        $tier = if ($multiplier -eq 0) { 'free' }
-        elseif ($multiplier -le 0.33) { 'fast' }
-        elseif ($multiplier -le 1) { 'standard' }
-        elseif ($multiplier -le 5) { 'premium' }
-        else { 'ultra' }
-
-        $models += @{
-            name       = "$name (copilot)"
-            tier       = $tier
-            multiplier = $multiplier
-            status     = $status
-            provider   = Get-ModelProvider -ModelName $name
+        # Ordered so repeat runs emit a stable field order and a clean diff.
+        $models += [ordered]@{
+            name     = "$name (copilot)"
+            tier     = $tier
+            status   = $status
+            provider = if ($providerLookup.ContainsKey($name)) { $providerLookup[$name] } else { Get-ModelProvider -ModelName $name }
         }
     }
 
@@ -213,11 +300,11 @@ function Compare-Catalogs {
     $changed = @()
     foreach ($disc in $Discovered) {
         $curr = $Current | Where-Object { $_.name -eq $disc.name }
-        if ($curr -and $curr.multiplier -ne $disc.multiplier) {
+        if ($curr -and $curr.tier -ne $disc.tier) {
             $changed += @{
-                name          = $disc.name
-                oldMultiplier = $curr.multiplier
-                newMultiplier = $disc.multiplier
+                name    = $disc.name
+                oldTier = $curr.tier
+                newTier = $disc.tier
             }
         }
     }
@@ -241,8 +328,8 @@ function Invoke-ModelCatalogUpdate {
     .PARAMETER ReleaseStatus
     Array of model release status objects.
 
-    .PARAMETER Multipliers
-    Array of model multiplier objects.
+    .PARAMETER Pricing
+    Array of model pricing objects.
 
     .PARAMETER CatalogPath
     Path to the catalog JSON file.
@@ -259,7 +346,7 @@ function Invoke-ModelCatalogUpdate {
         [object[]]$ReleaseStatus,
 
         [Parameter(Mandatory = $true)]
-        [object[]]$Multipliers,
+        [object[]]$Pricing,
 
         [Parameter(Mandatory = $true)]
         [string]$CatalogPath,
@@ -268,7 +355,7 @@ function Invoke-ModelCatalogUpdate {
         [switch]$DryRun
     )
 
-    $discoveredModels = Merge-ModelData -ReleaseStatus $ReleaseStatus -Multipliers $Multipliers
+    $discoveredModels = Merge-ModelData -ReleaseStatus $ReleaseStatus -Pricing $Pricing
     Write-Host "  Discovered $($discoveredModels.Count) models from docs" -ForegroundColor Green
 
     $diff = $null
@@ -283,15 +370,15 @@ function Invoke-ModelCatalogUpdate {
 
         if ($diff.added.Count -gt 0) {
             Write-Host "`n  Added models:" -ForegroundColor Green
-            foreach ($m in $diff.added) { Write-Host "    + $($m['name']) (tier: $($m['tier']), multiplier: $($m['multiplier']))" -ForegroundColor Green }
+            foreach ($m in $diff.added) { Write-Host "    + $($m['name']) (tier: $($m['tier']))" -ForegroundColor Green }
         }
         if ($diff.removed.Count -gt 0) {
             Write-Host "`n  Removed models (marking as retiring):" -ForegroundColor Yellow
             foreach ($m in $diff.removed) { Write-Host "    - $($m.name)" -ForegroundColor Yellow }
         }
         if ($diff.changed.Count -gt 0) {
-            Write-Host "`n  Multiplier changes:" -ForegroundColor Cyan
-            foreach ($c in $diff.changed) { Write-Host "    ~ $($c.name): $($c.oldMultiplier) -> $($c.newMultiplier)" -ForegroundColor Cyan }
+            Write-Host "`n  Tier changes:" -ForegroundColor Cyan
+            foreach ($c in $diff.changed) { Write-Host "    ~ $($c.name): $($c.oldTier) -> $($c.newTier)" -ForegroundColor Cyan }
         }
 
         if ($diff.added.Count -eq 0 -and $diff.removed.Count -eq 0 -and $diff.changed.Count -eq 0) {
@@ -305,24 +392,28 @@ function Invoke-ModelCatalogUpdate {
 
         # Mark removed models as retiring instead of deleting
         $finalModels = @()
+        $removedNames = @($diff.removed | ForEach-Object { $_.name })
         foreach ($curr in $currentModels) {
-            if ($curr.name -in @($diff.removed | ForEach-Object { $_.name })) {
-                $retiring = [PSCustomObject]@{
+            if ($curr.name -in $removedNames) {
+                # Keep the original retirement date so repeat runs do not extend it.
+                $retiredDate = if ($curr.PSObject.Properties['retiredDate'] -and $curr.retiredDate) {
+                    $curr.retiredDate
+                }
+                else {
+                    (Get-Date).AddDays(60).ToString('yyyy-MM-dd')
+                }
+
+                $finalModels += [PSCustomObject]@{
                     name        = $curr.name
                     tier        = $curr.tier
-                    multiplier  = $curr.multiplier
                     status      = 'retiring'
-                    retiredDate = (Get-Date).AddDays(60).ToString('yyyy-MM-dd')
+                    provider    = $curr.provider
+                    retiredDate = $retiredDate
                 }
-                $finalModels += $retiring
             }
             else {
-                # Update multiplier if changed
-                $change = $diff.changed | Where-Object { $_.name -eq $curr.name }
-                if ($change) {
-                    $curr.multiplier = $change.newMultiplier
-                }
-                $finalModels += $curr
+                # Rebuild from discovered data so removed fields do not survive a refresh.
+                $finalModels += @($discoveredModels | Where-Object { $_.name -eq $curr.name })
             }
         }
         # Add new models
@@ -349,12 +440,12 @@ function Invoke-ModelCatalogUpdate {
         }
     }
 
-    $newCatalog = @{
-        '$schema'           = './schemas/model-catalog.schema.json'
-        lastUpdated         = (Get-Date -Format 'yyyy-MM-dd')
-        source              = 'https://docs.github.com/en/copilot/reference/ai-models/supported-models'
-        providerAllowlist   = $allowlist
-        models              = $finalModels
+    $newCatalog = [ordered]@{
+        '$schema'         = './schemas/model-catalog.schema.json'
+        lastUpdated       = (Get-Date -Format 'yyyy-MM-dd')
+        source            = 'https://docs.github.com/en/copilot/reference/ai-models/supported-models'
+        providerAllowlist = $allowlist
+        models            = $finalModels
     }
 
     $outputDir = Split-Path -Path $CatalogPath -Parent
@@ -380,13 +471,13 @@ if ($MyInvocation.InvocationName -ne '.') {
 
     try {
         $releaseStatusUrl = "$BaseUrl/model-release-status.yml"
-        $multipliersUrl = "$BaseUrl/annual-subscriber-model-multipliers.yml"
+        $pricingUrl = "$BaseUrl/models-and-pricing.yml"
 
         Write-Host "  Fetching: $releaseStatusUrl"
         $releaseStatus = Get-RemoteYaml -Url $releaseStatusUrl
 
-        Write-Host "  Fetching: $multipliersUrl"
-        $multipliers = Get-RemoteYaml -Url $multipliersUrl
+        Write-Host "  Fetching: $pricingUrl"
+        $pricing = Get-RemoteYaml -Url $pricingUrl
     }
     catch {
         Write-Warning "Failed to fetch source data: $_"
@@ -401,7 +492,7 @@ if ($MyInvocation.InvocationName -ne '.') {
 
     $updateParams = @{
         ReleaseStatus = $releaseStatus
-        Multipliers   = $multipliers
+        Pricing       = $pricing
         CatalogPath   = $CatalogPath
     }
     if ($DryRun) { $updateParams['DryRun'] = $true }
