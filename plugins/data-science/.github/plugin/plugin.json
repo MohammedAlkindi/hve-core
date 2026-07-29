@@ -15,5 +15,10 @@
     "skills/project-planning/",
     "skills/rai/",
     "skills/rpi/"
+  ],
+  "rules": [
+    "instructions/coding-standards/",
+    "instructions/rai-planning/",
+    "instructions/shared/"
   ]
 }
