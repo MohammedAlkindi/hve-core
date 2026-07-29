@@ -3,7 +3,7 @@ title: Copilot OpenTelemetry Metrics
 description: Capture GitHub Copilot Chat OpenTelemetry signals on your own machine in a local Grafana stack, or across an organization through Azure
 sidebar_position: 11
 author: Microsoft
-ms.date: 2026-07-27
+ms.date: 2026-07-29
 ms.topic: how-to
 keywords:
   - opentelemetry
@@ -456,7 +456,7 @@ Two products can chart this, and the cheaper one is usually the right one.
 Alerts, reports, library panels, snapshots, playlists, and app plugins are all absent from the free option. Those absences are the honest reason to upgrade. The price is not.
 
 This page does not quote prices, because they move and a stale figure is worse than none. What is stable is the shape: the free option costs nothing, and Azure Managed Grafana bills a per-instance rate plus a per-active-user charge, so its cost scales with the size of the team you give access to.
-Price the product from the [Azure Managed Grafana pricing page](https://azure.microsoft.com/pricing/details/managed-grafana/) and the ingestion separately from the [Azure Monitor pricing page](https://azure.microsoft.com/pricing/details/monitor/), against your own region and tenant. Starting free is not a trap either: a saved dashboard can be copied into a Managed Grafana instance later from the portal.
+Price the product from the [Azure Managed Grafana pricing page](https://azure.microsoft.com/pricing/details/managed-grafana/) and the ingestion separately from the [Azure Monitor pricing page](https://azure.microsoft.com/pricing/details/monitor/), against your own region and tenant. Starting free does not lock you in either: a saved dashboard can be copied into a Managed Grafana instance later from the portal.
 
 Free dashboards do not make the telemetry free. Log Analytics bills on what you ingest and retain, and `captureContent` is the dominant multiplier, because turning it on puts prompt text, response text, system instructions, and tool arguments on every span. That is orders of magnitude, not percentages.
 For fleet capture, set `captureContent: false` with `lockCaptureContent: true`, strip content attributes at the collector, and choose retention and a daily ingestion cap deliberately rather than accepting the defaults.

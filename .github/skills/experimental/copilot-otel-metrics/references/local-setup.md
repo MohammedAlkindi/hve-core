@@ -6,7 +6,7 @@ description: "Procedure for enabling GitHub Copilot's OpenTelemetry export in th
 
 ## Intended Use
 
-Read this before writing or advising on any `github.copilot.chat.otel.*` setting. It carries the settings inventory, the platform-specific file paths, the profile resolution trap that makes a careless write a silent no-op, the per-key upsert contract, and the paste-it-yourself alternative for a user who declines the assisted write.
+Read this before writing or advising on any `github.copilot.chat.otel.*` setting. It carries the settings inventory, the platform-specific file paths, the profile resolution pitfall that makes a careless write a silent no-op, the per-key upsert contract, and the paste-it-yourself alternative for a user who declines the assisted write.
 
 ## The settings
 

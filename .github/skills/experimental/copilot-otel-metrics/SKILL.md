@@ -110,11 +110,11 @@ Read the references. Copy or adapt the seeds. Offer the helpers to the user with
 
 | Path                                             | Use                                                                                                                       |
 |--------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| `references/local-setup.md`                      | Read for the settings procedure, the profile trap, the diff-and-confirm write, and the paste alternative                  |
+| `references/local-setup.md`                      | Read for the settings procedure, the profile pitfall, the diff-and-confirm write, and the paste alternative               |
 | `references/local-stack.md`                      | Read for the local backend, the generated compose contract, and the helper inventory                                      |
 | `references/org-distribution.md`                 | Read for managed-settings channels, precedence, and the agent-host split                                                  |
 | `references/azure-capture.md`                    | Read for the Azure data path, the product and cost comparison, and the generated templates                                |
-| `references/verification.md`                     | Read for proving data landed, the false-positive traps, and metric enumeration                                            |
+| `references/verification.md`                     | Read for proving data landed, the false-positive pitfalls, and metric enumeration                                         |
 | `examples/compose.yaml`                          | Copy as the seed for a generated local stack                                                                              |
 | `examples/dashboards/copilot-otel.json`          | Copy as the seed for a generated local PromQL dashboard                                                                   |
 | `examples/dashboards/copilot-otel-azure.json`    | Copy as the seed for a generated Azure KQL dashboard                                                                      |
