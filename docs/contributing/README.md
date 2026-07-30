@@ -3,7 +3,7 @@ title: Contributing AI Artifacts
 description: Guides for contributing agents, instructions, and prompts to hve-core
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-05-13
+ms.date: 2026-07-16
 ms.topic: overview
 keywords:
   - contributing
@@ -41,6 +41,7 @@ Use this table to navigate to the appropriate guide based on what you want to co
 | Guide                                      | Description                                                                     |
 |--------------------------------------------|---------------------------------------------------------------------------------|
 | [Common Standards](ai-artifacts-common.md) | Shared conventions, quality gates, and rejection criteria for all contributions |
+| [Accessibility Manual Validation](accessibility-manual-validation.md) | Public-safe, manual validation steps for the HVE Core docs accessibility bug set |
 | [Custom Agents](custom-agents.md)          | How to create and submit new agent definitions                                  |
 | [Instructions](instructions.md)            | How to create repository-specific coding guidelines                             |
 | [Prompts](prompts.md)                      | How to create reusable prompt templates                                         |
