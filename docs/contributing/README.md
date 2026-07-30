@@ -25,6 +25,7 @@ Use this table to navigate to the appropriate guide based on what you want to co
 | Report a bug or suggest an enhancement  | [CONTRIBUTING.md](https://github.com/microsoft/hve-core/blob/main/CONTRIBUTING.md#reporting-bugs)               |
 | Submit a code change                    | [CONTRIBUTING.md](https://github.com/microsoft/hve-core/blob/main/CONTRIBUTING.md#your-first-code-contribution) |
 | Improve general documentation           | [CONTRIBUTING.md](https://github.com/microsoft/hve-core/blob/main/CONTRIBUTING.md#improving-the-documentation)  |
+| Choose local validation or reproduce CI | [Validation Commands](validation)                                                                               |
 | Create or modify a hook                 | [Hooks](hooks.md)                                                                                               |
 | Create or modify an agent               | [Custom Agents](custom-agents.md)                                                                               |
 | Create or modify an instruction file    | [Instructions](instructions.md)                                                                                 |
@@ -49,6 +50,7 @@ Use this table to navigate to the appropriate guide based on what you want to co
 | [Hooks](hooks.md)                          | How to implement hook manifests, scripts, and collection registration           |
 | [Release Process](release-process.md)      | Extension channels, maturity levels, and publishing workflow                    |
 | [Evals in CI](evals-ci.md)                 | Auth contract, fork-PR policy, and how to add a new eval spec                   |
+| [Validation Commands](validation)          | Local-safe defaults, named CI-owned lanes, prerequisites, and cleanup           |
 
 ## Before You Start
 

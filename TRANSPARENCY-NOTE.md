@@ -2,7 +2,7 @@
 title: "Transparency Note: HVE Core (May 2026)"
 description: "Public Transparency Note for HVE Core, a prompt-engineering and agentic-customization framework distributed by microsoft/hve-core."
 author: HVE Core Maintainers
-ms.date: 2026-06-26
+ms.date: 2026-07-24
 ms.topic: overview
 keywords:
   - responsible-ai
@@ -122,7 +122,7 @@ HVE Core is a set of files that depends on a downstream AI platform. That shapes
 
 Some prior gaps that are now being addressed:
 
-* **AI-disclosure.** A central disclaimer source (`.github/config/disclaimers.yml`) and a CI validation script now define and check the required disclaimer text for planner artifacts. Applying consistent AI-attribution markers across every artifact type is still being standardized.
+* **AI-disclosure.** A central disclaimer source (`.github/instructions/shared/disclaimer-language.instructions.md`) and a CI validation script now define and check the required disclaimer text for planner artifacts. Applying consistent AI-attribution markers across every artifact type is still being standardized.
 * **Accessibility.** Accessibility planning instructions are now part of the repository, giving teams a structured way to run accessibility assessments. A baseline accessibility audit of HVE Core's own documentation and rendered output is still pending.
 * **Telemetry.** A telemetry-foundations skill with a built-in PII denylist is now available to standardize how adopters instrument their own use. A published re-assessment cadence is still pending.
 * **Prompt injection.** The ADR Creator agent treats untrusted input (web content, templates, handoff payloads) as data rather than instructions and scans content before producing output. Extending this pattern across all agents is still in progress.
@@ -159,7 +159,7 @@ Evaluation methods:
 
 * **Automated validation.** Every pull request runs the full CI suite: markdown and frontmatter linting, model-reference checks, link checking, PowerShell and Python linting, YAML validation, collection-metadata and marketplace checks, dependency-pinning and action-version checks, copyright-header checks, and skill-structure validation.
 * **Test suites.** Pester tests cover the PowerShell scripts and pytest covers the Python skill code. Results are written to the repository's logs directory and gate merge.
-* **Prompt evaluation.** The Prompt Evaluator and Prompt Tester agents check prompt and agent files against quality criteria in a sandbox before changes land.
+* **Prompt-engineering evaluation.** HVE Builder uses independent static review, fidelity-labeled behavior testing, and non-mutating host validation. Reports distinguish contained simulation from native behavior and retain human review as the final gate.
 * **Human review.** A maintainer reviews every change. Supply-chain and dependency findings surface to that reviewer.
 
 Evaluation results: the CI suite and human review gate merge, so a file that fails any check does not ship. This verifies file quality (structure, links, conventions, pinned dependencies). It does not verify how a downstream model behaves on the file, which depends on the host platform and sits outside HVE Core's control.

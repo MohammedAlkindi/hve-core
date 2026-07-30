@@ -38,6 +38,21 @@ const collectionCounts = Object.fromEntries(
   collectionNames.map((n) => [n, countYamlPaths(n)]),
 );
 
+const accessibleGithubPrismTheme = {
+  ...prismThemes.github,
+  styles: prismThemes.github.styles.map((entry) =>
+    entry.types.includes('comment')
+      ? {
+          ...entry,
+          style: {
+            ...entry.style,
+            color: '#505050',
+          },
+        }
+      : entry,
+  ),
+};
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: labelRegistry.hveCore,
@@ -204,7 +219,7 @@ const config = {
         copyright: `© Microsoft ${new Date().getFullYear()}. Built with ${labelRegistry.hveCoreExpanded}. Need help? Start with the documentation and the accessibility resources when available.`,
       },
       prism: {
-        theme: prismThemes.github,
+        theme: accessibleGithubPrismTheme,
         darkTheme: prismThemes.dracula,
       },
     }),

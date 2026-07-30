@@ -3,11 +3,19 @@ title: 'AI Artifacts Common Standards'
 description: 'Common standards and quality gates for all AI artifact contributions to hve-core'
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-06-28
+ms.date: 2026-07-15
 ms.topic: reference
 ---
 
-This document defines shared standards, conventions, and quality gates that apply to **all** AI artifact contributions to hve-core (agents, prompts, and instructions files).
+This document defines shared standards, conventions, and quality gates that apply to **all** AI artifact contributions to hve-core (agents, prompts, instructions, and skills).
+
+## Asset Reference Documentation
+
+Every documentable agent, prompt, instruction, and skill MUST include its paired
+page under `docs/reference/**`. Follow the
+[asset reference documentation guide](asset-docs.md) to generate the page, preserve
+the generator-owned regions, author the usage sections, and satisfy the local and
+pull request validation gates.
 
 ## Agents Not Accepted
 
@@ -170,8 +178,8 @@ items:
   - path: .github/instructions/coding-standards/python-script.instructions.md
     kind: instruction
     maturity: stable
-  - path: .github/prompts/hve-core/task-plan.prompt.md
-    kind: prompt
+  - path: .github/skills/rpi/rpi-plan/SKILL.md
+    kind: skill
     maturity: preview
 ```
 
@@ -281,19 +289,19 @@ Collections represent role-targeted artifact packages for HVE Core artifacts. Th
 
 ### Defined Collections
 
-| Collection            | Identifier         | Description                                                                          |
-|-----------------------|--------------------|--------------------------------------------------------------------------------------|
-| **All**               | `hve-core-all`     | Full bundle of all stable HVE Core agents, prompts, instructions, and skills         |
-| **Azure DevOps**      | `ado`              | Azure DevOps work item management, build monitoring, and pull request creation       |
-| **Coding Standards**  | `coding-standards` | Language-specific coding instructions for bash, Bicep, C#, Python, and Terraform     |
-| **Data Science**      | `data-science`     | Data specification generation, Jupyter notebooks, and Streamlit dashboards           |
-| **Design Thinking**   | `design-thinking`  | Design Thinking coaching identity, quality constraints, and methodology instructions |
-| **Experimental**      | `experimental`     | Experimental skills and utilities in early development                               |
-| **GitHub Backlog**    | `github`           | GitHub issue discovery, triage, sprint planning, and backlog execution               |
-| **Installer**         | `installer`        | HVE Core installation skill (installer) and environment setup                        |
-| **Project Planning**  | `project-planning` | PRDs, BRDs, ADRs, architecture diagrams, and documentation operations                |
-| **HVE Core Workflow** | `hve-core`         | Research, Plan, Implement, Review workflow agents and prompts                        |
-| **Security**          | `security`         | Security review, planning, incident response, and risk assessment                    |
+| Collection            | Identifier         | Description                                                                                                                        |
+|-----------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| **All**               | `hve-core-all`     | Full bundle of all stable HVE Core agents, prompts, instructions, and skills                                                       |
+| **Azure DevOps**      | `ado`              | Azure DevOps work item management, build monitoring, and pull request creation                                                     |
+| **Coding Standards**  | `coding-standards` | Language-specific coding instructions for bash, Bicep, C#, Python, and Terraform                                                   |
+| **Data Science**      | `data-science`     | Data specification generation, Jupyter notebooks, and Streamlit dashboards                                                         |
+| **Design Thinking**   | `design-thinking`  | Design Thinking coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods |
+| **Experimental**      | `experimental`     | Experimental skills and utilities in early development                                                                             |
+| **GitHub Backlog**    | `github`           | GitHub issue discovery, triage, sprint planning, and backlog execution                                                             |
+| **Installer**         | `installer`        | HVE Core installation skill (installer) and environment setup                                                                      |
+| **Project Planning**  | `project-planning` | PRDs, BRDs, ADRs, architecture diagrams, and documentation operations                                                              |
+| **HVE Core Workflow** | `hve-core`         | Research, Plan, Implement, Review workflow agents and prompts                                                                      |
+| **Security**          | `security`         | Security review, planning, incident response, and risk assessment                                                                  |
 
 ### Collection Assignment Guidelines
 
@@ -301,7 +309,7 @@ When assigning collections to artifacts:
 
 * Include `hve-core-all` plus any role-specific collections that particularly benefit for universal artifacts
 * Include only the relevant collections for role-specific artifacts (omit `hve-core-all` for highly specialized artifacts)
-* Assign cross-cutting tools like RPI workflow artifacts (`task-researcher`, `task-planner`) to multiple relevant collections
+* Assign cross-cutting tools like RPI Agent and the `rpi-*` phase skills to multiple relevant collections
 
 #### Example Collection Assignments
 
@@ -888,7 +896,7 @@ When contributing AI artifacts:
 
 * Read `.github/copilot-instructions.md` for repository-wide conventions
 * Review existing files in same category for patterns
-* Use `prompt-builder.agent.md` agent for guided assistance
+* Use the `hve-builder` skill for guided artifact authoring, review, and validation
 
 ### Ask Questions
 

@@ -1,6 +1,6 @@
 id: hve-core-all
 name: HVE Core All
-description: Full bundle of all stable HVE Core agents, prompts, instructions, and skills
+description: Full bundle of opinionated, rapidly evolving HVE Core agentic SDLC patterns and tools
 tags:
 - hve
 - complete
@@ -75,42 +75,17 @@ items:
   kind: agent
 - path: .github/agents/hve-core/documentation.agent.md
   kind: agent
-- path: .github/agents/hve-core/memory.agent.md
-  kind: agent
-- path: .github/agents/hve-core/prompt-builder.agent.md
-  kind: agent
 - path: .github/agents/hve-core/rpi-agent.agent.md
   kind: agent
-- path: .github/agents/hve-core/subagents/implementation-validator.agent.md
+- path: .github/agents/hve-core/subagents/hve-artifact-tester.agent.md
   kind: agent
-- path: .github/agents/hve-core/subagents/phase-implementor.agent.md
+- path: .github/agents/hve-core/subagents/rpi-planner.agent.md
   kind: agent
-- path: .github/agents/hve-core/subagents/plan-validator.agent.md
-  kind: agent
-- path: .github/agents/hve-core/subagents/prompt-evaluator.agent.md
-  kind: agent
-- path: .github/agents/hve-core/subagents/prompt-tester.agent.md
-  kind: agent
-- path: .github/agents/hve-core/subagents/prompt-updater.agent.md
-  kind: agent
-- path: .github/agents/hve-core/subagents/researcher-subagent.agent.md
-  kind: agent
-- path: .github/agents/hve-core/subagents/rpi-validator.agent.md
+- path: .github/agents/hve-core/subagents/rpi-researcher.agent.md
   kind: agent
 - path: .github/agents/hve-core/subagents/vally-test-author.agent.md
   kind: agent
   maturity: experimental
-- path: .github/agents/hve-core/task-challenger.agent.md
-  kind: agent
-  maturity: experimental
-- path: .github/agents/hve-core/task-implementor.agent.md
-  kind: agent
-- path: .github/agents/hve-core/task-planner.agent.md
-  kind: agent
-- path: .github/agents/hve-core/task-researcher.agent.md
-  kind: agent
-- path: .github/agents/hve-core/task-reviewer.agent.md
-  kind: agent
 - path: .github/agents/jira/jira-backlog-manager.agent.md
   kind: agent
 - path: .github/agents/jira/jira-prd-to-wit.agent.md
@@ -273,8 +248,6 @@ items:
   kind: prompt
 - path: .github/prompts/github/github-triage-issues.prompt.md
   kind: prompt
-- path: .github/prompts/hve-core/checkpoint.prompt.md
-  kind: prompt
 - path: .github/prompts/hve-core/evals-import.prompt.md
   kind: prompt
   maturity: experimental
@@ -289,26 +262,9 @@ items:
 - path: .github/prompts/hve-core/pr-review.prompt.md
   kind: prompt
   maturity: experimental
-- path: .github/prompts/hve-core/prompt-analyze.prompt.md
-  kind: prompt
-- path: .github/prompts/hve-core/prompt-build.prompt.md
-  kind: prompt
-- path: .github/prompts/hve-core/prompt-refactor.prompt.md
-  kind: prompt
 - path: .github/prompts/hve-core/pull-request.prompt.md
   kind: prompt
 - path: .github/prompts/hve-core/rpi.prompt.md
-  kind: prompt
-- path: .github/prompts/hve-core/task-challenge.prompt.md
-  kind: prompt
-  maturity: experimental
-- path: .github/prompts/hve-core/task-implement.prompt.md
-  kind: prompt
-- path: .github/prompts/hve-core/task-plan.prompt.md
-  kind: prompt
-- path: .github/prompts/hve-core/task-research.prompt.md
-  kind: prompt
-- path: .github/prompts/hve-core/task-review.prompt.md
   kind: prompt
 - path: .github/prompts/hve-core/vally-test-write.prompt.md
   kind: prompt
@@ -473,11 +429,11 @@ items:
   kind: instruction
 - path: .github/instructions/hve-core/git-merge.instructions.md
   kind: instruction
+- path: .github/instructions/hve-core/hve-builder.instructions.md
+  kind: instruction
 - path: .github/instructions/hve-core/licensing-posture.instructions.md
   kind: instruction
 - path: .github/instructions/hve-core/markdown.instructions.md
-  kind: instruction
-- path: .github/instructions/hve-core/prompt-builder.instructions.md
   kind: instruction
 - path: .github/instructions/hve-core/pull-request.instructions.md
   kind: instruction
@@ -596,6 +552,10 @@ items:
   maturity: experimental
 - path: .github/skills/hve-core/documentation
   kind: skill
+- path: .github/skills/hve-core/hve-builder
+  kind: skill
+- path: .github/skills/hve-core/hve-builder-tester
+  kind: skill
 - path: .github/skills/hve-core/prompt-analyze
   kind: skill
 - path: .github/skills/hve-core/prompt-builder
@@ -612,6 +572,9 @@ items:
 - path: .github/skills/project-planning/adr-author
   kind: skill
   maturity: experimental
+- path: .github/skills/project-planning/performance-slo-planner
+  kind: skill
+  maturity: experimental
 - path: .github/skills/project-planning/privacy-standards
   kind: skill
   maturity: experimental
@@ -626,15 +589,21 @@ items:
 - path: .github/skills/rai/rai-standards
   kind: skill
   maturity: experimental
+- path: .github/skills/rpi/rpi-challenger
+  kind: skill
 - path: .github/skills/rpi/rpi-implement
   kind: skill
 - path: .github/skills/rpi/rpi-plan
+  kind: skill
+- path: .github/skills/rpi/rpi-plan-critique
   kind: skill
 - path: .github/skills/rpi/rpi-quick
   kind: skill
 - path: .github/skills/rpi/rpi-research
   kind: skill
 - path: .github/skills/rpi/rpi-review
+  kind: skill
+- path: .github/skills/rpi/rpi-walkthrough
   kind: skill
 - path: .github/skills/security/owasp-agentic
   kind: skill
