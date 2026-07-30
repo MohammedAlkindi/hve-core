@@ -216,13 +216,31 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
     }
 
     Context 'Missing or unreadable inputs' {
-        It 'Reports a violation when a spec file is absent' {
+        It 'Skips cleanly when no baseline-equivalence suite is present' {
+            # An absent suite is not a broken suite. A repository or fixture root that
+            # never had the suite must not fail validation.
             $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
             New-Item -ItemType Directory -Path $root -Force | Out-Null
             try {
                 $result = Test-EquivalenceStimulusSync -RepoRoot $root
-                @($result.violations).Count | Should -BeGreaterThan 0
+                $result.suitePresent | Should -BeFalse
+                @($result.violations).Count | Should -Be 0
                 $result.checkedCount | Should -Be 0
+            }
+            finally {
+                Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'Reports a violation when the suite is only partially present' {
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+            try {
+                New-EquivalenceFixture -Root $root
+                Remove-Item -LiteralPath (Join-Path $root 'evals/baseline-equivalence/baseline/eval.yaml') -Force
+                $result = Test-EquivalenceStimulusSync -RepoRoot $root
+                $result.suitePresent | Should -BeTrue
+                @($result.violations).Count | Should -BeGreaterThan 0
+                @($result.violations)[0].message | Should -Match 'partially present'
             }
             finally {
                 Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
@@ -236,6 +254,33 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
             $result = Test-EquivalenceStimulusSync -RepoRoot $repoRoot
             $result.checkedCount | Should -Be 40
             $result.violations | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'Violation count reporting' {
+        # Regression guard for a PowerShell counting hazard. A pipeline that yields
+        # exactly one hashtable reports that hashtable's key count rather than 1
+        # when .Count is read without an enclosing array subexpression, so a single
+        # violation silently measures as 3. Callers that gate on the count must
+        # therefore see an exact 1 here, not merely a truthy value.
+        It 'Reports exactly one violation when a single field drifts' {
+            $result = Invoke-SyncCheck -Mutate { param($b) $b.Customized.stimuli[0].prompt = 'What is 3 + 3?' }
+            @($result.violations).Count | Should -Be 1
+            @($result.violations)[0].field | Should -Be 'prompt'
+        }
+
+        It 'Reports a violation collection that measures correctly at every size' {
+            $none = Invoke-SyncCheck
+            $one = Invoke-SyncCheck -Mutate { param($b) $b.Customized.stimuli[0].prompt = 'drifted' }
+            $two = Invoke-SyncCheck -Mutate {
+                param($b)
+                $b.Customized.stimuli[0].prompt = 'drifted'
+                $b.Baseline.stimuli[0].prompt = 'drifted differently'
+            }
+
+            @($none.violations).Count | Should -Be 0
+            @($one.violations).Count | Should -Be 1
+            @($two.violations).Count | Should -Be 2
         }
     }
 }

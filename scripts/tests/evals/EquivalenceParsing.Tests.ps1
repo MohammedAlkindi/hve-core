@@ -262,7 +262,7 @@ Describe 'ConvertFrom-EquivalenceResults' -Tag 'Unit' {
     }
 
     It 'Extracts the stimulus name' {
-        ($script:Records | Where-Object { $_.stimulusName -eq 'test-stim-a' }).Count | Should -Be 1
+        @($script:Records | Where-Object { $_.stimulusName -eq 'test-stim-a' }).Count | Should -Be 1
     }
 
     It 'Numbers trials per stimulus starting at zero' {
@@ -624,7 +624,7 @@ Describe 'Get-AppliedArtifacts' -Tag 'Unit' {
     }
 
     It 'Retains distinct SKILL.md files in different subdirectories' {
-        ($script:Result | Where-Object { $_ -like '*SKILL.md' }).Count | Should -Be 2
+        @($script:Result | Where-Object { $_ -like '*SKILL.md' }).Count | Should -Be 2
     }
 
     It 'Excludes README.md' {

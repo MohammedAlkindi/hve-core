@@ -517,6 +517,10 @@ function Test-EquivalenceStimulusSync {
 
         Extra graders in the customized spec are expected and are not reported, provided
         each one is declared as a guard in the canonical library.
+
+        A repository with none of the three files present reports `suitePresent = $false`
+        and no violations, because an absent suite is not a broken suite. A partially
+        present suite is reported, since that indicates a lost or renamed file.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -538,16 +542,35 @@ function Test-EquivalenceStimulusSync {
     $violations = [System.Collections.Generic.List[hashtable]]::new()
     $specs = @{}
 
-    foreach ($entry in @(
-            @{ Key = 'canonical'; Path = $CanonicalPath },
-            @{ Key = 'baseline'; Path = $BaselinePath },
-            @{ Key = 'customized'; Path = $CustomizedPath })) {
+    $specEntries = @(
+        @{ Key = 'canonical'; Path = $CanonicalPath },
+        @{ Key = 'baseline'; Path = $BaselinePath },
+        @{ Key = 'customized'; Path = $CustomizedPath }
+    )
+
+    # A repository without a baseline-equivalence suite is not a failure. Only a
+    # partially present suite is, because that means a file was lost or renamed.
+    $presentCount = @($specEntries | Where-Object {
+            $candidate = if ([System.IO.Path]::IsPathRooted($_.Path)) { $_.Path } else { Join-Path -Path $RepoRoot -ChildPath $_.Path }
+            Test-Path -LiteralPath $candidate -PathType Leaf
+        }).Count
+
+    if ($presentCount -eq 0) {
+        return @{
+            canonicalPath = $CanonicalPath
+            checkedCount  = 0
+            violations    = @()
+            suitePresent  = $false
+        }
+    }
+
+    foreach ($entry in $specEntries) {
         $full = if ([System.IO.Path]::IsPathRooted($entry.Path)) { $entry.Path } else { Join-Path -Path $RepoRoot -ChildPath $entry.Path }
         if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
             $violations.Add(@{
                     stimulusName = '<file>'
                     field        = $entry.Key
-                    message      = "Baseline-equivalence spec not found at '$($entry.Path)'."
+                    message      = "Baseline-equivalence spec not found at '$($entry.Path)'. The suite is partially present, so a file was likely moved, renamed, or deleted."
                 })
             continue
         }
@@ -574,7 +597,8 @@ function Test-EquivalenceStimulusSync {
         return @{
             canonicalPath = $CanonicalPath
             checkedCount  = 0
-            violations    = [hashtable[]]@($violations)
+            violations    = @($violations)
+            suitePresent  = $true
         }
     }
 
@@ -700,7 +724,8 @@ function Test-EquivalenceStimulusSync {
     return @{
         canonicalPath = $CanonicalPath
         checkedCount  = $canonicalMap.Count
-        violations    = [hashtable[]]@($violations)
+        violations    = @($violations)
+        suitePresent  = $true
     }
 }
 
@@ -939,7 +964,12 @@ if ($MyInvocation.InvocationName -ne '.') {
 
     $equivalenceSyncReport = Test-EquivalenceStimulusSync -RepoRoot $resolvedRepoRoot
     $equivalenceViolations = @($equivalenceSyncReport.violations)
-    Write-Host "Baseline-equivalence sync: $($equivalenceSyncReport.checkedCount) canonical stimulus/stimuli checked; $($equivalenceViolations.Count) violation(s)."
+    if (-not $equivalenceSyncReport.suitePresent) {
+        Write-Host "Baseline-equivalence sync: suite not present; skipped."
+    }
+    else {
+        Write-Host "Baseline-equivalence sync: $($equivalenceSyncReport.checkedCount) canonical stimulus/stimuli checked; $($equivalenceViolations.Count) violation(s)."
+    }
 
     $coverageReport = $null
     if (-not $SkipAgentCoverage) {
