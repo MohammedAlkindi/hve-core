@@ -11,6 +11,7 @@ Every committed dependency manifest and lockfile resolves from a canonical publi
 
 ## Required Practice
 
+* Commit an `.npmrc` beside every `package.json` that npm installs from, and repeat the canonical registry settings in each one. npm reads project configuration only from the root it runs in, so a nested project ignores the repository-root `.npmrc` and resolves from whatever registry the machine supplies. Apply this to install roots only; a workspace member, a generated manifest, or a template that npm never installs separately does not need its own file.
 * Generate npm lockfiles from `https://registry.npmjs.org/` and retain its canonical tarball URLs and integrity metadata.
 * Keep every npm lockfile `integrity` value on `sha512`. Internal mirrors often omit `dist.integrity` and publish only `dist.shasum`, which makes npm record a `sha1` value and silently weakens verification to a collision-vulnerable hash. Rewriting a `resolved` URL back to the public registry does not repair a downgraded `integrity` value.
 * Use public ecosystem sources for other package managers, such as PyPI, the public PyTorch index, GitHub releases, NuGet Gallery, PowerShell Gallery, crates.io, and the Go module proxy.
