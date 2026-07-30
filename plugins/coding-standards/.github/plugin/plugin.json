@@ -3,28 +3,28 @@
   "description": "Language-specific coding instructions and pre-PR code review agents for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform projects",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/accessibility/",
-    "../../.github/agents/accessibility/subagents/",
-    "../../.github/agents/coding-standards/",
-    "../../.github/agents/coding-standards/subagents/",
-    "../../.github/agents/hve-core/subagents/"
+    ".github/agents/accessibility/",
+    ".github/agents/accessibility/subagents/",
+    ".github/agents/coding-standards/",
+    ".github/agents/coding-standards/subagents/",
+    ".github/agents/hve-core/subagents/"
   ],
   "skills": [
-    "../../.github/skills/coding-standards/code-review",
-    "../../.github/skills/coding-standards/python-foundational",
-    "../../.github/skills/rpi/rpi-research",
-    "../../.github/skills/shared/pr-reference",
-    "../../.github/skills/shared/telemetry-foundations"
+    ".github/skills/coding-standards/code-review",
+    ".github/skills/coding-standards/python-foundational",
+    ".github/skills/rpi/rpi-research",
+    ".github/skills/shared/pr-reference",
+    ".github/skills/shared/telemetry-foundations"
   ],
   "rules": [
-    "../../.github/instructions/coding-standards/",
-    "../../.github/instructions/coding-standards/bash/",
-    "../../.github/instructions/coding-standards/bicep/",
-    "../../.github/instructions/coding-standards/code-review/",
-    "../../.github/instructions/coding-standards/csharp/",
-    "../../.github/instructions/coding-standards/powershell/",
-    "../../.github/instructions/coding-standards/rust/",
-    "../../.github/instructions/coding-standards/terraform/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/coding-standards/",
+    ".github/instructions/coding-standards/bash/",
+    ".github/instructions/coding-standards/bicep/",
+    ".github/instructions/coding-standards/code-review/",
+    ".github/instructions/coding-standards/csharp/",
+    ".github/instructions/coding-standards/powershell/",
+    ".github/instructions/coding-standards/rust/",
+    ".github/instructions/coding-standards/terraform/",
+    ".github/instructions/shared/"
   ]
 }

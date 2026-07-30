@@ -3,16 +3,16 @@
   "description": "Jira backlog management, PRD issue planning, and issue operations through agents, prompts, instructions, and a Python skill",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/jira/"
+    ".github/agents/jira/"
   ],
   "commands": [
-    "../../.github/prompts/jira/"
+    ".github/prompts/jira/"
   ],
   "skills": [
-    "../../.github/skills/jira/jira"
+    ".github/skills/jira/jira"
   ],
   "rules": [
-    "../../.github/instructions/jira/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/jira/",
+    ".github/instructions/shared/"
   ]
 }

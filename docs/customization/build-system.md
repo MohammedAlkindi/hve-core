@@ -38,8 +38,10 @@ npm run plugin:generate
 
 Each plugin directory contains a generated `README.md` and
 `.github/plugin/plugin.json`. The manifest references canonical artifacts under the
-repository's root `.github/` directory. Validate generated output with
-`plugin:validate`, which includes marketplace validation.
+repository's root `.github/` directory. Marketplace entries identify plugin
+directories through `metadata.pluginRoot` and `source`; component paths in each
+plugin manifest resolve from the marketplace repository root. Validate generated
+output with `plugin:validate`, which includes marketplace validation.
 
 ## Schema Validation System
 

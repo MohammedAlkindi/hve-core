@@ -77,8 +77,8 @@ Describe 'Test-PluginPackageContent' {
         Set-Content -Path (Join-Path $ruleRoot 'test.instructions.md') -Value 'test'
         $manifest = @{
             name = 'valid'; description = 'd'; version = '1.0.0'
-            agents = @([System.IO.Path]::GetRelativePath($pluginRoot, $agentRoot))
-            rules = @([System.IO.Path]::GetRelativePath($pluginRoot, $ruleRoot))
+            agents = @([System.IO.Path]::GetRelativePath($repoRoot, $agentRoot))
+            rules = @([System.IO.Path]::GetRelativePath($repoRoot, $ruleRoot))
         }
         $manifestContent = $manifest | ConvertTo-Json -Depth 10
         Set-Content -Path (Join-Path $pluginRoot '.github/plugin/plugin.json') -Value $manifestContent
@@ -92,13 +92,13 @@ Describe 'Test-PluginPackageContent' {
         $pluginRoot = New-TestPluginPackage -RepoRoot $repoRoot -PluginName 'escape'
         New-Item -ItemType Directory -Path (Join-Path $repoRoot 'outside') -Force | Out-Null
         $manifest = @{
-            name = 'escape'; description = 'd'; version = '1.0.0'; skills = @('../../outside/')
+            name = 'escape'; description = 'd'; version = '1.0.0'; skills = @('outside/')
         }
         $manifestContent = $manifest | ConvertTo-Json -Depth 10
         Set-Content -Path (Join-Path $pluginRoot '.github/plugin/plugin.json') -Value $manifestContent
 
         (@(Test-PluginPackageContent -PluginRoot $pluginRoot -PluginName 'escape' -RepoRoot $repoRoot) -join "`n") |
-            Should -BeLike '*not a canonical repository source*../../outside/*'
+            Should -BeLike '*not a canonical repository source*outside/*'
     }
 
     It 'Rejects extra generated files in a plugin root' {
@@ -128,7 +128,7 @@ Describe 'Test-PluginPackageContent' {
         Set-Content -Path $componentPath -Value 'not a directory'
         $manifestContent = @{
             name = 'wrong-type'; description = 'd'; version = '1.0.0'
-            agents = @([System.IO.Path]::GetRelativePath($pluginRoot, $componentPath))
+            agents = @([System.IO.Path]::GetRelativePath($repoRoot, $componentPath))
         } | ConvertTo-Json
         Set-Content -Path (Join-Path $pluginRoot '.github/plugin/plugin.json') -Value $manifestContent
 

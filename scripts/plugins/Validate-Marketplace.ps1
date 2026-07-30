@@ -337,10 +337,9 @@ function Test-PluginPackageContent {
             }
 
             $resolvedPath = [System.IO.Path]::GetFullPath(
-                (Join-Path -Path $canonicalPluginRoot -ChildPath $declaredPath)
+                (Join-Path -Path $canonicalRepoRoot -ChildPath $declaredPath)
             )
-            if (-not (Test-PathContainedByRoot -Path $resolvedPath -Root $canonicalRepoRoot) -or
-                -not (Test-PathContainedByRoot -Path $resolvedPath -Root $componentRoot)) {
+            if (-not (Test-PathContainedByRoot -Path $resolvedPath -Root $componentRoot)) {
                 $pluginErrors += "plugin '$PluginName' manifest field '$field' path is not a canonical repository source: $declaredPath"
                 continue
             }

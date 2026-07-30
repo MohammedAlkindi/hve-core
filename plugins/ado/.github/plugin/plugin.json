@@ -3,20 +3,20 @@
   "description": "Azure DevOps work item management, build monitoring, and pull request creation",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/ado/",
-    "../../.github/agents/hve-core/subagents/"
+    ".github/agents/ado/",
+    ".github/agents/hve-core/subagents/"
   ],
   "commands": [
-    "../../.github/prompts/ado/"
+    ".github/prompts/ado/"
   ],
   "skills": [
-    "../../.github/skills/rpi/rpi-plan",
-    "../../.github/skills/rpi/rpi-plan-critique",
-    "../../.github/skills/rpi/rpi-research",
-    "../../.github/skills/shared/pr-reference"
+    ".github/skills/rpi/rpi-plan",
+    ".github/skills/rpi/rpi-plan-critique",
+    ".github/skills/rpi/rpi-research",
+    ".github/skills/shared/pr-reference"
   ],
   "rules": [
-    "../../.github/instructions/ado/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/ado/",
+    ".github/instructions/shared/"
   ]
 }

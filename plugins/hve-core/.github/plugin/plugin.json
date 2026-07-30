@@ -3,38 +3,38 @@
   "description": "Opinionated, rapidly evolving agentic SDLC patterns for RPI workflows, HVE Builder, and Git operations",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/coding-standards/",
-    "../../.github/agents/coding-standards/subagents/",
-    "../../.github/agents/hve-core/",
-    "../../.github/agents/hve-core/subagents/"
+    ".github/agents/coding-standards/",
+    ".github/agents/coding-standards/subagents/",
+    ".github/agents/hve-core/",
+    ".github/agents/hve-core/subagents/"
   ],
   "commands": [
-    "../../.github/prompts/hve-core/"
+    ".github/prompts/hve-core/"
   ],
   "skills": [
-    "../../.github/skills/coding-standards/code-review",
-    "../../.github/skills/experimental/mural",
-    "../../.github/skills/hve-core/documentation",
-    "../../.github/skills/hve-core/hve-builder",
-    "../../.github/skills/hve-core/hve-builder-tester",
-    "../../.github/skills/hve-core/prompt-analyze",
-    "../../.github/skills/hve-core/prompt-builder",
-    "../../.github/skills/hve-core/prompt-refactor",
-    "../../.github/skills/rpi/rpi-challenger",
-    "../../.github/skills/rpi/rpi-implement",
-    "../../.github/skills/rpi/rpi-plan",
-    "../../.github/skills/rpi/rpi-plan-critique",
-    "../../.github/skills/rpi/rpi-quick",
-    "../../.github/skills/rpi/rpi-research",
-    "../../.github/skills/rpi/rpi-review",
-    "../../.github/skills/shared/pr-reference",
-    "../../.github/skills/shared/telemetry-foundations"
+    ".github/skills/coding-standards/code-review",
+    ".github/skills/experimental/mural",
+    ".github/skills/hve-core/documentation",
+    ".github/skills/hve-core/hve-builder",
+    ".github/skills/hve-core/hve-builder-tester",
+    ".github/skills/hve-core/prompt-analyze",
+    ".github/skills/hve-core/prompt-builder",
+    ".github/skills/hve-core/prompt-refactor",
+    ".github/skills/rpi/rpi-challenger",
+    ".github/skills/rpi/rpi-implement",
+    ".github/skills/rpi/rpi-plan",
+    ".github/skills/rpi/rpi-plan-critique",
+    ".github/skills/rpi/rpi-quick",
+    ".github/skills/rpi/rpi-research",
+    ".github/skills/rpi/rpi-review",
+    ".github/skills/shared/pr-reference",
+    ".github/skills/shared/telemetry-foundations"
   ],
   "rules": [
-    "../../.github/instructions/coding-standards/code-review/",
-    "../../.github/instructions/experimental/mural/",
-    "../../.github/instructions/hve-core/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/coding-standards/code-review/",
+    ".github/instructions/experimental/mural/",
+    ".github/instructions/hve-core/",
+    ".github/instructions/shared/"
   ],
-  "hooks": "../../.github/hooks/shared/telemetry.json"
+  "hooks": ".github/hooks/shared/telemetry.json"
 }

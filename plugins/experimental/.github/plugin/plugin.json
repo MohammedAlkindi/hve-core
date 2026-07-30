@@ -3,26 +3,26 @@
   "description": "Experimental and preview artifacts not yet promoted to stable collections",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/experimental/",
-    "../../.github/agents/experimental/subagents/",
-    "../../.github/agents/hve-core/subagents/"
+    ".github/agents/experimental/",
+    ".github/agents/experimental/subagents/",
+    ".github/agents/hve-core/subagents/"
   ],
   "commands": [
-    "../../.github/prompts/experimental/"
+    ".github/prompts/experimental/"
   ],
   "skills": [
-    "../../.github/skills/experimental/caveman",
-    "../../.github/skills/experimental/customer-card-render",
-    "../../.github/skills/experimental/mural",
-    "../../.github/skills/experimental/powerpoint",
-    "../../.github/skills/experimental/tts-voiceover",
-    "../../.github/skills/experimental/video-to-gif",
-    "../../.github/skills/experimental/vscode-playwright",
-    "../../.github/skills/rpi/rpi-research"
+    ".github/skills/experimental/caveman",
+    ".github/skills/experimental/customer-card-render",
+    ".github/skills/experimental/mural",
+    ".github/skills/experimental/powerpoint",
+    ".github/skills/experimental/tts-voiceover",
+    ".github/skills/experimental/video-to-gif",
+    ".github/skills/experimental/vscode-playwright",
+    ".github/skills/rpi/rpi-research"
   ],
   "rules": [
-    "../../.github/instructions/experimental/",
-    "../../.github/instructions/experimental/mural/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/experimental/",
+    ".github/instructions/experimental/mural/",
+    ".github/instructions/shared/"
   ]
 }

@@ -3,38 +3,38 @@
   "description": "Security review, planning, incident response, risk assessment, and vulnerability analysis",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/hve-core/subagents/",
-    "../../.github/agents/rai-planning/",
-    "../../.github/agents/rai-planning/subagents/",
-    "../../.github/agents/security/",
-    "../../.github/agents/security/subagents/"
+    ".github/agents/hve-core/subagents/",
+    ".github/agents/rai-planning/",
+    ".github/agents/rai-planning/subagents/",
+    ".github/agents/security/",
+    ".github/agents/security/subagents/"
   ],
   "commands": [
-    "../../.github/prompts/rai-planning/",
-    "../../.github/prompts/security/"
+    ".github/prompts/rai-planning/",
+    ".github/prompts/security/"
   ],
   "skills": [
-    "../../.github/skills/project-planning/rai-planner",
-    "../../.github/skills/project-planning/security-planning",
-    "../../.github/skills/rai/rai-standards",
-    "../../.github/skills/rpi/rpi-research",
-    "../../.github/skills/security/owasp-agentic",
-    "../../.github/skills/security/owasp-cicd",
-    "../../.github/skills/security/owasp-infrastructure",
-    "../../.github/skills/security/owasp-llm",
-    "../../.github/skills/security/owasp-mcp",
-    "../../.github/skills/security/owasp-top-10",
-    "../../.github/skills/security/secure-by-design",
-    "../../.github/skills/security/security-reviewer-formats",
-    "../../.github/skills/security/supply-chain-security",
-    "../../.github/skills/security/vex",
-    "../../.github/skills/shared/backlog-templates",
-    "../../.github/skills/shared/pr-reference",
-    "../../.github/skills/shared/telemetry-foundations"
+    ".github/skills/project-planning/rai-planner",
+    ".github/skills/project-planning/security-planning",
+    ".github/skills/rai/rai-standards",
+    ".github/skills/rpi/rpi-research",
+    ".github/skills/security/owasp-agentic",
+    ".github/skills/security/owasp-cicd",
+    ".github/skills/security/owasp-infrastructure",
+    ".github/skills/security/owasp-llm",
+    ".github/skills/security/owasp-mcp",
+    ".github/skills/security/owasp-top-10",
+    ".github/skills/security/secure-by-design",
+    ".github/skills/security/security-reviewer-formats",
+    ".github/skills/security/supply-chain-security",
+    ".github/skills/security/vex",
+    ".github/skills/shared/backlog-templates",
+    ".github/skills/shared/pr-reference",
+    ".github/skills/shared/telemetry-foundations"
   ],
   "rules": [
-    "../../.github/instructions/rai-planning/",
-    "../../.github/instructions/security/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/rai-planning/",
+    ".github/instructions/security/",
+    ".github/instructions/shared/"
   ]
 }

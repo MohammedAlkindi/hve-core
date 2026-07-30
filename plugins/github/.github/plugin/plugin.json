@@ -3,16 +3,16 @@
   "description": "GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/github/"
+    ".github/agents/github/"
   ],
   "commands": [
-    "../../.github/prompts/github/"
+    ".github/prompts/github/"
   ],
   "skills": [
-    "../../.github/skills/github/gh-code-scanning"
+    ".github/skills/github/gh-code-scanning"
   ],
   "rules": [
-    "../../.github/instructions/github/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/github/",
+    ".github/instructions/shared/"
   ]
 }

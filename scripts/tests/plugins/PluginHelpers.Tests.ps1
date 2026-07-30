@@ -15,18 +15,18 @@ Describe 'New-PluginManifestContent' -Tag 'Unit' {
             -CollectionId 'test' `
             -Description 'Test plugin' `
             -Version '1.0.0' `
-            -AgentPaths @('../../.github/agents/z/', '../../.github/agents/a/') `
-            -CommandPaths @('../../.github/prompts/test/') `
-            -SkillPaths @('../../.github/skills/test/skill') `
-            -RulePaths @('../../.github/instructions/test/') `
-            -HookPaths @('../../.github/hooks/test/hooks.json')
+            -AgentPaths @('.github/agents/z/', '.github/agents/a/') `
+            -CommandPaths @('.github/prompts/test/') `
+            -SkillPaths @('.github/skills/test/skill') `
+            -RulePaths @('.github/instructions/test/') `
+            -HookPaths @('.github/hooks/test/hooks.json')
 
         $manifest.name | Should -Be 'test'
-        $manifest.agents | Should -Be @('../../.github/agents/a/', '../../.github/agents/z/')
-        $manifest.commands | Should -Be @('../../.github/prompts/test/')
-        $manifest.skills | Should -Be @('../../.github/skills/test/skill')
-        $manifest.rules | Should -Be @('../../.github/instructions/test/')
-        $manifest.hooks | Should -Be '../../.github/hooks/test/hooks.json'
+        $manifest.agents | Should -Be @('.github/agents/a/', '.github/agents/z/')
+        $manifest.commands | Should -Be @('.github/prompts/test/')
+        $manifest.skills | Should -Be @('.github/skills/test/skill')
+        $manifest.rules | Should -Be @('.github/instructions/test/')
+        $manifest.hooks | Should -Be '.github/hooks/test/hooks.json'
     }
 
     It 'Omits component fields when no paths are provided' {
@@ -102,7 +102,7 @@ Describe 'Write-PluginDirectory' -Tag 'Unit' {
         foreach ($field in $expectedTargets.Keys) {
             $declaredPath = @($manifest.$field)[0]
             $resolvedPath = [System.IO.Path]::TrimEndingDirectorySeparator(
-                [System.IO.Path]::GetFullPath((Join-Path $pluginRoot $declaredPath))
+                [System.IO.Path]::GetFullPath((Join-Path $script:repoRoot $declaredPath))
             )
             $expectedPath = [System.IO.Path]::TrimEndingDirectorySeparator(
                 [System.IO.Path]::GetFullPath($expectedTargets[$field])

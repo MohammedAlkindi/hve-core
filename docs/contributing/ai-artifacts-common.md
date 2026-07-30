@@ -448,8 +448,13 @@ Each generated plugin directory contains two files:
 
 | Content         | Description                                                                           |
 |-----------------|---------------------------------------------------------------------------------------|
-| Plugin manifest | `.github/plugin/plugin.json`, with paths to canonical root `.github/` source artifacts   |
+| Plugin manifest | `.github/plugin/plugin.json`, with repository-root paths to canonical `.github/` sources |
 | Plugin README   | `README.md`, initially generated from the corresponding refreshed collection markdown |
+
+The marketplace `metadata.pluginRoot` and each entry's `source` identify the plugin
+directory. The source remains a directory path rather than a direct path to
+`plugin.json`. Component paths declared inside `plugin.json` resolve from the
+marketplace repository root.
 
 ### Critical Rules for Plugin Files
 

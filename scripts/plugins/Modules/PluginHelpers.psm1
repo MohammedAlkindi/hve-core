@@ -444,9 +444,9 @@ function Write-PluginDirectory {
 
     .DESCRIPTION
     Creates .github/plugin/plugin.json and README.md under the plugin root.
-    Component paths resolve from that root to canonical artifacts in the
-    repository's .github directory. README.md initially mirrors the collection
-    markdown so its generation can evolve independently later.
+    Component paths resolve from the marketplace repository root to canonical
+    artifacts in its .github directory. README.md initially mirrors the
+    collection markdown so its generation can evolve independently later.
 
     .PARAMETER Collection
     Parsed collection manifest hashtable with id, description, and items.
@@ -503,8 +503,9 @@ function Write-PluginDirectory {
         [System.IO.Path]::GetFullPath($RepoRoot)
     )
     $repoPrefix = $canonicalRepoRoot + [System.IO.Path]::DirectorySeparatorChar
+    $componentRoot = Join-Path -Path $canonicalRepoRoot -ChildPath '.github'
+    $componentPrefix = $componentRoot + [System.IO.Path]::DirectorySeparatorChar
     $pluginRoot = Join-Path -Path $PluginsDir -ChildPath $Collection.id
-    $referencePluginRoot = Join-Path -Path $canonicalRepoRoot -ChildPath "plugins/$($Collection.id)"
 
     $agentDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $commandDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -526,6 +527,9 @@ function Write-PluginDirectory {
         if (-not $sourcePath.StartsWith($repoPrefix, $pathComparison)) {
             throw "Plugin source must be inside the repository root: $sourcePath"
         }
+        if (-not $sourcePath.StartsWith($componentPrefix, $pathComparison)) {
+            throw "Plugin source must be inside the repository .github directory: $sourcePath"
+        }
         if (-not (Test-Path -LiteralPath $sourcePath)) {
             throw "Plugin source not found: $sourcePath"
         }
@@ -534,23 +538,23 @@ function Write-PluginDirectory {
         $componentPath = switch ([string]$item.kind) {
             'agent' {
                 $counts.AgentCount++
-                [System.IO.Path]::GetRelativePath($referencePluginRoot, $sourceItem.DirectoryName)
+                [System.IO.Path]::GetRelativePath($canonicalRepoRoot, $sourceItem.DirectoryName)
             }
             'prompt' {
                 $counts.CommandCount++
-                [System.IO.Path]::GetRelativePath($referencePluginRoot, $sourceItem.DirectoryName)
+                [System.IO.Path]::GetRelativePath($canonicalRepoRoot, $sourceItem.DirectoryName)
             }
             'instruction' {
                 $counts.InstructionCount++
-                [System.IO.Path]::GetRelativePath($referencePluginRoot, $sourceItem.DirectoryName)
+                [System.IO.Path]::GetRelativePath($canonicalRepoRoot, $sourceItem.DirectoryName)
             }
             'skill' {
                 $counts.SkillCount++
-                [System.IO.Path]::GetRelativePath($referencePluginRoot, $sourceItem.FullName)
+                [System.IO.Path]::GetRelativePath($canonicalRepoRoot, $sourceItem.FullName)
             }
             'hook' {
                 $counts.HookCount++
-                [System.IO.Path]::GetRelativePath($referencePluginRoot, $sourceItem.FullName)
+                [System.IO.Path]::GetRelativePath($canonicalRepoRoot, $sourceItem.FullName)
             }
             default { throw "Unsupported plugin item kind: $($item.kind)" }
         }

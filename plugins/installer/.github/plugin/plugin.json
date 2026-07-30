@@ -3,9 +3,9 @@
   "description": "Decision-driven installer skill for deploying HVE Core artifacts across workspace configurations",
   "version": "3.3.101",
   "skills": [
-    "../../.github/skills/installer/hve-core-installer"
+    ".github/skills/installer/hve-core-installer"
   ],
   "rules": [
-    "../../.github/instructions/shared/"
+    ".github/instructions/shared/"
   ]
 }

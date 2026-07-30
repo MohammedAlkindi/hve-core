@@ -33,9 +33,12 @@ npm run plugin:generate
 
 This regenerates each `plugins/<collection>/.github/plugin/plugin.json` from its
 collection manifest and initially copies the refreshed collection markdown to
-`plugins/<collection>/README.md`. Component paths in `plugin.json` reference
-canonical artifacts under the repository's root `.github/` directory. README
-generation can evolve independently from collection markdown in future changes.
+`plugins/<collection>/README.md`. The marketplace combines
+`metadata.pluginRoot` with each plugin's `source` to locate that plugin directory;
+the source does not point directly to `plugin.json`. Component paths in
+`plugin.json` resolve from the marketplace repository root and reference canonical
+artifacts under `.github/`. README generation can evolve independently from
+collection markdown in future changes.
 
 ---
 

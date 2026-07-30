@@ -3,9 +3,9 @@
   "description": "GitLab merge request and pipeline workflows through a Python skill",
   "version": "3.3.101",
   "skills": [
-    "../../.github/skills/gitlab/gitlab"
+    ".github/skills/gitlab/gitlab"
   ],
   "rules": [
-    "../../.github/instructions/shared/"
+    ".github/instructions/shared/"
   ]
 }

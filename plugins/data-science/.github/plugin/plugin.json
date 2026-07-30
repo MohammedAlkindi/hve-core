@@ -3,22 +3,22 @@
   "description": "Evaluation dataset creation, data specification generation, Jupyter notebooks, and Streamlit dashboards",
   "version": "3.3.101",
   "agents": [
-    "../../.github/agents/data-science/",
-    "../../.github/agents/hve-core/subagents/",
-    "../../.github/agents/rai-planning/"
+    ".github/agents/data-science/",
+    ".github/agents/hve-core/subagents/",
+    ".github/agents/rai-planning/"
   ],
   "commands": [
-    "../../.github/prompts/data-science/",
-    "../../.github/prompts/rai-planning/"
+    ".github/prompts/data-science/",
+    ".github/prompts/rai-planning/"
   ],
   "skills": [
-    "../../.github/skills/project-planning/rai-planner",
-    "../../.github/skills/rai/rai-standards",
-    "../../.github/skills/rpi/rpi-research"
+    ".github/skills/project-planning/rai-planner",
+    ".github/skills/rai/rai-standards",
+    ".github/skills/rpi/rpi-research"
   ],
   "rules": [
-    "../../.github/instructions/coding-standards/",
-    "../../.github/instructions/rai-planning/",
-    "../../.github/instructions/shared/"
+    ".github/instructions/coding-standards/",
+    ".github/instructions/rai-planning/",
+    ".github/instructions/shared/"
   ]
 }
