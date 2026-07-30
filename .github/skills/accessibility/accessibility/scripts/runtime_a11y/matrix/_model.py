@@ -39,6 +39,7 @@ class Surface:
     name: str
     platform: str
     states: list[str] = field(default_factory=list)
+    widgetPattern: str | None = None
 
 
 @dataclass(slots=True)
@@ -95,6 +96,7 @@ class Matrix:
                 name=str(item.get("name", item["id"])),
                 platform=str(item.get("platform", "web")),
                 states=[str(state) for state in item.get("states", [])],
+                widgetPattern=item.get("widgetPattern"),
             )
             for item in payload.get("surfaces", [])
         ]
@@ -135,6 +137,7 @@ class Matrix:
                     "name": surface.name,
                     "platform": surface.platform,
                     "states": surface.states,
+                    "widgetPattern": surface.widgetPattern,
                 }
                 for surface in self.surfaces
             ],

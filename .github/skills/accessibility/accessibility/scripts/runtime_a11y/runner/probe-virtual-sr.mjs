@@ -7,7 +7,7 @@ export async function runProbe() {
     // accname/AAM spec layer. A control announced by role with no accessible
     // name is a genuine WCAG 4.1.2 defect (fail). When the simulator cannot run,
     // the verdict is candidate rather than a false pass. Real-screen-reader
-    // confirmation (Guidepup NVDA/VoiceOver) is the higher-fidelity tier.
+    // confirmation (Guidepup NVDA) is the higher-fidelity tier.
     const snapshot = await captureVirtualSr(page);
 
     const results = await buildProbeResults({

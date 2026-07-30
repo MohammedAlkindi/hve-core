@@ -45,6 +45,7 @@ def _matrix() -> Matrix:
                 name="Search dialog",
                 platform="web",
                 states=["open"],
+                widgetPattern="dialog-modal",
             )
         ],
         cells=[
@@ -96,6 +97,30 @@ def test_given_rendered_payload_when_deserialized_then_matrix_round_trips() -> N
     assert restored.to_dict() == source.to_dict()
 
 
+def test_given_surface_widget_pattern_when_round_tripping_then_value_is_preserved() -> (
+    None
+):
+    # Arrange
+    source = Matrix(
+        criteria=[Criterion(id="4.1.2", framework="wcag-22", title="Name")],
+        surfaces=[
+            Surface(
+                id="search",
+                name="Search",
+                platform="web",
+                widgetPattern="dialog-modal",
+            )
+        ],
+        cells=[Cell(criterionId="4.1.2", surfaceId="search", state="open")],
+    )
+
+    # Act
+    restored = Matrix.from_dict(source.to_dict())
+
+    # Assert
+    assert restored.surfaces[0].widgetPattern == "dialog-modal"
+
+
 def test_given_minimal_payload_when_deserialized_then_defaults_are_applied() -> None:
     # Arrange
     payload = {
@@ -128,6 +153,80 @@ def test_given_unresolved_human_method_when_building_plan_then_case_is_emitted()
     assert cases[0]["currentStatus"] == "pass"
 
 
+def test_runtime_config_and_catalog_mapping_rendering_plans_has_metadata(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    matrix = Matrix(
+        criteria=[
+            Criterion(id="4.1.2", framework="wcag-22", title="Name, Role, Value")
+        ],
+        surfaces=[
+            Surface(
+                id="dialog",
+                name="Dialog",
+                platform="web",
+                widgetPattern="dialog-modal",
+            )
+        ],
+        cells=[
+            Cell(
+                criterionId="4.1.2",
+                surfaceId="dialog",
+                state="open",
+                status="unknown",
+            )
+        ],
+    )
+    runtime_config = {
+        "surfaces": [
+            {
+                "id": "dialog",
+                "widgetPattern": "dialog-modal",
+                "states": [
+                    {
+                        "state": "open",
+                        "ariaAt": {
+                            "commands": [
+                                {"kind": "key", "value": "Escape"},
+                                {"kind": "pause", "durationMs": 100},
+                            ],
+                            "assertions": [{"type": "contains", "value": "dialog"}],
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    markdown_path = tmp_path / "plan.md"
+    yaml_path = tmp_path / "plan.yaml"
+
+    # Act
+    render_manual_test_plan_markdown(matrix, markdown_path, "octo/repo", runtime_config)
+    render_manual_test_plan_yaml(matrix, yaml_path, "octo/repo", runtime_config)
+
+    # Assert
+    markdown = markdown_path.read_text(encoding="utf-8")
+    yaml = yaml_path.read_text(encoding="utf-8")
+    assert "ariaAt" in markdown
+    assert "ARIA-AT mapping ID: aria-at-modal-dialog" in markdown
+    assert "Immutable source:" in markdown
+    assert "Upstream SHA:" in markdown
+    assert "#### Mapping Commands" in markdown
+    assert "#### Executable NVDA Variants" in markdown
+    assert "#### Manual JAWS Variants" in markdown
+    assert 'mappingStatus: "mapped"' in yaml
+    assert "automationEligible: false" in yaml
+    assert 'upstreamTestId: "openModalDialog"' in yaml
+    assert 'kind: "key"' in yaml
+    assert 'value: "Escape"' in yaml
+    assert "durationMs: 100" in yaml
+    assert "manualEvidenceRequired: true" in yaml
+    assert "runbookReference: " in yaml
+    assert "          commands: []" in yaml
+    assert "          assertions: []" in yaml
+
+
 def test_given_manual_cases_when_rendering_plans_then_markdown_and_yaml_align(
     tmp_path: Path,
 ) -> None:
@@ -146,6 +245,9 @@ def test_given_manual_cases_when_rendering_plans_then_markdown_and_yaml_align(
     assert "# Manual Accessibility Test Plan" in markdown
     assert "manual-4-1-2-search-open" in markdown
     assert "- [ ] Reviewed and validated by a qualified human reviewer" in markdown
+    assert "nvda-open" in markdown
+    assert "Executable NVDA Variants" in markdown
+    assert "Manual JAWS Variants" in markdown
     assert 'repository: "octo/repo"' in yaml
     assert 'recommendedMethod: "screen-reader"' in yaml
     assert 'outcome: "not-run"' in yaml

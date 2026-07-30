@@ -1,7 +1,10 @@
 import { chromium } from 'playwright';
+import { execFile } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
+import { evaluateAssertion } from './assertions.mjs';
 import {
   buildProbeResults,
   emitProbeResult,
@@ -11,7 +14,264 @@ import {
 } from './_core.mjs';
 import { createScreenReaderDriver } from './drivers/driver-contract.mjs';
 
-const DEFAULT_VIEWPORT = { width: 1280, height: 900 };
+const DEFAULT_VIEWPORT = { width: 1440, height: 900 };
+
+const CHROME_HARDENING_ARGS = Object.freeze([
+  '--disable-session-crashed-bubble',
+  '--hide-crash-restore-bubble',
+  '--no-default-browser-check',
+  '--no-first-run',
+  // Chrome builds its native accessibility tree lazily. A CDP client reading
+  // the accessibility tree does not by itself make Chrome emit the platform
+  // (IAccessible2/UIA) events a screen reader listens to, so live-region
+  // mutations can go unannounced while static content still reads correctly.
+  // Forcing renderer accessibility keeps the native event path active.
+  '--force-renderer-accessibility',
+]);
+
+const execFileAsync = promisify(execFile);
+
+// Reads the title of the window the operating system currently has in the
+// foreground. This is the window a screen reader actually reads, which is not
+// necessarily the window the automation drives over the DevTools protocol.
+const FOREGROUND_WINDOW_TITLE_SCRIPT = [
+  'Add-Type -Namespace RuntimeA11y -Name Win -MemberDefinition \'',
+  '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+  '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);',
+  '\';',
+  '$h = [RuntimeA11y.Win]::GetForegroundWindow();',
+  '$b = New-Object System.Text.StringBuilder 1024;',
+  '[void][RuntimeA11y.Win]::GetWindowTextW($h, $b, $b.Capacity);',
+  '[Console]::Out.Write($b.ToString())',
+].join(' ');
+
+const ACTIVATE_WINDOW_BY_TITLE_SCRIPT = [
+  'Add-Type -Namespace RuntimeA11y -Name Win -MemberDefinition \'',
+  '[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);',
+  '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr hWnd, System.Text.StringBuilder s, int n);',
+  '[DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);',
+  '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
+  '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);',
+  'public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);',
+  '\';',
+  '$expected = [Environment]::GetEnvironmentVariable("RUNTIME_A11Y_EXPECTED_WINDOW_TITLE");',
+  'if ([string]::IsNullOrWhiteSpace($expected)) { return; }',
+  '$expected = $expected.Trim();',
+  '$match = [IntPtr]::Zero;',
+  '$callback = [RuntimeA11y.Win+EnumWindowsProc]{',
+  '  param([IntPtr]$hWnd, [IntPtr]$lParam)',
+  '  if (-not [RuntimeA11y.Win]::IsWindowVisible($hWnd)) { return $true; }',
+  '  $buffer = New-Object System.Text.StringBuilder 1024;',
+  '  [void][RuntimeA11y.Win]::GetWindowTextW($hWnd, $buffer, $buffer.Capacity);',
+  '  $title = $buffer.ToString();',
+  '  if ([string]::IsNullOrWhiteSpace($title)) { return $true; }',
+  '  if ($title.IndexOf($expected, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {',
+  '    $script:match = $hWnd;',
+  '    return $false;',
+  '  }',
+  '  return $true;',
+  '};',
+  '[void][RuntimeA11y.Win]::EnumWindows($callback, [IntPtr]::Zero);',
+  'if ($match -ne [IntPtr]::Zero) {',
+  '  [void][RuntimeA11y.Win]::ShowWindowAsync($match, 9);',
+  '  [void][RuntimeA11y.Win]::SetForegroundWindow($match);',
+  '}',
+].join(' ');
+
+export async function readForegroundWindowTitle() {
+  if (process.platform !== 'win32') {
+    return null;
+  }
+  try {
+    // Fixed script text with no interpolated input.
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', FOREGROUND_WINDOW_TITLE_SCRIPT],
+      { timeout: 5000, windowsHide: true },
+    );
+    return String(stdout || '').trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function activateWindowByTitle(expectedTitle) {
+  if (process.platform !== 'win32') {
+    return false;
+  }
+  const title = typeof expectedTitle === 'string' ? expectedTitle.trim() : '';
+  if (!title) {
+    return false;
+  }
+  try {
+    await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', ACTIVATE_WINDOW_BY_TITLE_SCRIPT],
+      {
+        timeout: 5000,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          RUNTIME_A11Y_EXPECTED_WINDOW_TITLE: title,
+        },
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function activatePageTarget({ page, context, browser, targetId } = {}) {
+  const resolvedTargetId = typeof targetId === 'string' ? targetId.trim() : '';
+  if (!resolvedTargetId) {
+    return false;
+  }
+
+  const targetContext = context || page?.context?.();
+  const cdpSessionFactory = targetContext?.newCDPSession?.bind(targetContext);
+  const browserCdpFactory = browser?.newBrowserCDPSession?.bind(browser);
+  if (!cdpSessionFactory && !browserCdpFactory) {
+    return false;
+  }
+
+  try {
+    const cdpSession = cdpSessionFactory
+      ? await cdpSessionFactory(page)
+      : await browserCdpFactory();
+    await cdpSession.send('Target.activateTarget', { targetId: resolvedTargetId });
+    await page?.bringToFront?.().catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function collectControlledWindowIdentity({ page, browser, context } = {}) {
+  const pageTitle = await page?.title?.().catch(() => null);
+  let pageUrl = null;
+  try {
+    if (typeof page?.url === 'function') {
+      pageUrl = page.url() || null;
+    }
+  } catch {
+    pageUrl = null;
+  }
+  const targetContext = context || page?.context?.();
+  const cdpSessionFactory = targetContext?.newCDPSession?.bind(targetContext);
+  const browserCdpFactory = browser?.newBrowserCDPSession?.bind(browser);
+
+  let windowId = null;
+  let targetInfo = null;
+  if (cdpSessionFactory || browserCdpFactory) {
+    try {
+      const cdpSession = cdpSessionFactory ? await cdpSessionFactory(page) : await browserCdpFactory();
+      const windowForTarget = await cdpSession.send('Browser.getWindowForTarget').catch(() => null);
+      if (Number.isFinite(Number(windowForTarget?.windowId))) {
+        windowId = Number(windowForTarget.windowId);
+      }
+      targetInfo = await cdpSession.send('Target.getTargetInfo').catch(() => null);
+    } catch {
+      // Fall back to the lightweight title/url identity captured from Playwright.
+    }
+  }
+
+  return {
+    windowId,
+    pageTitle,
+    pageUrl,
+    pageTargetId: targetInfo?.targetInfo?.targetId || targetInfo?.targetId || null,
+    targetTitle: targetInfo?.targetInfo?.title || targetInfo?.title || pageTitle || null,
+    targetUrl: targetInfo?.targetInfo?.url || targetInfo?.url || pageUrl || null,
+  };
+}
+
+// Binds the screen reader's reading context to the window under test.
+//
+// Playwright controls a specific window over CDP, but a screen reader narrates
+// whichever window the OS has focused. Without this check the harness can
+// synthesize keystrokes into an unrelated window and capture that window's
+// speech, which silently produces evidence about the wrong surface.
+export async function ensureAutomationWindowFocused({
+  page,
+  browser,
+  context,
+  timeoutMs = 5000,
+  pollIntervalMs = 250,
+  platform = process.platform,
+  readForegroundTitle = readForegroundWindowTitle,
+  activateWindow = activateWindowByTitle,
+  activateTarget = activatePageTarget,
+} = {}) {
+  if (String(platform).toLowerCase() !== 'win32' && String(platform).toLowerCase() !== 'windows') {
+    return { status: 'unsupported', reason: 'foreground-check-requires-windows' };
+  }
+  if (!page || typeof page.title !== 'function') {
+    return { status: 'unbound', reason: 'page-unavailable', attempts: 0 };
+  }
+
+  const documentTitle = await page.title().catch(() => null);
+  if (!documentTitle) {
+    return { status: 'unbound', reason: 'document-title-unavailable', attempts: 0 };
+  }
+
+  const expectedIdentity = await collectControlledWindowIdentity({ page, browser, context });
+  const deadline = Date.now() + timeoutMs;
+  let attempts = 0;
+  let remediationAttempted = false;
+  let foregroundTitle = null;
+  let foregroundIdentity = null;
+
+  while (Date.now() < deadline && attempts < 2) {
+    attempts += 1;
+    await maximizeBrowserWindow({ browser, context, page });
+    await page.bringToFront?.().catch(() => undefined);
+    if (typeof page.focus === 'function') {
+      await page.focus().catch(() => undefined);
+    }
+    foregroundTitle = await readForegroundTitle();
+    foregroundIdentity = { windowTitle: foregroundTitle || null };
+
+    // Chrome titles its window "<document title> - Google Chrome", so matching
+    // on the document title confirms the focused window is the page under test.
+    if (foregroundTitle && foregroundTitle.includes(documentTitle)) {
+      return {
+        status: 'bound',
+        expectedIdentity,
+        foregroundIdentity,
+        expectedTitle: documentTitle,
+        foregroundTitle,
+        attempts,
+        remediationAttempted,
+        reason: null,
+      };
+    }
+
+    if (attempts === 1 && timeoutMs > 0) {
+      remediationAttempted = true;
+      await activateTarget({
+        page,
+        context,
+        browser,
+        targetId: expectedIdentity?.pageTargetId,
+      }).catch(() => undefined);
+      await activateWindow(documentTitle).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      continue;
+    }
+  }
+
+  return {
+    status: 'unbound',
+    expectedIdentity,
+    foregroundIdentity,
+    expectedTitle: documentTitle,
+    foregroundTitle,
+    attempts,
+    remediationAttempted,
+    reason: 'foreground-window-does-not-match-page-under-test',
+  };
+}
 
 // Installed as an init script before navigation so it observes the live DOM from
 // first paint. Records post-load live-region announcements into a window global
@@ -86,7 +346,7 @@ function getRuntimeContext() {
   };
 }
 
-function resolveTargetUrl(baseUrl, surface) {
+export function resolveTargetUrl(baseUrl, surface) {
   const route = surface?.route || '';
   if (!route) {
     return baseUrl;
@@ -100,7 +360,7 @@ function resolveTargetUrl(baseUrl, surface) {
   }
 }
 
-function resolveLocator(page, target) {
+export function resolveLocator(page, target) {
   if (typeof target === 'string') {
     return page.locator(target);
   }
@@ -117,7 +377,15 @@ function resolveLocator(page, target) {
   return page.locator('body');
 }
 
-async function applyTrigger(page, trigger) {
+async function runTriggerAction(action, strict) {
+  if (strict) {
+    await action();
+    return;
+  }
+  await action().catch(() => undefined);
+}
+
+export async function applyTrigger(page, trigger, { strict = false } = {}) {
   if (!trigger) {
     return;
   }
@@ -128,39 +396,57 @@ async function applyTrigger(page, trigger) {
 
   switch (action) {
     case 'click':
-      await locator.click({ timeout: 1000 }).catch(() => undefined);
+      await runTriggerAction(() => locator.click({ timeout: 1000 }), strict);
       break;
     case 'focus':
-      await locator.focus({ timeout: 1000 }).catch(() => undefined);
+      await runTriggerAction(() => locator.focus({ timeout: 1000 }), strict);
       break;
     case 'hover':
-      await locator.hover({ timeout: 1000 }).catch(() => undefined);
+      await runTriggerAction(() => locator.hover({ timeout: 1000 }), strict);
       break;
     case 'type':
-      await locator.fill(trigger.value || '', { timeout: 1000 }).catch(() => undefined);
+      await runTriggerAction(
+        () => locator.fill(trigger.value || '', { timeout: 1000 }),
+        strict,
+      );
       break;
     case 'press':
-      await page.keyboard.press(trigger.value || 'Enter').catch(() => undefined);
+      await runTriggerAction(
+        () => page.keyboard.press(trigger.value || 'Enter'),
+        strict,
+      );
       break;
     case 'navigate':
-      await page.goto(trigger.value || '/', { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+      await runTriggerAction(
+        () => page.goto(trigger.value || '/', { waitUntil: 'domcontentloaded' }),
+        strict,
+      );
       break;
     case 'visit':
       if (typeof target === 'string' || target?.value) {
-        await page.goto(target.value || target || '/', { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+        await runTriggerAction(
+          () => page.goto(target.value || target || '/', { waitUntil: 'domcontentloaded' }),
+          strict,
+        );
       }
       break;
     default:
+      if (strict) {
+        throw new Error(`Unsupported trigger action: ${action}`);
+      }
       break;
   }
 
   if (trigger.waitFor) {
     const waitFor = resolveLocator(page, trigger.waitFor);
-    await waitFor.waitFor({ state: 'visible', timeout: 1000 }).catch(() => undefined);
+    await runTriggerAction(
+      () => waitFor.waitFor({ state: 'visible', timeout: 1000 }),
+      strict,
+    );
   }
 }
 
-async function applyStateEmulation(page, state) {
+export async function applyStateEmulation(page, state) {
   const viewport = state === 'mobile'
     ? { width: 390, height: 844 }
     : state === 'reflow-320'
@@ -199,6 +485,51 @@ async function gatherTracingAssets(page, context, tracePath) {
   return tracePath;
 }
 
+export async function maximizeBrowserWindow({ browser, context, page } = {}) {
+  const targetContext = context || page?.context?.();
+  const targetPage = page || null;
+  const cdpSessionFactory = targetContext?.newCDPSession?.bind(targetContext);
+  const browserCdpFactory = browser?.newBrowserCDPSession?.bind(browser);
+
+  if (!cdpSessionFactory && !browserCdpFactory) {
+    return { status: 'unavailable', reason: 'browser-cdp-unavailable' };
+  }
+
+  try {
+    const cdpSession = cdpSessionFactory
+      ? await cdpSessionFactory(targetPage)
+      : await browserCdpFactory();
+    const windowForTarget = await cdpSession.send('Browser.getWindowForTarget');
+    if (!windowForTarget?.windowId) {
+      return { status: 'unavailable', reason: 'browser-window-id-unavailable' };
+    }
+
+    await cdpSession.send('Browser.setWindowBounds', {
+      windowId: windowForTarget.windowId,
+      bounds: { windowState: 'maximized' },
+    });
+
+    if (targetPage && typeof targetPage.bringToFront === 'function') {
+      await targetPage.bringToFront().catch(() => undefined);
+    }
+
+    return {
+      status: 'maximized',
+      reason: null,
+      windowId: windowForTarget.windowId,
+      browserContext: context ? 'context-provided' : 'context-absent',
+      pageTarget: page ? 'page-provided' : 'page-absent',
+    };
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      reason: error instanceof Error ? error.message : String(error),
+      browserContext: context ? 'context-provided' : 'context-absent',
+      pageTarget: page ? 'page-provided' : 'page-absent',
+    };
+  }
+}
+
 export async function injectAxe(page) {
   try {
     const mod = await import('@axe-core/playwright');
@@ -214,6 +545,27 @@ export async function injectAxe(page) {
 }
 
 export async function snapshotAccessibilityTree(page) {
+  if (!page) {
+    return null;
+  }
+
+  try {
+    const context = typeof page.context === 'function' ? page.context() : null;
+    const cdpSessionFactory = context?.newCDPSession?.bind(context);
+    if (cdpSessionFactory) {
+      const cdpSession = await cdpSessionFactory(page);
+      await cdpSession.send('Accessibility.enable');
+      const axTree = await cdpSession.send('Accessibility.getFullAXTree');
+      return {
+        source: 'cdp',
+        nodes: Array.isArray(axTree?.nodes) ? axTree.nodes : [],
+      };
+    }
+  } catch {
+    // Fall back to the legacy snapshot API when the browser does not expose a
+    // target-bound CDP session for accessibility capture.
+  }
+
   try {
     return await page.accessibility.snapshot();
   } catch {
@@ -221,11 +573,31 @@ export async function snapshotAccessibilityTree(page) {
   }
 }
 
-// Launch headless system Chrome. Exposed so smoke tests (which live outside the
-// node_modules tree) can obtain a browser without importing the 'playwright'
-// bare specifier from a location where it does not resolve.
-export async function launchChrome() {
-  return chromium.launch({ channel: 'chrome', headless: true });
+// Launch headless system Chrome by default. Real AT execution explicitly opts
+// into a headed browser via the options passed from the executor path.
+//
+// Playwright gives each launched browser its own ephemeral profile directory and
+// removes it on close, so automation never reads or writes a real browsing
+// profile. Do not pass an explicit --user-data-dir; Playwright rejects it.
+export function buildChromeLaunchOptions(options = {}) {
+  const args = [...CHROME_HARDENING_ARGS];
+  if (Array.isArray(options.args)) {
+    for (const arg of options.args) {
+      if (typeof arg === 'string' && arg && !args.includes(arg)) {
+        args.push(arg);
+      }
+    }
+  }
+
+  return {
+    channel: 'chrome',
+    headless: options.headless ?? true,
+    args,
+  };
+}
+
+export async function launchChrome(options = {}) {
+  return chromium.launch(buildChromeLaunchOptions(options));
 }
 
 // The virtual screen reader's browser build is a self-contained ESM bundle,
@@ -316,7 +688,7 @@ export async function runProbeWithPage(callback) {
   const { config, probeId, surfaceId, state, baseUrl, trace } = contextData;
   const surface = (config.surfaces || []).find((entry) => entry.id === surfaceId) || null;
   const targetUrl = resolveTargetUrl(baseUrl, surface);
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const browser = await chromium.launch(buildChromeLaunchOptions({ headless: true }));
   const context = await browser.newContext({
     viewport: DEFAULT_VIEWPORT,
     colorScheme: 'light',
@@ -385,21 +757,23 @@ export async function runRealScreenReaderProbe(page, { surface, state, targetUrl
     }
     const snapshot = await driver.captureLog();
     const phrases = Array.isArray(snapshot?.phrases) ? snapshot.phrases : [];
-    const assertions = Array.isArray(snapshot?.assertions) ? snapshot.assertions : [];
+    const expectedAnnouncements = Array.isArray(probeConfig.expectedAnnouncements)
+      ? probeConfig.expectedAnnouncements
+      : [];
+    const assertions = (Array.isArray(snapshot?.assertions) ? snapshot.assertions : []).map((assertion) => ({
+      ...assertion,
+      ...evaluateAssertion(assertion, phrases),
+    }));
 
-    if (Array.isArray(probeConfig.expectedAnnouncements) && probeConfig.expectedAnnouncements.length > 0) {
-      const normalized = phrases.join(' || ');
-      for (const assertion of assertions) {
-        if (assertion.type === 'contains') {
-          assertion.status = normalized.toLowerCase().includes(String(assertion.value || '').toLowerCase()) ? 'pass' : 'fail';
-        } else if (assertion.type === 'matches') {
-          const regex = new RegExp(assertion.value);
-          assertion.status = regex.test(normalized) ? 'pass' : 'fail';
-        } else if (assertion.type === 'orderedContains') {
-          assertion.status = normalized.toLowerCase().includes(String(assertion.value || '').toLowerCase()) ? 'pass' : 'fail';
-        } else {
-          assertion.status = 'candidate';
-        }
+    if (expectedAnnouncements.length > 0) {
+      for (const assertion of expectedAnnouncements) {
+        const evaluation = evaluateAssertion(assertion, phrases);
+        assertions.push({
+          id: assertion.id || 'announcement',
+          type: assertion.type,
+          value: assertion.value,
+          ...evaluation,
+        });
       }
     }
 

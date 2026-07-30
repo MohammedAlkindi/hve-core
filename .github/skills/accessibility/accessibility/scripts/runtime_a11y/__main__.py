@@ -24,22 +24,473 @@ browser, or a blocked target).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.error import URLError
+from urllib.parse import urljoin, urlparse
+from urllib.request import urlopen
 
-from runtime_a11y._config import load_validated_config
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from runtime_a11y._config import assert_target_allowed, load_validated_config
 from runtime_a11y._errors import EXIT_SUCCESS, EXIT_USAGE, ScriptError
-from runtime_a11y.matrix import Matrix, compute_coverage, render_artifact_bundle
+from runtime_a11y.matrix import compute_coverage, render_artifact_bundle
+from runtime_a11y.matrix._model import Matrix
+from runtime_a11y.matrix._render_test_plan import build_manual_test_cases
+from runtime_a11y.visual_review import (
+    build_visual_review_manifest,
+    resolve_run_root,
+    validate_visual_review_config,
+    validate_visual_review_manifest,
+    write_json_atomic,
+)
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
+_PACKAGE_ROOT = _PACKAGE_DIR.parent.parent
 _RUNNER_INDEX = _PACKAGE_DIR / "runner" / "index.mjs"
 _PROBE_MAP_PATH = _PACKAGE_DIR / "probe-criteria-map.json"
 _NODE_MODULES = _PACKAGE_DIR / "node_modules"
+_REPO_ROOT = _PACKAGE_DIR.parents[5]
+_VISUAL_REVIEW_SERVER_STARTUP_TIMEOUT_SECONDS = 20.0
+_VISUAL_REVIEW_SERVER_POLL_INTERVAL_SECONDS = 0.5
+_LIVE_TEST_START_NOTICE = (
+    "LIVE ACCESSIBILITY TESTING WILL CONTROL NVDA, CHROME, KEYBOARD FOCUS, "
+    "AND PAGE INPUT. DO NOT INTERACT WITH THIS COMPUTER UNTIL THE TEST "
+    "ROUTINE REPORTS COMPLETION."
+)
+_LIVE_TEST_FINISH_NOTICE = (
+    "LIVE ACCESSIBILITY TESTING HAS FINISHED. IT IS SAFE TO INTERACT WITH "
+    "THIS COMPUTER AGAIN."
+)
+
+
+def _local_runs_root() -> Path:
+    return (_REPO_ROOT / ".copilot-tracking" / "accessibility" / "local-runs").resolve(
+        strict=False
+    )
+
+
+def _is_within(path_value: Path, root_value: Path) -> bool:
+    try:
+        path_value.relative_to(root_value)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_output_allowed_root(
+    run_root: Path | None,
+    out_path: Path | None,
+) -> Path:
+    if run_root is None or out_path is None:
+        return _local_runs_root()
+
+    resolved_run_root = Path(run_root).expanduser()
+    if not resolved_run_root.is_absolute():
+        resolved_run_root = (_REPO_ROOT / resolved_run_root).expanduser()
+    resolved_run_root = resolved_run_root.resolve(strict=False)
+
+    resolved_out_path = Path(out_path).expanduser()
+    if not resolved_out_path.is_absolute():
+        resolved_out_path = (_REPO_ROOT / resolved_out_path).expanduser()
+    resolved_out_path = resolved_out_path.resolve(strict=False)
+
+    candidate = resolved_run_root
+    while True:
+        if _is_within(resolved_out_path, candidate):
+            return candidate
+        if candidate == _local_runs_root() or candidate == candidate.parent:
+            break
+        candidate = candidate.parent
+    return _local_runs_root()
+
+
+def _resolve_repo_path(
+    path_value: str | Path | None,
+    *,
+    allowed_root: Path | None = None,
+    kind: str,
+) -> Path:
+    if path_value is None:
+        raise ScriptError(f"{kind} is required.", EXIT_USAGE)
+
+    raw_text = str(path_value).strip()
+    if not raw_text:
+        raise ScriptError(f"{kind} must not be empty.", EXIT_USAGE)
+
+    candidate = Path(raw_text).expanduser()
+    if not candidate.is_absolute():
+        candidate = (_REPO_ROOT / candidate).expanduser()
+
+    parsed = urlparse(raw_text)
+    is_windows_drive = (
+        len(parsed.scheme) == 1
+        and len(raw_text) >= 3
+        and raw_text[1] == ":"
+        and raw_text[2] in {"/", "\\"}
+    )
+    if raw_text.startswith("file://") or (parsed.scheme and not is_windows_drive):
+        raise ScriptError(
+            f"{kind} must be a local filesystem path, not a URI.", EXIT_USAGE
+        )
+
+    resolved = candidate.resolve(strict=False)
+    if allowed_root is None:
+        if kind in {"--run-root", "--checkpoint-path"}:
+            root_candidate = _local_runs_root()
+        else:
+            root_candidate = None
+    else:
+        root_candidate = Path(allowed_root).expanduser()
+    if root_candidate is not None:
+        if not root_candidate.is_absolute():
+            root_candidate = (_REPO_ROOT / root_candidate).expanduser()
+        root = root_candidate.resolve(strict=False)
+
+        if not _is_within(resolved, root):
+            raise ScriptError(
+                f"{kind} must resolve inside {root}.",
+                EXIT_USAGE,
+            )
+        if resolved == root:
+            raise ScriptError(
+                f"{kind} must resolve to a child path beneath {root}.",
+                EXIT_USAGE,
+            )
+    if any(part == ".." for part in candidate.parts):
+        raise ScriptError(
+            f"{kind} must not contain traversal segments.",
+            EXIT_USAGE,
+        )
+    return resolved
+
+
+def _public_path(path_value: str | Path | None) -> str | None:
+    if path_value is None:
+        return None
+
+    candidate = Path(path_value).expanduser()
+    if not candidate.is_absolute():
+        candidate = (_PACKAGE_ROOT / candidate).expanduser()
+
+    resolved = candidate.resolve(strict=False)
+    try:
+        return resolved.relative_to(_REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def _resolve_within_root(
+    path_value: str | Path | None,
+    *,
+    base_dir: Path | None = None,
+    allowed_root: Path,
+    kind: str,
+) -> Path:
+    if path_value is None:
+        raise ScriptError(f"{kind} is required.", EXIT_USAGE)
+
+    raw_text = str(path_value).strip()
+    if not raw_text:
+        raise ScriptError(f"{kind} must not be empty.", EXIT_USAGE)
+
+    candidate = Path(raw_text).expanduser()
+    if not candidate.is_absolute():
+        base_path = base_dir or _REPO_ROOT
+        candidate = (base_path / candidate).expanduser()
+
+    parsed = urlparse(raw_text)
+    is_windows_drive = (
+        len(parsed.scheme) == 1
+        and len(raw_text) >= 3
+        and raw_text[1] == ":"
+        and raw_text[2] in {"/", "\\"}
+    )
+    if raw_text.startswith("file://") or (parsed.scheme and not is_windows_drive):
+        raise ScriptError(
+            f"{kind} must be a local filesystem path, not a URI.", EXIT_USAGE
+        )
+
+    resolved = candidate.resolve(strict=False)
+    root = Path(allowed_root).expanduser().resolve(strict=False)
+    if not _is_within(resolved, root):
+        raise ScriptError(f"{kind} must resolve inside {root}.", EXIT_USAGE)
+    if any(part == ".." for part in candidate.parts):
+        raise ScriptError(f"{kind} must not contain traversal segments.", EXIT_USAGE)
+    if resolved.exists() and resolved.is_dir() and kind == "--retained-preflight":
+        raise ScriptError(f"{kind} must resolve to a file.", EXIT_USAGE)
+    return resolved
+
+
+def _import_retained_preflight_bundle(
+    retained_preflight_path: str | Path,
+    *,
+    run_root: Path,
+) -> dict[str, Any]:
+    output_path = _resolve_within_root(
+        retained_preflight_path,
+        allowed_root=_local_runs_root(),
+        kind="--retained-preflight",
+    )
+    if not output_path.exists():
+        raise ScriptError(
+            f"Retained preflight bundle does not exist: {output_path}",
+            EXIT_USAGE,
+        )
+    if not output_path.is_file():
+        raise ScriptError(
+            f"Retained preflight bundle must be a file: {output_path}",
+            EXIT_USAGE,
+        )
+
+    try:
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ScriptError(
+            f"Unable to read retained preflight bundle JSON from {output_path}: {exc}",
+            EXIT_USAGE,
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ScriptError(
+            "Retained preflight bundle must be a JSON object.",
+            EXIT_USAGE,
+        )
+
+    command = payload.get("command")
+    if command != "capture-visual-review":
+        raise ScriptError(
+            "Retained preflight bundle must be produced by capture-visual-review.",
+            EXIT_USAGE,
+        )
+
+    manifest_paths = payload.get("manifestPaths")
+    if not isinstance(manifest_paths, list):
+        raise ScriptError(
+            "Retained preflight bundle must include manifestPaths as a list.",
+            EXIT_USAGE,
+        )
+    if not manifest_paths:
+        raise ScriptError(
+            "Retained preflight bundle must include manifestPaths.",
+            EXIT_USAGE,
+        )
+    if len(manifest_paths) != 10:
+        raise ScriptError(
+            "Retained preflight bundle must include exactly 10 manifestPaths "
+            "for the 2x5 visual-review bundle.",
+            EXIT_USAGE,
+        )
+
+    runs = payload.get("runs")
+    if runs is not None and not isinstance(runs, list):
+        raise ScriptError(
+            "Retained preflight bundle runs must be a list when provided.",
+            EXIT_USAGE,
+        )
+    if isinstance(runs, list) and len(runs) != len(manifest_paths):
+        raise ScriptError(
+            "Retained preflight bundle run count must match the manifest count.",
+            EXIT_USAGE,
+        )
+
+    resolved_run_root = output_path.parent
+    run_root_value = payload.get("runRoot")
+    if run_root_value is not None:
+        resolved_run_root = _resolve_within_root(
+            run_root_value,
+            base_dir=output_path.parent,
+            allowed_root=_local_runs_root(),
+            kind="retained preflight runRoot",
+        )
+
+    artifact_hashes: dict[str, str] = {}
+    surface_states: set[tuple[str, str]] = set()
+    for index, manifest_path in enumerate(manifest_paths):
+        if not isinstance(manifest_path, str) or not manifest_path.strip():
+            raise ScriptError(
+                "Retained preflight manifestPaths entries must be non-empty strings.",
+                EXIT_USAGE,
+            )
+        resolved_manifest_path = _resolve_within_root(
+            manifest_path,
+            base_dir=resolved_run_root,
+            allowed_root=_local_runs_root(),
+            kind="retained preflight manifest",
+        )
+        if not resolved_manifest_path.exists() or not resolved_manifest_path.is_file():
+            raise ScriptError(
+                f"Retained preflight manifest does not exist: {resolved_manifest_path}",
+                EXIT_USAGE,
+            )
+
+        try:
+            manifest = json.loads(resolved_manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ScriptError(
+                "Unable to read retained preflight manifest "
+                f"{resolved_manifest_path}: {exc}",
+                EXIT_USAGE,
+            ) from exc
+        validate_visual_review_manifest(
+            manifest,
+            run_root=resolved_manifest_path.parent,
+        )
+        if manifest.get("evidenceState") != "deterministic-pass":
+            raise ScriptError(
+                "Retained preflight manifests must be deterministic-pass evidence.",
+                EXIT_USAGE,
+            )
+        if any(
+            outcome.get("status") == "capture-failure"
+            for outcome in manifest.get("probeOutcomes", [])
+            if isinstance(outcome, dict)
+        ):
+            raise ScriptError(
+                "Retained preflight manifests must not contain capture failures.",
+                EXIT_USAGE,
+            )
+
+        run_entry = runs[index] if isinstance(runs, list) else None
+        if isinstance(runs, list):
+            if not isinstance(run_entry, dict):
+                raise ScriptError(
+                    "Retained preflight bundle runs entries must be objects.",
+                    EXIT_USAGE,
+                )
+            surface = run_entry.get("surface")
+            state = run_entry.get("state")
+            if not isinstance(surface, str) or not surface.strip():
+                raise ScriptError(
+                    "Retained preflight bundle runs entries must include "
+                    "non-empty surface values.",
+                    EXIT_USAGE,
+                )
+            if not isinstance(state, str) or not state.strip():
+                raise ScriptError(
+                    "Retained preflight bundle runs entries must include "
+                    "non-empty state values.",
+                    EXIT_USAGE,
+                )
+            manifest_surface = manifest.get("surface")
+            manifest_state = manifest.get("state")
+            if not isinstance(manifest_surface, str) or not manifest_surface.strip():
+                raise ScriptError(
+                    "Retained preflight manifest surface metadata is missing.",
+                    EXIT_USAGE,
+                )
+            if not isinstance(manifest_state, str) or not manifest_state.strip():
+                raise ScriptError(
+                    "Retained preflight manifest state metadata is missing.",
+                    EXIT_USAGE,
+                )
+            if str(surface) != str(manifest_surface) or str(state) != str(
+                manifest_state
+            ):
+                raise ScriptError(
+                    "Retained preflight bundle run surface-state must match "
+                    "the manifest metadata.",
+                    EXIT_USAGE,
+                )
+            pair = (surface, state)
+            if pair in surface_states:
+                raise ScriptError(
+                    "Retained preflight bundle contains a duplicate surface-state.",
+                    EXIT_USAGE,
+                )
+            surface_states.add(pair)
+
+        artifacts = manifest.get("artifacts") or {}
+        for group_name in ("screenshots", "traces", "deterministicMeasurements"):
+            for entry in artifacts.get(group_name, []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                artifact_path = entry.get("path")
+                if not isinstance(artifact_path, str) or not artifact_path.strip():
+                    continue
+                artifact_hash = entry.get("sha256")
+                if not isinstance(artifact_hash, str) or len(artifact_hash) != 64:
+                    raise ScriptError(
+                        "Retained preflight artifact hashes must be 64-character "
+                        "SHA-256 digests.",
+                        EXIT_USAGE,
+                    )
+                normalized_path = artifact_path.replace("\\", "/")
+                resolved_artifact_path = (
+                    resolved_manifest_path.parent / normalized_path
+                ).resolve(strict=False)
+                if (
+                    not resolved_artifact_path.exists()
+                    or not resolved_artifact_path.is_file()
+                ):
+                    raise ScriptError(
+                        "Retained preflight artifact does not exist: "
+                        f"{resolved_artifact_path}",
+                        EXIT_USAGE,
+                    )
+                if not _is_within(resolved_artifact_path, resolved_run_root):
+                    raise ScriptError(
+                        "Retained preflight artifacts must resolve within the "
+                        "retained run root.",
+                        EXIT_USAGE,
+                    )
+                try:
+                    actual_hash = hashlib.sha256(
+                        resolved_artifact_path.read_bytes()
+                    ).hexdigest()
+                except OSError as exc:
+                    raise ScriptError(
+                        "Unable to hash retained preflight artifact "
+                        f"{resolved_artifact_path}: {exc}",
+                        EXIT_USAGE,
+                    ) from exc
+                if actual_hash != artifact_hash:
+                    raise ScriptError(
+                        "Retained preflight artifact hashes do not match the "
+                        "files on disk.",
+                        EXIT_USAGE,
+                    )
+
+                asset_reference = (
+                    Path("retained-preflight")
+                    / resolved_artifact_path.relative_to(resolved_run_root).as_posix()
+                )
+                asset_target = run_root / asset_reference
+                asset_target.parent.mkdir(parents=True, exist_ok=True)
+                if not asset_target.exists():
+                    try:
+                        os.link(resolved_artifact_path, asset_target)
+                    except OSError:
+                        shutil.copy2(resolved_artifact_path, asset_target)
+                artifact_hashes[asset_reference.as_posix().replace("\\", "/")] = (
+                    artifact_hash
+                )
+
+    surfaces = {surface for surface, _ in surface_states}
+    states = {state for _, state in surface_states}
+    if len(surfaces) != 2 or len(states) != 5 or len(surface_states) != 10:
+        raise ScriptError(
+            "Retained preflight bundle must contain exactly two surfaces "
+            "by five states.",
+            EXIT_USAGE,
+        )
+
+    return {
+        "bundleId": "visual-preflight",
+        "artifactHashes": artifact_hashes,
+        "retainedBundleValidated": True,
+        "summary": {"classification": "pass"},
+        "source": output_path.as_posix(),
+    }
 
 
 def _all_probe_ids() -> list[str]:
@@ -59,7 +510,10 @@ def _normalize_probe_id(name: str, known: set[str]) -> str | None:
 
 
 def _iter_runs(
-    config: dict[str, Any], probe_filter: str | None = None
+    config: dict[str, Any],
+    probe_filter: str | None = None,
+    surface_filter: str | None = None,
+    state_filter: str | None = None,
 ) -> Iterator[tuple[str, str, str]]:
     """Yield (probeId, surfaceId, state) combinations to execute."""
     known = set(_all_probe_ids())
@@ -75,16 +529,24 @@ def _iter_runs(
             surface_ids = entry.get("surfaces") or list(surfaces)
             states = entry.get("states") or ["default"]
             for sid in surface_ids:
+                if surface_filter and str(sid) != surface_filter:
+                    continue
                 for state in states:
+                    if state_filter and str(state) != state_filter:
+                        continue
                     yield probe, sid, state
         return
     probes = [probe_filter] if probe_filter else sorted(known)
     for probe in probes:
         for sid, surface in surfaces.items():
+            if surface_filter and sid != surface_filter:
+                continue
             states = [st.get("state") for st in surface.get("states", [])] or [
                 "default"
             ]
             for state in states:
+                if state_filter and state != state_filter:
+                    continue
                 yield probe, sid, state
 
 
@@ -146,16 +608,625 @@ def _run_probe(
         raise ScriptError(f"Probe '{probe_id}' returned invalid JSON output") from exc
 
 
+def _run_prerequisite_probe(
+    config: dict[str, Any],
+    base_url: str,
+    trace: bool = False,
+) -> dict[str, Any]:
+    """Probe local calibration prerequisites through the Node executor."""
+    if not _NODE_MODULES.exists():
+        raise ScriptError(
+            "Runtime probe dependencies are not installed. Run 'npm ci' in "
+            f"{_PACKAGE_DIR} to install Playwright, axe-core, and the virtual "
+            "screen reader before running calibration.",
+            EXIT_USAGE,
+        )
+
+    script = (
+        "import { pathToFileURL } from 'node:url';"
+        "const modulePath = process.env.RUNTIME_A11Y_CALIBRATION_EXECUTOR_MODULE;"
+        "const { probePrerequisites } = await import(pathToFileURL(modulePath).href);"
+        "const config = JSON.parse(process.env.RUNTIME_A11Y_CONFIG || '{}');"
+        "const payload = await probePrerequisites(config, null);"
+        "process.stdout.write(JSON.stringify(payload));"
+    )
+    env = {
+        **os.environ,
+        "RUNTIME_A11Y_CONFIG": json.dumps(config),
+        "RUNTIME_A11Y_BASE_URL": base_url,
+        "RUNTIME_A11Y_TRACE": "1" if trace else "0",
+        "RUNTIME_A11Y_CALIBRATION_EXECUTOR_MODULE": str(
+            _PACKAGE_DIR / "runner" / "calibration-executor.mjs"
+        ),
+    }
+    try:
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+            cwd=str(_PACKAGE_DIR),
+        )
+    except FileNotFoundError as exc:
+        raise ScriptError(
+            "Node is unavailable. Install Node.js and system Google Chrome, then "
+            f"run 'npm ci' in {_PACKAGE_DIR}, to run calibration.",
+            EXIT_USAGE,
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip() or "No prerequisite output captured"
+        raise ScriptError(f"Calibration prerequisite probe failed: {stderr}") from exc
+
+    stdout = (completed.stdout or "").strip()
+    if not stdout:
+        return {"ok": True, "reason": "Calibration prerequisites are ready."}
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
+        return {"ok": True, "reason": "Calibration prerequisites are ready."}
+
+
+def _run_calibration_session(
+    config: dict[str, Any],
+    base_url: str,
+    run_root: str | None,
+    checkpoint_path: str | None,
+    trace: bool = False,
+) -> dict[str, Any]:
+    """Invoke the Node calibration executor and parse its JSON payload."""
+    if not _NODE_MODULES.exists():
+        raise ScriptError(
+            "Runtime probe dependencies are not installed. Run 'npm ci' in "
+            f"{_PACKAGE_DIR} to install Playwright, axe-core, and the virtual "
+            "screen reader before running calibration.",
+            EXIT_USAGE,
+        )
+
+    command = ["node", str(_PACKAGE_DIR / "runner" / "calibration-executor.mjs")]
+    env = {
+        **os.environ,
+        "RUNTIME_A11Y_CONFIG": json.dumps(config),
+        "RUNTIME_A11Y_BASE_URL": base_url,
+        "RUNTIME_A11Y_TRACE": "1" if trace else "0",
+        "RUNTIME_A11Y_RUN_ROOT": run_root or "",
+        "RUNTIME_A11Y_CHECKPOINT_PATH": checkpoint_path or "",
+    }
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+            cwd=str(_PACKAGE_DIR),
+        )
+    except FileNotFoundError as exc:
+        raise ScriptError(
+            "Node is unavailable. Install Node.js and system Google Chrome, then "
+            f"run 'npm ci' in {_PACKAGE_DIR}, to run calibration.",
+            EXIT_USAGE,
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip() or "No calibration output captured"
+        raise ScriptError(f"Calibration failed: {stderr}") from exc
+
+    stdout = (completed.stdout or "").strip()
+    if not stdout:
+        raise ScriptError("Calibration produced no JSON output", EXIT_USAGE)
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ScriptError("Calibration returned invalid JSON output") from exc
+
+
+def _run_visual_review_capture(
+    config: dict[str, Any],
+    base_url: str,
+    run_root: Path,
+    trace: bool,
+    *,
+    surfaces: list[str] | None = None,
+    states: list[str] | None = None,
+) -> dict[str, Any]:
+    """Invoke the Node visual-review runner and parse its JSON payload."""
+    if not _NODE_MODULES.exists():
+        raise ScriptError(
+            "Runtime probe dependencies are not installed. Run 'npm ci' in "
+            f"{_PACKAGE_DIR} to install Playwright, axe-core, and the virtual "
+            "screen reader before running visual review capture.",
+            EXIT_USAGE,
+        )
+
+    command = ["node", str(_PACKAGE_DIR / "runner" / "visual-review-executor.mjs")]
+    env = {
+        **os.environ,
+        "RUNTIME_A11Y_CONFIG": json.dumps(config),
+        "RUNTIME_A11Y_BASE_URL": base_url,
+        "RUNTIME_A11Y_TRACE": "1" if trace else "0",
+        "RUNTIME_A11Y_VISUAL_REVIEW_RUN_ROOT": str(run_root),
+        "RUNTIME_A11Y_VISUAL_REVIEW_SURFACES": json.dumps(surfaces or []),
+        "RUNTIME_A11Y_VISUAL_REVIEW_STATES": json.dumps(states or []),
+    }
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+            cwd=str(_PACKAGE_DIR),
+        )
+    except FileNotFoundError as exc:
+        raise ScriptError(
+            "Node is unavailable. Install Node.js and system Google Chrome, then "
+            f"run 'npm ci' in {_PACKAGE_DIR}, to run visual review capture.",
+            EXIT_USAGE,
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip() or "No visual review output captured"
+        raise ScriptError(f"Visual review capture failed: {stderr}") from exc
+
+    stdout = (completed.stdout or "").strip()
+    if not stdout:
+        raise ScriptError("Visual review capture produced no JSON output", EXIT_USAGE)
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ScriptError("Visual review capture returned invalid JSON output") from exc
+
+
+def _materialize_visual_review_artifact(
+    source_path: str,
+    *,
+    run_root: Path,
+    manifest_dir: Path,
+) -> str:
+    """Copy a run-root artifact into the manifest directory.
+
+    The path is preserved as a safe relative path inside the manifest directory.
+    """
+    if not source_path:
+        raise ScriptError(
+            "Visual review artifact paths must be non-empty.",
+            EXIT_USAGE,
+        )
+
+    candidate = Path(source_path)
+    if isinstance(source_path, str) and (
+        source_path.startswith("http://")
+        or source_path.startswith("https://")
+        or source_path.startswith("file://")
+    ):
+        raise ScriptError(
+            "Visual review artifact paths must be relative for containment.",
+            EXIT_USAGE,
+        )
+
+    resolved_root = run_root.resolve()
+    candidate_path = (
+        candidate if candidate.is_absolute() else (resolved_root / candidate)
+    )
+    resolved_source = candidate_path.resolve(strict=False)
+    if not resolved_source.exists() and candidate.is_absolute():
+        if not resolved_source.is_relative_to(resolved_root):
+            raise ScriptError(
+                "Visual review artifact paths violate containment.",
+                EXIT_USAGE,
+            )
+
+    try:
+        resolved_source.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ScriptError(
+            "Visual review artifact paths violate containment.",
+            EXIT_USAGE,
+        ) from exc
+
+    if resolved_source.exists():
+        try:
+            resolved_source = resolved_source.resolve(strict=True)
+        except OSError as exc:
+            raise ScriptError(
+                "Visual review artifact paths violate containment.",
+                EXIT_USAGE,
+            ) from exc
+        try:
+            resolved_source.relative_to(resolved_root)
+        except ValueError as exc:
+            raise ScriptError(
+                "Visual review artifact paths violate containment.",
+                EXIT_USAGE,
+            ) from exc
+
+    if not resolved_source.exists():
+        raise ScriptError(
+            f"Visual review artifact does not exist: {resolved_source}",
+            EXIT_USAGE,
+        )
+
+    relative_source = os.path.relpath(resolved_source, resolved_root).replace("\\", "/")
+    if relative_source.startswith("..") or os.path.isabs(relative_source):
+        raise ScriptError(
+            "Visual review artifact paths violate containment.",
+            EXIT_USAGE,
+        )
+
+    target_path = (manifest_dir / relative_source).resolve()
+    try:
+        target_path.relative_to(manifest_dir.resolve())
+    except ValueError as exc:
+        raise ScriptError(
+            "Visual review artifact paths violate containment.",
+            EXIT_USAGE,
+        ) from exc
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(resolved_source, target_path)
+    return relative_source
+
+
+def _select_visual_review_plan(
+    config: dict[str, Any],
+    *,
+    surfaces: list[str] | None = None,
+    states: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Validate and select visual-review surfaces and states from config."""
+    if not isinstance(config, dict):
+        raise ScriptError("Runtime config must be a JSON object.", EXIT_USAGE)
+
+    visual_review = config.get("visualReview") or {}
+    routes = []
+    if isinstance(visual_review.get("routes"), list):
+        routes = [entry for entry in visual_review["routes"] if isinstance(entry, dict)]
+    elif isinstance(config.get("surfaces"), list):
+        for entry in config.get("surfaces") or []:
+            if isinstance(entry, dict):
+                routes.append(
+                    {
+                        "path": entry.get("route") or "/",
+                        "surfaceId": entry.get("id")
+                        or entry.get("surfaceId")
+                        or "surface",
+                    }
+                )
+
+    configured_states = []
+    if isinstance(visual_review.get("states"), list):
+        configured_states = [
+            str(entry) for entry in visual_review["states"] if str(entry)
+        ]
+    if not configured_states:
+        configured_states = [
+            "desktop",
+            "reflow-320",
+            "zoom-200",
+            "text-spacing",
+            "forced-colors",
+        ]
+
+    available_surfaces = [
+        str(entry.get("surfaceId") or entry.get("id") or "surface") for entry in routes
+    ]
+    if not available_surfaces:
+        available_surfaces = ["surface"]
+
+    requested_surfaces = [str(surface) for surface in (surfaces or []) if str(surface)]
+    if requested_surfaces:
+        unknown_surfaces = [
+            surface
+            for surface in requested_surfaces
+            if surface not in available_surfaces
+        ]
+        if unknown_surfaces:
+            raise ScriptError(
+                (
+                    "Requested visual review surface(s) are not in the "
+                    "configured plan: "
+                    f"{', '.join(unknown_surfaces)}"
+                ),
+                EXIT_USAGE,
+            )
+        selected_surfaces = requested_surfaces
+    else:
+        selected_surfaces = available_surfaces
+
+    requested_states = [str(state) for state in (states or []) if str(state)]
+    if requested_states:
+        unknown_states = [
+            state for state in requested_states if state not in configured_states
+        ]
+        if unknown_states:
+            raise ScriptError(
+                (
+                    "Requested visual review state(s) are not in the configured plan: "
+                    f"{', '.join(unknown_states)}"
+                ),
+                EXIT_USAGE,
+            )
+        selected_states = requested_states
+    else:
+        selected_states = configured_states
+
+    return {"surfaces": selected_surfaces, "states": selected_states}
+
+
+def _probe_visual_review_server(base_url: str) -> bool:
+    """Return True when an already-running loopback server answers healthily."""
+    try:
+        parsed = urlparse(base_url)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = (parsed.hostname or "").lower()
+    if host not in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}:
+        return False
+    probe_url = (
+        base_url
+        if base_url.rstrip("/").endswith(parsed.path or "")
+        else base_url.rstrip("/") + "/"
+    )
+    try:
+        with urlopen(probe_url, timeout=1.5) as response:
+            return 200 <= response.getcode() < 500
+    except (URLError, TimeoutError, OSError):
+        return False
+
+
+class _VisualReviewServerLease(tuple):
+    """Backward-compatible lease object for visual-review server ownership."""
+
+    def __new__(cls, process: Any, owned: bool) -> "_VisualReviewServerLease":
+        return super().__new__(cls, (process, owned))
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, tuple) and len(other) == 2:
+            return tuple(self) == tuple(other)
+        return self[0] == other
+
+
+def _emit_runtime_notice(message: str) -> None:
+    """Emit a human-readable safety notice to stderr without disturbing JSON output."""
+    print(message, file=sys.stderr)
+
+
+def _emit_live_test_start_notice(
+    run_root: str | Path | None, journey_count: int
+) -> None:
+    """Emit the safety start notice before live accessibility control begins."""
+    _emit_runtime_notice(_LIVE_TEST_START_NOTICE)
+    safe_run_root = _public_path(run_root) if run_root is not None else "."
+    if not safe_run_root:
+        safe_run_root = "."
+    _emit_runtime_notice(f"Run root: {safe_run_root} | Journey count: {journey_count}")
+
+
+def _emit_live_test_finish_notice() -> None:
+    """Emit the safety finish notice after owned cleanup completes."""
+    _emit_runtime_notice(_LIVE_TEST_FINISH_NOTICE)
+
+
+def _start_visual_review_server(base_url: str) -> subprocess.Popen[str]:
+    """Start the local Docusaurus dev server for visual review capture."""
+    docs_dir = _REPO_ROOT / "docs" / "docusaurus"
+    if not docs_dir.exists():
+        raise ScriptError(
+            "Visual review capture requires the docs/docusaurus workspace to be "
+            "available.",
+            EXIT_USAGE,
+        )
+
+    command = ["npm", "run", "start", "--", "--host", "127.0.0.1", "--port", "3000"]
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(docs_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise ScriptError(
+            "Visual review capture requires npm to be available on PATH.",
+            EXIT_USAGE,
+        ) from exc
+
+    deadline = time.monotonic() + _VISUAL_REVIEW_SERVER_STARTUP_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if _probe_visual_review_server(base_url):
+            return process
+        if process.poll() is not None:
+            raise ScriptError(
+                "Visual review server exited before becoming ready.",
+                EXIT_USAGE,
+            )
+        time.sleep(_VISUAL_REVIEW_SERVER_POLL_INTERVAL_SECONDS)
+
+    if process.poll() is None:
+        terminate = getattr(process, "terminate", None)
+        if callable(terminate):
+            terminate()
+        try:
+            wait = getattr(process, "wait", None)
+            if callable(wait):
+                wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            kill = getattr(process, "kill", None)
+            if callable(kill):
+                kill()
+    raise ScriptError(
+        "Visual review server did not become ready in time.",
+        EXIT_USAGE,
+    )
+
+
+def _stop_visual_review_server(process: subprocess.Popen[str] | None) -> None:
+    """Stop a process created by this command without touching an existing server."""
+    if process is None:
+        return
+    if process.poll() is not None:
+        return
+    try:
+        terminate = getattr(process, "terminate", None)
+        if callable(terminate):
+            terminate()
+        wait = getattr(process, "wait", None)
+        if callable(wait):
+            wait(timeout=5)
+    except (OSError, ProcessLookupError):
+        return
+    except subprocess.TimeoutExpired:
+        kill = getattr(process, "kill", None)
+        if callable(kill):
+            kill()
+
+
+def _ensure_visual_review_server(base_url: str) -> _VisualReviewServerLease:
+    """Reuse a healthy server or start one owned by this invocation."""
+    if _probe_visual_review_server(base_url):
+        return _VisualReviewServerLease(None, False)
+    try:
+        return _VisualReviewServerLease(_start_visual_review_server(base_url), True)
+    except ScriptError:
+        return _VisualReviewServerLease(None, False)
+
+
+def _write_visual_review_manifests(
+    payload: dict[str, Any],
+    run_root: Path,
+    *,
+    max_artifact_bytes: int | None = None,
+) -> list[str]:
+    """Create validated local manifests for each captured visual-review run."""
+    runs = payload.get("runs") or []
+    if not runs:
+        raise ScriptError(
+            "Visual review capture produced no runs to manifest.", EXIT_USAGE
+        )
+
+    manifest_paths: list[str] = []
+    max_bytes = (
+        max_artifact_bytes if max_artifact_bytes is not None else 1024 * 1024 * 1024
+    )
+    total_bytes = 0
+
+    for index, run in enumerate(runs):
+        route = str(run.get("route") or "/")
+        surface = str(run.get("surface") or "surface")
+        state = str(run.get("state") or "default")
+        label = "-".join([surface, state]).lower().replace(" ", "-")
+        label = (
+            "".join(ch if ch.isalnum() else "-" for ch in label).strip("-")
+            or f"run-{index + 1}"
+        )
+        manifest_dir = run_root / "runs" / label
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+
+        probe_outcomes = run.get("probeOutcomes") or []
+        if any(str(item.get("status")) == "capture-failure" for item in probe_outcomes):
+            continue
+
+        screenshot_path = run.get("screenshotPath")
+        measurement_path = run.get("measurementPath")
+        trace_path = run.get("tracePath")
+        if not screenshot_path or not measurement_path or not trace_path:
+            raise ScriptError(
+                "Visual review capture payload is missing required artifact paths.",
+                EXIT_USAGE,
+            )
+
+        server_artifact_paths = [screenshot_path, measurement_path, trace_path]
+        for candidate_path in server_artifact_paths:
+            if not isinstance(candidate_path, str):
+                continue
+            resolved = (
+                (run_root / candidate_path).resolve(strict=False)
+                if not Path(candidate_path).is_absolute()
+                else Path(candidate_path).resolve(strict=False)
+            )
+            if resolved.exists():
+                candidate_bytes = resolved.stat().st_size
+                if total_bytes + candidate_bytes > max_bytes:
+                    raise ScriptError(
+                        "Visual review artifact bytes exceed the byte ceiling of "
+                        f"{max_bytes} bytes.",
+                        EXIT_USAGE,
+                    )
+                total_bytes += candidate_bytes
+
+        relative_screenshot = _materialize_visual_review_artifact(
+            screenshot_path,
+            run_root=run_root,
+            manifest_dir=manifest_dir,
+        )
+        relative_measurement = _materialize_visual_review_artifact(
+            measurement_path,
+            run_root=run_root,
+            manifest_dir=manifest_dir,
+        )
+        relative_trace = _materialize_visual_review_artifact(
+            trace_path,
+            run_root=run_root,
+            manifest_dir=manifest_dir,
+        )
+
+        manifest = build_visual_review_manifest(
+            run_root=manifest_dir,
+            run_id=f"{route}-{surface}-{state}-{index + 1}",
+            route=route,
+            surface=surface,
+            state=state,
+            viewport=run.get("viewport") or {"width": 1440, "height": 900},
+            browser=run.get("browser") or {"name": "chrome", "version": "unknown"},
+            platform={"os": os.name, "version": "local"},
+            screenshot_path=relative_screenshot,
+            trace_path=relative_trace,
+            measurement_path=relative_measurement,
+            deterministic_metrics=run.get("deterministicMetrics") or {},
+            probe_outcomes=probe_outcomes,
+            provenance={
+                "environment": {
+                    "cwd": str(run_root),
+                    "pythonVersion": sys.version.split()[0],
+                },
+                "git": {
+                    "available": False,
+                    "commit": None,
+                    "dirty": False,
+                },
+            },
+        )
+        validate_visual_review_manifest(
+            manifest,
+            run_root=manifest_dir,
+            max_artifact_bytes=max_bytes,
+        )
+        manifest_path = write_json_atomic(manifest_dir / "manifest.json", manifest)
+        manifest_paths.append(str(manifest_path))
+
+    return manifest_paths
+
+
 def run(
     config: dict[str, Any],
     probe_filter: str | None,
     base_url: str,
     trace: bool,
+    surface_filter: str | None = None,
+    state_filter: str | None = None,
 ) -> dict[str, Any]:
     """Execute the scoped runs and aggregate normalized probe results."""
     runs: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
-    for probe_id, surface_id, state in _iter_runs(config, probe_filter):
+    for probe_id, surface_id, state in _iter_runs(
+        config,
+        probe_filter,
+        surface_filter=surface_filter,
+        state_filter=state_filter,
+    ):
         payload = _run_probe(config, probe_id, surface_id, state, base_url, trace)
         runs.append(
             {
@@ -180,12 +1251,190 @@ def _write_output(document: dict[str, Any], out_path: Path | None) -> None:
     if out_path is None:
         print(payload)
         return
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(payload + "\n", encoding="utf-8")
+    resolved_out_path = _resolve_repo_path(out_path, kind="--out")
+    resolved_out_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_out_path.write_text(payload + "\n", encoding="utf-8")
+
+
+def _load_runtime_config(
+    runtime_config_path: Path | None,
+    allow_external: bool = False,
+    require_target: bool = True,
+) -> dict[str, Any] | None:
+    if runtime_config_path is None:
+        return None
+    try:
+        return load_validated_config(
+            runtime_config_path,
+            allow_external=allow_external,
+            require_target=require_target,
+        )
+    except ScriptError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ScriptError(
+            f"Unable to read runtime config JSON from {runtime_config_path}: {exc}",
+            EXIT_USAGE,
+        ) from exc
+
+
+def _normalize_case_id(case: dict[str, Any]) -> str:
+    return str(case.get("id") or "")
+
+
+def _safe_source_matrix_reference(matrix_path: Path) -> str:
+    return str(matrix_path.name)
+
+
+def _sanitize_runtime_config(runtime_config: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(runtime_config, dict):
+        return {}
+    allowed_keys = {
+        "baseUrl",
+        "syntheticPhrases",
+        "surfaces",
+    }
+    return {key: value for key, value in runtime_config.items() if key in allowed_keys}
+
+
+def _assert_case_urls_allowed(
+    runtime_config: dict[str, Any] | None,
+    surface: dict[str, Any] | None,
+    trigger: dict[str, Any] | None,
+    allow_external: bool,
+) -> None:
+    if not runtime_config:
+        return
+
+    base_url = str(runtime_config.get("baseUrl") or "")
+    candidate_urls: list[str] = []
+    if surface and surface.get("route"):
+        candidate_urls.append(urljoin(base_url, str(surface["route"])))
+    if trigger and trigger.get("action") == "navigate" and trigger.get("value"):
+        candidate_urls.append(urljoin(base_url, str(trigger["value"])))
+    if trigger and trigger.get("action") == "visit":
+        target = trigger.get("target")
+        if isinstance(target, str):
+            candidate_urls.append(urljoin(base_url, target))
+        elif isinstance(target, dict) and target.get("value"):
+            candidate_urls.append(urljoin(base_url, str(target["value"])))
+
+    for candidate_url in candidate_urls:
+        candidate_config = dict(runtime_config)
+        candidate_config["baseUrl"] = candidate_url
+        assert_target_allowed(candidate_config, allow_external=allow_external)
+
+
+def _derive_at_plan_cases(
+    matrix_path: Path,
+    runtime_config_path: Path | None = None,
+    allow_external: bool = False,
+    require_target: bool = True,
+) -> list[dict[str, Any]]:
+    payload_bytes = matrix_path.read_bytes()
+    payload_text = payload_bytes.decode("utf-8")
+    payload = json.loads(payload_text)
+    runtime_config = _load_runtime_config(
+        runtime_config_path,
+        allow_external=allow_external,
+        require_target=require_target,
+    )
+    matrix = Matrix.from_dict(payload)
+    manual_cases = build_manual_test_cases(matrix, runtime_config)
+    cases: list[dict[str, Any]] = []
+    runtime_config_payload = _sanitize_runtime_config(runtime_config)
+    if isinstance(runtime_config_payload.get("surfaces"), list):
+        runtime_config_payload["surfaces"] = [
+            {
+                "id": entry.get("id"),
+                "route": entry.get("route"),
+                "selector": entry.get("selector"),
+                "widgetPattern": entry.get("widgetPattern"),
+                "states": [
+                    {
+                        "state": state_entry.get("state"),
+                        "trigger": state_entry.get("trigger"),
+                    }
+                    for state_entry in (entry.get("states") or [])
+                    if isinstance(state_entry, dict)
+                ],
+            }
+            for entry in runtime_config_payload["surfaces"]
+            if isinstance(entry, dict)
+        ]
+    for case in manual_cases:
+        aria_at = case.get("ariaAt", {})
+        case_id = _normalize_case_id(case)
+        variant = None
+        for candidate in aria_at.get("variants", []) or []:
+            if candidate.get("automationEligible"):
+                variant = candidate
+                break
+        surface_id = case.get("surfaceId")
+        surface_entry = None
+        if isinstance(runtime_config_payload.get("surfaces"), list):
+            for entry in runtime_config_payload["surfaces"]:
+                if entry.get("id") == surface_id:
+                    surface_entry = entry
+                    break
+        state_entry = None
+        if surface_entry and isinstance(surface_entry.get("states"), list):
+            for entry in surface_entry.get("states", []):
+                if entry.get("state") == case.get("state"):
+                    state_entry = entry
+                    break
+        trigger = None
+        if state_entry:
+            trigger = state_entry.get("trigger")
+        _assert_case_urls_allowed(
+            runtime_config,
+            surface_entry,
+            trigger,
+            allow_external,
+        )
+        base_url = runtime_config_payload.get("baseUrl") or ""
+        cases.append(
+            {
+                "caseId": case_id,
+                "criterionId": case.get("criterionId"),
+                "surfaceId": case.get("surfaceId"),
+                "state": case.get("state"),
+                "mappingId": aria_at.get("mappingId"),
+                "automationEligible": bool(aria_at.get("automationEligible")),
+                "automationExclusionReason": aria_at.get("automationExclusionReason"),
+                "commands": list(aria_at.get("commands", []) or []),
+                "assertions": list(aria_at.get("assertions", []) or []),
+                "variants": list(aria_at.get("variants", []) or []),
+                "variant": variant,
+                "sourceMatrixRef": _safe_source_matrix_reference(matrix_path),
+                "sourceMatrixMetadata": {
+                    "path": _safe_source_matrix_reference(matrix_path),
+                    "sha256": hashlib.sha256(payload_bytes).hexdigest(),
+                },
+                "ariaAtReferences": [
+                    aria_at.get("sourceUrl"),
+                    aria_at.get("immutableUrl"),
+                    aria_at.get("runbookReference"),
+                ],
+                "baseUrl": base_url,
+                "surface": surface_entry,
+                "trigger": trigger,
+                "targetUrl": None,
+                "runtimeConfig": {
+                    key: value
+                    for key, value in runtime_config_payload.items()
+                    if key != "surfaces"
+                },
+            }
+        )
+    return cases
 
 
 def _render_artifacts(
-    matrix_path: Path, output_dir: Path, repo_slug: str
+    matrix_path: Path,
+    output_dir: Path,
+    repo_slug: str,
+    runtime_config_path: Path | None = None,
 ) -> dict[str, Any]:
     """Load a matrix document and render its canonical evidence bundle."""
     try:
@@ -195,6 +1444,8 @@ def _render_artifacts(
             f"Unable to read matrix JSON from {matrix_path}: {exc}", EXIT_USAGE
         ) from exc
 
+    runtime_config = _load_runtime_config(runtime_config_path, require_target=False)
+
     matrix = Matrix.from_dict(payload)
     if not matrix.criteria or not matrix.surfaces:
         raise ScriptError(
@@ -202,7 +1453,13 @@ def _render_artifacts(
             EXIT_USAGE,
         )
     coverage = payload.get("coverage") or compute_coverage(matrix)
-    paths = render_artifact_bundle(matrix, coverage, output_dir, repo_slug)
+    paths = render_artifact_bundle(
+        matrix,
+        coverage,
+        output_dir,
+        repo_slug,
+        runtime_config=runtime_config,
+    )
     return {
         "tool": "runtime_a11y",
         "command": "render-artifacts",
@@ -210,6 +1467,56 @@ def _render_artifacts(
         "manifest": str(paths.manifest_json),
         "artifacts": paths.relative_manifest(output_dir),
     }
+
+
+def _run_at_plan_case(
+    case: dict[str, Any],
+    driver_name: str,
+    trace: bool,
+) -> dict[str, Any]:
+    command = ["node", str(_PACKAGE_DIR / "runner" / "at-plan-executor.mjs")]
+    payload = json.dumps(case, ensure_ascii=False)
+    try:
+        completed = subprocess.run(
+            command,
+            input=payload,
+            capture_output=True,
+            text=True,
+            check=True,
+            env={
+                **os.environ,
+                "RUNTIME_A11Y_TRACE": "1" if trace else "0",
+                "RUNTIME_A11Y_DRIVER_NAME": driver_name,
+            },
+            cwd=str(_PACKAGE_DIR),
+        )
+    except FileNotFoundError as exc:
+        raise ScriptError(
+            "Node is unavailable. Install Node.js and system Google Chrome, then "
+            f"run 'npm ci' in {_PACKAGE_DIR}, to run AT plans.",
+            EXIT_USAGE,
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip() or "No AT execution output captured"
+        raise ScriptError(
+            f"AT plan case '{case.get('caseId')}' failed: {stderr}"
+        ) from exc
+
+    stdout = (completed.stdout or "").strip()
+    if not stdout:
+        raise ScriptError(
+            f"AT plan case '{case.get('caseId')}' produced no JSON output",
+            EXIT_USAGE,
+        )
+    try:
+        result = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ScriptError(
+            f"AT plan case '{case.get('caseId')}' returned invalid JSON output",
+            EXIT_USAGE,
+        ) from exc
+
+    return result
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -248,6 +1555,26 @@ def create_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="Confirm intentional probing of a non-loopback host",
         )
+        sub.add_argument(
+            "--surface",
+            default=None,
+            help="Limit execution to the given surface id",
+        )
+        sub.add_argument(
+            "--state",
+            default=None,
+            help="Limit execution to the given surface state",
+        )
+
+    def _add_run_root(sub: argparse.ArgumentParser) -> None:
+        sub.add_argument(
+            "--run-root",
+            default=None,
+            help=(
+                "Override the evidence run root for calibration and "
+                "visual-review outputs"
+            ),
+        )
 
     run_all = subparsers.add_parser("run-all", help="Run every scoped probe")
     _add_common(run_all)
@@ -263,6 +1590,77 @@ def create_parser() -> argparse.ArgumentParser:
     render.add_argument("--matrix", type=Path, required=True)
     render.add_argument("--output-dir", type=Path, required=True)
     render.add_argument("--repo-slug", required=True)
+    render.add_argument("--runtime-config", type=Path, default=None)
+
+    capture_visual_review = subparsers.add_parser(
+        "capture-visual-review",
+        help="Capture deterministic local visual-review evidence artifacts",
+    )
+    _add_common(capture_visual_review)
+    _add_run_root(capture_visual_review)
+    capture_visual_review.add_argument(
+        "--visual-surface",
+        action="append",
+        default=[],
+        help="Limit visual-review capture to the given surface id",
+    )
+    capture_visual_review.add_argument(
+        "--visual-state",
+        action="append",
+        default=[],
+        help="Limit visual-review capture to the given state id",
+    )
+
+    run_calibration = subparsers.add_parser(
+        "run-calibration",
+        help="Run the local calibration loop and persist resumable checkpoints",
+    )
+    _add_common(run_calibration)
+    _add_run_root(run_calibration)
+    run_calibration.add_argument(
+        "--checkpoint-path",
+        type=Path,
+        default=None,
+        help="Optional path for resumable calibration checkpoint state",
+    )
+    run_calibration.add_argument(
+        "--nvda-only",
+        action="store_true",
+        help=(
+            "Require a validated retained visual preflight bundle and "
+            "run the NVDA-only calibration path"
+        ),
+    )
+    run_calibration.add_argument(
+        "--prerequisite-only",
+        action="store_true",
+        help=(
+            "Probe local NVDA and Chrome prerequisites without running "
+            "calibration journeys"
+        ),
+    )
+    run_calibration.add_argument(
+        "--retained-preflight",
+        type=Path,
+        default=None,
+        help=(
+            "Import a validated visual-review output bundle for NVDA-only "
+            "calibration reuse"
+        ),
+    )
+
+    run_at_plan = subparsers.add_parser(
+        "run-at-plan",
+        help="List or execute AT-plan cases derived from the persisted matrix",
+    )
+    run_at_plan.add_argument("--matrix", type=Path, required=True)
+    run_at_plan.add_argument("--config", type=Path, default=None)
+    run_at_plan.add_argument("--case-id", action="append", default=[])
+    run_at_plan.add_argument("--driver", default="guidepup")
+    run_at_plan.add_argument("--out", type=Path, default=None)
+    run_at_plan.add_argument("--trace", action="store_true")
+    run_at_plan.add_argument("--allow-external", action="store_true")
+    run_at_plan.add_argument("--list", action="store_true")
 
     return parser
 
@@ -274,13 +1672,399 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "render-artifacts":
-            document = _render_artifacts(args.matrix, args.output_dir, args.repo_slug)
+            document = _render_artifacts(
+                args.matrix,
+                args.output_dir,
+                args.repo_slug,
+                runtime_config_path=args.runtime_config,
+            )
             _write_output(document, None)
+            return EXIT_SUCCESS
+        if args.command == "capture-visual-review":
+            config = load_validated_config(
+                args.config, allow_external=args.allow_external
+            )
+            config = validate_visual_review_config(config)
+            visual_review = config.get("visualReview") or {}
+            if visual_review.get("enabled") is not True:
+                raise ScriptError(
+                    "Visual review capture requires visualReview.enabled to be "
+                    "true in the runtime config.",
+                    EXIT_USAGE,
+                )
+            selected_plan = _select_visual_review_plan(
+                config,
+                surfaces=list(args.visual_surface or []),
+                states=list(args.visual_state or []),
+            )
+            base_url = args.base_url or config.get("baseUrl", "")
+            run_root = (
+                _resolve_repo_path(args.run_root, kind="--run-root")
+                if args.run_root is not None
+                else resolve_run_root(
+                    _REPO_ROOT,
+                    run_id=f"visual-review-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+                )
+            )
+            server_process = None
+            server_owned = False
+            try:
+                server_process, server_owned = _ensure_visual_review_server(base_url)
+                payload = _run_visual_review_capture(
+                    config,
+                    base_url,
+                    Path(run_root),
+                    args.trace,
+                    surfaces=selected_plan["surfaces"],
+                    states=selected_plan["states"],
+                )
+                manifest_paths = _write_visual_review_manifests(
+                    payload,
+                    Path(run_root),
+                    max_artifact_bytes=visual_review.get("maxArtifactBytes"),
+                )
+            finally:
+                if server_owned:
+                    _stop_visual_review_server(server_process)
+            document = {
+                "tool": "runtime_a11y",
+                "command": "capture-visual-review",
+                "runAt": datetime.now(timezone.utc).isoformat(),
+                "baseUrl": base_url,
+                "runRoot": _public_path(run_root),
+                "manifestPaths": manifest_paths,
+                "runs": payload.get("runs", []),
+            }
+            _write_output(document, args.out)
+            return EXIT_SUCCESS
+        if args.command == "run-calibration":
+            if args.prerequisite_only and args.nvda_only:
+                raise ScriptError(
+                    "--prerequisite-only and --nvda-only cannot be combined.",
+                    EXIT_USAGE,
+                )
+            if args.retained_preflight is not None and not args.nvda_only:
+                raise ScriptError(
+                    "--retained-preflight requires --nvda-only.",
+                    EXIT_USAGE,
+                )
+            if args.retained_preflight is not None and args.prerequisite_only:
+                raise ScriptError(
+                    "--retained-preflight cannot be combined with --prerequisite-only.",
+                    EXIT_USAGE,
+                )
+            config = load_validated_config(
+                args.config, allow_external=args.allow_external
+            )
+            calibration = config.get("calibration") or {}
+            journey_ids = [
+                str(item.get("id"))
+                for item in calibration.get("journeys", [])
+                if str(item.get("id"))
+            ] or ["14399", "14410"]
+            base_url = args.base_url or config.get("baseUrl", "")
+            checkpoint_path = None
+            run_root = None
+            if args.run_root is not None:
+                run_root = _resolve_repo_path(args.run_root, kind="--run-root")
+            elif args.checkpoint_path is not None:
+                checkpoint_path = str(
+                    _resolve_repo_path(args.checkpoint_path, kind="--checkpoint-path")
+                )
+                candidate = Path(checkpoint_path)
+                run_root = candidate.parent if candidate.suffix else candidate
+                run_root.mkdir(parents=True, exist_ok=True)
+            elif args.out is not None:
+                output_candidate = Path(args.out).expanduser()
+                if not output_candidate.is_absolute():
+                    output_candidate = (_REPO_ROOT / output_candidate).expanduser()
+                resolved_output_candidate = output_candidate.resolve(strict=False)
+                if _is_within(resolved_output_candidate, _local_runs_root()):
+                    run_root = resolved_output_candidate.parent
+                else:
+                    run_root = resolve_run_root(
+                        _REPO_ROOT,
+                        run_id=f"calibration-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+                    )
+            else:
+                run_root = resolve_run_root(
+                    _REPO_ROOT,
+                    run_id=f"calibration-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+                )
+
+            if checkpoint_path is None and args.checkpoint_path is not None:
+                checkpoint_path = str(
+                    _resolve_repo_path(args.checkpoint_path, kind="--checkpoint-path")
+                )
+
+            if args.out is not None:
+                out_path = _resolve_repo_path(
+                    args.out,
+                    kind="--out",
+                    allowed_root=_resolve_output_allowed_root(
+                        run_root,
+                        args.out,
+                    ),
+                )
+            elif run_root is not None:
+                out_path = Path(run_root) / "calibration-output.json"
+            else:
+                out_path = None
+
+            retained_preflight_bundle = None
+            if args.retained_preflight is not None:
+                retained_preflight_bundle = _import_retained_preflight_bundle(
+                    args.retained_preflight,
+                    run_root=Path(run_root)
+                    if run_root is not None
+                    else _local_runs_root(),
+                )
+                if checkpoint_path is None:
+                    checkpoint_path = str(
+                        (Path(run_root) / "checkpoint.json").resolve(strict=False)
+                    )
+
+            config_for_execution = deepcopy(config)
+            if args.base_url:
+                config_for_execution["baseUrl"] = args.base_url
+            if args.nvda_only:
+                calibration_payload = deepcopy(calibration)
+                calibration_payload["mode"] = "nvdaOnly"
+                config_for_execution["calibration"] = calibration_payload
+
+            if retained_preflight_bundle is not None and checkpoint_path is not None:
+                checkpoint_payload = {
+                    "state": {
+                        "journeys": {},
+                        "visualPreflightBundle": retained_preflight_bundle,
+                    },
+                    "checkpoints": [],
+                }
+                write_json_atomic(checkpoint_path, checkpoint_payload)
+
+            if args.prerequisite_only:
+                payload = _run_prerequisite_probe(
+                    config_for_execution,
+                    base_url,
+                    args.trace,
+                )
+                aggregate = {
+                    "status": "successful",
+                    "reason": "Calibration prerequisites are ready.",
+                }
+                if isinstance(payload, dict) and payload.get("ok") is False:
+                    aggregate = {
+                        "status": "unsuccessful",
+                        "reason": (
+                            payload.get("reason")
+                            or "Calibration prerequisites were not met."
+                        ),
+                    }
+                elif isinstance(payload, dict) and payload.get("reason"):
+                    aggregate = {
+                        "status": "successful",
+                        "reason": payload.get("reason"),
+                    }
+                document = {
+                    "tool": "runtime_a11y",
+                    "command": "run-calibration",
+                    "runAt": datetime.now(timezone.utc).isoformat(),
+                    "baseUrl": base_url,
+                    "journeys": journey_ids,
+                    "visualStates": calibration.get("visualStates") or [],
+                    "checkpointPath": _public_path(checkpoint_path),
+                    "runRoot": _public_path(run_root),
+                    "aggregate": aggregate,
+                    "checkpoints": [],
+                    "state": {"journeys": []},
+                    "prerequisiteOnly": True,
+                }
+                _write_output(document, out_path)
+                return EXIT_SUCCESS
+
+            server_process = None
+            server_owned = False
+            if not args.prerequisite_only:
+                _emit_live_test_start_notice(run_root, len(journey_ids))
+            try:
+                if (config.get("visualReview") or {}).get("enabled") is True:
+                    server_process, server_owned = _ensure_visual_review_server(
+                        base_url
+                    )
+                payload = _run_calibration_session(
+                    config_for_execution,
+                    base_url,
+                    str(run_root) if run_root is not None else None,
+                    checkpoint_path,
+                    args.trace,
+                )
+            finally:
+                if server_owned:
+                    _stop_visual_review_server(server_process)
+                if not args.prerequisite_only:
+                    _emit_live_test_finish_notice()
+
+            aggregate = payload.get("aggregate")
+            if not isinstance(aggregate, dict):
+                aggregate = {
+                    "status": "unsuccessful",
+                    "reason": "Calibration completed without an aggregate status.",
+                }
+            else:
+                aggregate_status = str(aggregate.get("status") or "").lower()
+                if aggregate_status not in {"successful", "unsuccessful", "incomplete"}:
+                    aggregate = {
+                        "status": "unsuccessful",
+                        "reason": (
+                            aggregate.get("reason")
+                            or "Calibration completed without an aggregate status."
+                        ),
+                    }
+            document = {
+                "tool": "runtime_a11y",
+                "command": "run-calibration",
+                "runAt": datetime.now(timezone.utc).isoformat(),
+                "baseUrl": base_url,
+                "journeys": payload.get("journeys", journey_ids),
+                "visualStates": calibration.get("visualStates") or [],
+                "checkpointPath": _public_path(checkpoint_path),
+                "runRoot": _public_path(
+                    payload.get("runRoot")
+                    or (run_root if run_root is not None else None)
+                ),
+                "aggregate": aggregate,
+                "checkpoints": payload.get("checkpoints", []),
+                "state": payload.get("state", {}),
+            }
+            _write_output(document, args.out)
+            return EXIT_SUCCESS
+        if args.command == "run-at-plan":
+            if not args.matrix.exists():
+                raise ScriptError(
+                    f"Matrix file does not exist: {args.matrix}", EXIT_USAGE
+                )
+            try:
+                cases = _derive_at_plan_cases(
+                    args.matrix,
+                    args.config,
+                    allow_external=args.allow_external,
+                    require_target=True,
+                )
+            except (ValueError, json.JSONDecodeError, OSError) as exc:
+                raise ScriptError(
+                    f"Unable to derive AT-plan cases from {args.matrix}: {exc}",
+                    EXIT_USAGE,
+                ) from exc
+            if args.list:
+                _write_output(
+                    {
+                        "cases": [
+                            {
+                                "id": case["caseId"],
+                                "automationEligible": case["automationEligible"],
+                                "automationExclusionReason": case[
+                                    "automationExclusionReason"
+                                ],
+                            }
+                            for case in cases
+                        ]
+                    },
+                    None,
+                )
+                return EXIT_SUCCESS
+            force_execute = args.driver.lower() in {"fake", "synthetic"}
+            if args.case_id:
+                requested = set(args.case_id)
+                selected = [case for case in cases if case["caseId"] in requested]
+                if len(selected) != len(requested):
+                    raise ScriptError(
+                        "One or more requested case IDs were not found in the matrix.",
+                        EXIT_USAGE,
+                    )
+            elif force_execute:
+                selected = list(cases)
+            else:
+                selected = [case for case in cases if case["automationEligible"]]
+            if not selected:
+                raise ScriptError(
+                    "No executable AT-plan cases were selected.", EXIT_USAGE
+                )
+            results = []
+            for case in selected:
+                if not case.get("automationEligible") and not force_execute:
+                    results.append(
+                        {
+                            "caseId": case["caseId"],
+                            "status": "unsupported",
+                            "reason": case.get("automationExclusionReason")
+                            or "human-only",
+                        }
+                    )
+                    continue
+                eligible_variants = [
+                    variant
+                    for variant in case.get("variants", [])
+                    if variant.get("automationEligible", False)
+                ]
+                if not eligible_variants:
+                    if not force_execute:
+                        results.append(
+                            {
+                                "caseId": case["caseId"],
+                                "status": "unsupported",
+                                "reason": (
+                                    "No automation-eligible variant was resolved."
+                                ),
+                            }
+                        )
+                        continue
+                    variant_case = dict(case)
+                    variant_case["variant"] = None
+                    variant_case["commands"] = list(case.get("commands", []))
+                    variant_case["assertions"] = list(case.get("assertions", []))
+                    variant_case["at"] = case.get("at")
+                    payload = _run_at_plan_case(
+                        variant_case,
+                        args.driver,
+                        args.trace,
+                    )
+                    results.append(payload)
+                    continue
+                for variant in eligible_variants:
+                    variant_case = dict(case)
+                    variant_case["variant"] = variant
+                    variant_case["commands"] = list(
+                        variant.get("commands") or case.get("commands", [])
+                    )
+                    variant_case["assertions"] = list(
+                        variant.get("assertions") or case.get("assertions", [])
+                    )
+                    variant_case["at"] = variant.get("at")
+                    payload = _run_at_plan_case(
+                        variant_case,
+                        args.driver,
+                        args.trace,
+                    )
+                    results.append(payload)
+            document = {
+                "tool": "runtime_a11y",
+                "command": "run-at-plan",
+                "runAt": datetime.now(timezone.utc).isoformat(),
+                "cases": results,
+            }
+            _write_output(document, args.out)
             return EXIT_SUCCESS
         config = load_validated_config(args.config, allow_external=args.allow_external)
         base_url = args.base_url or config.get("baseUrl", "")
         probe_filter = getattr(args, "probe_id", None)
-        document = run(config, probe_filter, base_url, args.trace)
+        document = run(
+            config,
+            probe_filter,
+            base_url,
+            args.trace,
+            surface_filter=getattr(args, "surface", None),
+            state_filter=getattr(args, "state", None),
+        )
     except ScriptError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return exc.exit_code

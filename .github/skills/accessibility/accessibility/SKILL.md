@@ -7,7 +7,7 @@ user-invocable: false
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-06-19"
+  last_updated: "2026-07-14"
 ---
 
 # Accessibility — Skill Entry
@@ -60,7 +60,7 @@ Accessibility defects generalize into five classes. Static analysis (axe, `eslin
 |-------|------------------------|-----------------------------|---------------------------|
 | **Static-decidable structure** | 1.1.1, 1.4.3, 4.1.2 (name present), 2.4.2, 3.1.1 | Decide | axe / static scan |
 | **Interaction behavior** | 2.1.1, 2.1.2, 2.4.3, 2.4.7, 2.4.11 | Inform only | Keyboard/interaction probe driving keys across `focus`/`open` states, or manual keyboard pass |
-| **Announcement correctness** | 1.3.1, 4.1.2 (computed name/role), 4.1.3 | Inform only | Accessibility-tree assertion of computed name/role/live, or manual AT pass (NVDA/JAWS/VoiceOver) |
+| **Announcement correctness** | 1.3.1, 4.1.2 (computed name/role), 4.1.3 | Inform only | Accessibility-tree assertion of computed name/role/live, or manual AT pass (Windows NVDA or human-led JAWS) |
 | **Adaptive rendering** | 1.4.4, 1.4.10, 1.4.12, 2.4.11 | Inform only | Rendered probe at 200% zoom, 320px reflow, and text-spacing states |
 | **Faux semantics** | 1.3.1 (faux headings), 2.4.3 (faux controls) | Cannot see | Heuristic source pass plus accessibility-tree assertion; no element exists for a rule engine to flag |
 
@@ -155,7 +155,7 @@ WCAG success criteria are normative; the axe techniques that surface them are in
 
 ### Runtime probe harness
 
-The runtime probe harness ([scripts/runtime_a11y](scripts/runtime_a11y)) runs Playwright-based accessibility probes against a project-specific surface inventory and aggregates the results into a coverage matrix. Use the [accessibility-coverage-matrix prompt](../../../prompts/accessibility/accessibility-coverage-matrix.prompt.md) for workflow orchestration and the [accessibility-surface-inventory subagent](../../../agents/accessibility/subagents/accessibility-surface-inventory.agent.md) as the canonical producer of the runtime config.
+The runtime probe harness ([scripts/runtime_a11y](scripts/runtime_a11y)) runs Playwright-based accessibility probes against a project-specific surface inventory and aggregates the results into a coverage matrix. Use the [accessibility-coverage-matrix prompt](../../../prompts/accessibility/accessibility-coverage-matrix.prompt.md) for workflow orchestration, the [accessibility-surface-inventory subagent](../../../agents/accessibility/subagents/accessibility-surface-inventory.agent.md) as the canonical producer of the runtime config, and the shared [real screen reader testing runbook](../../../../docs/planning/runbooks/accessibility/real-screen-reader-testing.md) when human-led assistive-technology evidence is required.
 
 #### Invocation
 
@@ -207,7 +207,7 @@ WCAG and ARIA APG probes:
 * `probe-timing` (2.2.1)
 * `probe-zoom-blocker` (1.4.4, informs 1.4.10)
 * `probe-virtual-sr` (4.1.2 name/role announcement captured from a virtual screen reader's spoken-phrase log; informs 1.3.1)
-* `probe-real-sr` (real NVDA/VoiceOver announcement assertions through a Guidepup adapter; only decides when configured expectations are present and the AT stack is available)
+* `probe-real-sr` (real Windows NVDA announcement assertions through a Guidepup adapter; only decides when configured expectations are present and the AT stack is available)
 
 Non-WCAG defect-scan probes (framework `defect-scan`):
 
@@ -223,6 +223,16 @@ Method adequacy is encoded in [scripts/runtime_a11y/probe-criteria-map.json](scr
 The matrix engine in [scripts/runtime_a11y/matrix](scripts/runtime_a11y/matrix) expands the criterion x surface x state grid, merges updates deterministically, and preserves human-confirmed findings over lower-priority automation. It computes adequate-coverage percentages by framework and overall. The `render-artifacts` command emits a deterministic bundle containing `coverage-matrix-{repo-slug}.json`, `coverage-matrix-{repo-slug}.md`, `accessibility-results-{repo-slug}.earl.jsonld`, `manual-at-testplan-{repo-slug}.md`, `manual-at-testplan-{repo-slug}.yaml`, and `accessibility-artifacts-{repo-slug}.json`.
 
 The EARL (Evaluation and Report Language) JSON-LD export is the normalized results contract for interoperability with the ACT Rules ecosystem and downstream VPAT or EAA review. Each evaluated cell becomes one stable `earl:Assertion` that records subject, criterion, state, method, method adequacy, result date, and evidence. A result whose winning method only informs its criterion is `earl:cantTell`, never a false `earl:passed`. Inapplicable cells are `earl:inapplicable`; unevaluated cells are omitted. The paired manual plans contain cells that still require a human-deciding method and provide blank result fields for evidence writeback.
+
+#### Public ARIA-AT and execution contract
+
+The catalog in [scripts/runtime_a11y/aria-at-catalog.json](scripts/runtime_a11y/aria-at-catalog.json) is the repository's documented source of truth for generated AT-oriented cases. Its provenance fields are strict and immutable: each mapping records a local catalog version, a canonical upstream URL, a commit-pinned upstream URL, and the upstream commit SHA used for the reviewed refresh. The repository does not copy upstream assertion tables or prose; it paraphrases official W3C and ARIA-AT intent and cites the source in the generated artifacts.
+
+The current public posture is intentionally conservative. The five starter defaults (modal dialog, checkbox, select-only combobox, menu button, and tabs) are citation-bearing manual-only mappings because the richer AT-mode and quick-navigation semantics that these patterns can require are not faithfully modeled by the current structured command boundary. Runtime overrides may create explicit synthetic contract tests, but those are always non-pass candidate evidence and never accessibility conformance evidence. The resolver uses the documented fallback order of state -> surface -> catalog; commands and assertions are stored as atomic arrays, and an explicit empty array intentionally disables execution for a given case.
+
+Unknown patterns remain generic manual drafts or project-refinement markers rather than a fake automation pass. Equally specific ambiguity is treated as a configuration error before rendering or driver startup. The public CLI exposes `render-artifacts` as an optional mapping configuration step and `run-at-plan` as the supported path for listing, selecting, executing, and reporting generated AT cases. The real-driver boundary currently supports Guidepup-backed Windows NVDA automation plus manual-only JAWS and other operator-led flows; synthetic execution is a separate evidence channel and never claims a pass. The generated manual plans stay linked to the shared [real screen reader testing runbook](../../../../docs/planning/runbooks/accessibility/real-screen-reader-testing.md), while case-specific commands remain inside the generated plan output rather than being written back into the matrix or coverage artifacts.
+
+The generated manual cases, synthetic or real execution evidence, ACT-style result reasoning, EARL outcomes, and later qualified-human review are distinct layers. The public workflow renders representative fixtures through the documented CLI and inspects the six generated artifacts, but it does not commit golden outputs for the inspection bundle.
 
 #### Exit codes
 

@@ -35,10 +35,18 @@ Treat the matrix as a criterion x surface x method grid.
    * `uv run python -m runtime_a11y probe <probeId> --config ...` for probe mode.
    * Add `--trace` when a trace is needed and `--allow-external` only when the target is an approved non-loopback host after explicit confirmation.
 7. Route fail, partial, or blocked cells through the Finding Deep Verifier; involve the Codebase Profiler and Accessibility Framework Assessor by role as needed to interpret findings and close gaps.
-8. Compute coverage, residual gaps, and nextActions with the engine, then write the matrix JSON and render the canonical evidence bundle:
+8. Compute coverage, residual gaps, and nextActions with the engine, then write the matrix JSON and render the canonical evidence bundle. When a cell still requires human-led assistive-technology evidence, route the tester to the shared [real screen reader testing runbook](../../../docs/planning/runbooks/accessibility/real-screen-reader-testing.md) instead of writing case-specific manual instructions inline.
    * `uv run python -m runtime_a11y render-artifacts --matrix coverage-matrix-{repo-slug}.json --output-dir .copilot-tracking/accessibility/coverage --repo-slug {repo-slug}`
    * Preserve every file listed by the generated artifact manifest. Do not hand-author the EARL or manual test-plan files.
 9. Present the coverage summary, EARL result counts, pending manual test count, and artifact manifest path. The Markdown artifacts retain the canonical accessibility disclaimer and unchecked human-review checkbox.
+
+## Public workflow contract for rendered evidence
+
+The rendered coverage bundle and its generated manual plans are public workflow outputs rather than private dogfood artifacts. `render-artifacts` accepts an optional mapping configuration so downstream projects can supply their own ARIA-AT catalog overrides without changing the repository's built-in defaults. The documented CLI also supports `run-at-plan` for listing, selecting, executing, and reporting generated AT cases through the same public entrypoint used by the skill and the prompt.
+
+The current catalog posture remains conservative: the starter mapping set is citation-bearing and manual-only by default because the richer AT-mode and quick-navigation semantics are not faithfully modeled by the current structured command boundary. Synthetic execution evidence stays separate from actual conformance evidence, and it never becomes a pass. Unknown patterns remain generic manual drafts or project-refinement markers, while conflicting equally specific mappings are treated as configuration errors before rendering or driver startup.
+
+The representative fixture in the accessibility skill tests exercises the public-render workflow and the six-artifact inspection procedure without committing generated golden outputs. The workflow should inspect the generated manifest, coverage summary, EARL results, manual plans, and artifact index together, and should route unresolved human-led AT work to the shared runbook rather than writing case-specific commands back into the matrix.
 
 ## Artifact Layout
 

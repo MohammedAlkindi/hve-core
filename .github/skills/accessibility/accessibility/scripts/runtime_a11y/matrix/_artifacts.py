@@ -66,14 +66,19 @@ def render_artifact_bundle(
     coverage: dict[str, Any],
     output_dir: Path,
     repo_slug: str,
+    runtime_config: dict[str, Any] | None = None,
 ) -> ArtifactPaths:
     """Render the canonical coverage, EARL, and manual-plan artifact bundle."""
     paths = artifact_paths(output_dir, repo_slug)
     render_json(matrix, coverage, paths.coverage_json)
     render_markdown(matrix, coverage, paths.coverage_markdown, repo_slug)
     render_earl(matrix, coverage, paths.earl_jsonld)
-    render_manual_test_plan_markdown(matrix, paths.manual_plan_markdown, repo_slug)
-    render_manual_test_plan_yaml(matrix, paths.manual_plan_yaml, repo_slug)
+    render_manual_test_plan_markdown(
+        matrix, paths.manual_plan_markdown, repo_slug, runtime_config
+    )
+    render_manual_test_plan_yaml(
+        matrix, paths.manual_plan_yaml, repo_slug, runtime_config
+    )
 
     manifest = {
         "version": 1,

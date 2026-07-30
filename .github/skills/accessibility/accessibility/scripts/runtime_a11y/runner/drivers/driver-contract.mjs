@@ -2,6 +2,60 @@
 // SPDX-License-Identifier: MIT
 
 import { createGuidepupDriverAdapter } from './guidepup-adapter.mjs';
+import { validateScreenReaderCommand } from './command-contract.mjs';
+
+function createSyntheticDriver({ platform, config = {}, matrixCase = null, variant = null, driverName = 'synthetic' } = {}) {
+  const commands = Array.isArray(config?.commands) ? config.commands : [];
+  const phrases = Array.isArray(config?.syntheticPhrases)
+    ? config.syntheticPhrases.filter((item) => typeof item === 'string' && item.trim() !== '')
+    : [];
+  return {
+    supported: true,
+    status: 'ready',
+    driver: driverName,
+    platform,
+    synthetic: true,
+    async start() {
+      return { driver: 'synthetic', platform };
+    },
+    async stop() {
+      return undefined;
+    },
+    async executeCommand(command) {
+      const validationError = validateScreenReaderCommand(command);
+      if (validationError) {
+        throw new Error(validationError);
+      }
+      if (command.kind === 'pause') {
+        return { kind: 'pause', durationMs: Number(command.durationMs || 0) };
+      }
+      if (command.kind === 'command') {
+        return { kind: 'command', value: command.value };
+      }
+      if (command.kind === 'keyboard' || command.kind === 'key') {
+        return { kind: 'key', value: command.value };
+      }
+      if (command.kind === 'perform') {
+        return { kind: 'perform', value: command.value };
+      }
+      if (command.kind === 'type') {
+        return { kind: 'type', value: command.value };
+      }
+      throw new Error(`Unsupported synthetic-driver command kind: ${command.kind}`);
+    },
+    async captureLog() {
+      return {
+        driver: 'synthetic',
+        platform,
+        phrases: phrases.slice(),
+        assertions: [],
+        commands,
+        synthetic: true,
+        evidenceKind: 'synthetic',
+      };
+    },
+  };
+}
 
 export function validateScreenReaderConfig(config = {}) {
   const errors = [];
@@ -11,15 +65,9 @@ export function validateScreenReaderConfig(config = {}) {
     : [];
 
   for (const command of commands) {
-    if (!command || typeof command !== 'object') {
-      errors.push('Each command must be an object.');
-      continue;
-    }
-    if (command.kind === 'command' && typeof command.value !== 'string') {
-      errors.push('Command entries require a string value.');
-    }
-    if (command.kind === 'pause' && (typeof command.durationMs !== 'number' || command.durationMs < 0)) {
-      errors.push('Pause entries require a non-negative durationMs number.');
+    const validationError = validateScreenReaderCommand(command);
+    if (validationError) {
+      errors.push(validationError);
     }
   }
 
@@ -41,6 +89,22 @@ export function validateScreenReaderConfig(config = {}) {
 
 export async function createScreenReaderDriver({ platform = process.platform, driverName = 'guidepup', config = null } = {}) {
   const normalizedDriver = String(driverName || 'guidepup').toLowerCase();
+  if (normalizedDriver === 'fake' || normalizedDriver === 'synthetic') {
+    const validation = validateScreenReaderConfig(config || {});
+    if (!validation.ok) {
+      return {
+        supported: false,
+        status: 'invalid-config',
+        errors: validation.errors,
+      };
+    }
+    return createSyntheticDriver({
+      platform,
+      config: config || {},
+      driverName: normalizedDriver === 'fake' ? 'fake' : 'synthetic',
+    });
+  }
+
   if (normalizedDriver !== 'guidepup') {
     return {
       supported: false,

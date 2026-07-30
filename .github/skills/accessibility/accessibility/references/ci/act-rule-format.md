@@ -18,6 +18,12 @@ Composite rules combine the outcomes of atomic rules through a stated logic (all
 
 The runtime probes map onto this shape directly: a probe's scoped surfaces and interaction states are the Applicability, the probe's verdict logic (for example `liveRegionStatus`, `virtualSrNameRoleStatus` in [../../scripts/runtime_a11y/runner/_core.mjs](../../scripts/runtime_a11y/runner/_core.mjs)) is the Expectation, and the smoke-test fixtures under [../../tests/runtime_a11y/runner/probe-smoke](../../tests/runtime_a11y/runner/probe-smoke) are the Passed / Failed / Inapplicable Test Cases.
 
+### Generated evidence and review semantics
+
+The skill's generated manual cases, synthetic execution evidence, real-driver evidence, and later qualified-human review are separate layers rather than one merged pass/fail stream. A generated manual case can remain unresolved while a synthetic or real execution result is recorded separately; the execution result never writes back to the matrix, coverage artifact, or human-review checkbox. ACT-style reasoning is therefore applied to the evidence record itself, while the matrix and EARL export remain the canonical downstream summary.
+
+This distinction matters for the ARIA-AT catalog. The current catalog defaults are citation-bearing manual-only mappings because the richer AT-mode and quick-navigation semantics are not faithfully modeled by the current structured command boundary. Runtime overrides may create explicit synthetic contract tests, but those are non-pass candidate evidence and never a conformance claim. The resulting evidence can support a later qualified-human review, but it does not substitute for it.
+
 ### EARL Reporting
 
 Results are reported in EARL (Evaluation and Report Language), the ACT ecosystem's interchange format, rendered by [../../scripts/runtime_a11y/matrix/_render_earl.py](../../scripts/runtime_a11y/matrix/_render_earl.py). The status-to-outcome mapping:

@@ -28,6 +28,7 @@ def render_json(matrix: Matrix, coverage: dict[str, Any], out_path: Path) -> Non
                 "name": surface.name,
                 "platform": surface.platform,
                 "states": list(surface.states),
+                "widgetPattern": surface.widgetPattern,
             }
             for surface in matrix.surfaces
         ],
