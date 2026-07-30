@@ -226,7 +226,12 @@ export default function SearchBarWrapper(props) {
           footerLink.setAttribute('aria-setsize', String(totalOptions));
         }
 
-        const clearButton = root.querySelector('button[type="reset"], button[class*="clear"]');
+        // The theme renders the clear control with a camelCase CSS-module class
+        // (searchClearButton_xxxx) and no type attribute. CSS attribute
+        // substring matching is case-sensitive, so the `i` flag is required to
+        // match it; without the flag the control never receives its name and is
+        // announced only as its glyph.
+        const clearButton = root.querySelector('button[type="reset"], button[class*="clear" i]');
         if (clearButton && clearButton.getAttribute('aria-label') !== 'Clear search') {
           clearButton.setAttribute('aria-label', 'Clear search');
         }

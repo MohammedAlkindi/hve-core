@@ -107,19 +107,41 @@ test.describe('Contrast measurement gates', () => {
       const count = await proseLinks.count();
       test.skip(count === 0, 'No in-content prose links on this page.');
 
-      const link = proseLinks.first();
-      await expect(link).toBeVisible();
+      // SC 1.4.1 is a per-link guarantee, so every prose link is measured rather
+      // than a single sample. A link satisfies the criterion when it carries a
+      // visible underline, or when it is distinguishable from surrounding text
+      // by a non-color means (weight or style) in addition to color.
+      const offenders = await proseLinks.evaluateAll((elements) =>
+        elements
+          .map((element) => {
+            const computed = window.getComputedStyle(element);
+            const parent = element.parentElement
+              ? window.getComputedStyle(element.parentElement)
+              : null;
+            const underlined = /underline/i.test(computed.textDecorationLine);
+            const weightDelta = parent
+              ? Math.abs(
+                Number.parseInt(computed.fontWeight || '400', 10)
+                  - Number.parseInt(parent.fontWeight || '400', 10),
+              )
+              : 0;
+            const styleDelta = parent ? computed.fontStyle !== parent.fontStyle : false;
+            const nonColorCue = underlined || weightDelta >= 300 || styleDelta;
+            return nonColorCue
+              ? null
+              : {
+                text: (element.textContent || '').trim().slice(0, 40),
+                decoration: computed.textDecorationLine,
+                fontWeight: computed.fontWeight,
+              };
+          })
+          .filter(Boolean),
+      );
 
-      const style = await link.evaluate((element) => {
-        const computed = window.getComputedStyle(element);
-        return {
-          textDecorationLine: computed.textDecorationLine,
-          textDecorationStyle: computed.textDecorationStyle,
-          textDecorationColor: computed.textDecorationColor,
-        };
-      });
-
-      expect(style.textDecorationLine, `${pageCase.name} should render a visible underline for content links`).toMatch(/underline/i);
+      expect(
+        offenders,
+        `${pageCase.name} has prose links distinguished by color alone: ${JSON.stringify(offenders)}`,
+      ).toEqual([]);
     });
   }
 

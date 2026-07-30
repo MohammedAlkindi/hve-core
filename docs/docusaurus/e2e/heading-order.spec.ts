@@ -23,5 +23,23 @@ test.describe('Heading-order accessibility regression locks', () => {
         previousLevel = level;
       }
     });
+
+    test(`${name} uses real heading tags for prominent in-page and footer titles`, async ({ page }) => {
+      await visitInvariantPage(page, { name, path });
+
+      const inPageHeading = page.locator('.theme-doc-markdown h2, .theme-doc-markdown h3, .theme-doc-markdown h4').first();
+      if ((await inPageHeading.count()) > 0) {
+        await expect(inPageHeading).toBeVisible();
+        const inPageTagName = await inPageHeading.evaluate((element) => element.tagName.toLowerCase());
+        expect(inPageTagName).toMatch(/^h[1-6]$/);
+      }
+
+      const footerTitle = page.locator('.footer__title').first();
+      if ((await footerTitle.count()) > 0) {
+        await expect(footerTitle).toBeVisible();
+        const footerTagName = await footerTitle.evaluate((element) => element.tagName.toLowerCase());
+        expect(footerTagName).toMatch(/^h[1-6]$/);
+      }
+    });
   }
 });

@@ -20,8 +20,23 @@ export interface PageSnapshot {
 
 export const SITE_PAGES: readonly PageSpec[] = PAGES;
 
+// Docusaurus sets `<html data-has-hydrated="true">` once React has hydrated the
+// server-rendered markup. Before that point the attribute is "false": client
+// event handlers are not attached and theme state is not applied, so keyboard
+// activation, focus styling, and ARIA state assertions race the client bundle.
+// Waiting for the attribute makes those assertions deterministic regardless of
+// how much CPU the page is competing for.
+export async function waitForHydration(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => document.documentElement.dataset.hasHydrated === 'true',
+    undefined,
+    { timeout: 30000 },
+  );
+}
+
 export async function visitInvariantPage(page: Page, spec: PageSpec): Promise<void> {
   await page.goto(spec.path, { waitUntil: 'domcontentloaded' });
+  await waitForHydration(page);
 }
 
 export async function collectPageSnapshot(page: Page): Promise<PageSnapshot> {

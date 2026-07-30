@@ -1,10 +1,12 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { test, expect } from '@playwright/test';
+import { waitForHydration } from './_helpers/a11yInvariants';
 
 test.describe('Search page status announcements', () => {
   test('announces matching and non-matching query counts', async ({ page }) => {
     await page.goto('/hve-core/search/?q=agent');
+  await waitForHydration(page);
 
     const status = page.locator('#search-results-status[role="status"]');
     await expect(status).toHaveAttribute('aria-live', 'polite');

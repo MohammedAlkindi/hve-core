@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { SITE_PAGES, visitInvariantPage } from './_helpers/a11yInvariants';
+import { SITE_PAGES, visitInvariantPage, waitForHydration } from './_helpers/a11yInvariants';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -27,6 +27,7 @@ test.describe('Search', () => {
 
   test('injected sr-only heading and description stay visually hidden', async ({ page }) => {
     await page.goto('/hve-core/docs/getting-started/');
+    await waitForHydration(page);
 
     const searchInput = page.locator('.navbar__search-input').first();
     await expect(searchInput).toBeVisible();
@@ -49,9 +50,14 @@ test.describe('Search', () => {
 
   async function openResults(page: import('@playwright/test').Page) {
     await page.goto('/hve-core/docs/getting-started/');
+    await waitForHydration(page);
 
     const searchInput = page.locator('.navbar__search-input').first();
     await expect(searchInput).toBeVisible();
+    // The search plugin promotes the input to role="combobox" during its own
+    // client initialization, which completes after page hydration. Typing before
+    // that point produces no listbox.
+    await expect(searchInput).toHaveAttribute('role', 'combobox', { timeout: 30000 });
 
     await searchInput.click();
     await searchInput.fill('getting started');

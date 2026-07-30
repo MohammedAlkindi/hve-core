@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { test, expect, type Page } from '@playwright/test';
+import { waitForHydration } from './_helpers/a11yInvariants';
 
 // Walks the navbar search dropdown with ArrowDown/ArrowUp and reports, at each
 // step, the aria-activedescendant and which option carries the upstream visual
@@ -25,6 +26,7 @@ async function activeState(page: Page) {
 
 test('navbar search: ArrowDown/ArrowUp navigate the dropdown list', async ({ page }) => {
   await page.goto('/hve-core/docs/getting-started/');
+  await waitForHydration(page);
   await page.waitForLoadState('domcontentloaded');
 
   const input = page.locator('input.navbar__search-input').first();

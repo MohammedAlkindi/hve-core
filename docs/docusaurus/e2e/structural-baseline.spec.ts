@@ -31,5 +31,38 @@ test.describe('Structural baseline', () => {
         ).toBeLessThanOrEqual(1);
       }
     });
+
+    test(`${spec.name} labels footer column lists with their titles and exposes banner text`, async ({ page }) => {
+      await visitInvariantPage(page, spec);
+
+      const banner = page.locator('header').first();
+      if ((await banner.count()) > 0) {
+        await expect(banner).toBeVisible();
+        const accessibleName = await banner.evaluate((element) => element.getAttribute('aria-label') ?? element.textContent?.trim() ?? '');
+        expect(accessibleName, `${spec.name}: the banner landmark should expose accessible text`).toMatch(/\S/);
+      }
+
+      const footerColumns = page.locator('.footer__col');
+      if ((await footerColumns.count()) === 0) {
+        test.skip(true, `${spec.name}: no footer columns are rendered.`);
+        return;
+      }
+
+      for (let index = 0; index < await footerColumns.count(); index += 1) {
+        const column = footerColumns.nth(index);
+        const title = column.locator('.footer__title').first();
+        await expect(title).toBeVisible();
+
+        const list = column.locator('ul.footer__items').first();
+        await expect(list).toBeVisible();
+        const labelledBy = await list.getAttribute('aria-labelledby');
+        expect(labelledBy, `${spec.name}: footer list ${index} should be labelled by its heading`).toBeTruthy();
+
+        if (labelledBy) {
+          const associatedHeading = page.locator(`#${labelledBy}`).first();
+          await expect(associatedHeading).toBeVisible();
+        }
+      }
+    });
   }
 });

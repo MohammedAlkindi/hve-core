@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { waitForHydration } from '../_helpers/a11yInvariants';
 
 // Screen-reader exploration flows.
 //
@@ -104,6 +105,7 @@ test.describe('Screen-reader exploration: navbar dropdown announcements', () => 
     page,
   }) => {
     await page.goto('/hve-core/', { waitUntil: 'domcontentloaded' });
+    await waitForHydration(page);
 
     const toggle = page
       .getByRole('button')

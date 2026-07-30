@@ -136,6 +136,18 @@ button:focus-visible,
   color: #4a5560;
 }
 
+/* SC 1.4.4 Resize Text: the Ctrl+K badges are positioned inside the search
+   field and do not yield as the field narrows, so under browser zoom the
+   "Search" placeholder is clipped from 150% upward (at 200% roughly 36 CSS px
+   of space remains for 51 CSS px of text). The badges are a redundant hint,
+   since the shortcut keeps working without them, so they are removed from
+   layout once the field is too narrow to show both. */
+@media (max-width: 996px) {
+  .navbar__search kbd {
+    display: none;
+  }
+}
+
 /* SC 1.4.3 / 1.4.11: pin search input colors so typed text, placeholder, and the
    field border keep deterministic >=4.5:1 (text) / >=3:1 (border) contrast
    instead of inheriting low-contrast Infima defaults */
@@ -177,6 +189,38 @@ html {
 
 .navbar__brand {
   gap: 0;
+}
+
+@media (max-width: 420px) {
+  .navbar {
+    height: auto;
+    min-height: 54px;
+    padding: 0 12px;
+  }
+
+  /* SC 1.4.10 Reflow: the search plugin renders its container with
+     `position: absolute; right: 16px`, so the expanded field is outside the flex
+     flow and cannot be stacked by any flex rule. Space is instead made for it by
+     letting the brand size to its content: `flex-basis: 100%` previously forced
+     the brand across the full row, so its title ran underneath the field. */
+  .navbar__brand {
+    flex-basis: auto;
+  }
+
+  /* The wordmark is removed from layout rather than hidden outright so the brand
+     link keeps its full accessible name ("Microsoft HVE Core") while only the
+     logo occupies the row alongside the search field. */
+  .navbar__title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 .navbar__logo {

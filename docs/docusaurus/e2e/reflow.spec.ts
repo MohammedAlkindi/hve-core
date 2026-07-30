@@ -1,7 +1,21 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { SITE_PAGES, visitInvariantPage } from './_helpers/a11yInvariants';
+
+async function expandNavbarSearch(page: Page) {
+  const input = page.locator('input.navbar__search-input').first();
+  await input.waitFor({ state: 'visible' });
+  // The search widget attaches its combobox behavior on hydration and only then
+  // renders a listbox in response to typing. Waiting for role="combobox" avoids
+  // filling the field before the handler exists, which otherwise leaves the
+  // popup unrendered and times out the listbox wait.
+  await expect(input).toHaveAttribute('role', 'combobox', { timeout: 30000 });
+  await input.click();
+  await input.fill('agent');
+  await page.locator('[role="listbox"]').first().waitFor({ state: 'visible', timeout: 30000 });
+  return input;
+}
 
 // Curated key pages mirrored from the site-crawl spec for page parity (the
 // 404 entry is omitted because reflow/resize assertions target real content
@@ -26,6 +40,33 @@ test.describe('Reflow at 320 CSS px (WCAG 1.4.10)', () => {
 
       await expect(page.getByRole('main')).toBeVisible();
       expect(await page.evaluate(hasNoHorizontalScroll)).toBeTruthy();
+    });
+
+    // WCAG 1.4.10 Reflow: at 320 CSS px the expanded navbar search must not
+    // overlay the "HVE Core" brand link. The search plugin positions its
+    // container absolutely, so the brand is sized to its content and the
+    // wordmark is taken out of layout at this breakpoint to leave room.
+    test(`${name} keeps the expanded navbar search from overlapping the brand`, async ({ page }) => {
+      await visitInvariantPage(page, { name, path });
+
+      const input = await expandNavbarSearch(page);
+      await expect(input).toBeVisible();
+
+      const overlap = await page.evaluate(() => {
+        const brand = document.querySelector('.navbar__brand') as HTMLElement | null;
+        const searchInput = document.querySelector('input.navbar__search-input') as HTMLElement | null;
+        if (!brand || !searchInput) {
+          return false;
+        }
+
+        const brandRect = brand.getBoundingClientRect();
+        const inputRect = searchInput.getBoundingClientRect();
+        const horizontalOverlap = brandRect.right >= inputRect.left && brandRect.left <= inputRect.right;
+        const verticalOverlap = brandRect.bottom >= inputRect.top && brandRect.top <= inputRect.bottom;
+        return horizontalOverlap && verticalOverlap;
+      });
+
+      expect(overlap, `${name} should keep the navbar search from overlapping the brand at 320 CSS px`).toBe(false);
     });
   }
 });

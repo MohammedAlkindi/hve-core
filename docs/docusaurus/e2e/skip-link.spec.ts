@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { waitForHydration } from './_helpers/a11yInvariants';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -10,6 +11,7 @@ const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 test.describe('Skip-to-content link', () => {
   test('is reachable by keyboard and moves focus to main content', async ({ page }) => {
     await page.goto('/hve-core/');
+    await waitForHydration(page);
 
     // The skip link is the first focusable element in the DOM.
     await page.keyboard.press('Tab');
@@ -29,6 +31,7 @@ test.describe('Skip-to-content link', () => {
 
   test('post-activation DOM passes an axe scan', async ({ page }) => {
     await page.goto('/hve-core/');
+    await waitForHydration(page);
     await page.keyboard.press('Tab');
     await page.getByRole('link', { name: /skip to main content/i }).press('Enter');
 
