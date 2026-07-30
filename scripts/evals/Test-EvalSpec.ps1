@@ -514,6 +514,8 @@ function Test-EquivalenceStimulusSync {
           alike, because an invariant must hold in both environments by definition.
         * A `customized_required` or `customized_disallow` guard that is absent from the
           customized spec or that has leaked into the baseline spec.
+        * A missing or unrecognized `policy` tag, a documented-divergence stimulus with
+          no `customized_required` guard, or an equivalent stimulus that declares one.
 
         Extra graders in the customized spec are expected and are not reported, provided
         each one is declared as a guard in the canonical library.
@@ -673,6 +675,40 @@ function Test-EquivalenceStimulusSync {
         $baselineGraders = Get-EquivalenceGraderName -Stimulus $executables[0].Map[$name]
         $customizedGraders = Get-EquivalenceGraderName -Stimulus $executables[1].Map[$name]
 
+        # Comparison policy decides whether a stimulus enters the equivalence
+        # denominator. It must be stated explicitly and must agree with the guards
+        # the stimulus declares, so an intentional divergence cannot be scored as an
+        # equivalence failure and an ordinary stimulus cannot be quietly exempted.
+        $policy = if ($null -ne $canonicalStimulus.tags -and $canonicalStimulus.tags.Contains('policy')) {
+            [string]$canonicalStimulus.tags['policy']
+        }
+        else {
+            ''
+        }
+        $hasRequiredGuard = @(Get-EquivalenceListField -Stimulus $canonicalStimulus -Field 'customized_required').Count -gt 0
+
+        if ($policy -notin @('equivalent', 'documented-divergence')) {
+            $violations.Add(@{
+                    stimulusName = $name
+                    field        = 'policy'
+                    message      = "Stimulus '$name' must carry exactly one comparison policy tag of 'equivalent' or 'documented-divergence'; found '$policy'."
+                })
+        }
+        elseif ($policy -eq 'documented-divergence' -and -not $hasRequiredGuard) {
+            $violations.Add(@{
+                    stimulusName = $name
+                    field        = 'policy'
+                    message      = "Stimulus '$name' is tagged documented-divergence but declares no customized_required guard. A divergence must be asserted by a guard that validates the allowed customized behavior, otherwise it is exempted from equivalence scoring without evidence."
+                })
+        }
+        elseif ($policy -eq 'equivalent' -and $hasRequiredGuard) {
+            $violations.Add(@{
+                    stimulusName = $name
+                    field        = 'policy'
+                    message      = "Stimulus '$name' declares a customized_required guard, which documents an expected divergence, but is tagged equivalent. Tag it documented-divergence so it does not count against the tie ratio."
+                })
+        }
+
         foreach ($invariant in (Get-EquivalenceListField -Stimulus $canonicalStimulus -Field 'invariants')) {
             $missingIn = @(
                 @(if ($canonicalGraders -notcontains $invariant) { $CanonicalPath })
@@ -721,11 +757,19 @@ function Test-EquivalenceStimulusSync {
         }
     }
 
+    $policyCounts = @{ equivalent = 0; 'documented-divergence' = 0 }
+    foreach ($stimulus in $canonicalMap.Values) {
+        $value = if ($null -ne $stimulus.tags -and $stimulus.tags.Contains('policy')) { [string]$stimulus.tags['policy'] } else { '' }
+        if ($policyCounts.ContainsKey($value)) { $policyCounts[$value]++ }
+    }
+
     return @{
         canonicalPath = $CanonicalPath
         checkedCount  = $canonicalMap.Count
         violations    = @($violations)
         suitePresent  = $true
+        equivalent    = $policyCounts['equivalent']
+        divergence    = $policyCounts['documented-divergence']
     }
 }
 
@@ -968,7 +1012,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         Write-Host "Baseline-equivalence sync: suite not present; skipped."
     }
     else {
-        Write-Host "Baseline-equivalence sync: $($equivalenceSyncReport.checkedCount) canonical stimulus/stimuli checked; $($equivalenceViolations.Count) violation(s)."
+        Write-Host "Baseline-equivalence sync: $($equivalenceSyncReport.checkedCount) canonical stimulus/stimuli checked ($($equivalenceSyncReport.equivalent) equivalent, $($equivalenceSyncReport.divergence) documented-divergence); $($equivalenceViolations.Count) violation(s)."
     }
 
     $coverageReport = $null

@@ -30,18 +30,32 @@ BeforeAll {
                     name       = 'shared-basic'
                     prompt     = 'What is 2 + 2?'
                     invariants = @('answers-four')
-                    tags       = @{ category = 'baseline-equivalence'; subcategory = 'factual-recall' }
+                    tags       = @{ category = 'baseline-equivalence'; subcategory = 'factual-recall'; policy = 'equivalent' }
                     graders    = @(
                         @{ type = 'output-matches'; name = 'answers-four'; config = @{ pattern = '4' } }
                         @{ type = 'prompt'; name = 'response-quality'; config = @{ prompt = 'Correct?' } }
                     )
                 },
                 @{
-                    name                = 'guarded-divergence'
+                    # customized_disallow forbids persona bleed, so this stimulus asserts
+                    # sameness and stays in the equivalence denominator.
+                    name                = 'bleed-guarded'
                     prompt              = 'Tell me a short joke.'
                     invariants          = @('non-empty')
                     customized_disallow = @('agent-self-reference')
-                    tags                = @{ category = 'baseline-equivalence'; subcategory = 'instruction-bleed' }
+                    tags                = @{ category = 'baseline-equivalence'; subcategory = 'instruction-bleed'; policy = 'equivalent' }
+                    graders             = @(
+                        @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
+                    )
+                },
+                @{
+                    # customized_required documents behavior expected only in the
+                    # customized run, so this stimulus is excluded from equivalence.
+                    name                = 'true-divergence'
+                    prompt              = 'Edit the README.'
+                    invariants          = @('non-empty')
+                    customized_required = @('routes-through-lifecycle')
+                    tags                = @{ category = 'baseline-equivalence'; subcategory = 'customization-boundary'; policy = 'documented-divergence' }
                     graders             = @(
                         @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
                     )
@@ -56,16 +70,24 @@ BeforeAll {
                 @{
                     name    = 'shared-basic'
                     prompt  = 'What is 2 + 2?'
-                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'factual-recall' }
+                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'factual-recall'; policy = 'equivalent' }
                     graders = @(
                         @{ type = 'output-matches'; name = 'answers-four'; config = @{ pattern = '4' } }
                         @{ type = 'prompt'; name = 'response-quality'; config = @{ prompt = 'Correct?' } }
                     )
                 },
                 @{
-                    name    = 'guarded-divergence'
+                    name    = 'bleed-guarded'
                     prompt  = 'Tell me a short joke.'
-                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'instruction-bleed' }
+                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'instruction-bleed'; policy = 'equivalent' }
+                    graders = @(
+                        @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
+                    )
+                },
+                @{
+                    name    = 'true-divergence'
+                    prompt  = 'Edit the README.'
+                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'customization-boundary'; policy = 'documented-divergence' }
                     graders = @(
                         @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
                     )
@@ -80,19 +102,28 @@ BeforeAll {
                 @{
                     name    = 'shared-basic'
                     prompt  = 'What is 2 + 2?'
-                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'factual-recall' }
+                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'factual-recall'; policy = 'equivalent' }
                     graders = @(
                         @{ type = 'output-matches'; name = 'answers-four'; config = @{ pattern = '4' } }
                         @{ type = 'prompt'; name = 'response-quality'; config = @{ prompt = 'Correct?' } }
                     )
                 },
                 @{
-                    name    = 'guarded-divergence'
+                    name    = 'bleed-guarded'
                     prompt  = 'Tell me a short joke.'
-                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'instruction-bleed' }
+                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'instruction-bleed'; policy = 'equivalent' }
                     graders = @(
                         @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
                         @{ type = 'output-matches'; name = 'agent-self-reference'; config = @{ pattern = 'agent' } }
+                    )
+                },
+                @{
+                    name    = 'true-divergence'
+                    prompt  = 'Edit the README.'
+                    tags    = @{ category = 'baseline-equivalence'; subcategory = 'customization-boundary'; policy = 'documented-divergence' }
+                    graders = @(
+                        @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
+                        @{ type = 'output-matches'; name = 'routes-through-lifecycle'; config = @{ pattern = 'lifecycle' } }
                     )
                 }
             )
@@ -130,7 +161,7 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
         It 'Reports no violations when canonical and executable specs agree' {
             $result = Invoke-SyncCheck
             @($result.violations).Count | Should -Be 0
-            $result.checkedCount | Should -Be 2
+            $result.checkedCount | Should -Be 3
         }
 
         It 'Accepts a customized-only guard that canonical declares' {
@@ -248,12 +279,82 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
         }
     }
 
+    Context 'Comparison policy classification' {
+        It 'Counts equivalent and documented-divergence stimuli separately' {
+            $result = Invoke-SyncCheck
+            $result.equivalent | Should -Be 2
+            $result.divergence | Should -Be 1
+        }
+
+        It 'Keeps a customized_disallow stimulus in the equivalence denominator' {
+            # A disallow guard forbids persona bleed, so it asserts sameness. Tagging it
+            # documented-divergence would exempt the suite's strongest equivalence signal
+            # from the tie ratio.
+            $result = Invoke-SyncCheck
+            @($result.violations).Count | Should -Be 0
+            $result.equivalent | Should -Be 2
+        }
+
+        It 'Fails when a stimulus has no policy tag' {
+            $result = Invoke-SyncCheck -Mutate {
+                param($b)
+                foreach ($spec in @($b.Canonical, $b.Baseline, $b.Customized)) {
+                    $spec.stimuli[0].tags.Remove('policy')
+                }
+            }
+            $policyViolations = @($result.violations | Where-Object { $_.field -eq 'policy' })
+            $policyViolations.Count | Should -Be 1
+            $policyViolations[0].message | Should -Match 'exactly one comparison policy'
+        }
+
+        It 'Fails when a policy tag is unrecognized' {
+            $result = Invoke-SyncCheck -Mutate {
+                param($b)
+                foreach ($spec in @($b.Canonical, $b.Baseline, $b.Customized)) {
+                    $spec.stimuli[0].tags.policy = 'mostly-equivalent'
+                }
+            }
+            @($result.violations | Where-Object { $_.field -eq 'policy' }).Count | Should -Be 1
+        }
+
+        It 'Fails when documented-divergence is claimed without a customized_required guard' {
+            $result = Invoke-SyncCheck -Mutate {
+                param($b)
+                foreach ($spec in @($b.Canonical, $b.Baseline, $b.Customized)) {
+                    $spec.stimuli[0].tags.policy = 'documented-divergence'
+                }
+            }
+            $policyViolations = @($result.violations | Where-Object { $_.field -eq 'policy' })
+            $policyViolations.Count | Should -Be 1
+            $policyViolations[0].message | Should -Match 'without evidence'
+        }
+
+        It 'Fails when a customized_required stimulus is tagged equivalent' {
+            $result = Invoke-SyncCheck -Mutate {
+                param($b)
+                foreach ($spec in @($b.Canonical, $b.Baseline, $b.Customized)) {
+                    $spec.stimuli[2].tags.policy = 'equivalent'
+                }
+            }
+            $policyViolations = @($result.violations | Where-Object { $_.field -eq 'policy' })
+            $policyViolations.Count | Should -Be 1
+            $policyViolations[0].message | Should -Match 'tie ratio'
+        }
+    }
+
     Context 'Repository specs' {
         It 'Reports no violations for the committed baseline-equivalence suite' {
             $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
             $result = Test-EquivalenceStimulusSync -RepoRoot $repoRoot
             $result.checkedCount | Should -Be 40
             $result.violations | Should -BeNullOrEmpty
+        }
+
+        It 'Classifies every committed stimulus into exactly one policy' {
+            $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
+            $result = Test-EquivalenceStimulusSync -RepoRoot $repoRoot
+            ($result.equivalent + $result.divergence) | Should -Be 40
+            $result.divergence | Should -Be 7
         }
     }
 
