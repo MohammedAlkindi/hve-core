@@ -25,6 +25,24 @@ function computeArtifactHash(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
 
+// Minimal Playwright browser double. runRealCalibrationSession opens one shared
+// page per session; without this the session launches real headed Chrome, which
+// has no display on a CI runner.
+function stubBrowser() {
+  const page = {
+    context() {
+      return {};
+    },
+    async close() {},
+  };
+  return {
+    async newPage() {
+      return page;
+    },
+    async close() {},
+  };
+}
+
 test('resolveContainedArtifactPath rejects absolute, traversal, URI, and symlink escape paths', () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'calibration-artifact-'));
   try {
@@ -585,6 +603,7 @@ test('runRealCalibrationSession uses the final on-disk artifact hash and strips 
       runRoot: tempDir,
       probePrerequisites: async () => ({ nvdaAvailable: true, desktopUnlocked: true }),
       runVisualPreflight: async () => ({ status: 'pass', summary: { classification: 'pass' } }),
+      launchBrowser: async () => stubBrowser(),
       runAtCase: async () => ({
         journeyId: '14399',
         classification: 'pass',
@@ -1050,6 +1069,7 @@ test('runRealCalibrationSession preserves injection callbacks while using defaul
       checkpointPath,
       runRoot: tempDir,
       probePrerequisites: async () => ({ nvdaAvailable: true, desktopUnlocked: true, reason: null }),
+      launchBrowser: async () => stubBrowser(),
       runVisualPreflight: async () => {
         preflightRuns += 1;
         return { status: 'pass', artifactHashes: { 'artifacts/preflight.json': preflightArtifactHash }, summary: { classification: 'pass' } };
