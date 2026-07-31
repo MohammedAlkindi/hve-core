@@ -189,6 +189,22 @@ On first invocation, create the project directory and `state.json` with Phase 1 
 
 Advance `currentPhase` only when exit criteria for the current phase are satisfied. Update bucket and mapping arrays progressively as individual items complete within a phase.
 
+## Threat-model SSOT and render workflow
+
+The YAML threat-model spec is the source of truth. The markdown report is rendered from it via `generate_markdown.py`, with structured sections generated from the spec and narrative authored once. When the model changes, edit the YAML spec first and then re-render or re-generate the markdown output rather than editing the rendered artifact directly.
+
+## Phase 6 completeness review
+
+At Phase 6, run the checklist from `references/threat-model-review.md` and emit a PASS or INCOMPLETE verdict with an itemized gap list. When the verdict is INCOMPLETE, follow the existing autonomy tier: guided or partial are advisory, while full is blocking.
+
+## Private overlay handling
+
+Read an optional out-of-repo overlay config referenced by `state.overlayConfigPath` when one is present so the planner can layer in internal taxonomy names, auth-service names, and review-gate steps. If the overlay is absent, degrade gracefully and use the public defaults instead of embedding internal specifics in public artifacts.
+
+## Diagram style guidance
+
+During Phase 1 scoping, offer the user a diagram-style choice between Mermaid and ASCII, store the selection in `state.userPreferences.diagramStyle` with Mermaid as the default, and produce diagrams through the `architecture-diagrams` skill.
+
 ## Resume Protocol
 
 The planner inherits the Resume Sequence and Post-Summarization Recovery in `shared/planner-identity-base.instructions.md`. Security-specific notes on inherited steps:

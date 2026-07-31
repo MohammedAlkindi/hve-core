@@ -80,5 +80,12 @@ Usage: Minimum element names referenced in supply chain security instruction fil
 
 ---
 
+Microsoft threat-modeling templates (default.tb7 and related template assets)
+License: MIT License
+Source: https://github.com/microsoft/threat-modeling-templates
+Usage: Reference-only profile mapping and attribution metadata for the TM7 generation extension.
+
+---
+
 OpenSSF® is a registered trademark of the Linux Foundation.
 OWASP® is a registered trademark of the OWASP Foundation.

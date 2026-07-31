@@ -7,6 +7,12 @@ description: STRIDE categories, AI-specific extensions, risk matrix guidance, an
 
 This reference captures the STRIDE methodology, AI-specific extensions, and threat table conventions used during security planning.
 
+## Schema-aligned flow guidance
+
+Use the existing schema fields documented in the TM7 generation reference rather than introducing a parallel model. For each flow, capture the structured metadata in the relevant `data_flows[]` entry: `ordinal`, `transport`, `encryption`, `authentication`, `authorization`, `data_sensitivity`, and, when relevant, `retention`. When the flow carries business or personal data, also record the asset hints in `assets[].category` and `assets[].sensitivity` using the public classification guidance in the data-classification reference.
+
+When reviewing or refining threats, record `threats[].state` as one of `Open`, `Mitigated`, `Needs-Investigation`, or `Not-Applicable-False-Positive`, and keep `threats[].target_ref` anchored to the relevant diagram element or component so the analysis remains traceable to the model. Cross-link abuse-case work to the related threat and mitigation evidence, and make sure each `abuse_cases[].evil_user_story` is captured alongside the abuse case so the adversary narrative stays visible to reviewers.
+
 ## STRIDE categories
 
 * Spoofing — identity claims and impersonation
