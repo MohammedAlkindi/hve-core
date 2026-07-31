@@ -1,0 +1,45 @@
+{
+  "name": "hve-core",
+  "description": "Opinionated, rapidly evolving agentic SDLC patterns for RPI workflows, HVE Builder, and Git operations",
+  "version": "3.3.101",
+  "author": "Microsoft",
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "hve-core",
+    "rpi",
+    "planning",
+    "research",
+    "implementation",
+    "review",
+    "git",
+    "commits",
+    "merge",
+    "pull-request"
+  ],
+  "agents": [
+    "agents/coding-standards/",
+    "agents/coding-standards/subagents/",
+    "agents/hve-core/",
+    "agents/hve-core/subagents/"
+  ],
+  "commands": [
+    "commands/hve-core/"
+  ],
+  "rules": [
+    "rules/coding-standards/code-review/",
+    "rules/experimental/mural/",
+    "rules/hve-core/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/coding-standards/",
+    "skills/experimental/",
+    "skills/hve-core/",
+    "skills/rpi/",
+    "skills/shared/"
+  ],
+  "hooks": "hooks/shared/telemetry.json"
+}
