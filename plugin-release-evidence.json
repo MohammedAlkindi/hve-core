@@ -1,0 +1,88 @@
+{
+  "schema": "hve-core/plugin-release-evidence/v1",
+  "sourceCommit": "2ffa1c47603a4cdbd5178fd19043e88ebafd2c25",
+  "version": "3.3.102",
+  "locator": {
+    "source": "github",
+    "repo": "microsoft/hve-core",
+    "path": "plugins",
+    "ref": "plugins-v3.3.102"
+  },
+  "packageCount": 14,
+  "packages": [
+    {
+      "name": "ado",
+      "digest": "a72a3501902f960a74a3a52c64d3cb02de5d7ae22dfdd6d5c5ecf909f38fb059",
+      "fileCount": 62
+    },
+    {
+      "name": "coding-standards",
+      "digest": "f0902565606e08a4dc5c4ad0aad321c3fedc0f5fd7f8cfc1de1fb20f2183abe7",
+      "fileCount": 79
+    },
+    {
+      "name": "data-science",
+      "digest": "1b7c949c3c4b65959884d67e0abaa71b4a4bef326629b1a0b32333928c344663",
+      "fileCount": 53
+    },
+    {
+      "name": "design-thinking",
+      "digest": "b599d667e24253e822f46ddf8a947eec201b7fef2286d11b4c729959c90eac60",
+      "fileCount": 113
+    },
+    {
+      "name": "experimental",
+      "digest": "00127cc38996e697f66286d82b415e1463972d148ee4b9e20ec9316504a368a8",
+      "fileCount": 364
+    },
+    {
+      "name": "github",
+      "digest": "84e787b85623687e43cd484299bdddd8387a3a46dcc489c91f650f0d1d2ccbb4",
+      "fileCount": 37
+    },
+    {
+      "name": "gitlab",
+      "digest": "8c168e269bec31a66e5a1390a74c6ccf8e60f763d6a6922c89fc37ecc961d771",
+      "fileCount": 73
+    },
+    {
+      "name": "hve-core",
+      "digest": "302bc78fe7c47b7615b09119da25da003ce095852461f03c65c7eda09703b3b6",
+      "fileCount": 319
+    },
+    {
+      "name": "hve-core-all",
+      "digest": "4eb252cbb2759ee8d400a9e7b26f794a014c06b6f9b579ea8b61246d8b29ce74",
+      "fileCount": 1177
+    },
+    {
+      "name": "installer",
+      "digest": "e28480a63b1a2b69a868fb78b4addaf358f7f872e750e2fdbc113f89d100cf76",
+      "fileCount": 45
+    },
+    {
+      "name": "jira",
+      "digest": "7445afa0a3b403600bd5752a20e397f3be4e17b5fd27dc880b6b24ed9a0bb593",
+      "fileCount": 78
+    },
+    {
+      "name": "project-planning",
+      "digest": "c073aa1ccc9ba8d8ea1e929e11446218cfb3d35f8a59f25279c7e3248a522769",
+      "fileCount": 487
+    },
+    {
+      "name": "rpi",
+      "digest": "9bf8beddfa86c68641598ec6f7de4080f0c70f512c80ff4134346b84edc6ac05",
+      "fileCount": 44
+    },
+    {
+      "name": "security",
+      "digest": "cae19efe640946f8c6a3c41b0ed75aaa85433e3056d2cf470a07bf54fb191014",
+      "fileCount": 221
+    }
+  ],
+  "fileCount": 3152,
+  "totalBytes": 23930083,
+  "digest": "d6a88deb1ada22f037ce875ad3ae52e0b5bfa64bfe04855649782c6e0ed1416b",
+  "generatedAt": "2026-07-31T22:44:50.2308550Z"
+}

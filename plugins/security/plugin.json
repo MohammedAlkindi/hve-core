@@ -1,0 +1,59 @@
+{
+  "name": "security",
+  "description": "Security review, planning, incident response, risk assessment, and vulnerability analysis",
+  "version": "3.3.102",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "incident-response",
+    "risk",
+    "planning",
+    "review",
+    "vulnerability",
+    "threat-modeling",
+    "supply-chain",
+    "rai",
+    "responsible-ai"
+  ],
+  "agents": [
+    "agents/hve-core/subagents/",
+    "agents/rai-planning/",
+    "agents/rai-planning/subagents/",
+    "agents/security/",
+    "agents/security/subagents/"
+  ],
+  "commands": [
+    "commands/rai-planning/",
+    "commands/security/"
+  ],
+  "rules": [
+    "rules/rai-planning/",
+    "rules/security/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/project-planning/rai-planner/",
+    "skills/project-planning/security-planning/",
+    "skills/rai/rai-standards/",
+    "skills/rpi/rpi-research/",
+    "skills/security/owasp-agentic/",
+    "skills/security/owasp-cicd/",
+    "skills/security/owasp-infrastructure/",
+    "skills/security/owasp-llm/",
+    "skills/security/owasp-mcp/",
+    "skills/security/owasp-top-10/",
+    "skills/security/secure-by-design/",
+    "skills/security/security-reviewer-formats/",
+    "skills/security/supply-chain-security/",
+    "skills/security/vex/",
+    "skills/shared/backlog-templates/",
+    "skills/shared/pr-reference/",
+    "skills/shared/telemetry-foundations/"
+  ]
+}
