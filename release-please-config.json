@@ -33,12 +33,6 @@
           "type": "json",
           "path": ".github/plugin/marketplace.json",
           "jsonpath": "$.plugins[*].version"
-        },
-        {
-          "type": "json",
-          "path": "plugins/*/.github/plugin/plugin.json",
-          "jsonpath": "$.version",
-          "glob": true
         }
       ]
     }

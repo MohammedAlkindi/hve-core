@@ -3,7 +3,7 @@ title: 'AI Artifacts Common Standards'
 description: 'Common standards and quality gates for all AI artifact contributions to hve-core'
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-07-29
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -431,52 +431,52 @@ Before submitting: Verify your artifact targets the current latest model version
 
 ## Plugin Generation
 
-The `plugins/` directory contains **auto-generated plugin bundles** created from collection manifests for use with GitHub Copilot CLI. These plugin directories are outputs of the build process and **MUST NOT be edited directly**.
+The `plugins/` directory contains **auto-generated plugin bundles** created from `.github/plugin/marketplace.json` for Copilot clients. This ignored directory is build output and **MUST NOT be edited or committed**.
 
 ### Generation Workflow
 
-When you add an artifact to a collection manifest:
+When you add an artifact to a Copilot package:
 
 1. Author artifact: Create your agent, prompt, instruction, or skill in `.github/`
-2. Update collection: Add an `items[]` entry to one or more `collections/*.collection.yml` files
-3. Validate collections: Run `npm run plugin:validate` to check manifest correctness
+2. Update marketplace: Add its package-relative path to the appropriate standard component field in `.github/plugin/marketplace.json`
+3. Validate marketplace: Run `npm run lint:marketplace` to check manifest and immutable source correctness
 4. Generate plugins: Run `npm run plugin:generate` to regenerate all plugin directories
-5. Commit both: Commit the source artifact, collection manifest updates, AND generated plugin outputs together
+5. Commit source only: Commit the source artifact, marketplace entry, and durable documentation; leave `plugins/` ignored and unstaged
 
 ### Plugin Directory Structure
 
 Each generated plugin directory contains:
 
-| Content              | Description                                                                      |
-|----------------------|----------------------------------------------------------------------------------|
-| Symlinked artifacts  | Direct symlinks to source files in `.github/` (preserves single source of truth) |
-| Generated README     | Auto-generated documentation listing all included artifacts                      |
-| Plugin manifest      | `plugin.json` file for GitHub Copilot CLI plugin system                          |
-| Marketplace metadata | Aggregated data for extension distribution                                       |
+| Content               | Description                                                        |
+|-----------------------|--------------------------------------------------------------------|
+| Materialized artifacts | Regular-file copies of declared, Git-tracked `.github/` sources   |
+| Generated README      | Auto-generated documentation listing all included artifacts        |
+| Root plugin manifest  | Generated `plugin.json` for Copilot clients                         |
+| Shared resources      | Declared templates and scripts required by packaged customizations |
 
 ### Critical Rules for Plugin Files
 
 > [!WARNING]
 > Files under `plugins/` are generated outputs and MUST NOT be edited directly.
 
-| Rule                     | Description                                                                            |
-|--------------------------|----------------------------------------------------------------------------------------|
-| Regenerate after changes | Always run `npm run plugin:generate` after modifying collection manifests or artifacts |
-| Symlinked files          | Markdown artifacts are symlinked, so edits to plugin files modify source artifacts     |
-| Generated files          | README and JSON files are generated fresh on each run                                  |
-| Durable edits            | Direct edits to plugin files will be overwritten or cause conflicts                    |
-| Source of truth          | Always edit the source artifact in `.github/`, not the plugin copy                     |
+| Rule                     | Description                                                                                 |
+|--------------------------|---------------------------------------------------------------------------------------------|
+| Regenerate after changes | Run `npm run plugin:generate` after modifying marketplace recipes or packaged artifacts    |
+| Generated files          | Materialized artifacts, README files, and manifests are generated fresh on each run         |
+| Durable edits            | Direct edits to plugin files are discarded during regeneration                              |
+| Source of truth          | Edit `.github/` sources, `.github/plugin/marketplace.json`, or durable package documentation |
+| Git hygiene              | Never add or commit a path under the root `plugins/` directory                               |
 
 ### When to Regenerate Plugins
 
 Run `npm run plugin:generate` whenever you:
 
-* Add a new artifact to a collection manifest
-* Remove an artifact from a collection manifest
+* Add a new artifact to a marketplace package
+* Remove an artifact from a marketplace package
 * Modify artifact frontmatter (description, dependencies, handoffs)
 * Update artifact file content that affects generated README documentation
-* Change collection manifest metadata (tags, description, name)
-* Update the `hve-core-all` collection (auto-updated during generation)
+* Change marketplace package metadata (keywords, description, or component maturity)
+* Update package documentation under `docs/plugins/`
 
 ### Validating Collection Manifests
 

@@ -110,7 +110,7 @@ items:
   # Telemetry
   - path: .github/skills/shared/telemetry-foundations
     kind: skill
-  - path: .github/skills/design-thinking/dt-methods/references/dt-coach-telemetry.instructions.md
+  - path: .github/instructions/design-thinking/dt-coach-telemetry.instructions.md
     kind: instruction
 display:
   ordering: alpha

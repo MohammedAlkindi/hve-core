@@ -138,12 +138,11 @@ RPI and HVE Builder tracking records follow `.github/instructions/hve-core/copil
 By convention, custom agents are organized under `.github/agents/{collection-id}/`. Each collection typically places its agents in a dedicated subdirectory (e.g., `.github/agents/hve-core/`, `.github/agents/ado/`). Subagents are typically organized under `.github/agents/{collection-id}/subagents/`.
 Parent agents reference subagents using glob paths like `.github/agents/**/code-review-functional.agent.md` so resolution works regardless of nesting depth.
 
-Collection manifests in `collections/` define bundles of agents, prompts, instructions, and skills:
+Collection manifests in `collections/` remain as frozen parity inputs while packaging consumers migrate to the marketplace catalog:
 
-* Each collection has a YAML file (`*.collection.yml`) listing items with `path` and `kind` fields, and a markdown file (`*.collection.md`) describing the collection.
-* Collections must include all subagent dependencies used by their referenced custom agents. When a parent agent declares subagents in its `agents:` frontmatter, those subagent files must appear in the collection YAML.
-* When adding, updating, or removing prompt instructions, custom agents, subagents, or skills, update all affected `collections/*.collection.yml` and `collections/*.collection.md` files.
-* After any change to collection YAML or markdown files, run `npm run plugin:generate` to regenerate plugin outputs under `plugins/`. Do not edit `plugins/` files directly.
+* Do not edit `collections/*.collection.yml` or `collections/*.collection.md`; the freeze guard rejects changes until those inputs are retired.
+* `.github/plugin/marketplace.json` owns package identity and component membership. Package prose lives under `docs/plugins/`.
+* After changing marketplace recipes or canonical artifacts, run `npm run plugin:generate` and `npm run plugin:evidence` for validation. Do not edit or stage generated `plugins/` files.
 * After any change to collection YAML or markdown files, also run `npm run extension:prepare` and `npm run extension:prepare:prerelease` to regenerate the per-collection extension READMEs and `package.*.json` manifests under `extension/`. Both regenerators are idempotent and exit 0 when inputs are unchanged.
 * After adding, changing, moving, or removing a documentable agent, prompt, instruction, or skill, run `npm run docs:generate` and commit the matching page under `docs/reference/`. The generator owns page frontmatter and the prefix through `<!-- END AUTO-GENERATED: overview -->`; edit only the preserved `When to use it`, applicable `How to use it`, and `Example usage` tail. Do not edit generated regions or catalog indexes by hand.
 * Run `npm run plugin:validate` to confirm collection metadata is correct.
@@ -155,7 +154,7 @@ Collection manifests in `collections/` define bundles of agents, prompts, instru
 * Scripts follow instructions provided by the codebase for convention and standards.
 * Scripts used by the codebase have an `npm run` script for ease of use.
 * Files under the root `plugins/` directory are generated outputs and are not edited directly.
-* Regenerate plugin outputs using `npm run plugin:generate`; this also runs `lint:md:fix` and `format:tables` as post-processing. Markdown files under `plugins/` can be symlinked or generated, so direct edits can cause conflicts and non-durable changes.
+* Regenerate plugin outputs using `npm run plugin:generate`; postprocessing is limited to generator-authored package READMEs and package documentation. Treat all files under `plugins/` as generated validation and distribution output, and do not edit or stage them.
 * Artifacts at the root of `.github/agents/`, `.github/instructions/`, `.github/prompts/`, or `.github/skills/` (without a subdirectory) are repo-specific and excluded from collection manifests, plugin generation, and extension packaging. Validation enforces this rule.
 
 PowerShell scripts follow PSScriptAnalyzer rules from `scripts/linting/PSScriptAnalyzer.psd1` and include proper comment-based help. Validation runs via `npm run lint:ps` with results output to `logs/`.

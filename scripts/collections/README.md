@@ -18,13 +18,15 @@ helper functions used by both collection validation and plugin generation.
 * PowerShell 7.4+
 * PowerShell-Yaml module (`Install-Module -Name PowerShell-Yaml -RequiredVersion 0.4.7`)
 
-## Adding a New Collection
+## Frozen Collection Inputs
 
-1. Create `collections/<id>.collection.yml` (see existing collections for
-   format)
-2. Run `npm run lint:collections-metadata` to check the manifest
-3. Run `npm run plugin:generate` to generate the plugin
-4. Commit both the collection and generated plugin
+Collection YAML and Markdown files are frozen while remaining consumers move to
+the marketplace catalog. Do not add or edit collection manifests.
+
+To change a Copilot package, update the standard component fields in
+`.github/plugin/marketplace.json`, run `npm run lint:marketplace`, and generate
+the package locally with `npm run plugin:generate`. The root `plugins/`
+directory is ignored validation and distribution output; never commit it.
 
 <!-- markdownlint-disable MD036 -->
 *🤖 Crafted with precision by ✨Copilot following brilliant human instruction,

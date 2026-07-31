@@ -965,5 +965,60 @@ display:
     }
 }
 
+Describe 'Collection freeze gate' {
+    BeforeEach {
+        $script:freezeRoot = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+        $script:freezeCollections = Join-Path $script:freezeRoot 'collections'
+        New-Item -ItemType Directory -Path $script:freezeCollections -Force | Out-Null
+        Set-Content -Path (Join-Path $script:freezeCollections 'sample.collection.yml') -Value "id: sample`n" -Encoding utf8NoBOM
+        Set-Content -Path (Join-Path $script:freezeCollections 'sample.collection.md') -Value "# Sample`n" -Encoding utf8NoBOM
+    }
+
+    It 'Snapshots only collection manifests and companions' {
+        Set-Content -Path (Join-Path $script:freezeCollections 'notes.md') -Value 'ignored' -Encoding utf8NoBOM
+        $snapshot = Get-CollectionFreezeSnapshot -RepoRoot $script:freezeRoot
+        @($snapshot.Keys | Sort-Object) | Should -Be @('collections/sample.collection.md', 'collections/sample.collection.yml')
+    }
+
+    It 'Returns an empty snapshot when the directory is absent' {
+        $bareRoot = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+        New-Item -ItemType Directory -Path $bareRoot -Force | Out-Null
+        (Get-CollectionFreezeSnapshot -RepoRoot $bareRoot).Count | Should -Be 0
+    }
+
+    It 'Passes when nothing changed' {
+        $snapshot = Get-CollectionFreezeSnapshot -RepoRoot $script:freezeRoot
+        Assert-CollectionFreeze -RepoRoot $script:freezeRoot -Snapshot $snapshot | Should -BeTrue
+    }
+
+    It 'Fails when a manifest is modified' {
+        $snapshot = Get-CollectionFreezeSnapshot -RepoRoot $script:freezeRoot
+        Set-Content -Path (Join-Path $script:freezeCollections 'sample.collection.yml') -Value "id: edited`n" -Encoding utf8NoBOM
+        { Assert-CollectionFreeze -RepoRoot $script:freezeRoot -Snapshot $snapshot } |
+            Should -Throw '*modified: collections/sample.collection.yml*'
+    }
+
+    It 'Fails when a companion is removed' {
+        $snapshot = Get-CollectionFreezeSnapshot -RepoRoot $script:freezeRoot
+        Remove-Item -Path (Join-Path $script:freezeCollections 'sample.collection.md') -Force
+        { Assert-CollectionFreeze -RepoRoot $script:freezeRoot -Snapshot $snapshot } |
+            Should -Throw '*removed: collections/sample.collection.md*'
+    }
+
+    It 'Fails when a manifest is added' {
+        $snapshot = Get-CollectionFreezeSnapshot -RepoRoot $script:freezeRoot
+        Set-Content -Path (Join-Path $script:freezeCollections 'extra.collection.yml') -Value "id: extra`n" -Encoding utf8NoBOM
+        { Assert-CollectionFreeze -RepoRoot $script:freezeRoot -Snapshot $snapshot } |
+            Should -Throw '*added: collections/extra.collection.yml*'
+    }
+
+    It 'Does not delete the frozen inputs' {
+        $snapshot = Get-CollectionFreezeSnapshot -RepoRoot $script:freezeRoot
+        Assert-CollectionFreeze -RepoRoot $script:freezeRoot -Snapshot $snapshot | Out-Null
+        Test-Path (Join-Path $script:freezeCollections 'sample.collection.yml') | Should -BeTrue
+        Test-Path (Join-Path $script:freezeCollections 'sample.collection.md') | Should -BeTrue
+    }
+}
+
 
 
