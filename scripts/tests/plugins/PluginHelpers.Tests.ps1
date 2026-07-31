@@ -1010,6 +1010,11 @@ Describe 'Test-MarketplaceEntryContract - standard component fields' {
         $result | Should -Contain "component field 'skills' must contain only path strings"
     }
 
+    It 'Rejects an array-valued hooks field' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; hooks = @('hooks/a.json') })
+        $result | Should -Contain "component field 'hooks' must be a single path string"
+    }
+
     It 'Returns error for an empty membership array' {
         $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; agents = @() })
         $result | Should -Contain "component field 'agents' must declare at least one path"
@@ -1142,10 +1147,12 @@ Describe 'New-PluginManifestContent - x-hve containment' {
 
     It 'Emits provenance and rules membership from the catalog entry' {
         $manifest = New-PluginManifestContent -PackageName 'sample' -Description 'Sample' -Version '1.0.0' `
-            -Author 'Microsoft' -Homepage 'https://example.invalid' -Repository 'https://example.invalid' `
+            -Author ([ordered]@{ name = 'Microsoft'; url = 'https://www.microsoft.com' }) `
+            -Homepage 'https://example.invalid' -Repository 'https://example.invalid' `
             -License 'MIT' -Keywords @('a', 'b') -RulePaths @('rules/team/')
 
-        $manifest.author | Should -Be 'Microsoft'
+        $manifest.author.name | Should -Be 'Microsoft'
+        $manifest.author.url | Should -Be 'https://www.microsoft.com'
         $manifest.homepage | Should -Be 'https://example.invalid'
         $manifest.repository | Should -Be 'https://example.invalid'
         $manifest.license | Should -Be 'MIT'

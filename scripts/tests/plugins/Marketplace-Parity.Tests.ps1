@@ -164,6 +164,8 @@ Describe 'YAML-to-JSON catalog parity' {
             foreach ($field in @('author', 'homepage', 'repository', 'license', 'keywords')) {
                 $entry.Contains($field) | Should -BeTrue -Because "entry '$($entry.name)' must declare $field"
             }
+            $entry.author | Should -BeOfType [System.Collections.IDictionary]
+            $entry.author.name | Should -Be 'Microsoft'
         }
     }
 }

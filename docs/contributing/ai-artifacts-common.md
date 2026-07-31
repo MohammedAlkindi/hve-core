@@ -447,23 +447,23 @@ When you add an artifact to a Copilot package:
 
 Each generated plugin directory contains:
 
-| Content               | Description                                                        |
-|-----------------------|--------------------------------------------------------------------|
-| Materialized artifacts | Regular-file copies of declared, Git-tracked `.github/` sources   |
-| Generated README      | Auto-generated documentation listing all included artifacts        |
-| Root plugin manifest  | Generated `plugin.json` for Copilot clients                         |
-| Shared resources      | Declared templates and scripts required by packaged customizations |
+| Content                | Description                                                        |
+|------------------------|--------------------------------------------------------------------|
+| Materialized artifacts | Regular-file copies of declared, Git-tracked `.github/` sources    |
+| Generated README       | Auto-generated documentation listing all included artifacts        |
+| Root plugin manifest   | Generated `plugin.json` for Copilot clients                        |
+| Shared resources       | Declared templates and scripts required by packaged customizations |
 
 ### Critical Rules for Plugin Files
 
 > [!WARNING]
 > Files under `plugins/` are generated outputs and MUST NOT be edited directly.
 
-| Rule                     | Description                                                                                 |
-|--------------------------|---------------------------------------------------------------------------------------------|
-| Regenerate after changes | Run `npm run plugin:generate` after modifying marketplace recipes or packaged artifacts    |
-| Generated files          | Materialized artifacts, README files, and manifests are generated fresh on each run         |
-| Durable edits            | Direct edits to plugin files are discarded during regeneration                              |
+| Rule                     | Description                                                                                  |
+|--------------------------|----------------------------------------------------------------------------------------------|
+| Regenerate after changes | Run `npm run plugin:generate` after modifying marketplace recipes or packaged artifacts      |
+| Generated files          | Materialized artifacts, README files, and manifests are generated fresh on each run          |
+| Durable edits            | Direct edits to plugin files are discarded during regeneration                               |
 | Source of truth          | Edit `.github/` sources, `.github/plugin/marketplace.json`, or durable package documentation |
 | Git hygiene              | Never add or commit a path under the root `plugins/` directory                               |
 

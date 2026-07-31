@@ -2,7 +2,7 @@
   "name": "hve-core",
   "metadata": {
     "description": "HVE Core",
-    "version": "3.3.101",
+    "version": "3.3.102",
     "pluginRoot": "./plugins"
   },
   "owner": {
@@ -15,11 +15,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/ado",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Azure DevOps work item management, build monitoring, and pull request creation",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -74,11 +77,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/coding-standards",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Language-specific coding instructions and pre-PR code review agents for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform projects",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -164,11 +170,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/data-science",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Evaluation dataset creation, data specification generation, Jupyter notebooks, and Streamlit dashboards",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -231,11 +240,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/design-thinking",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Design Thinking coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -320,11 +332,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/experimental",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Experimental and preview artifacts not yet promoted to stable collections",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -393,11 +408,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/github",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -444,11 +462,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/gitlab",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "GitLab merge request and pipeline workflows through a Python skill",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -474,11 +495,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/hve-core",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Opinionated, rapidly evolving agentic SDLC patterns for RPI workflows, HVE Builder, and Git operations",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -561,9 +585,7 @@
         "skills/shared/pr-reference",
         "skills/shared/telemetry-foundations"
       ],
-      "hooks": [
-        "hooks/shared/telemetry.json"
-      ],
+      "hooks": "hooks/shared/telemetry.json",
       "x-hve": {
         "componentMaturity": {
           "agents/coding-standards/code-review.md": "experimental",
@@ -598,11 +620,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/hve-core-all",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Full bundle of opinionated, rapidly evolving HVE Core agentic SDLC patterns and tools",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -874,9 +899,7 @@
         "skills/shared/pr-reference",
         "skills/shared/telemetry-foundations"
       ],
-      "hooks": [
-        "hooks/shared/telemetry.json"
-      ],
+      "hooks": "hooks/shared/telemetry.json",
       "x-hve": {
         "componentMaturity": {
           "agents/accessibility/accessibility-planner.md": "experimental",
@@ -1020,11 +1043,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/installer",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Decision-driven installer skill for deploying HVE Core artifacts across workspace configurations",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -1049,11 +1075,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/jira",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Jira backlog management, PRD issue planning, and issue operations through agents, prompts, instructions, and a Python skill",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -1095,11 +1124,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/project-planning",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "PRDs, BRDs, ADRs, and architecture diagrams",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -1271,11 +1303,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/rpi",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Skill-forward Research, Plan, Implement, Review, and Follow-up entry points with bounded planning and critique support.",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",
@@ -1314,11 +1349,14 @@
         "source": "github",
         "repo": "microsoft/hve-core",
         "path": "plugins/security",
-        "ref": "plugins-v3.3.101"
+        "ref": "plugins-v3.3.102"
       },
       "description": "Security review, planning, incident response, risk assessment, and vulnerability analysis",
-      "version": "3.3.101",
-      "author": "Microsoft",
+      "version": "3.3.102",
+      "author": {
+        "name": "Microsoft",
+        "url": "https://www.microsoft.com"
+      },
       "homepage": "https://github.com/microsoft/hve-core",
       "repository": "https://github.com/microsoft/hve-core",
       "license": "MIT",

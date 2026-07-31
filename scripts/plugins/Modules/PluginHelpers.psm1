@@ -639,6 +639,11 @@ function Test-MarketplaceEntryContract {
             continue
         }
 
+        if ($field -eq 'hooks' -and $value -isnot [string]) {
+            $entryErrors += "component field 'hooks' must be a single path string"
+            continue
+        }
+
         $values = if ($value -is [string]) { @($value) } else { @($value) }
         if ($value -isnot [string] -and $value -isnot [System.Collections.IEnumerable]) {
             $entryErrors += "component field '$field' must be a path string or an array of path strings"
@@ -677,6 +682,24 @@ function Test-MarketplaceEntryContract {
             }
 
             $declaredPaths[$normalized] = $field
+        }
+    }
+
+    if ($Entry.Contains('author')) {
+        $author = $Entry['author']
+        if ($author -isnot [System.Collections.IDictionary]) {
+            $entryErrors += 'author must be an object containing name and optional email or url'
+        }
+        else {
+            if (-not $author.Contains('name') -or [string]::IsNullOrWhiteSpace([string]$author['name'])) {
+                $entryErrors += 'author.name must be a non-empty string'
+            }
+            if ($author.Contains('email') -and [string]::IsNullOrWhiteSpace([string]$author['email'])) {
+                $entryErrors += 'author.email must be a non-empty string when provided'
+            }
+            if ($author.Contains('url') -and ([string]$author['url'] -notmatch '^https://\S+$')) {
+                $entryErrors += 'author.url must be an absolute https URL when provided'
+            }
         }
     }
 
@@ -825,8 +848,8 @@ function New-PluginManifestContent {
         [string]$Version,
 
         [Parameter(Mandatory = $false)]
-        [AllowEmptyString()]
-        [string]$Author,
+        [AllowNull()]
+        [System.Collections.IDictionary]$Author,
 
         [Parameter(Mandatory = $false)]
         [AllowEmptyString()]
@@ -871,8 +894,11 @@ function New-PluginManifestContent {
         version     = $Version
     }
 
+    if ($Author -and $Author.Contains('name') -and -not [string]::IsNullOrWhiteSpace([string]$Author['name'])) {
+        $manifest['author'] = $Author
+    }
+
     foreach ($provenance in @(
-            @{ Key = 'author'; Value = $Author },
             @{ Key = 'homepage'; Value = $Homepage },
             @{ Key = 'repository'; Value = $Repository },
             @{ Key = 'license'; Value = $License }
@@ -2268,8 +2294,7 @@ function Write-PluginDirectory {
             }
             'skill' {
                 $counts.SkillCount++
-                # Skills: the CLI scans for <name>/SKILL.md; point at the grandparent
-                [void]$skillDirs.Add("$relativeParent/")
+                [void]$skillDirs.Add("$($item.PackagePath)/")
             }
             'hook' {
                 $counts.HookCount++
@@ -2341,7 +2366,10 @@ function Write-PluginDirectory {
         SkillPaths   = @($skillDirs)
         HookPaths    = @($hookFiles)
     }
-    foreach ($provenance in @('author', 'homepage', 'repository', 'license')) {
+    if ($Entry.Contains('author') -and $Entry['author'] -is [System.Collections.IDictionary]) {
+        $manifestArgs['Author'] = $Entry['author']
+    }
+    foreach ($provenance in @('homepage', 'repository', 'license')) {
         if ($Entry.Contains($provenance) -and -not [string]::IsNullOrWhiteSpace([string]$Entry[$provenance])) {
             $manifestArgs[[cultureinfo]::InvariantCulture.TextInfo.ToTitleCase($provenance)] = [string]$Entry[$provenance]
         }
