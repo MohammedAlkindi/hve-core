@@ -2,7 +2,7 @@
 title: Build System and Validation
 description: Understand the plugin generation pipeline, schema validation system, npm scripts, and CI checks for customizing and extending HVE Core
 author: Microsoft
-ms.date: 2026-07-28
+ms.date: 2026-07-30
 ms.topic: how-to
 keywords:
   - build system
@@ -15,16 +15,17 @@ estimated_reading_time: 8
 
 ## Plugin Generation Pipeline
 
-The plugin generation pipeline transforms collection manifests into distributable plugin
-output. The `plugin:generate` script runs two stages:
+The plugin generation pipeline transforms marketplace package recipes into distributable
+plugin output. The `plugin:generate` script runs two stages:
 
-1. `Generate-Plugins.ps1` reads each `collections/*.collection.yml` manifest and produces
-   output files under `plugins/`. Each collection gets its own subdirectory
-   (e.g., `plugins/hve-core/`, `plugins/ado/`).
+1. `Generate-Plugins.ps1` reads `.github/plugin/marketplace.json` and produces output files
+   under `plugins/`. Each package gets its own subdirectory, such as
+   `plugins/hve-core/` or `plugins/ado/`.
 
 2. `plugin:postprocess` applies markdownlint auto-fixes (`markdownlint-cli2 --fix`) and
-   aligns markdown table columns (`markdown-table-formatter`) across the generated
-   `plugins/**` and `collections/*.md` output.
+   aligns Markdown table columns (`markdown-table-formatter`) for generated package
+   READMEs and `docs/plugins/*.md`. Materialized component files remain byte-identical to
+   their canonical sources and are validated there rather than as generated duplicates.
 
 Run the full pipeline with a single command:
 
