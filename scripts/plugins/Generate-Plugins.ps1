@@ -9,8 +9,9 @@
 
 .DESCRIPTION
     Reads collection YAML manifests from the collections/ directory and generates
-    plugin directories under plugins/ with symlinks to source artifacts, plugin.json
-    manifests, and auto-generated README files.
+    plugin directories under plugins/ containing materialized copies of the
+    git-tracked source artifacts, plugin.json manifests, and auto-generated
+    README files.
 
     Supports generating all plugins or specific collections. Use -Refresh to
     regenerate existing plugins (deletes and recreates).
@@ -29,6 +30,21 @@
     Stable includes only stable items. PreRelease includes stable, preview,
     and experimental. Deprecated and removed are excluded from both channels.
 
+.PARAMETER MaxTotalSizeMB
+    Optional. Ceiling in megabytes for the total generated plugins/ tree.
+    Generation fails and names the largest plugins when the ceiling is
+    exceeded, catching accidental ingestion of large or undeclared trees.
+
+.PARAMETER ReleaseTag
+    Optional. Immutable 'plugins-v<version>' tag. Emits object-form marketplace
+    sources that resolve each package from that tag instead of local bare
+    sources. Requires -MarketplaceOutputPath: generation never rewrites the
+    production catalog with remote locators.
+
+.PARAMETER MarketplaceOutputPath
+    Optional. Destination for the generated marketplace manifest, absolute or
+    relative to the repository root. Defaults to the production catalog.
+
 .EXAMPLE
     ./Generate-Plugins.ps1
     # Generates all plugins (default: all + refresh)
@@ -44,6 +60,10 @@
 .EXAMPLE
     ./Generate-Plugins.ps1 -Channel Stable
     # Generates plugins with stable-only items
+
+.EXAMPLE
+    ./Generate-Plugins.ps1 -ReleaseTag plugins-v1.2.3 -MarketplaceOutputPath out/marketplace.json
+    # Writes a tag-pinned catalog snapshot without touching the production catalog
 
 .NOTES
     Dependencies: PowerShell-Yaml module, scripts/plugins/Modules/PluginHelpers.psm1
@@ -62,7 +82,17 @@ param(
 
     [Parameter(Mandatory = $false)]
     [ValidateSet('Stable', 'PreRelease')]
-    [string]$Channel = 'PreRelease'
+    [string]$Channel = 'PreRelease',
+
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 10240)]
+    [int]$MaxTotalSizeMB = 40,
+
+    [Parameter(Mandatory = $false)]
+    [string]$ReleaseTag,
+
+    [Parameter(Mandatory = $false)]
+    [string]$MarketplaceOutputPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -147,6 +177,69 @@ function Select-CollectionItemsByChannel {
     return $filteredCollection
 }
 
+function Assert-PluginOutputSize {
+    <#
+    .SYNOPSIS
+        Fails generation when the materialized plugins tree exceeds a ceiling.
+
+    .DESCRIPTION
+        Measures the total byte size of the generated plugins directory and
+        throws when it exceeds MaxTotalSizeMB. The failure names the largest
+        plugins so an accidental ingestion of a large or undeclared tree is
+        immediately attributable.
+
+    .PARAMETER PluginsDir
+        Absolute path to the generated plugins output directory.
+
+    .PARAMETER MaxTotalSizeMB
+        Ceiling in megabytes for the combined generated output.
+
+    .OUTPUTS
+        [hashtable] Report with TotalMB and Plugins (name/size pairs) keys.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$PluginsDir,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 10240)]
+        [int]$MaxTotalSizeMB
+    )
+
+    $perPlugin = [System.Collections.Generic.List[hashtable]]::new()
+    $totalBytes = [long]0
+
+    if (Test-Path -LiteralPath $PluginsDir -PathType Container) {
+        foreach ($pluginDir in Get-ChildItem -LiteralPath $PluginsDir -Directory) {
+            $bytes = [long]0
+            foreach ($file in Get-ChildItem -LiteralPath $pluginDir.FullName -File -Recurse -Force) {
+                $bytes += $file.Length
+            }
+            $totalBytes += $bytes
+            $perPlugin.Add(@{ Name = $pluginDir.Name; Bytes = $bytes })
+        }
+    }
+
+    $totalMB = $totalBytes / 1MB
+    $report = @{
+        TotalMB = $totalMB
+        Plugins = @($perPlugin | Sort-Object { -$_.Bytes })
+    }
+
+    if ($totalMB -gt $MaxTotalSizeMB) {
+        $offenders = @($report.Plugins | Select-Object -First 3 | ForEach-Object {
+                "{0} ({1:N1} MB)" -f $_.Name, ($_.Bytes / 1MB)
+            })
+        throw ("Generated plugins output is {0:N1} MB, exceeding the {1} MB ceiling. Largest plugins: {2}." -f `
+                $totalMB, $MaxTotalSizeMB, ($offenders -join ', '))
+    }
+
+    return $report
+}
+
 function Invoke-PluginGeneration {
     <#
     .SYNOPSIS
@@ -155,8 +248,9 @@ function Invoke-PluginGeneration {
     .DESCRIPTION
         Loads collection manifests from the collections/ directory, optionally
         filters to specified IDs, and generates plugin directory structures
-        under plugins/. Each plugin receives symlinks to source artifacts,
-        a plugin.json manifest, and an auto-generated README.
+        under plugins/. Each plugin receives materialized copies of the
+        git-tracked source artifacts, a plugin.json manifest, and an
+        auto-generated README.
 
     .PARAMETER RepoRoot
         Absolute path to the repository root directory.
@@ -172,6 +266,16 @@ function Invoke-PluginGeneration {
 
     .PARAMETER Channel
         Release channel controlling item maturity eligibility.
+
+    .PARAMETER MaxTotalSizeMB
+        Ceiling in megabytes for the total generated plugins/ tree.
+
+    .PARAMETER ReleaseTag
+        Optional immutable 'plugins-v<version>' tag producing object-form
+        marketplace sources.
+
+    .PARAMETER MarketplaceOutputPath
+        Optional destination for the generated marketplace manifest.
 
     .OUTPUTS
         Hashtable with Success, PluginCount, and ErrorMessage keys
@@ -195,8 +299,23 @@ function Invoke-PluginGeneration {
 
         [Parameter(Mandatory = $false)]
         [ValidateSet('Stable', 'PreRelease')]
-        [string]$Channel = 'PreRelease'
+        [string]$Channel = 'PreRelease',
+
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 10240)]
+        [int]$MaxTotalSizeMB = 40,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ReleaseTag,
+
+        [Parameter(Mandatory = $false)]
+        [string]$MarketplaceOutputPath
     )
+
+    $releaseLocator = $null
+    if (-not [string]::IsNullOrWhiteSpace($ReleaseTag)) {
+        $releaseLocator = New-PluginReleaseLocator -Tag $ReleaseTag
+    }
 
     $collectionsDir = Join-Path -Path $RepoRoot -ChildPath 'collections'
     $pluginsDir = Join-Path -Path $RepoRoot -ChildPath 'plugins'
@@ -208,10 +327,6 @@ function Invoke-PluginGeneration {
     # Auto-update hve-core-all collection with discovered artifacts
     $updateResult = Update-HveCoreAllCollection -RepoRoot $RepoRoot -DryRun:$DryRun
     Write-Verbose "hve-core-all updated: $($updateResult.ItemCount) items ($($updateResult.AddedCount) added, $($updateResult.RemovedCount) removed)"
-
-    # Probe symlink capability once for the entire generation run
-    $symlinkCapable = Test-SymlinkCapability
-    Write-Verbose "Symlink capability: $symlinkCapable ($(if ($symlinkCapable) { 'using symlinks' } else { 'using file copies' }))"
 
     # Load all collection manifests
     $allCollections = Get-AllCollections -CollectionsDir $collectionsDir
@@ -348,10 +463,11 @@ function Invoke-PluginGeneration {
             -RepoRoot $RepoRoot `
             -Version $repoVersion `
             -Maturity $collectionMaturity `
-            -DryRun:$DryRun `
-            -SymlinkCapable:$symlinkCapable
+            -DryRun:$DryRun
 
-        # Orphan cleanup in Refresh mode
+        # Orphan cleanup in Refresh mode. Generated directories are real trees,
+        # so the walker descends into every one and compares each contained file
+        # against the complete generated-path set recorded during materialization.
         if ($Refresh -and (Test-Path -LiteralPath $pluginDir)) {
             $generatedFiles = $result.GeneratedFiles
             $existingFiles = [System.Collections.Generic.List[string]]::new()
@@ -360,7 +476,7 @@ function Invoke-PluginGeneration {
             while ($scanQueue.Count -gt 0) {
                 $currentDir = $scanQueue.Dequeue()
                 foreach ($entry in Get-ChildItem -LiteralPath $currentDir -Force) {
-                    if ($entry.PSIsContainer -and -not $entry.LinkType) {
+                    if ($entry.PSIsContainer) {
                         $scanQueue.Enqueue($entry.FullName)
                     }
                     else {
@@ -382,9 +498,8 @@ function Invoke-PluginGeneration {
             # Remove empty directories bottom-up
             if (-not $DryRun) {
                 Get-ChildItem -LiteralPath $pluginDir -Recurse -Directory |
-                    Where-Object { -not $_.LinkType } |
                     Sort-Object { $_.FullName.Length } -Descending |
-                    Where-Object { @(Get-ChildItem -LiteralPath $_.FullName).Count -eq 0 } |
+                    Where-Object { @(Get-ChildItem -LiteralPath $_.FullName -Force).Count -eq 0 } |
                     ForEach-Object {
                         Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop
                         Write-Verbose "Removed empty directory: $($_.FullName)"
@@ -404,18 +519,22 @@ function Invoke-PluginGeneration {
     }
 
     # Generate marketplace.json from all collections
-    Write-MarketplaceManifest `
-        -RepoRoot $RepoRoot `
-        -Collections $allCollections `
-        -DryRun:$DryRun
+    $marketplaceArgs = @{
+        RepoRoot    = $RepoRoot
+        Collections = $allCollections
+        DryRun      = $DryRun
+    }
+    if ($releaseLocator) {
+        $marketplaceArgs['ReleaseLocator'] = $releaseLocator
+    }
+    if (-not [string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
+        $marketplaceArgs['OutputPath'] = $MarketplaceOutputPath
+    }
+    Write-MarketplaceManifest @marketplaceArgs
 
-    # Fix git index modes for text stubs on non-symlink systems so Linux
-    # checkouts materialize real symbolic links instead of plain files.
-    if (-not $symlinkCapable) {
-        $fixedCount = Repair-PluginSymlinkIndex -PluginsDir $pluginsDir -RepoRoot $RepoRoot -DryRun:$DryRun
-        if ($fixedCount -gt 0) {
-            Write-Host "  Symlink index: $fixedCount entries fixed (100644 -> 120000)" -ForegroundColor Green
-        }
+    if (-not $DryRun) {
+        $sizeReport = Assert-PluginOutputSize -PluginsDir $pluginsDir -MaxTotalSizeMB $MaxTotalSizeMB
+        Write-Host ("  Generated size: {0:N1} MB (ceiling {1} MB)" -f $sizeReport.TotalMB, $MaxTotalSizeMB)
     }
 
     Write-Host "`n--- Summary ---" -ForegroundColor Cyan
@@ -453,6 +572,15 @@ function Start-PluginGeneration {
     .PARAMETER Channel
         Forwarded channel parameter.
 
+    .PARAMETER MaxTotalSizeMB
+        Forwarded generated-output size ceiling in megabytes.
+
+    .PARAMETER ReleaseTag
+        Forwarded immutable release tag.
+
+    .PARAMETER MarketplaceOutputPath
+        Forwarded marketplace manifest destination.
+
     .OUTPUTS
         [int] Exit code: 0 for success, 1 for failure.
     #>
@@ -473,7 +601,17 @@ function Start-PluginGeneration {
 
         [Parameter(Mandatory = $false)]
         [ValidateSet('Stable', 'PreRelease')]
-        [string]$Channel = 'PreRelease'
+        [string]$Channel = 'PreRelease',
+
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 10240)]
+        [int]$MaxTotalSizeMB = 40,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ReleaseTag,
+
+        [Parameter(Mandatory = $false)]
+        [string]$MarketplaceOutputPath
     )
 
     try {
@@ -501,7 +639,10 @@ function Start-PluginGeneration {
             -CollectionIds $CollectionIds `
             -Refresh:$effectiveRefresh `
             -DryRun:$DryRun `
-            -Channel $Channel
+            -Channel $Channel `
+            -MaxTotalSizeMB $MaxTotalSizeMB `
+            -ReleaseTag $ReleaseTag `
+            -MarketplaceOutputPath $MarketplaceOutputPath
 
         if (-not $result.Success) {
             throw $result.ErrorMessage
@@ -531,6 +672,9 @@ if ($MyInvocation.InvocationName -ne '.') {
         -CollectionIds $CollectionIds `
         -Refresh:$Refresh `
         -DryRun:$DryRun `
-        -Channel $Channel)
+        -Channel $Channel `
+        -MaxTotalSizeMB $MaxTotalSizeMB `
+        -ReleaseTag $ReleaseTag `
+        -MarketplaceOutputPath $MarketplaceOutputPath)
 }
 #endregion

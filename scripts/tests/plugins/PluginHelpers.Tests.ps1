@@ -369,156 +369,248 @@ Describe 'Write-PluginDirectory - DryRun mode' {
     }
 }
 
-Describe 'Test-SymlinkCapability' {
-    It 'Returns a boolean' {
-        $result = Test-SymlinkCapability
-        $result | Should -BeOfType [bool]
-    }
-
-    It 'Cleans up probe directory' {
-        $probeDirPattern = Join-Path ([System.IO.Path]::GetTempPath()) "hve-symlink-probe-$PID"
-        Test-SymlinkCapability | Out-Null
-        Test-Path $probeDirPattern | Should -BeFalse
-    }
-}
-
-Describe 'New-PluginLink' {
+Describe 'Write-PluginDirectory - destination artifact naming' {
     BeforeAll {
-        $script:linkRoot = Join-Path $TestDrive 'link-test'
-        New-Item -ItemType Directory -Path $script:linkRoot -Force | Out-Null
+        $script:namingRepo = Join-Path $TestDrive 'naming-repo'
+        $script:namingPluginsDir = Join-Path $script:namingRepo 'plugins'
+        New-Item -ItemType Directory -Path $script:namingPluginsDir -Force | Out-Null
+
+        $namingAgentDir = Join-Path $script:namingRepo '.github/agents/team'
+        $namingPromptDir = Join-Path $script:namingRepo '.github/prompts/team'
+        $namingInstructionDir = Join-Path $script:namingRepo '.github/instructions/team'
+        New-Item -ItemType Directory -Path $namingAgentDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $namingPromptDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $namingInstructionDir -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:namingRepo 'docs/templates') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:namingRepo 'scripts/lib') -Force | Out-Null
+
+        Set-Content -LiteralPath (Join-Path $namingAgentDir 'example.agent.md') `
+            -Value "---`ndescription: An example agent`n---`nAgent body" -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $namingPromptDir 'example.prompt.md') `
+            -Value "---`ndescription: An example prompt`n---`nPrompt body" -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $namingInstructionDir 'example.instructions.md') `
+            -Value "---`ndescription: An example instruction`n---`nInstruction body" -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $script:namingRepo 'docs/templates/sample.md') `
+            -Value 'template' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $script:namingRepo 'scripts/lib/sample.sh') `
+            -Value 'echo lib' -Encoding utf8NoBOM
+
+        # Materialization enumerates git-tracked paths, so the fixture is a repo.
+        Push-Location $script:namingRepo
+        try {
+            git init --quiet 2>$null
+            git config user.email 'test@test.com'
+            git config user.name 'Test'
+            git add -A 2>$null
+        }
+        finally {
+            Pop-Location
+        }
+
+        $namingCollection = @{
+            id          = 'naming-test'
+            name        = 'Naming Test'
+            description = 'Destination naming coverage'
+            items       = @(
+                @{ path = '.github/agents/team/example.agent.md'; kind = 'agent' }
+                @{ path = '.github/prompts/team/example.prompt.md'; kind = 'prompt' }
+                @{ path = '.github/instructions/team/example.instructions.md'; kind = 'instruction' }
+            )
+        }
+
+        $script:namingResult = Write-PluginDirectory -Collection $namingCollection `
+            -PluginsDir $script:namingPluginsDir -RepoRoot $script:namingRepo -Version '1.0.0'
+        $script:namingPluginRoot = Join-Path $script:namingPluginsDir 'naming-test'
     }
 
-    It 'Writes text stub when SymlinkCapable is false' {
-        $src = Join-Path $script:linkRoot 'src-stub.txt'
-        Set-Content -Path $src -Value 'content' -NoNewline
-        $dest = Join-Path $script:linkRoot 'dest-stub.txt'
-
-        New-PluginLink -SourcePath $src -DestinationPath $dest
-
-        Test-Path $dest | Should -BeTrue
-        $stubContent = [System.IO.File]::ReadAllText($dest)
-        $expectedPath = [System.IO.Path]::GetRelativePath((Split-Path -Parent $dest), $src) -replace '\\', '/'
-        $stubContent | Should -Be $expectedPath
+    It 'Drops the .agent suffix from the materialized agent' {
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'agents/team/example.md') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'agents/team/example.agent.md') | Should -BeFalse
     }
 
-    It 'Creates parent directory when destination parent does not exist' {
-        $src = Join-Path $script:linkRoot 'src-parent.txt'
-        Set-Content -Path $src -Value 'data' -NoNewline
-        $dest = Join-Path $script:linkRoot 'nested/deep/dest-parent.txt'
+    It 'Drops the .prompt suffix from the materialized command' {
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'commands/team/example.md') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'commands/team/example.prompt.md') | Should -BeFalse
+    }
 
-        New-PluginLink -SourcePath $src -DestinationPath $dest
+    It 'Retains the .instructions.md suffix on the materialized instruction' {
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'instructions/team/example.instructions.md') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'instructions/team/example.md') | Should -BeFalse
+    }
 
-        Test-Path $dest | Should -BeTrue
+    It 'Reports the mapped destinations through GeneratedFiles' {
+        $generated = @($script:namingResult.GeneratedFiles)
+        $generated | Should -Contain (Join-Path $script:namingPluginRoot 'agents/team/example.md')
+        $generated | Should -Contain (Join-Path $script:namingPluginRoot 'commands/team/example.md')
+        $generated | Should -Contain (Join-Path $script:namingPluginRoot 'instructions/team/example.instructions.md')
     }
 }
 
-Describe 'Repair-PluginSymlinkIndex' {
-    Context 'When PluginsDir does not exist' {
-        It 'Returns 0' {
-            $result = Repair-PluginSymlinkIndex `
-                -PluginsDir (Join-Path $TestDrive 'nonexistent') `
-                -RepoRoot $TestDrive
-            $result | Should -Be 0
+Describe 'Get-PluginTrackedPathIndex' {
+    BeforeAll {
+        $script:indexRepo = Join-Path $TestDrive 'index-repo'
+        New-Item -ItemType Directory -Path $script:indexRepo -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:indexRepo 'tracked.md') -Value 'tracked' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $script:indexRepo 'untracked.md') -Value 'untracked' -Encoding utf8NoBOM
+
+        Push-Location $script:indexRepo
+        try {
+            git init --quiet 2>$null
+            git config user.email 'test@test.com'
+            git config user.name 'Test'
+            git add -- tracked.md 2>$null
+        }
+        finally {
+            Pop-Location
         }
     }
 
-    Context 'In a git repository with text stubs' {
+    It 'Lists tracked paths with forward slashes' {
+        $index = Get-PluginTrackedPathIndex -RepoRoot $script:indexRepo
+        $index.Paths | Should -Contain 'tracked.md'
+        $index.Lookup.Contains('tracked.md') | Should -BeTrue
+    }
+
+    It 'Omits untracked paths' {
+        $index = Get-PluginTrackedPathIndex -RepoRoot $script:indexRepo
+        $index.Paths | Should -Not -Contain 'untracked.md'
+    }
+
+    It 'Throws outside a git working tree' {
+        $bareDir = Join-Path $TestDrive 'not-a-repo'
+        New-Item -ItemType Directory -Path $bareDir -Force | Out-Null
+        { Get-PluginTrackedPathIndex -RepoRoot $bareDir } | Should -Throw '*git-tracked paths*'
+    }
+}
+
+Describe 'Copy-PluginSource' {
+    BeforeAll {
+        $script:copyRepo = Join-Path $TestDrive 'copy-repo'
+        $script:copyDest = Join-Path $TestDrive 'copy-dest'
+        New-Item -ItemType Directory -Path $script:copyDest -Force | Out-Null
+
+        $skillDir = Join-Path $script:copyRepo '.github/skills/team/demo'
+        $nestedDir = Join-Path $skillDir 'references/nested'
+        $venvDir = Join-Path $skillDir '.venv'
+        $agentDir = Join-Path $script:copyRepo '.github/agents/team'
+        New-Item -ItemType Directory -Path $nestedDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $venvDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
+
+        Set-Content -LiteralPath (Join-Path $skillDir 'SKILL.md') -Value 'skill body' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $nestedDir 'deep.md') -Value 'deep tracked fixture' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $agentDir 'solo.agent.md') -Value 'agent body' -Encoding utf8NoBOM
+
+        Push-Location $script:copyRepo
+        try {
+            git init --quiet 2>$null
+            git config user.email 'test@test.com'
+            git config user.name 'Test'
+            git add -A 2>$null
+        }
+        finally {
+            Pop-Location
+        }
+
+        # Untracked residue written after staging so it is never in the index.
+        Set-Content -LiteralPath (Join-Path $skillDir 'untracked-sentinel.md') -Value 'sentinel' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $venvDir 'pyvenv.cfg') -Value 'home = /usr' -Encoding utf8NoBOM
+
+        $script:copyIndex = Get-PluginTrackedPathIndex -RepoRoot $script:copyRepo
+        $script:copySkillSource = $skillDir
+        $script:copyAgentSource = Join-Path $agentDir 'solo.agent.md'
+    }
+
+    Context 'When the source is a directory' {
         BeforeAll {
-            $script:repoRoot = Join-Path $TestDrive 'symlink-repo'
-            New-Item -ItemType Directory -Path $script:repoRoot -Force | Out-Null
-
-            Push-Location $script:repoRoot
-            try {
-                git init --quiet 2>$null
-                git config user.email 'test@test.com'
-                git config user.name 'Test'
-
-                $script:pluginsDir = Join-Path $script:repoRoot 'plugins'
-                New-Item -ItemType Directory -Path $script:pluginsDir -Force | Out-Null
-
-                # Valid text stub: small, starts with ../, no newlines
-                [System.IO.File]::WriteAllText(
-                    (Join-Path $script:pluginsDir 'valid-stub.md'),
-                    '../some/source.md'
-                )
-
-                # Large file (>500 bytes) — skipped by size filter
-                [System.IO.File]::WriteAllText(
-                    (Join-Path $script:pluginsDir 'large-file.md'),
-                    ('x' * 501)
-                )
-
-                # Non-stub content — skipped by pattern filter
-                [System.IO.File]::WriteAllText(
-                    (Join-Path $script:pluginsDir 'non-stub.md'),
-                    '# Regular markdown'
-                )
-
-                # Stub with newline — skipped by newline filter
-                [System.IO.File]::WriteAllText(
-                    (Join-Path $script:pluginsDir 'newline-stub.md'),
-                    "../path/file.md`n"
-                )
-
-                git add -- plugins/ 2>$null
-                git commit -m 'initial' --quiet 2>$null
-            } finally {
-                Pop-Location
-            }
+            $script:skillDest = Join-Path $script:copyDest 'skills/team/demo'
+            $script:skillWritten = @(Copy-PluginSource -SourcePath $script:copySkillSource `
+                    -DestinationPath $script:skillDest -RepoRoot $script:copyRepo -TrackedIndex $script:copyIndex)
         }
 
-        It 'Counts only valid stubs in DryRun mode' {
-            Push-Location $script:repoRoot
-            try {
-                $result = Repair-PluginSymlinkIndex `
-                    -PluginsDir $script:pluginsDir `
-                    -RepoRoot $script:repoRoot -DryRun
-                $result | Should -Be 1
-            } finally {
-                Pop-Location
-            }
+        It 'Reconstructs the tracked directory tree' {
+            Test-Path -LiteralPath (Join-Path $script:skillDest 'SKILL.md') | Should -BeTrue
         }
 
-        It 'Does not modify index in DryRun mode' {
-            Push-Location $script:repoRoot
-            try {
-                $before = git ls-files --stage -- plugins/valid-stub.md 2>$null
-                Repair-PluginSymlinkIndex `
-                    -PluginsDir $script:pluginsDir `
-                    -RepoRoot $script:repoRoot -DryRun | Out-Null
-                $after = git ls-files --stage -- plugins/valid-stub.md 2>$null
-                $before | Should -Be $after
-            } finally {
-                Pop-Location
-            }
+        It 'Copies a tracked nested fixture byte-for-byte' {
+            $destination = Join-Path $script:skillDest 'references/nested/deep.md'
+            Test-Path -LiteralPath $destination | Should -BeTrue
+            $sourceHash = (Get-FileHash -LiteralPath (Join-Path $script:copySkillSource 'references/nested/deep.md') -Algorithm SHA256).Hash
+            (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash | Should -Be $sourceHash
         }
 
-        It 'Re-indexes tracked text stub as mode 120000' {
-            Push-Location $script:repoRoot
-            try {
-                $result = Repair-PluginSymlinkIndex `
-                    -PluginsDir $script:pluginsDir `
-                    -RepoRoot $script:repoRoot
-                $result | Should -Be 1
-
-                $lsOutput = git ls-files --stage -- plugins/valid-stub.md 2>$null
-                $lsOutput | Should -Match '^120000'
-            } finally {
-                Pop-Location
-            }
+        It 'Excludes an untracked sentinel in the same source directory' {
+            Test-Path -LiteralPath (Join-Path $script:skillDest 'untracked-sentinel.md') | Should -BeFalse
         }
 
-        It 'Skips entries already at mode 120000' {
-            Push-Location $script:repoRoot
+        It 'Excludes untracked development residue' {
+            Test-Path -LiteralPath (Join-Path $script:skillDest '.venv') | Should -BeFalse
+        }
+
+        It 'Creates only regular files and real directories' {
+            $links = @(Get-ChildItem -LiteralPath $script:skillDest -Recurse -Force | Where-Object { $_.LinkType })
+            $links.Count | Should -Be 0
+        }
+
+        It 'Returns every materialized destination for orphan bookkeeping' {
+            $script:skillWritten.Count | Should -Be 2
+            $script:skillWritten | Should -Contain (Join-Path $script:skillDest 'SKILL.md')
+            $script:skillWritten | Should -Contain ([System.IO.Path]::GetFullPath((Join-Path $script:skillDest 'references/nested/deep.md')))
+        }
+    }
+
+    Context 'When the source is a file' {
+        It 'Writes exactly the requested destination path' {
+            $destination = Join-Path $script:copyDest 'agents/team/solo.md'
+            $written = @(Copy-PluginSource -SourcePath $script:copyAgentSource `
+                    -DestinationPath $destination -RepoRoot $script:copyRepo -TrackedIndex $script:copyIndex)
+            $written | Should -Be @($destination)
+            Get-Content -LiteralPath $destination -Raw | Should -Match 'agent body'
+        }
+
+        It 'Copies current working-tree bytes for a modified tracked file' {
+            $destination = Join-Path $script:copyDest 'agents/team/modified.md'
+            Set-Content -LiteralPath $script:copyAgentSource -Value 'agent body modified' -Encoding utf8NoBOM
+            Copy-PluginSource -SourcePath $script:copyAgentSource -DestinationPath $destination `
+                -RepoRoot $script:copyRepo -TrackedIndex $script:copyIndex | Out-Null
+            Get-Content -LiteralPath $destination -Raw | Should -Match 'agent body modified'
+        }
+
+        It 'Replaces a symbolic link left by an earlier generation' {
+            $destination = Join-Path $script:copyDest 'agents/team/legacy.md'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
             try {
-                # Previous test fixed the stub; second run finds nothing new
-                $result = Repair-PluginSymlinkIndex `
-                    -PluginsDir $script:pluginsDir `
-                    -RepoRoot $script:repoRoot
-                $result | Should -Be 0
-            } finally {
-                Pop-Location
+                New-Item -ItemType SymbolicLink -Path $destination -Target $script:copyAgentSource -ErrorAction Stop | Out-Null
             }
+            catch {
+                Set-ItResult -Skipped -Because 'the platform does not permit symbolic link creation'
+                return
+            }
+
+            Copy-PluginSource -SourcePath $script:copyAgentSource -DestinationPath $destination `
+                -RepoRoot $script:copyRepo -TrackedIndex $script:copyIndex | Out-Null
+
+            (Get-Item -LiteralPath $destination -Force).LinkType | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'When the source is not eligible' {
+        It 'Warns and copies nothing for an untracked source' {
+            $untracked = Join-Path $script:copySkillSource 'untracked-sentinel.md'
+            $destination = Join-Path $script:copyDest 'agents/team/sentinel.md'
+            $written = @(Copy-PluginSource -SourcePath $untracked -DestinationPath $destination `
+                    -RepoRoot $script:copyRepo -TrackedIndex $script:copyIndex -WarningAction SilentlyContinue)
+            $written.Count | Should -Be 0
+            Test-Path -LiteralPath $destination | Should -BeFalse
+        }
+
+        It 'Throws when the source resolves outside the repository root' {
+            $outside = Join-Path $TestDrive 'outside.md'
+            Set-Content -LiteralPath $outside -Value 'outside' -Encoding utf8NoBOM
+            {
+                Copy-PluginSource -SourcePath $outside -DestinationPath (Join-Path $script:copyDest 'outside.md') `
+                    -RepoRoot $script:copyRepo -TrackedIndex $script:copyIndex
+            } | Should -Throw '*outside the repository root*'
         }
     }
 }
@@ -571,5 +663,212 @@ Describe 'New-PluginManifestContent - hook paths' {
     It 'Omits the hooks key when no hook paths are provided' {
         $manifest = New-PluginManifestContent -CollectionId 'shared' -Description 'desc' -Version '1.0.0'
         $manifest.Contains('hooks') | Should -BeFalse
+    }
+}
+
+Describe 'New-PluginReleaseLocator' {
+    It 'Derives the immutable tag from a package version' {
+        $locator = New-PluginReleaseLocator -Version '1.2.3'
+        $locator.Repo | Should -Be 'microsoft/hve-core'
+        $locator.Ref | Should -Be 'plugins-v1.2.3'
+        $locator.PathPrefix | Should -Be 'plugins'
+    }
+
+    It 'Accepts an explicit immutable tag' {
+        (New-PluginReleaseLocator -Tag 'plugins-v0.9.0-beta.1').Ref | Should -Be 'plugins-v0.9.0-beta.1'
+    }
+
+    It 'Accepts an explicit repository and path prefix' {
+        $locator = New-PluginReleaseLocator -Tag 'plugins-v1.2.3' -Repo 'contoso/fork' -PathPrefix '/packages/'
+        $locator.Repo | Should -Be 'contoso/fork'
+        $locator.PathPrefix | Should -Be 'packages'
+    }
+
+    It 'Rejects a full commit sha' {
+        { New-PluginReleaseLocator -Tag '0123456789abcdef0123456789abcdef01234567' } |
+            Should -Throw '*Sha-pinned catalog sources are not supported*'
+    }
+
+    It 'Rejects a release-please style tag' {
+        { New-PluginReleaseLocator -Tag 'v1.2.3' } | Should -Throw "*must use the immutable 'plugins-v<version>' tag form*"
+    }
+
+    It 'Rejects a moving branch name' {
+        { New-PluginReleaseLocator -Tag 'release/plugins' } | Should -Throw "*must use the immutable 'plugins-v<version>' tag form*"
+    }
+
+    It 'Rejects a non-semantic version' {
+        { New-PluginReleaseLocator -Version '1.2' } | Should -Throw '*is not a semantic version*'
+    }
+
+    It 'Rejects a malformed repository locator' {
+        { New-PluginReleaseLocator -Tag 'plugins-v1.2.3' -Repo 'hve-core' } | Should -Throw "*must use 'owner/name' form*"
+    }
+
+    It 'Rejects an escaping path prefix' {
+        { New-PluginReleaseLocator -Tag 'plugins-v1.2.3' -PathPrefix '../plugins' } |
+            Should -Throw '*must be a relative forward-slash path inside the repository*'
+    }
+}
+
+Describe 'New-MarketplaceManifestContent - source forms' {
+    BeforeAll {
+        $script:plugins = @(
+            [ordered]@{ name = 'rpi'; description = 'RPI'; version = '1.2.3' }
+            [ordered]@{ name = 'security'; description = 'Security'; version = '1.2.3' }
+        )
+    }
+
+    It 'Emits bare local sources by default' {
+        $manifest = New-MarketplaceManifestContent -RepoName 'hve-core' -Description 'd' -Version '1.2.3' `
+            -OwnerName 'Microsoft' -Plugins $script:plugins
+
+        $manifest.plugins[0].source | Should -BeOfType [string]
+        $manifest.plugins[0].source | Should -Be 'rpi'
+        $manifest.plugins[1].source | Should -Be 'security'
+    }
+
+    It 'Emits tag-pinned object sources when a locator is supplied' {
+        $manifest = New-MarketplaceManifestContent -RepoName 'hve-core' -Description 'd' -Version '1.2.3' `
+            -OwnerName 'Microsoft' -Plugins $script:plugins `
+            -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3')
+
+        $manifest.plugins[0].source.source | Should -Be 'github'
+        $manifest.plugins[0].source.repo | Should -Be 'microsoft/hve-core'
+        $manifest.plugins[0].source.path | Should -Be 'plugins/rpi'
+        $manifest.plugins[0].source.ref | Should -Be 'plugins-v1.2.3'
+        $manifest.plugins[1].source.path | Should -Be 'plugins/security'
+        $manifest.plugins[0].source.Contains('sha') | Should -BeFalse
+    }
+
+    It 'Keeps entry name and version unchanged in locator mode' {
+        $manifest = New-MarketplaceManifestContent -RepoName 'hve-core' -Description 'd' -Version '1.2.3' `
+            -OwnerName 'Microsoft' -Plugins $script:plugins `
+            -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3')
+
+        $manifest.plugins[0].name | Should -Be 'rpi'
+        $manifest.plugins[0].version | Should -Be '1.2.3'
+        $manifest.metadata.version | Should -Be '1.2.3'
+    }
+}
+
+Describe 'Write-MarketplaceManifest - locator mode' {
+    BeforeAll {
+        $script:repoRoot = Join-Path $TestDrive 'marketplace-repo'
+        New-Item -ItemType Directory -Path $script:repoRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:repoRoot '.github/plugin') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:repoRoot 'package.json') `
+            -Value '{"name":"hve-core","description":"d","version":"1.2.3","author":"Microsoft"}'
+        Set-Content -Path (Join-Path $script:repoRoot '.github/plugin/marketplace.json') -Value '{"sentinel":true}'
+        $script:collections = @(
+            @{ id = 'rpi'; description = 'RPI' }
+            @{ id = 'security'; description = 'Security' }
+        )
+        Mock Write-Host {}
+    }
+
+    It 'Writes bare sources to the production catalog by default' {
+        Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections
+        $manifest = Get-Content -Path (Join-Path $script:repoRoot '.github/plugin/marketplace.json') -Raw | ConvertFrom-Json
+        $manifest.plugins[0].source | Should -Be 'rpi'
+    }
+
+    It 'Writes tag-pinned object sources to an explicit output path' {
+        $outputPath = Join-Path $TestDrive 'snapshot/marketplace.json'
+        Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
+            -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') -OutputPath $outputPath
+
+        $manifest = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $manifest.plugins[0].source.repo | Should -Be 'microsoft/hve-core'
+        $manifest.plugins[0].source.ref | Should -Be 'plugins-v1.2.3'
+        $manifest.plugins[0].source.path | Should -Be 'plugins/rpi'
+    }
+
+    It 'Refuses locator mode without an explicit output path' {
+        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
+                -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') } |
+            Should -Throw '*requires an explicit -OutputPath*'
+    }
+
+    It 'Refuses locator mode targeting the production catalog' {
+        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
+                -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') `
+                -OutputPath '.github/plugin/marketplace.json' } |
+            Should -Throw '*must not write the production catalog*'
+    }
+
+    It 'Leaves the production catalog untouched after a refused locator write' {
+        Set-Content -Path (Join-Path $script:repoRoot '.github/plugin/marketplace.json') -Value '{"sentinel":true}'
+        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
+                -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') `
+                -OutputPath '.github/plugin/marketplace.json' } | Should -Throw
+
+        (Get-Content -Path (Join-Path $script:repoRoot '.github/plugin/marketplace.json') -Raw).Trim() |
+            Should -Be '{"sentinel":true}'
+    }
+}
+
+Describe 'Assert-PluginSnapshotTarget' {
+    It 'Accepts disposable branch and tag targets' {
+        $target = Assert-PluginSnapshotTarget -Branch 'plugins-snapshot/run-42' -Tag 'plugins-snapshot/run-42-tag'
+        $target.Branch | Should -Be 'plugins-snapshot/run-42'
+        $target.Tag | Should -Be 'plugins-snapshot/run-42-tag'
+        $target.RefSpecs | Should -Contain 'HEAD:refs/heads/plugins-snapshot/run-42'
+        $target.RefSpecs | Should -Contain 'refs/tags/plugins-snapshot/run-42-tag'
+    }
+
+    It 'Refuses the moving release branch' {
+        { Assert-PluginSnapshotTarget -Branch 'release/plugins' -Tag 'plugins-snapshot/run-42-tag' } |
+            Should -Throw '*targets a protected production reference*'
+    }
+
+    It 'Refuses the default branch' {
+        { Assert-PluginSnapshotTarget -Branch 'main' -Tag 'plugins-snapshot/run-42-tag' } |
+            Should -Throw '*targets a protected production reference*'
+    }
+
+    It 'Refuses a production version tag' {
+        { Assert-PluginSnapshotTarget -Branch 'plugins-snapshot/run-42' -Tag 'plugins-v1.2.3' } |
+            Should -Throw '*targets a protected production reference*'
+    }
+
+    It 'Refuses a target outside the disposable prefix' {
+        { Assert-PluginSnapshotTarget -Branch 'feature/publish' -Tag 'plugins-snapshot/run-42-tag' } |
+            Should -Throw "*must start with the disposable prefix 'plugins-snapshot/'*"
+    }
+
+    It 'Refuses overwriting an existing tag' {
+        { Assert-PluginSnapshotTarget -Branch 'plugins-snapshot/run-42' -Tag 'plugins-snapshot/run-42-tag' `
+                -ExistingRefs @('refs/tags/plugins-snapshot/run-42-tag') } |
+            Should -Throw '*Tags are immutable and are never overwritten*'
+    }
+
+    It 'Refuses overwriting an existing short-form tag' {
+        { Assert-PluginSnapshotTarget -Branch 'plugins-snapshot/run-42' -Tag 'plugins-snapshot/run-42-tag' `
+                -ExistingRefs @('plugins-snapshot/run-42-tag') } |
+            Should -Throw '*Tags are immutable and are never overwritten*'
+    }
+
+    It 'Allows a tag when only other tags exist' {
+        { Assert-PluginSnapshotTarget -Branch 'plugins-snapshot/run-42' -Tag 'plugins-snapshot/run-42-tag' `
+                -ExistingRefs @('refs/tags/plugins-v1.2.3', 'refs/tags/plugins-snapshot/run-41-tag') } |
+            Should -Not -Throw
+    }
+
+    It 'Refuses identical branch and tag names' {
+        { Assert-PluginSnapshotTarget -Branch 'plugins-snapshot/run-42' -Tag 'plugins-snapshot/run-42' } |
+            Should -Throw '*must differ*'
+    }
+
+    It 'Refuses malformed reference names <Value>' -ForEach @(
+        @{ Value = '' }
+        @{ Value = 'plugins-snapshot/../escape' }
+        @{ Value = 'plugins-snapshot/has space' }
+        @{ Value = 'plugins-snapshot/tilde~1' }
+        @{ Value = 'plugins-snapshot/run.lock' }
+        @{ Value = 'plugins-snapshot/' }
+    ) {
+        { Assert-PluginSnapshotTarget -Branch $Value -Tag 'plugins-snapshot/run-42-tag' } |
+            Should -Throw '*is not a valid git reference name*'
     }
 }

@@ -412,3 +412,293 @@ Describe 'Invoke-MarketplaceValidation - JSON output' {
         $pluginResult.Warnings | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Test-PluginSourcePath' {
+    It 'Returns empty string for a repository-relative package path' {
+        Test-PluginSourcePath -Path 'plugins/hve-core' | Should -BeNullOrEmpty
+    }
+
+    It 'Returns error for a backslash path' {
+        Test-PluginSourcePath -Path 'plugins\hve-core' | Should -BeLike '*must use forward slashes*'
+    }
+
+    It 'Returns error for an absolute POSIX path' {
+        Test-PluginSourcePath -Path '/plugins/hve-core' | Should -BeLike '*must be relative to the repository root*'
+    }
+
+    It 'Returns error for an absolute Windows path' {
+        Test-PluginSourcePath -Path 'C:/plugins/hve-core' | Should -BeLike '*must be relative to the repository root*'
+    }
+
+    It 'Returns error for an escaping path' {
+        Test-PluginSourcePath -Path '../../etc/passwd' | Should -BeLike '*must not escape the source repository*'
+    }
+
+    It 'Returns error for an embedded escaping segment' {
+        Test-PluginSourcePath -Path 'plugins/../../secrets' | Should -BeLike '*must not escape the source repository*'
+    }
+
+    It 'Returns error for a relative path segment' {
+        Test-PluginSourcePath -Path 'plugins/./hve-core' | Should -BeLike '*must not contain relative path segments*'
+    }
+
+    It 'Returns error for an empty path segment' {
+        Test-PluginSourcePath -Path 'plugins//hve-core' | Should -BeLike '*must not contain empty path segments*'
+    }
+}
+
+Describe 'Test-PluginObjectSource' {
+    It 'Returns no errors for a tag-pinned github locator' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{
+                source = 'github'
+                repo   = 'microsoft/hve-core'
+                path   = 'plugins/hve-core'
+                ref    = 'plugins-v1.2.3'
+            })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Returns no errors for a sha-pinned github locator' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{
+                source = 'github'
+                repo   = 'microsoft/hve-core'
+                path   = 'plugins/hve-core'
+                sha    = '0123456789abcdef0123456789abcdef01234567'
+            })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Returns no errors for an unpinned github locator' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{
+                source = 'github'
+                repo   = 'microsoft/hve-core'
+                path   = 'plugins/hve-core'
+            })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Returns no errors for an https url locator' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{
+                source = 'url'
+                url    = 'https://example.com/hve-core.git'
+                path   = 'plugins/hve-core'
+            })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Returns error when source type is missing' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ repo = 'microsoft/hve-core'; path = 'plugins/hve-core' })
+        $result | Should -Contain "object source is missing required field 'source'"
+    }
+
+    It 'Returns error for an unsupported source type' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'ftp'; path = 'plugins/hve-core' })
+        @($result)[0] | Should -BeLike "*'ftp' is not supported*"
+    }
+
+    It 'Returns error when a github locator omits repo' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'github'; path = 'plugins/hve-core' })
+        $result | Should -Contain "object source of type 'github' is missing required field 'repo'"
+    }
+
+    It 'Returns error for a malformed repo locator' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'github'; repo = 'hve-core'; path = 'plugins/hve-core' })
+        @($result)[0] | Should -BeLike "*must use 'owner/name' form*"
+    }
+
+    It 'Returns error when a url locator omits url' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'url'; path = 'plugins/hve-core' })
+        $result | Should -Contain "object source of type 'url' is missing required field 'url'"
+    }
+
+    It 'Returns error for a non-https url locator' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'url'; url = 'http://example.com/x.git'; path = 'plugins/hve-core' })
+        @($result)[0] | Should -BeLike '*must be an absolute https URL*'
+    }
+
+    It 'Returns error when path is missing' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'github'; repo = 'microsoft/hve-core' })
+        $result | Should -Contain "object source is missing required field 'path'"
+    }
+
+    It 'Returns error for an escaping path' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'github'; repo = 'microsoft/hve-core'; path = '../../etc' })
+        @($result)[0] | Should -BeLike '*must not escape the source repository*'
+    }
+
+    It 'Returns error for a non-string ref' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'github'; repo = 'microsoft/hve-core'; path = 'plugins/x'; ref = 3 })
+        $result | Should -Contain "object source 'ref' must be a non-empty string"
+    }
+
+    It 'Returns error for an empty ref' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'github'; repo = 'microsoft/hve-core'; path = 'plugins/x'; ref = '  ' })
+        $result | Should -Contain "object source 'ref' must be a non-empty string"
+    }
+
+    It 'Returns error for an abbreviated sha' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{ source = 'github'; repo = 'microsoft/hve-core'; path = 'plugins/x'; sha = '0123456' })
+        @($result)[0] | Should -BeLike '*must be a full 40-character lowercase hexadecimal commit id*'
+    }
+
+    It 'Returns error for an uppercase sha' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{
+                source = 'github'
+                repo   = 'microsoft/hve-core'
+                path   = 'plugins/x'
+                sha    = '0123456789ABCDEF0123456789ABCDEF01234567'
+            })
+        @($result)[0] | Should -BeLike '*must be a full 40-character lowercase hexadecimal commit id*'
+    }
+
+    It 'Returns error when both ref and sha are set' {
+        $result = Test-PluginObjectSource -Source ([ordered]@{
+                source = 'github'
+                repo   = 'microsoft/hve-core'
+                path   = 'plugins/x'
+                ref    = 'plugins-v1.2.3'
+                sha    = '0123456789abcdef0123456789abcdef01234567'
+            })
+        $result | Should -Contain "object source must not set both 'ref' and 'sha'"
+    }
+}
+
+Describe 'Invoke-MarketplaceValidation - object source entries' {
+    BeforeAll {
+        $script:repoRoot = Join-Path $TestDrive 'repo-object-source'
+        $script:manifestDir = Join-Path $script:repoRoot '.github/plugin'
+        New-Item -ItemType Directory -Path $script:manifestDir -Force | Out-Null
+        Set-Content -Path (Join-Path $script:repoRoot 'package.json') -Value '{"version":"1.0.0"}'
+        # No plugins/ directory: object sources resolve remotely, so validation must not require generated output.
+        $json = @{
+            name     = 'test'
+            metadata = @{ description = 'd'; version = '1.0.0'; pluginRoot = 'plugins' }
+            owner    = @{ name = 'owner' }
+            plugins  = @(
+                @{
+                    name        = 'my-plugin'
+                    source      = [ordered]@{
+                        source = 'github'
+                        repo   = 'microsoft/hve-core'
+                        path   = 'plugins/my-plugin'
+                        ref    = 'plugins-v1.0.0'
+                    }
+                    description = 'A plugin'
+                    version     = '1.0.0'
+                }
+            )
+        } | ConvertTo-Json -Depth 6
+        Set-Content -Path (Join-Path $script:manifestDir 'marketplace.json') -Value $json
+    }
+
+    It 'Accepts a GitHub object source when generated output is absent' {
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/object-source.json')
+        $result.Success | Should -BeTrue
+        $result.ErrorCount | Should -Be 0
+    }
+
+    It 'Does not apply name-source equality to an object source' {
+        $json = @{
+            name     = 'test'
+            metadata = @{ description = 'd'; version = '1.0.0'; pluginRoot = 'plugins' }
+            owner    = @{ name = 'owner' }
+            plugins  = @(
+                @{
+                    name        = 'hve-core-skills'
+                    source      = [ordered]@{
+                        source = 'github'
+                        repo   = 'microsoft/hve-core'
+                        path   = 'plugins/hve-core-skills'
+                        ref    = 'plugins-v1.0.0'
+                    }
+                    description = 'A plugin'
+                    version     = '1.0.0'
+                }
+            )
+        } | ConvertTo-Json -Depth 6
+        Set-Content -Path (Join-Path $script:manifestDir 'marketplace.json') -Value $json
+
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/object-name.json')
+        $result.Success | Should -BeTrue
+    }
+
+    It 'Reports object source errors in the JSON report' {
+        $outputPath = Join-Path $TestDrive 'logs/object-source-errors.json'
+        $json = @{
+            name     = 'test'
+            metadata = @{ description = 'd'; version = '1.0.0'; pluginRoot = 'plugins' }
+            owner    = @{ name = 'owner' }
+            plugins  = @(
+                @{
+                    name        = 'my-plugin'
+                    source      = [ordered]@{
+                        source = 'github'
+                        repo   = 'not-a-repo-locator'
+                        path   = '../escape'
+                    }
+                    description = 'A plugin'
+                    version     = '1.0.0'
+                }
+            )
+        } | ConvertTo-Json -Depth 6
+        Set-Content -Path (Join-Path $script:manifestDir 'marketplace.json') -Value $json
+
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath $outputPath
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $pluginResult = @($report.Results | Where-Object { $_.PluginName -eq 'my-plugin' })[0]
+
+        $result.Success | Should -BeFalse
+        $pluginResult.IsValid | Should -BeFalse
+        $pluginResult.Errors.Count | Should -Be 2
+    }
+
+    It 'Returns error when source is neither a string nor an object' {
+        $json = @{
+            name     = 'test'
+            metadata = @{ description = 'd'; version = '1.0.0'; pluginRoot = 'plugins' }
+            owner    = @{ name = 'owner' }
+            plugins  = @(
+                @{ name = 'my-plugin'; source = @('a', 'b'); description = 'A plugin'; version = '1.0.0' }
+            )
+        } | ConvertTo-Json -Depth 6
+        Set-Content -Path (Join-Path $script:manifestDir 'marketplace.json') -Value $json
+
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/object-source-type.json')
+        $result.Success | Should -BeFalse
+    }
+}
+
+Describe 'Invoke-MarketplaceValidation - bare source directory conditionality' {
+    BeforeAll {
+        $script:repoRoot = Join-Path $TestDrive 'repo-bare-conditional'
+        $script:manifestDir = Join-Path $script:repoRoot '.github/plugin'
+        New-Item -ItemType Directory -Path $script:manifestDir -Force | Out-Null
+        Set-Content -Path (Join-Path $script:repoRoot 'package.json') -Value '{"version":"1.0.0"}'
+        $script:json = @{
+            name     = 'test'
+            metadata = @{ description = 'd'; version = '1.0.0'; pluginRoot = 'plugins' }
+            owner    = @{ name = 'owner' }
+            plugins  = @(
+                @{ name = 'my-plugin'; source = 'my-plugin'; description = 'A plugin'; version = '1.0.0' }
+            )
+        } | ConvertTo-Json -Depth 5
+        Set-Content -Path (Join-Path $script:manifestDir 'marketplace.json') -Value $script:json
+    }
+
+    It 'Skips directory existence when generated output is absent' {
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/bare-absent.json')
+        $result.Success | Should -BeTrue
+    }
+
+    It 'Enforces directory existence when generated output is present' {
+        New-Item -ItemType Directory -Path (Join-Path $script:repoRoot 'plugins/other-plugin') -Force | Out-Null
+        $outputPath = Join-Path $TestDrive 'logs/bare-present.json'
+
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath $outputPath
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+
+        $result.Success | Should -BeFalse
+        @($report.Results | Where-Object { $_.PluginName -eq 'my-plugin' })[0].Errors |
+            Should -Contain 'plugin source directory not found: plugins/my-plugin'
+    }
+}

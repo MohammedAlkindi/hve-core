@@ -9,9 +9,15 @@
 
 .DESCRIPTION
     Reads .github/plugin/marketplace.json and validates JSON schema compliance,
-    plugin source directory existence, name-source consistency, version
-    consistency with the root package.json, and absence of path separators
-    in source values.
+    version consistency with the root package.json, and the plugin source
+    locator of every entry.
+
+    Sources take one of two forms. A bare string names a locally generated
+    package directory: it must contain no path separator, must match the entry
+    name, and must resolve under plugins/ when generated output is present. An
+    object declares a remote locator with a source type, repository locator,
+    package path, and an optional ref or full commit sha; object sources are
+    validated without requiring local generated output.
 
 .EXAMPLE
     ./Validate-Marketplace.ps1 -OutputPath 'logs/marketplace-validation-results.json'
@@ -154,6 +160,141 @@ function Test-PluginSourceFormat {
     return ''
 }
 
+function Test-PluginSourcePath {
+    <#
+    .SYNOPSIS
+        Validates the package path of an object-form plugin source.
+
+    .DESCRIPTION
+        Requires a forward-slash relative path that stays inside the source
+        repository. Absolute paths, backslashes, relative segments, and empty
+        segments are rejected.
+
+    .PARAMETER Path
+        Repository-relative package path from an object source.
+
+    .OUTPUTS
+        [string] Error message if the path is malformed, empty string if valid.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if ($Path -match '\\') {
+        return "object source path '$Path' must use forward slashes"
+    }
+
+    if ($Path -match '^/' -or $Path -match '^[A-Za-z]:') {
+        return "object source path '$Path' must be relative to the repository root"
+    }
+
+    foreach ($segment in ($Path -split '/')) {
+        if ([string]::IsNullOrEmpty($segment)) {
+            return "object source path '$Path' must not contain empty path segments"
+        }
+
+        if ($segment -eq '..') {
+            return "object source path '$Path' must not escape the source repository"
+        }
+
+        if ($segment -eq '.') {
+            return "object source path '$Path' must not contain relative path segments"
+        }
+    }
+
+    return ''
+}
+
+function Test-PluginObjectSource {
+    <#
+    .SYNOPSIS
+        Validates an object-form plugin source locator.
+
+    .DESCRIPTION
+        Checks the source type, the repository locator required by that type,
+        the package path, and the optional ref or full commit sha pin. A ref and
+        a sha are mutually exclusive because two pins describe two locators.
+
+    .PARAMETER Source
+        Object-form source value from marketplace.json.
+
+    .OUTPUTS
+        [string[]] Error messages, empty when the locator is valid.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Source
+    )
+
+    $sourceErrors = @()
+    $supportedTypes = @('github', 'url')
+    $sourceType = [string]$Source['source']
+
+    if ([string]::IsNullOrWhiteSpace($sourceType)) {
+        $sourceErrors += "object source is missing required field 'source'"
+    }
+    elseif ($supportedTypes -notcontains $sourceType) {
+        $sourceErrors += "object source type '$sourceType' is not supported (expected one of: $($supportedTypes -join ', '))"
+    }
+    elseif ($sourceType -eq 'github') {
+        $repo = [string]$Source['repo']
+        if ([string]::IsNullOrWhiteSpace($repo)) {
+            $sourceErrors += "object source of type 'github' is missing required field 'repo'"
+        }
+        elseif ($repo -notmatch '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$') {
+            $sourceErrors += "object source repo '$repo' must use 'owner/name' form"
+        }
+    }
+    else {
+        $url = [string]$Source['url']
+        if ([string]::IsNullOrWhiteSpace($url)) {
+            $sourceErrors += "object source of type 'url' is missing required field 'url'"
+        }
+        elseif ($url -notmatch '^https://\S+$') {
+            $sourceErrors += "object source url '$url' must be an absolute https URL"
+        }
+    }
+
+    $path = [string]$Source['path']
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        $sourceErrors += "object source is missing required field 'path'"
+    }
+    else {
+        $pathError = Test-PluginSourcePath -Path $path
+        if ($pathError) {
+            $sourceErrors += $pathError
+        }
+    }
+
+    $hasRef = $Source.Contains('ref')
+    $hasSha = $Source.Contains('sha')
+
+    if ($hasRef) {
+        $ref = $Source['ref']
+        if ($ref -isnot [string] -or [string]::IsNullOrWhiteSpace($ref)) {
+            $sourceErrors += "object source 'ref' must be a non-empty string"
+        }
+    }
+
+    if ($hasSha) {
+        $sha = $Source['sha']
+        if ($sha -isnot [string] -or $sha -cnotmatch '^[0-9a-f]{40}$') {
+            $sourceErrors += "object source 'sha' must be a full 40-character lowercase hexadecimal commit id"
+        }
+    }
+
+    if ($hasRef -and $hasSha) {
+        $sourceErrors += "object source must not set both 'ref' and 'sha'"
+    }
+
+    return [string[]]$sourceErrors
+}
+
 #endregion Validation Helpers
 
 #region Orchestration
@@ -278,6 +419,9 @@ function Invoke-MarketplaceValidation {
     }
     else {
         $pluginsRoot = Join-Path -Path $RepoRoot -ChildPath 'plugins'
+        # Bare sources name locally generated directories. After decoupling, that tree is
+        # absent on the default branch, so directory existence is only asserted when it exists.
+        $generatedOutputPresent = Test-Path -Path $pluginsRoot -PathType Container
         $seenNames = @{}
 
         foreach ($plugin in $manifest.plugins) {
@@ -286,7 +430,7 @@ function Invoke-MarketplaceValidation {
             $pluginWarnings = @()
 
             # Required plugin fields
-            $pluginRequired = @('name', 'source', 'description', 'version')
+            $pluginRequired = @('name', 'description', 'version')
             foreach ($field in $pluginRequired) {
                 if (-not $plugin.ContainsKey($field) -or [string]::IsNullOrWhiteSpace([string]$plugin[$field])) {
                     $pluginErrors += "missing required field '$field'"
@@ -301,25 +445,35 @@ function Invoke-MarketplaceValidation {
                 $seenNames[$pluginName] = $true
             }
 
-            # Source format (no path separators)
-            if (-not [string]::IsNullOrWhiteSpace($plugin.source)) {
-                $formatError = Test-PluginSourceFormat -Source $plugin.source
+            # Source validation, dispatched on the source form
+            $sourceValue = $plugin['source']
+            if ($sourceValue -is [System.Collections.IDictionary]) {
+                foreach ($sourceError in @(Test-PluginObjectSource -Source $sourceValue)) {
+                    $pluginErrors += $sourceError
+                }
+            }
+            elseif ($sourceValue -is [string] -and -not [string]::IsNullOrWhiteSpace($sourceValue)) {
+                $formatError = Test-PluginSourceFormat -Source $sourceValue
                 if ($formatError) {
                     $pluginErrors += $formatError
                 }
-            }
 
-            # Source directory existence
-            if (-not [string]::IsNullOrWhiteSpace($plugin.source)) {
-                $dirError = Test-PluginSourceDirectory -Source $plugin.source -PluginsRoot $pluginsRoot
-                if ($dirError) {
-                    $pluginErrors += $dirError
+                if ($generatedOutputPresent) {
+                    $dirError = Test-PluginSourceDirectory -Source $sourceValue -PluginsRoot $pluginsRoot
+                    if ($dirError) {
+                        $pluginErrors += $dirError
+                    }
+                }
+
+                if ($pluginName -ne $sourceValue) {
+                    $pluginErrors += "name does not match source '$sourceValue'"
                 }
             }
-
-            # Name-source consistency
-            if ($pluginName -ne $plugin.source) {
-                $pluginErrors += "name does not match source '$($plugin.source)'"
+            elseif ($null -eq $sourceValue -or ($sourceValue -is [string] -and [string]::IsNullOrWhiteSpace($sourceValue))) {
+                $pluginErrors += "missing required field 'source'"
+            }
+            else {
+                $pluginErrors += 'source must be a package name string or a locator object'
             }
 
             # Plugin version consistency

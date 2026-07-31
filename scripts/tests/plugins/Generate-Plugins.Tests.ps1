@@ -7,6 +7,26 @@ BeforeAll {
     # Re-import CollectionHelpers after dot-sourcing because PluginHelpers internally
     # imports CollectionHelpers with -Force, removing it from the caller's scope.
     Import-Module (Join-Path $PSScriptRoot '../../collections/Modules/CollectionHelpers.psm1') -Force
+
+    # Materialization copies only git-tracked paths, so every fixture that runs
+    # a real generation must be a git working tree with its sources staged.
+    function Initialize-FixtureRepo {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$Path
+        )
+
+        Push-Location $Path
+        try {
+            git init --quiet 2>$null
+            git config user.email 'test@test.com'
+            git config user.name 'Test'
+            git add -A 2>$null
+        }
+        finally {
+            Pop-Location
+        }
+    }
 }
 
 Describe 'Get-AllowedCollectionMaturities' {
@@ -164,9 +184,11 @@ description: "Test agent"
 ---
 '@ | Set-Content -Path (Join-Path $agentsDir 'test.agent.md')
 
-        # Create shared directories for symlinks
+        # Create shared directories with tracked content for materialization
         New-Item -ItemType Directory -Path (Join-Path $script:maturityDir 'docs/templates') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:maturityDir 'scripts/lib') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:maturityDir 'docs/templates/sample.md') -Value 'template'
+        Set-Content -Path (Join-Path $script:maturityDir 'scripts/lib/sample.sh') -Value 'echo lib'
 
         # Create plugins directory
         New-Item -ItemType Directory -Path (Join-Path $script:maturityDir 'plugins') -Force | Out-Null
@@ -207,6 +229,8 @@ items:
   - path: .github/agents/col/test.agent.md
     kind: agent
 "@ | Set-Content -Path (Join-Path $collectionsDir 'experimental-col.collection.yml')
+
+        Initialize-FixtureRepo -Path $script:maturityDir
     }
 
     AfterAll {
@@ -280,9 +304,15 @@ description: "Test skill"
 ---
 '@ | Set-Content -Path (Join-Path $skillsDir 'SKILL.md')
 
-        # Create docs/templates and scripts directories for shared symlinking
+        # Tracked nested skill content proves directory reconstruction
+        New-Item -ItemType Directory -Path (Join-Path $skillsDir 'references/nested') -Force | Out-Null
+        Set-Content -Path (Join-Path $skillsDir 'references/nested/deep.md') -Value 'deep tracked fixture'
+
+        # Create docs/templates and scripts directories with tracked content
         New-Item -ItemType Directory -Path (Join-Path $script:tempDir 'docs/templates') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:tempDir 'scripts/lib') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:tempDir 'docs/templates/sample.md') -Value 'template'
+        Set-Content -Path (Join-Path $script:tempDir 'scripts/lib/sample.sh') -Value 'echo lib'
 
         # Create plugins directory
         New-Item -ItemType Directory -Path (Join-Path $script:tempDir 'plugins') -Force | Out-Null
@@ -309,6 +339,8 @@ items:
 display:
   color: blue
 "@ | Set-Content -Path (Join-Path $collectionsDir 'hve-core-all.collection.yml')
+
+        Initialize-FixtureRepo -Path $script:tempDir
     }
 
     AfterAll {
@@ -347,6 +379,8 @@ display:
         New-Item -ItemType Directory -Path (Join-Path $headingRepo 'plugins') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $headingRepo 'docs/templates') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $headingRepo 'scripts/lib') -Force | Out-Null
+        Set-Content -Path (Join-Path $headingRepo 'docs/templates/sample.md') -Value 'template' -Encoding utf8NoBOM
+        Set-Content -Path (Join-Path $headingRepo 'scripts/lib/sample.sh') -Value 'echo lib' -Encoding utf8NoBOM
 
         @{ name = 'hve-core'; version = '1.0.0'; description = 'test'; author = 'test-author' } |
             ConvertTo-Json | Set-Content -Path (Join-Path $headingRepo 'package.json') -Encoding utf8NoBOM
@@ -390,6 +424,8 @@ Old content.
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
 "@ | Set-Content -Path $collectionMdPath -Encoding utf8NoBOM
+
+        Initialize-FixtureRepo -Path $headingRepo
 
     $result = Invoke-PluginGeneration -RepoRoot $headingRepo -CollectionIds @('heading-test') -Refresh -Channel 'PreRelease'
 
@@ -511,15 +547,6 @@ items:
         $warnings[0].Message | Should -Match 'No collection manifests found'
     }
 
-    It 'Outputs verbose symlink capability detection' {
-        $output = Invoke-PluginGeneration -RepoRoot $script:tempDir `
-            -CollectionIds @('hve-core-all') `
-            -Channel 'PreRelease' -Verbose 4>&1
-
-        $capMsg = @($output | Where-Object { "$_" -match 'Symlink capability' })
-        $capMsg.Count | Should -BeGreaterOrEqual 1
-    }
-
     Context 'Orphan Cleanup' {
         It 'Removes orphan files after overwrite-in-place' {
             $staleDir = Join-Path $script:tempDir 'plugins/hve-core-all/orphan-test'
@@ -567,6 +594,236 @@ items:
             # File still exists after DryRun
             Test-Path (Join-Path $orphanDir 'persist.txt') | Should -BeTrue
         }
+    }
+}
+
+Describe 'Invoke-PluginGeneration - materialization' {
+    BeforeAll {
+        $script:matRepo = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+        $script:matSkillSource = Join-Path $script:matRepo '.github/skills/team/demo'
+        $script:matPluginDir = Join-Path $script:matRepo 'plugins/mat-test'
+
+        New-Item -ItemType Directory -Force -Path @(
+            (Join-Path $script:matRepo 'collections')
+            (Join-Path $script:matRepo 'plugins')
+            (Join-Path $script:matRepo '.github/plugin')
+            (Join-Path $script:matRepo '.github/agents/team')
+            (Join-Path $script:matRepo '.github/prompts/team')
+            (Join-Path $script:matRepo '.github/instructions/team')
+            (Join-Path $script:matSkillSource 'references/nested')
+            (Join-Path $script:matRepo 'docs/templates')
+            (Join-Path $script:matRepo 'scripts/lib')
+        ) | Out-Null
+
+        @{ name = 'hve-core'; version = '1.0.0'; description = 'test'; author = 'test-author' } |
+            ConvertTo-Json | Set-Content -Path (Join-Path $script:matRepo 'package.json')
+
+        Set-Content -Path (Join-Path $script:matRepo '.github/agents/team/example.agent.md') `
+            -Value "---`ndescription: `"Example agent`"`n---"
+        Set-Content -Path (Join-Path $script:matRepo '.github/prompts/team/example.prompt.md') `
+            -Value "---`ndescription: `"Example prompt`"`n---"
+        Set-Content -Path (Join-Path $script:matRepo '.github/instructions/team/example.instructions.md') `
+            -Value "---`ndescription: `"Example instruction`"`napplyTo: `"**`"`n---"
+        Set-Content -Path (Join-Path $script:matSkillSource 'SKILL.md') `
+            -Value "---`nname: demo`ndescription: `"Demo skill`"`n---"
+        Set-Content -Path (Join-Path $script:matSkillSource 'references/nested/deep.md') -Value 'deep tracked fixture'
+        Set-Content -Path (Join-Path $script:matRepo 'docs/templates/sample.md') -Value 'template'
+        Set-Content -Path (Join-Path $script:matRepo 'scripts/lib/sample.sh') -Value 'echo lib'
+
+        @'
+id: hve-core-all
+name: hve-core
+description: All artifacts
+tags: []
+items: []
+display: {}
+'@ | Set-Content -Path (Join-Path $script:matRepo 'collections/hve-core-all.collection.yml')
+
+        @'
+id: mat-test
+name: Materialization Test
+description: Materialization fixture
+items:
+  - path: .github/agents/team/example.agent.md
+    kind: agent
+  - path: .github/prompts/team/example.prompt.md
+    kind: prompt
+  - path: .github/instructions/team/example.instructions.md
+    kind: instruction
+  - path: .github/skills/team/demo
+    kind: skill
+'@ | Set-Content -Path (Join-Path $script:matRepo 'collections/mat-test.collection.yml')
+
+        Initialize-FixtureRepo -Path $script:matRepo
+
+        # Untracked residue written after staging so it is never in the index.
+        Set-Content -Path (Join-Path $script:matSkillSource 'untracked-sentinel.md') -Value 'sentinel'
+        New-Item -ItemType Directory -Path (Join-Path $script:matSkillSource '.venv') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:matSkillSource '.venv/pyvenv.cfg') -Value 'home = /usr'
+
+        Invoke-PluginGeneration -RepoRoot $script:matRepo -CollectionIds @('mat-test') -Refresh -Channel 'PreRelease' | Out-Null
+    }
+
+    It 'Produces only regular files and real directories' {
+        $links = @(Get-ChildItem -LiteralPath $script:matPluginDir -Recurse -Force | Where-Object { $_.LinkType })
+        $links.Count | Should -Be 0
+    }
+
+    It 'Reconstructs a tracked nested skill subtree' {
+        Test-Path (Join-Path $script:matPluginDir 'skills/team/demo/SKILL.md') | Should -BeTrue
+        Test-Path (Join-Path $script:matPluginDir 'skills/team/demo/references/nested/deep.md') | Should -BeTrue
+    }
+
+    It 'Materializes the shared resource directories' {
+        Test-Path (Join-Path $script:matPluginDir 'docs/templates/sample.md') | Should -BeTrue
+        Test-Path (Join-Path $script:matPluginDir 'scripts/lib/sample.sh') | Should -BeTrue
+    }
+
+    It 'Excludes an untracked sentinel and development residue' {
+        Test-Path (Join-Path $script:matPluginDir 'skills/team/demo/untracked-sentinel.md') | Should -BeFalse
+        Test-Path (Join-Path $script:matPluginDir 'skills/team/demo/.venv') | Should -BeFalse
+    }
+
+    It 'Keeps materialized directory contents across a repeat Refresh' {
+        $before = @(Get-ChildItem -LiteralPath $script:matPluginDir -Recurse -File -Force |
+                Sort-Object FullName |
+                ForEach-Object { "$($_.FullName)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" })
+
+        Invoke-PluginGeneration -RepoRoot $script:matRepo -CollectionIds @('mat-test') -Refresh -Channel 'PreRelease' | Out-Null
+
+        $after = @(Get-ChildItem -LiteralPath $script:matPluginDir -Recurse -File -Force |
+                Sort-Object FullName |
+                ForEach-Object { "$($_.FullName)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" })
+
+        $before.Count | Should -BeGreaterThan 0
+        $after | Should -Be $before
+    }
+
+    It 'Detects a file placed manually inside a materialized directory' {
+        $intruder = Join-Path $script:matPluginDir 'skills/team/demo/references/nested/intruder.md'
+        Set-Content -Path $intruder -Value 'manual'
+
+        Invoke-PluginGeneration -RepoRoot $script:matRepo -CollectionIds @('mat-test') -Refresh -Channel 'PreRelease' | Out-Null
+
+        Test-Path $intruder | Should -BeFalse
+        Test-Path (Join-Path $script:matPluginDir 'skills/team/demo/references/nested/deep.md') | Should -BeTrue
+    }
+
+    It 'Removes generated output for an item dropped from the collection' {
+        $collectionYml = Join-Path $script:matRepo 'collections/mat-test.collection.yml'
+        Test-Path (Join-Path $script:matPluginDir 'commands/team/example.md') | Should -BeTrue
+
+        @'
+id: mat-test
+name: Materialization Test
+description: Materialization fixture
+items:
+  - path: .github/agents/team/example.agent.md
+    kind: agent
+  - path: .github/skills/team/demo
+    kind: skill
+'@ | Set-Content -Path $collectionYml
+
+        Invoke-PluginGeneration -RepoRoot $script:matRepo -CollectionIds @('mat-test') -Refresh -Channel 'PreRelease' | Out-Null
+
+        Test-Path (Join-Path $script:matPluginDir 'commands/team/example.md') | Should -BeFalse
+        Test-Path (Join-Path $script:matPluginDir 'agents/team/example.md') | Should -BeTrue
+        Test-Path (Join-Path $script:matPluginDir 'skills/team/demo/SKILL.md') | Should -BeTrue
+    }
+}
+
+Describe 'Assert-PluginOutputSize' {
+    BeforeAll {
+        $script:sizeDir = Join-Path $TestDrive 'size-plugins'
+        $script:bigPlugin = Join-Path $script:sizeDir 'oversize-plugin'
+        $script:smallPlugin = Join-Path $script:sizeDir 'small-plugin'
+        New-Item -ItemType Directory -Path $script:bigPlugin -Force | Out-Null
+        New-Item -ItemType Directory -Path $script:smallPlugin -Force | Out-Null
+
+        [System.IO.File]::WriteAllBytes(
+            (Join-Path $script:bigPlugin 'payload.bin'),
+            [byte[]]::new(3MB)
+        )
+        Set-Content -Path (Join-Path $script:smallPlugin 'README.md') -Value 'small'
+    }
+
+    It 'Returns the measured total when under the ceiling' {
+        $report = Assert-PluginOutputSize -PluginsDir $script:sizeDir -MaxTotalSizeMB 40
+        $report.TotalMB | Should -BeGreaterThan 2
+        $report.TotalMB | Should -BeLessThan 40
+    }
+
+    It 'Throws and names the offending plugin when over the ceiling' {
+        { Assert-PluginOutputSize -PluginsDir $script:sizeDir -MaxTotalSizeMB 1 } |
+            Should -Throw '*oversize-plugin*'
+    }
+
+    It 'Reports zero for a missing plugins directory' {
+        $report = Assert-PluginOutputSize -PluginsDir (Join-Path $TestDrive 'no-plugins-here') -MaxTotalSizeMB 40
+        $report.TotalMB | Should -Be 0
+    }
+}
+
+Describe 'Invoke-PluginGeneration - size ceiling' {
+    BeforeAll {
+        $script:ceilingRepo = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+        New-Item -ItemType Directory -Path (Join-Path $script:ceilingRepo 'collections') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:ceilingRepo 'plugins') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:ceilingRepo '.github/plugin') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:ceilingRepo '.github/skills/bulky') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:ceilingRepo '.github/agents') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:ceilingRepo 'docs/templates') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:ceilingRepo 'scripts/lib') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:ceilingRepo 'docs/templates/sample.md') -Value 'template'
+        Set-Content -Path (Join-Path $script:ceilingRepo 'scripts/lib/sample.sh') -Value 'echo lib'
+
+        @{ name = 'hve-core'; version = '1.0.0'; description = 'test'; author = 'test-author' } |
+            ConvertTo-Json | Set-Content -Path (Join-Path $script:ceilingRepo 'package.json')
+
+        @'
+---
+name: bulky
+description: "Bulky skill"
+---
+'@ | Set-Content -Path (Join-Path $script:ceilingRepo '.github/skills/bulky/SKILL.md')
+
+        [System.IO.File]::WriteAllBytes(
+            (Join-Path $script:ceilingRepo '.github/skills/bulky/payload.bin'),
+            [byte[]]::new(2MB)
+        )
+
+        @'
+id: hve-core-all
+name: hve-core
+description: All artifacts
+tags: []
+items: []
+display: {}
+'@ | Set-Content -Path (Join-Path $script:ceilingRepo 'collections/hve-core-all.collection.yml')
+
+        @'
+id: bulky-col
+name: Bulky Collection
+description: Oversize generation fixture
+items:
+  - path: .github/skills/bulky
+    kind: skill
+'@ | Set-Content -Path (Join-Path $script:ceilingRepo 'collections/bulky-col.collection.yml')
+
+        Initialize-FixtureRepo -Path $script:ceilingRepo
+    }
+
+    It 'Fails generation when materialized output exceeds the ceiling' {
+        {
+            Invoke-PluginGeneration -RepoRoot $script:ceilingRepo -CollectionIds @('bulky-col') `
+                -Refresh -Channel 'PreRelease' -MaxTotalSizeMB 1
+        } | Should -Throw '*bulky-col*'
+    }
+
+    It 'Succeeds under the default ceiling' {
+        $result = Invoke-PluginGeneration -RepoRoot $script:ceilingRepo -CollectionIds @('bulky-col') `
+            -Refresh -Channel 'PreRelease'
+        $result.Success | Should -BeTrue
     }
 }
 

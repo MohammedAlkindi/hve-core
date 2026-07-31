@@ -50,13 +50,29 @@ jobs:
       - name: Validate hook manifests
         run: npm run lint:hooks
 
-      - name: Check plugin freshness
+      - name: Regenerate plugins from source
+        run: npm run plugin:generate
+
+      - name: Record deterministic generation evidence
+        run: npm run plugin:evidence
+
+      # Transitional: generated output is still tracked on the default branch.
+      # The deterministic evidence above is the durable gate; this diff check is
+      # removed when generated output stops being committed.
+      - name: Check tracked plugin freshness
         run: |
-          npm run plugin:generate
           if ! git diff --quiet plugins/; then
             echo "::error::Plugins out of date. Run 'npm run plugin:generate' and commit."
             if [ "${{ inputs.soft-fail }}" != "true" ]; then
               exit 1
             fi
           fi
+
+      - name: Upload plugin release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-release-evidence
+          path: logs/plugin-release-evidence.json
+          if-no-files-found: warn
 

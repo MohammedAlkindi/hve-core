@@ -390,6 +390,88 @@ function New-PluginReadmeContent {
     return $sb.ToString()
 }
 
+function New-PluginReleaseLocator {
+    <#
+    .SYNOPSIS
+    Builds a validated immutable release locator for marketplace object sources.
+
+    .DESCRIPTION
+    Produces the repository, immutable ref, and package path prefix used to emit
+    object-form marketplace sources. Accepts an explicit 'plugins-v<version>' tag
+    or derives one from a package version.
+
+    Commit-sha locators are rejected. Catalog sha pinning stays unsupported until
+    a reviewed change proves an end-to-end catalog update path for it.
+
+    .PARAMETER Tag
+    Explicit immutable release tag in 'plugins-v<version>' form.
+
+    .PARAMETER Version
+    Semantic version from which the 'plugins-v<version>' tag is derived.
+
+    .PARAMETER Repo
+    Source repository in 'owner/name' form.
+
+    .PARAMETER PathPrefix
+    Repository-relative directory holding generated packages.
+
+    .OUTPUTS
+    [hashtable] Locator with Repo, Ref, and PathPrefix keys.
+
+    .EXAMPLE
+    New-PluginReleaseLocator -Version '1.2.3'
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Tag')]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true, ParameterSetName = 'Tag')]
+        [AllowEmptyString()]
+        [string]$Tag,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'Version')]
+        [AllowEmptyString()]
+        [string]$Version,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Repo = 'microsoft/hve-core',
+
+        [Parameter(Mandatory = $false)]
+        [string]$PathPrefix = 'plugins'
+    )
+
+    $semVerPattern = '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'
+
+    if ($PSCmdlet.ParameterSetName -eq 'Version') {
+        if ($Version -notmatch $semVerPattern) {
+            throw "Release version '$Version' is not a semantic version."
+        }
+        $Tag = "plugins-v$Version"
+    }
+
+    if ($Tag -match '^[0-9a-fA-F]{40}$') {
+        throw "Release locator '$Tag' is a commit sha. Sha-pinned catalog sources are not supported; use the immutable 'plugins-v<version>' tag."
+    }
+
+    if ($Tag -notmatch "^plugins-v$($semVerPattern.TrimStart('^'))") {
+        throw "Release locator '$Tag' must use the immutable 'plugins-v<version>' tag form."
+    }
+
+    if ($Repo -notmatch '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$') {
+        throw "Release repository '$Repo' must use 'owner/name' form."
+    }
+
+    $normalizedPrefix = $PathPrefix.Trim('/')
+    if ([string]::IsNullOrWhiteSpace($normalizedPrefix) -or $normalizedPrefix -match '\\' -or $normalizedPrefix -match '(^|/)\.\.?(/|$)') {
+        throw "Release path prefix '$PathPrefix' must be a relative forward-slash path inside the repository."
+    }
+
+    return @{
+        Repo       = $Repo
+        Ref        = $Tag
+        PathPrefix = $normalizedPrefix
+    }
+}
+
 function New-MarketplaceManifestContent {
     <#
     .SYNOPSIS
@@ -399,6 +481,10 @@ function New-MarketplaceManifestContent {
     Creates a hashtable representing the marketplace manifest with repository
     metadata, owner information, and plugin entries. Matches the schema used
     by github/awesome-copilot.
+
+    Entry sources take the bare local package-name form by default. Supplying a
+    release locator emits object sources that resolve the package from an
+    immutable ref in the source repository.
 
     .PARAMETER RepoName
     Repository name used as the marketplace name.
@@ -415,6 +501,10 @@ function New-MarketplaceManifestContent {
     .PARAMETER Plugins
     Array of ordered hashtables with name, description, and version keys
     from New-PluginManifestContent.
+
+    .PARAMETER ReleaseLocator
+    Optional. Locator from New-PluginReleaseLocator. When supplied, entries
+    carry object sources instead of bare local package names.
 
     .OUTPUTS
     [hashtable] Marketplace manifest with name, metadata, owner, and plugins keys.
@@ -436,14 +526,31 @@ function New-MarketplaceManifestContent {
 
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
-        [array]$Plugins
+        [array]$Plugins,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$ReleaseLocator
     )
+
+    $useLocator = $null -ne $ReleaseLocator -and $ReleaseLocator.Count -gt 0
 
     $pluginEntries = @()
     foreach ($plugin in $Plugins) {
+        $source = if ($useLocator) {
+            [ordered]@{
+                source = 'github'
+                repo   = $ReleaseLocator.Repo
+                path   = "$($ReleaseLocator.PathPrefix)/$($plugin.name)"
+                ref    = $ReleaseLocator.Ref
+            }
+        }
+        else {
+            $plugin.name
+        }
+
         $pluginEntries += [ordered]@{
             name        = $plugin.name
-            source      = $plugin.name
+            source      = $source
             description = $plugin.description
             version     = $plugin.version
         }
@@ -479,6 +586,15 @@ function Write-MarketplaceManifest {
     .PARAMETER Collections
     Array of collection manifest hashtables with id and description.
 
+    .PARAMETER ReleaseLocator
+    Optional. Locator from New-PluginReleaseLocator. Emits object sources and
+    requires an explicit OutputPath so the production catalog is never rewritten
+    by generation; catalog cutover is a separate reviewed change.
+
+    .PARAMETER OutputPath
+    Optional. Destination path, absolute or relative to RepoRoot. Defaults to
+    the production catalog at .github/plugin/marketplace.json.
+
     .PARAMETER DryRun
     When specified, logs the action without writing to disk.
     #>
@@ -493,8 +609,37 @@ function Write-MarketplaceManifest {
         [array]$Collections,
 
         [Parameter(Mandatory = $false)]
+        [hashtable]$ReleaseLocator,
+
+        [Parameter(Mandatory = $false)]
+        [string]$OutputPath,
+
+        [Parameter(Mandatory = $false)]
         [switch]$DryRun
     )
+
+    $useLocator = $null -ne $ReleaseLocator -and $ReleaseLocator.Count -gt 0
+
+    $productionPath = Join-Path -Path $RepoRoot -ChildPath '.github' -AdditionalChildPath 'plugin', 'marketplace.json'
+    $resolvedOutputPath = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+        $productionPath
+    }
+    elseif ([System.IO.Path]::IsPathRooted($OutputPath)) {
+        $OutputPath
+    }
+    else {
+        Join-Path -Path $RepoRoot -ChildPath $OutputPath
+    }
+
+    if ($useLocator) {
+        if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+            throw 'Locator-aware marketplace generation requires an explicit -OutputPath. Generation does not update the production catalog.'
+        }
+
+        if ([System.IO.Path]::GetFullPath($resolvedOutputPath) -eq [System.IO.Path]::GetFullPath($productionPath)) {
+            throw "Locator-aware marketplace generation must not write the production catalog at $productionPath."
+        }
+    }
 
     $packageJsonPath = Join-Path -Path $RepoRoot -ChildPath 'package.json'
     $packageJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
@@ -507,28 +652,154 @@ function Write-MarketplaceManifest {
             -Version $packageJson.version
     }
 
-    $manifest = New-MarketplaceManifestContent `
-        -RepoName $packageJson.name `
-        -Description $packageJson.description `
-        -Version $packageJson.version `
-        -OwnerName $packageJson.author `
-        -Plugins $plugins
+    $manifestArgs = @{
+        RepoName    = $packageJson.name
+        Description = $packageJson.description
+        Version     = $packageJson.version
+        OwnerName   = $packageJson.author
+        Plugins     = $plugins
+    }
+    if ($useLocator) {
+        $manifestArgs['ReleaseLocator'] = $ReleaseLocator
+    }
 
-    $outputDir = Join-Path -Path $RepoRoot -ChildPath '.github' -AdditionalChildPath 'plugin'
-    $outputPath = Join-Path -Path $outputDir -ChildPath 'marketplace.json'
+    $manifest = New-MarketplaceManifestContent @manifestArgs
+
+    $outputDir = Split-Path -Path $resolvedOutputPath -Parent
 
     if ($DryRun) {
-        Write-Host "  [DRY RUN] Would write marketplace.json at $outputPath" -ForegroundColor Yellow
+        Write-Host "  [DRY RUN] Would write marketplace.json at $resolvedOutputPath" -ForegroundColor Yellow
         return
     }
 
-    if (-not (Test-Path -Path $outputDir)) {
+    if (-not [string]::IsNullOrWhiteSpace($outputDir) -and -not (Test-Path -Path $outputDir)) {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     }
 
     $manifestJson = $manifest | ConvertTo-Json -Depth 10
-    Set-ContentIfChanged -Path $outputPath -Value $manifestJson | Out-Null
-    Write-Host "  Marketplace manifest: $outputPath" -ForegroundColor Green
+    Set-ContentIfChanged -Path $resolvedOutputPath -Value $manifestJson | Out-Null
+    Write-Host "  Marketplace manifest: $resolvedOutputPath" -ForegroundColor Green
+}
+
+function Test-PluginGitRefName {
+    <#
+    .SYNOPSIS
+    Tests whether a string is a usable git reference name.
+
+    .PARAMETER Name
+    Candidate branch or tag name.
+
+    .OUTPUTS
+    [bool] True when the name is a valid git reference.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Name
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $false
+    }
+
+    if ($Name -match '[\s~^:?*\[\\]' -or $Name -match '\.\.' -or $Name -match '@\{') {
+        return $false
+    }
+
+    if ($Name.StartsWith('-') -or $Name.StartsWith('/') -or $Name.EndsWith('/') -or $Name.EndsWith('.')) {
+        return $false
+    }
+
+    foreach ($segment in ($Name -split '/')) {
+        if ([string]::IsNullOrEmpty($segment) -or $segment.StartsWith('.') -or $segment.EndsWith('.lock')) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Assert-PluginSnapshotTarget {
+    <#
+    .SYNOPSIS
+    Validates the disposable branch and tag a snapshot publish may write.
+
+    .DESCRIPTION
+    Snapshot publication is only permitted against disposable references. The
+    moving release branch, immutable 'plugins-v<version>' tags, and the default
+    branch are protected and can never be named as targets. Tags are immutable,
+    so an existing tag is refused rather than overwritten.
+
+    .PARAMETER Branch
+    Target branch for the snapshot commit.
+
+    .PARAMETER Tag
+    Target tag for the snapshot commit.
+
+    .PARAMETER ExistingRefs
+    Reference names that already exist on the remote, short or fully qualified.
+
+    .PARAMETER DisposablePrefix
+    Required prefix identifying a disposable reference.
+
+    .OUTPUTS
+    [hashtable] Validated target with Branch, Tag, and RefSpecs keys.
+
+    .EXAMPLE
+    Assert-PluginSnapshotTarget -Branch 'plugins-snapshot/run-42' -Tag 'plugins-snapshot/run-42-tag'
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Branch,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Tag,
+
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyCollection()]
+        [string[]]$ExistingRefs = @(),
+
+        [Parameter(Mandatory = $false)]
+        [string]$DisposablePrefix = 'plugins-snapshot/'
+    )
+
+    $protectedBranches = @('main', 'release/plugins')
+    $productionTagPattern = '^plugins-v\d+\.\d+\.\d+'
+
+    foreach ($target in @(@{ Kind = 'branch'; Value = $Branch }, @{ Kind = 'tag'; Value = $Tag })) {
+        if (-not (Test-PluginGitRefName -Name $target.Value)) {
+            throw "Snapshot $($target.Kind) '$($target.Value)' is not a valid git reference name."
+        }
+
+        if ($protectedBranches -contains $target.Value -or $target.Value -match $productionTagPattern) {
+            throw "Snapshot $($target.Kind) '$($target.Value)' targets a protected production reference and is refused."
+        }
+
+        if (-not $target.Value.StartsWith($DisposablePrefix)) {
+            throw "Snapshot $($target.Kind) '$($target.Value)' must start with the disposable prefix '$DisposablePrefix'."
+        }
+    }
+
+    if ($Branch -eq $Tag) {
+        throw "Snapshot branch and tag must differ; both are '$Branch'."
+    }
+
+    $normalizedExisting = @($ExistingRefs | ForEach-Object { ($_ -replace '^refs/(heads|tags)/', '').Trim() })
+    if ($normalizedExisting -contains $Tag) {
+        throw "Snapshot tag '$Tag' already exists. Tags are immutable and are never overwritten."
+    }
+
+    return @{
+        Branch   = $Branch
+        Tag      = $Tag
+        RefSpecs = @("HEAD:refs/heads/$Branch", "refs/tags/$Tag")
+    }
 }
 
 function New-GenerateResult {
@@ -576,61 +847,173 @@ function New-GenerateResult {
 # I/O Functions (file system operations)
 # ---------------------------------------------------------------------------
 
-function Test-SymlinkCapability {
+function Get-PluginTrackedPathIndex {
     <#
     .SYNOPSIS
-    Probes whether the current process can create symbolic links.
+    Builds the git-tracked path allowlist for a repository working tree.
 
     .DESCRIPTION
-    Creates a temporary file and attempts to symlink to it. Returns $true
-    when the OS and process privileges allow symlink creation, $false
-    otherwise. The probe directory is cleaned up unconditionally.
+    Reads the repository-relative paths recorded in the git index. Plugin
+    materialization copies only these paths, so untracked working-tree content
+    such as virtual environments, dependency directories, and bytecode caches
+    can never be ingested into a generated plugin. Throws when the directory is
+    not a git working tree, because materializing without the allowlist would
+    silently copy that residue.
+
+    .PARAMETER RepoRoot
+    Absolute path to the repository working tree.
+
+    .OUTPUTS
+    [hashtable] Index with RepoRoot, Paths (ordered list), and Lookup (set) keys.
     #>
     [CmdletBinding()]
-    [OutputType([bool])]
-    param()
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot
+    )
 
-    $tempDir = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "hve-symlink-probe-$PID"
-    $targetFile = Join-Path -Path $tempDir -ChildPath 'target.txt'
-    $linkFile = Join-Path -Path $tempDir -ChildPath 'link.txt'
-    try {
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-        Set-Content -Path $targetFile -Value 'probe' -NoNewline
-        New-Item -ItemType SymbolicLink -Path $linkFile -Target $targetFile -ErrorAction Stop | Out-Null
-        return $true
+    $resolvedRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+
+    # core.quotePath=false keeps non-ASCII paths raw instead of octal-escaped.
+    $gitArgs = @('-C', $resolvedRoot, '-c', 'core.quotePath=false', 'ls-files', '--cached', '--full-name')
+    $output = & git @gitArgs 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to enumerate git-tracked paths in '$resolvedRoot' (git ls-files exit code $LASTEXITCODE)."
     }
-    catch {
-        return $false
-    }
-    finally {
-        if (Test-Path -Path $tempDir) {
-            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    $paths = [System.Collections.Generic.List[string]]::new()
+    $lookup = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+
+    foreach ($line in @($output)) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
         }
+        $normalized = ([string]$line) -replace '\\', '/'
+        if ($lookup.Add($normalized)) {
+            $paths.Add($normalized)
+        }
+    }
+
+    return @{
+        RepoRoot = $resolvedRoot
+        Paths    = $paths
+        Lookup   = $lookup
     }
 }
 
-function New-PluginLink {
+function Clear-PluginLinkEntry {
     <#
     .SYNOPSIS
-    Links a source path into a plugin destination via symlink or text stub.
+    Removes a symbolic link at a destination path without touching its target.
 
     .DESCRIPTION
-    When SymlinkCapable is set, creates a relative symbolic link from
-    DestinationPath to SourcePath. Otherwise writes a text stub file
-    containing the relative path, matching the format git produces when
-    core.symlinks is false. Text stubs keep git status clean on Windows
-    without Developer Mode or elevated privileges.
+    Plugin trees generated before materialization contain symbolic links. Left
+    in place, a copy or directory creation would resolve through the link and
+    write into the repository source. This deletes the link entry itself and
+    leaves real files and directories alone.
 
-    .PARAMETER SourcePath
-    Absolute path to the real file or directory.
-
-    .PARAMETER DestinationPath
-    Absolute path where the link or text stub will be created.
-
-    .PARAMETER SymlinkCapable
-    When set, create a symbolic link; otherwise write a text stub.
+    .PARAMETER Path
+    Absolute destination path to inspect.
     #>
     [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item -or -not $item.LinkType) {
+        return
+    }
+
+    if ($item.PSIsContainer) {
+        [System.IO.Directory]::Delete($item.FullName)
+    }
+    else {
+        [System.IO.File]::Delete($item.FullName)
+    }
+}
+
+function Copy-PluginFileIfChanged {
+    <#
+    .SYNOPSIS
+    Copies a file only when the destination content differs.
+
+    .DESCRIPTION
+    Compares length then SHA256 before writing, preserving the git stat cache
+    for unchanged files so repeat generations stay idempotent.
+
+    .PARAMETER SourcePath
+    Absolute path to the source file.
+
+    .PARAMETER DestinationPath
+    Absolute path to the destination file.
+
+    .OUTPUTS
+    [bool] True when the file was written, false when skipped.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourcePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath
+    )
+
+    Clear-PluginLinkEntry -Path $DestinationPath
+
+    if (Test-Path -LiteralPath $DestinationPath -PathType Leaf) {
+        $sourceLength = (Get-Item -LiteralPath $SourcePath -Force).Length
+        $destinationLength = (Get-Item -LiteralPath $DestinationPath -Force).Length
+        if ($sourceLength -eq $destinationLength) {
+            $sourceHash = (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash
+            $destinationHash = (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256).Hash
+            if ($sourceHash -eq $destinationHash) {
+                return $false
+            }
+        }
+    }
+
+    Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+    return $true
+}
+
+function Copy-PluginSource {
+    <#
+    .SYNOPSIS
+    Materializes git-tracked source content into a plugin destination.
+
+    .DESCRIPTION
+    Copies current working-tree bytes for every git-tracked path at or beneath
+    SourcePath, so locally modified tracked files are included and untracked
+    files are excluded. A file source produces exactly one destination file; a
+    directory source reconstructs its tracked subtree beneath DestinationPath.
+    Returns every destination written so callers can record complete generated
+    path bookkeeping for orphan cleanup.
+
+    .PARAMETER SourcePath
+    Absolute path to the repository file or directory being materialized.
+
+    .PARAMETER DestinationPath
+    Absolute destination path: the file itself for a file source, or the
+    subtree root for a directory source.
+
+    .PARAMETER RepoRoot
+    Absolute path to the repository working tree.
+
+    .PARAMETER TrackedIndex
+    Optional index from Get-PluginTrackedPathIndex. Resolved on demand when
+    omitted; callers in per-item loops should supply a shared index.
+
+    .OUTPUTS
+    [string[]] Absolute destination paths written.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$SourcePath,
@@ -638,23 +1021,85 @@ function New-PluginLink {
         [Parameter(Mandatory = $true)]
         [string]$DestinationPath,
 
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
         [Parameter(Mandatory = $false)]
-        [switch]$SymlinkCapable
+        [AllowNull()]
+        [hashtable]$TrackedIndex
     )
 
-    $destinationDir = Split-Path -Parent $DestinationPath
-    if (-not (Test-Path -Path $destinationDir)) {
-        New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+    $resolvedRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+    $resolvedSource = [System.IO.Path]::GetFullPath($SourcePath)
+    $relativeSource = [System.IO.Path]::GetRelativePath($resolvedRoot, $resolvedSource) -replace '\\', '/'
+
+    if ($relativeSource -eq '..' -or $relativeSource.StartsWith('../') -or [System.IO.Path]::IsPathRooted($relativeSource)) {
+        throw "Source path '$SourcePath' resolves outside the repository root '$resolvedRoot'."
     }
 
-    $relativePath = [System.IO.Path]::GetRelativePath($destinationDir, $SourcePath) -replace '\\', '/'
+    if (-not $TrackedIndex) {
+        $TrackedIndex = Get-PluginTrackedPathIndex -RepoRoot $resolvedRoot
+    }
 
-    if ($SymlinkCapable) {
-        New-Item -ItemType SymbolicLink -Path $DestinationPath -Value $relativePath -Force | Out-Null
+    $isFileSource = $TrackedIndex.Lookup.Contains($relativeSource)
+    $matched = [System.Collections.Generic.List[string]]::new()
+
+    if ($isFileSource) {
+        $matched.Add($relativeSource)
     }
     else {
-        Set-ContentIfChanged -Path $DestinationPath -Value $relativePath | Out-Null
+        $prefix = "$relativeSource/"
+        foreach ($tracked in $TrackedIndex.Paths) {
+            if ($tracked.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                $matched.Add($tracked)
+            }
+        }
     }
+
+    if ($matched.Count -eq 0) {
+        Write-Warning "No git-tracked content found for source: $relativeSource"
+        return @()
+    }
+
+    # Replace links left by an earlier generation before writing through them.
+    $destinationParent = Split-Path -Parent $DestinationPath
+    if ($destinationParent) {
+        Clear-PluginLinkEntry -Path $destinationParent
+    }
+    Clear-PluginLinkEntry -Path $DestinationPath
+
+    $written = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($tracked in $matched) {
+        $trackedSource = Join-Path -Path $resolvedRoot -ChildPath $tracked
+
+        if ($isFileSource) {
+            $destination = $DestinationPath
+        }
+        else {
+            $suffix = $tracked.Substring($relativeSource.Length + 1)
+            $destination = [System.IO.Path]::GetFullPath(
+                [System.IO.Path]::Combine($DestinationPath, $suffix)
+            )
+        }
+
+        # A path can be staged while absent from the working tree; skip it
+        # rather than failing the whole generation run.
+        if (-not (Test-Path -LiteralPath $trackedSource -PathType Leaf)) {
+            Write-Warning "Tracked source missing from the working tree: $tracked"
+            continue
+        }
+
+        $destinationDir = Split-Path -Parent $destination
+        if ($destinationDir -and -not (Test-Path -LiteralPath $destinationDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+        }
+
+        Copy-PluginFileIfChanged -SourcePath $trackedSource -DestinationPath $destination | Out-Null
+        $written.Add($destination)
+    }
+
+    return $written.ToArray()
 }
 
 function Write-PluginHookArtifact {
@@ -668,8 +1113,8 @@ function Write-PluginHookArtifact {
     when the hook is auto-loaded from a checked-out repository. Inside an
     installed plugin the same scripts live under the plugin root, so this
     function writes a transformed copy of the manifest with those paths
-    rewritten to the ${PLUGIN_ROOT} placeholder, then links the sibling script
-    directory (the manifest path without its .json extension) alongside it.
+    rewritten to the ${PLUGIN_ROOT} placeholder, then materializes the sibling
+    script directory (the manifest path without its .json extension).
 
     .PARAMETER SourceManifest
     Absolute path to the source hook .json manifest in the repository.
@@ -678,11 +1123,14 @@ function Write-PluginHookArtifact {
     Absolute path where the transformed manifest is written in the plugin.
 
     .PARAMETER GeneratedFiles
-    Set tracking generated paths for orphan cleanup; the linked script
-    directory is added to it.
+    Set tracking generated paths for orphan cleanup; every materialized script
+    file is added to it.
 
-    .PARAMETER SymlinkCapable
-    When set, links the script directory; otherwise writes a text stub.
+    .PARAMETER RepoRoot
+    Absolute path to the repository working tree.
+
+    .PARAMETER TrackedIndex
+    Optional git-tracked path index shared across a generation run.
     #>
     [CmdletBinding()]
     param(
@@ -695,8 +1143,12 @@ function Write-PluginHookArtifact {
         [Parameter(Mandatory = $true)]
         [System.Collections.Generic.HashSet[string]]$GeneratedFiles,
 
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
         [Parameter(Mandatory = $false)]
-        [switch]$SymlinkCapable
+        [AllowNull()]
+        [hashtable]$TrackedIndex
     )
 
     # Degrade gracefully when the manifest is missing, matching how other kinds
@@ -713,12 +1165,15 @@ function Write-PluginHookArtifact {
     $manifestText = $manifestText.Replace('.github/hooks/', '${PLUGIN_ROOT}/hooks/')
     Set-ContentIfChanged -Path $DestinationManifest -Value $manifestText | Out-Null
 
-    # Link the sibling script directory (manifest path without .json extension).
+    # Materialize the sibling script directory (manifest path without .json).
     $scriptSrc = $SourceManifest -replace '\.json$', ''
     if (Test-Path -LiteralPath $scriptSrc) {
         $scriptDest = $DestinationManifest -replace '\.json$', ''
-        [void]$GeneratedFiles.Add($scriptDest)
-        New-PluginLink -SourcePath $scriptSrc -DestinationPath $scriptDest -SymlinkCapable:$SymlinkCapable
+        $materialized = @(Copy-PluginSource -SourcePath $scriptSrc -DestinationPath $scriptDest `
+                -RepoRoot $RepoRoot -TrackedIndex $TrackedIndex)
+        foreach ($file in $materialized) {
+            [void]$GeneratedFiles.Add($file)
+        }
     }
 }
 
@@ -730,8 +1185,8 @@ function Write-PluginDirectory {
     .DESCRIPTION
     Builds the full plugin layout under the specified plugins directory,
     including subdirectories for agents, commands, instructions, and skills.
-    Each item is linked or copied from the plugin directory back to its
-    source in the repository. Generates plugin.json and README.md.
+    Each item is materialized from git-tracked repository sources into real
+    files and directories. Generates plugin.json and README.md.
 
     .PARAMETER Collection
     Parsed collection manifest hashtable with id, name, description, and items.
@@ -751,9 +1206,6 @@ function Write-PluginDirectory {
 
     .PARAMETER DryRun
     When specified, logs actions without creating files or directories.
-
-    .PARAMETER SymlinkCapable
-    When specified, creates symbolic links; otherwise copies files.
 
     .OUTPUTS
     [hashtable] Result with Success, AgentCount, CommandCount, InstructionCount,
@@ -780,14 +1232,15 @@ function Write-PluginDirectory {
         [string]$Maturity,
 
         [Parameter(Mandatory = $false)]
-        [switch]$DryRun,
-
-        [Parameter(Mandatory = $false)]
-        [switch]$SymlinkCapable
+        [switch]$DryRun
     )
 
     $collectionId = $Collection.id
     $pluginRoot = Join-Path -Path $PluginsDir -ChildPath $collectionId
+
+    # One index per plugin bounds git invocations while staying current for
+    # callers that stage content between generations.
+    $trackedIndex = if ($DryRun) { $null } else { Get-PluginTrackedPathIndex -RepoRoot $RepoRoot }
 
     $counts = @{
         AgentCount       = 0
@@ -822,7 +1275,7 @@ function Write-PluginDirectory {
         $subdir = Get-PluginSubdirectory -Kind $kind
 
         if ($kind -eq 'skill') {
-            # Skills are directory symlinks; use the directory name as FileName
+            # Skills use the source directory name as FileName.
             $fileName = Split-Path -Leaf $item.path
             $itemName = Get-PluginItemName -FileName $fileName -Kind $kind
             $itemSubpath = Get-PluginItemSubpath -Path $item.path -Kind $kind
@@ -907,22 +1360,26 @@ function Write-PluginDirectory {
         [void]$generatedFiles.Add($destPath)
 
         if ($DryRun) {
-            Write-Verbose "DryRun: Would create link $destPath -> $sourcePath"
+            Write-Verbose "DryRun: Would materialize $destPath from $sourcePath"
             continue
         }
 
         # Hooks bundle a sibling script directory and need plugin-relative
-        # command paths; other kinds link their single source file directly.
+        # command paths; other kinds materialize their source directly.
         if ($kind -eq 'hook') {
             Write-PluginHookArtifact -SourceManifest $sourcePath -DestinationManifest $destPath `
-                -GeneratedFiles $generatedFiles -SymlinkCapable:$SymlinkCapable
+                -GeneratedFiles $generatedFiles -RepoRoot $RepoRoot -TrackedIndex $trackedIndex
         }
         else {
-            New-PluginLink -SourcePath $sourcePath -DestinationPath $destPath -SymlinkCapable:$SymlinkCapable
+            $materialized = @(Copy-PluginSource -SourcePath $sourcePath -DestinationPath $destPath `
+                    -RepoRoot $RepoRoot -TrackedIndex $trackedIndex)
+            foreach ($file in $materialized) {
+                [void]$generatedFiles.Add($file)
+            }
         }
     }
 
-    # Link shared resource directories (unconditional, all plugins)
+    # Materialize shared resource directories (unconditional, all plugins)
     $sharedDirs = @(
         @{ Source = 'docs/templates';    Destination = 'docs/templates' }
         @{ Source = 'scripts/lib';       Destination = 'scripts/lib' }
@@ -940,11 +1397,15 @@ function Write-PluginDirectory {
         [void]$generatedFiles.Add($destPath)
 
         if ($DryRun) {
-            Write-Verbose "DryRun: Would create shared directory link $destPath -> $sourcePath"
+            Write-Verbose "DryRun: Would materialize shared directory $destPath from $sourcePath"
             continue
         }
 
-        New-PluginLink -SourcePath $sourcePath -DestinationPath $destPath -SymlinkCapable:$SymlinkCapable
+        $materialized = @(Copy-PluginSource -SourcePath $sourcePath -DestinationPath $destPath `
+                -RepoRoot $RepoRoot -TrackedIndex $trackedIndex)
+        foreach ($file in $materialized) {
+            [void]$generatedFiles.Add($file)
+        }
     }
 
     # Generate plugin.json with explicit path arrays for CLI discovery
@@ -998,143 +1459,18 @@ function Write-PluginDirectory {
     }
 }
 
-function Repair-PluginSymlinkIndex {
-    <#
-    .SYNOPSIS
-    Fixes git index modes for text stub files so they register as symlinks.
-
-    .DESCRIPTION
-    On systems where symlinks are unavailable (Windows without Developer Mode),
-    New-PluginLink writes text stubs containing relative paths. Git stages
-    these as mode 100644 (regular file). This function re-indexes each text
-    stub as mode 120000 (symlink) so that Linux/macOS checkouts materialize
-    real symbolic links.
-
-    .PARAMETER PluginsDir
-    Absolute path to the plugins output directory.
-
-    .PARAMETER RepoRoot
-    Absolute path to the repository root (git working tree).
-
-    .PARAMETER DryRun
-    When specified, logs what would be fixed without modifying the index.
-
-    .OUTPUTS
-    [int] Number of index entries corrected.
-    #>
-    [CmdletBinding()]
-    [OutputType([int])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$PluginsDir,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$RepoRoot,
-
-        [Parameter(Mandatory = $false)]
-        [switch]$DryRun
-    )
-
-    if (-not (Test-Path -Path $PluginsDir)) {
-        return 0
-    }
-
-    # Build a set of paths already tracked in the git index under plugins/.
-    # --index-info silently ignores untracked paths (PowerShell pipe encoding
-    # issue), so new files must be added individually via --cacheinfo.
-    $trackedPaths = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    $alreadySymlink = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    $pluginsRel = [System.IO.Path]::GetRelativePath($RepoRoot, $PluginsDir) -replace '\\', '/'
-    $lsOutput = git ls-files --stage -- $pluginsRel 2>$null
-    if ($lsOutput) {
-        foreach ($line in @($lsOutput)) {
-            if ($line -match '^(\d+)\s+[0-9a-f]+\s+\d+\t(.+)$') {
-                [void]$trackedPaths.Add($Matches[2])
-                if ($Matches[1] -eq '120000') {
-                    [void]$alreadySymlink.Add($Matches[2])
-                }
-            }
-        }
-    }
-
-    $fixedCount = 0
-    $files = Get-ChildItem -Path $PluginsDir -File -Recurse
-
-    foreach ($file in $files) {
-        # Text stubs are small files whose content is a relative path with
-        # forward slashes, no line breaks, starting with ../
-        if ($file.Length -gt 500) {
-            continue
-        }
-
-        $content = [System.IO.File]::ReadAllText($file.FullName)
-
-        if ($content -notmatch '^\.\./') {
-            continue
-        }
-        if ($content.Contains("`n") -or $content.Contains("`r")) {
-            continue
-        }
-
-        $repoRelPath = [System.IO.Path]::GetRelativePath($RepoRoot, $file.FullName) -replace '\\', '/'
-
-        if ($alreadySymlink.Contains($repoRelPath)) {
-            continue
-        }
-
-        if ($DryRun) {
-            Write-Verbose "DryRun: Would fix index mode for $repoRelPath"
-            $fixedCount++
-            continue
-        }
-
-        $hashOutput = git hash-object -w -- $file.FullName 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Failed to hash-object for $repoRelPath"
-            continue
-        }
-
-        # Extract clean SHA string, filtering out any ErrorRecord objects
-        $sha = @($hashOutput | Where-Object { $_ -is [string] -and $_ -match '^[0-9a-f]{40}' })[0]
-        if (-not $sha) {
-            Write-Warning "No valid SHA returned for $repoRelPath"
-            continue
-        }
-
-        # Use --add for untracked files; harmless for already-tracked entries.
-        # Avoids --index-info piping which breaks on Windows due to CRLF stdin.
-        $addFlag = if (-not $trackedPaths.Contains($repoRelPath)) { '--add' } else { $null }
-        $cacheArgs = @('update-index') + @($addFlag | Where-Object { $_ }) + @('--cacheinfo', "120000,$sha,$repoRelPath")
-        $cacheResult = & git @cacheArgs 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            $errorMsg = @($cacheResult | ForEach-Object { $_.ToString() }) -join '; '
-            Write-Warning "Failed to update index entry for ${repoRelPath}: $errorMsg"
-            continue
-        }
-        $fixedCount++
-        Write-Verbose "Fixed index mode: $repoRelPath -> 120000"
-    }
-
-    return $fixedCount
-}
-
 Export-ModuleMember -Function @(
+    'Assert-PluginSnapshotTarget',
+    'Copy-PluginSource',
     'Get-PluginItemName',
     'Get-PluginItemSubpath',
     'Get-PluginSubdirectory',
+    'Get-PluginTrackedPathIndex',
     'New-GenerateResult',
     'New-MarketplaceManifestContent',
-    'New-PluginLink',
     'New-PluginManifestContent',
     'New-PluginReadmeContent',
-    'Repair-PluginSymlinkIndex',
-    'Test-SymlinkCapability',
+    'New-PluginReleaseLocator',
     'Write-MarketplaceManifest',
     'Write-PluginDirectory'
 )
