@@ -3,10 +3,21 @@ description: >
   Stimulus library for the baseline-equivalence suite. Forty prompts across
   eight categories: factual-recall, code-qa, tool-trigger, instruction-bleed,
   customization-boundary, multi-turn, ambiguous-spec, and scope-redirect.
-  This file is the authoritative human-readable source; baseline/eval.yaml
-  and customized/eval.yaml inline equivalent stimulus entries with graders
-  attached per Vally 0.9.0 schema. Contributor workflow: edit this file
-  first, then mirror name/prompt/tags into the two eval.yaml files.
+  This file is the canonical source of truth; baseline/eval.yaml and
+  customized/eval.yaml inline equivalent stimulus entries with graders
+  attached per Vally 0.10 schema. Contributor workflow: edit this file
+  first, then mirror name, prompt, and tags into the two eval.yaml files.
+  Synchronization is enforced, not conventional: Test-EquivalenceStimulusSync
+  fails schema linting on name-set, prompt, tag, grader, invariant, guard, or
+  comparison-policy drift between these three files.
+
+  The policy tag classifies each stimulus for comparison scoring.
+  policy: equivalent means baseline and customized responses are expected to
+  match, and the stimulus counts toward the equivalence denominator.
+  policy: documented-divergence means a customized_required guard asserts
+  behavior expected only in the customized run, so the stimulus is scored by
+  that guard rather than by equivalence. customized_disallow guards assert
+  sameness, so disallow-guarded stimuli stay classified equivalent.
 
   Explicit non-goals: no safety, refusal, or jailbreak prompts. Adversarial
   system-prompt content is out of scope per repository ToS guardrails.
