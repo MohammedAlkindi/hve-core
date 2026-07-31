@@ -2,7 +2,7 @@
 title: Security
 description: Security review, planning, incident response, risk assessment, and vulnerability analysis
 sidebar_position: 14
-ms.date: 2026-07-30
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -86,6 +86,7 @@ Security review, planning, incident response, risk assessment, vulnerability ana
 | Name                          | Description                                                                                                                                                                                                                                                                                      |
 |-------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **backlog-templates**         | Shared work-item templates and conventions for ADO and GitHub backlog handoff across the RAI, Security, SSSC, Accessibility, and Privacy planners                                                                                                                                                |
+| **mcsb**                      | Microsoft Cloud Security Benchmark (MCSB v2) control-domain taxonomy and NIST 800-53 / CIS Controls crosswalk for planning and reviewing Azure cloud resources.                                                                                                                                  |
 | **owasp-agentic**             | OWASP Agentic Security Top 10 knowledge base for identifying, assessing, and remediating AI agent system security risks.                                                                                                                                                                         |
 | **owasp-cicd**                | OWASP CI/CD Top 10 knowledge base for identifying, assessing, and remediating CI/CD pipeline security risks.                                                                                                                                                                                     |
 | **owasp-infrastructure**      | OWASP Infrastructure Top 10 knowledge base for identifying, assessing, and remediating internal IT infrastructure security risks.                                                                                                                                                                |
