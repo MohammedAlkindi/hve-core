@@ -75,4 +75,3 @@ jobs:
           name: plugin-release-evidence
           path: logs/plugin-release-evidence.json
           if-no-files-found: warn
-
