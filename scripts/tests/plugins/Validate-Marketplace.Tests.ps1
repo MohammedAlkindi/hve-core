@@ -667,8 +667,10 @@ Describe 'Invoke-MarketplaceValidation - entry component contract' {
             source      = (New-TestPluginSource -Name 'my-plugin')
             description = 'A plugin'
             version     = '1.0.0'
+            author      = [ordered]@{ name = 'Microsoft'; url = 'https://www.microsoft.com' }
             commands    = @('commands/rpi-research.md')
             rules       = @('instructions/markdown.instructions.md')
+            hooks       = 'hooks/shared/telemetry.json'
             'x-hve'     = [ordered]@{
                 maturity          = 'stable'
                 componentMaturity = [ordered]@{ 'commands/rpi-research.md' = 'preview' }
@@ -679,6 +681,32 @@ Describe 'Invoke-MarketplaceValidation - entry component contract' {
         $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/entry-contract-valid.json')
         $result.Success | Should -BeTrue
         $result.ErrorCount | Should -Be 0
+    }
+
+    It 'Rejects a string author' {
+        Set-EntryContractManifest -Entry @{
+            name        = 'my-plugin'
+            source      = (New-TestPluginSource -Name 'my-plugin')
+            description = 'A plugin'
+            version     = '1.0.0'
+            author      = 'Microsoft'
+        }
+
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/string-author.json')
+        $result.Success | Should -BeFalse
+    }
+
+    It 'Rejects array-valued hooks' {
+        Set-EntryContractManifest -Entry @{
+            name        = 'my-plugin'
+            source      = (New-TestPluginSource -Name 'my-plugin')
+            description = 'A plugin'
+            version     = '1.0.0'
+            hooks       = @('hooks/shared/telemetry.json')
+        }
+
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/array-hooks.json')
+        $result.Success | Should -BeFalse
     }
 
     It 'Rejects an x-hve overlay that owns component membership' {

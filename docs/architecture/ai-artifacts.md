@@ -378,7 +378,9 @@ Each package produces two distributable outputs from the same codebase: a VS Cod
 | Installer        | `ise-hve-essentials.hve-installer`        | HVE Core installation and setup                |
 | Experimental     | `ise-hve-essentials.hve-experimental`     | Early-stage artifacts under active iteration   |
 
-The VS Code extension is built with `Prepare-Extension.ps1` and `Package-Extension.ps1`. Copilot packages are generated with `npm run plugin:generate` from the standard component fields in `.github/plugin/marketplace.json`. Generation creates ignored, materialized regular-file packages under `plugins/<package-name>/`; those local files are validation and distribution output, not reviewed source. Frozen collection manifests remain a temporary VSIX packaging input while that channel moves to the marketplace projection.
+The VS Code extension is built with `Prepare-Extension.ps1` and `Package-Extension.ps1`. Copilot packages are generated with `npm run plugin:generate` from the standard component fields in `.github/plugin/marketplace.json`.
+
+Generation creates ignored, materialized regular-file packages under `plugins/<package-name>/`; those local files are validation and distribution output, not reviewed source. Frozen collection manifests remain a temporary VSIX packaging input while that channel moves to the marketplace projection.
 
 Users install the collection matching their role for a curated experience. The **Core** extension provides the RPI workflow essentials, while the **Full** extension aggregates artifacts from all stable and preview collections.
 

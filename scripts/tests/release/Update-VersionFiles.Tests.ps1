@@ -198,10 +198,8 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         New-Item -ItemType Directory -Path (Join-Path $script:FakeRoot '.git') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:FakeRoot 'extension/templates') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:FakeRoot '.github/plugin') -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $script:FakeRoot 'plugins/hve-core/.github/plugin') -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $script:FakeRoot 'plugins/ado/.github/plugin') -Force | Out-Null
 
-        # Seed all 5 version file types at 1.0.0
+        # Seed all version file types at 1.0.0
         @{ version = '1.0.0'; name = 'hve-core' } |
             ConvertTo-Json | Set-Content (Join-Path $script:FakeRoot 'package.json')
         @{ version = '1.0.0' } |
@@ -209,14 +207,10 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         @{
             metadata = @{ version = '1.0.0' }
             plugins  = @(
-                @{ version = '1.0.0'; id = 'hve-core' }
-                @{ version = '1.0.0'; id = 'ado' }
+                @{ version = '1.0.0'; id = 'hve-core'; source = @{ ref = 'plugins-v1.0.0' } }
+                @{ version = '1.0.0'; id = 'ado'; source = @{ ref = 'plugins-v1.0.0' } }
             )
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $script:FakeRoot '.github/plugin/marketplace.json')
-        @{ version = '1.0.0' } |
-            ConvertTo-Json | Set-Content (Join-Path $script:FakeRoot 'plugins/hve-core/.github/plugin/plugin.json')
-        @{ version = '1.0.0' } |
-            ConvertTo-Json | Set-Content (Join-Path $script:FakeRoot 'plugins/ado/.github/plugin/plugin.json')
         @{ '.' = '1.0.0' } |
             ConvertTo-Json | Set-Content (Join-Path $script:FakeRoot '.release-please-manifest.json')
         @{
@@ -247,6 +241,8 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         $mkt.metadata.version | Should -Be '2.5.0'
         $mkt.plugins[0].version | Should -Be '2.5.0'
         $mkt.plugins[1].version | Should -Be '2.5.0'
+        $mkt.plugins[0].source.ref | Should -Be 'plugins-v2.5.0'
+        $mkt.plugins[1].source.ref | Should -Be 'plugins-v2.5.0'
 
         $manifest = Get-Content -Raw (Join-Path $script:FakeRoot '.release-please-manifest.json') | ConvertFrom-Json
         $manifest.'.' | Should -Be '2.5.0'
@@ -254,14 +250,6 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         $lock = Get-Content -Raw (Join-Path $script:FakeRoot 'package-lock.json') | ConvertFrom-Json -Depth 10 -AsHashtable
         $lock['version'] | Should -Be '2.5.0'
         $lock['packages']['']['version'] | Should -Be '2.5.0'
-    }
-
-    It 'Updates multiple plugin.json files under plugins/' {
-        $p1 = Get-Content -Raw (Join-Path $script:FakeRoot 'plugins/hve-core/.github/plugin/plugin.json') | ConvertFrom-Json
-        $p1.version | Should -Be '2.5.0'
-
-        $p2 = Get-Content -Raw (Join-Path $script:FakeRoot 'plugins/ado/.github/plugin/plugin.json') | ConvertFrom-Json
-        $p2.version | Should -Be '2.5.0'
     }
 
     It 'Succeeds when optional files are missing' {

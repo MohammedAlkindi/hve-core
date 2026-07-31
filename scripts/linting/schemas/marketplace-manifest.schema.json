@@ -39,6 +39,27 @@
         "removed"
       ]
     },
+    "author": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://\\S+$"
+        }
+      },
+      "additionalProperties": false
+    },
     "objectSource": {
       "type": "object",
       "required": [
@@ -162,8 +183,7 @@
             "description": "Semantic version string matching the marketplace version."
           },
           "author": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/definitions/author"
           },
           "homepage": {
             "type": "string",
@@ -217,7 +237,8 @@
             "$ref": "#/definitions/componentMembership"
           },
           "hooks": {
-            "$ref": "#/definitions/componentMembership"
+            "$ref": "#/definitions/componentPath",
+            "description": "Single hooks configuration path."
           },
           "x-hve": {
             "type": "object",

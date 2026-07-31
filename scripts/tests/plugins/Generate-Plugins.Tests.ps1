@@ -870,7 +870,7 @@ Describe 'Invoke-PluginGeneration - JSON-only inputs' {
                 name        = 'json-only'
                 description = 'JSON-only generation fixture'
                 version     = '1.0.0'
-                author      = 'Microsoft'
+                author      = [ordered]@{ name = 'Microsoft'; url = 'https://www.microsoft.com' }
                 homepage    = 'https://example.invalid'
                 repository  = 'https://example.invalid'
                 license     = 'MIT'
@@ -920,7 +920,8 @@ Describe 'Invoke-PluginGeneration - JSON-only inputs' {
 
     It 'Mirrors catalog provenance in the root manifest' {
         $manifest = Get-Content -LiteralPath (Join-Path $script:jsonOnlyRoot 'plugin.json') -Raw | ConvertFrom-Json
-        $manifest.author | Should -Be 'Microsoft'
+        $manifest.author.name | Should -Be 'Microsoft'
+        $manifest.author.url | Should -Be 'https://www.microsoft.com'
         $manifest.license | Should -Be 'MIT'
         $manifest.homepage | Should -Be 'https://example.invalid'
         $manifest.repository | Should -Be 'https://example.invalid'
@@ -928,7 +929,7 @@ Describe 'Invoke-PluginGeneration - JSON-only inputs' {
         $manifest.agents | Should -Be @('agents/team/')
         $manifest.commands | Should -Be @('commands/team/')
         $manifest.rules | Should -Be @('rules/team/')
-        $manifest.skills | Should -Be @('skills/team/')
+        $manifest.skills | Should -Be @('skills/team/demo/')
     }
 
     It 'Leaves the production catalog untouched by generation' {
