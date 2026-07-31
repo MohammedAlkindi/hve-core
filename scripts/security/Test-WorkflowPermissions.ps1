@@ -238,15 +238,33 @@ function Get-JobDeclarationLine {
         [string]$JobName
     )
 
-    $start = 0
+    $start = -1
     for ($i = 0; $i -lt $RawLines.Count; $i++) {
-        if ($RawLines[$i] -match '^jobs\s*:\s*(#.*)?$') {
+        if ($RawLines[$i] -match '^["'']?jobs["'']?\s*:\s*(#.*)?$') {
             $start = $i + 1
             break
         }
     }
 
-    $pattern = '^\s+' + [regex]::Escape($JobName) + '\s*:\s*(#.*)?$'
+    # No anchor means no constrained region; report no line rather than
+    # falling back to a whole-file search that can match an unrelated key.
+    if ($start -lt 0) {
+        return 0
+    }
+
+    # Job keys sit at the first indent level inside 'jobs:'; deeper keys are not jobs.
+    $jobIndent = -1
+    for ($i = $start; $i -lt $RawLines.Count; $i++) {
+        if ($RawLines[$i] -match '^(\s+)\S') {
+            $jobIndent = $Matches[1].Length
+            break
+        }
+    }
+    if ($jobIndent -lt 0) {
+        return 0
+    }
+
+    $pattern = '^\s{' + $jobIndent + '}' + [regex]::Escape($JobName) + '\s*:\s*(#.*)?$'
     for ($i = $start; $i -lt $RawLines.Count; $i++) {
         if ($RawLines[$i] -match $pattern) {
             return $i + 1
@@ -486,9 +504,23 @@ function Invoke-WorkflowPermissionsCheck {
 
         if ($model.ParseFailed) {
             $unparsedFiles++
+            $fileViolationCount++
             $parseMessage = "Workflow '$($file.Name)' could not be parsed as YAML and was not evaluated: $($model.ParseError)"
-            Write-SecurityLog "  WARN: $parseMessage" -Level Warning -CIAnnotation
-            Write-CIAnnotation -Message $parseMessage -Level 'Warning' -File $relativePath -Line 1
+
+            $violation = [DependencyViolation]::new()
+            $violation.File = $relativePath
+            $violation.Line = 1
+            $violation.Type = 'workflow-permissions'
+            $violation.Name = $file.Name
+            $violation.ViolationType = 'MissingPermissions'
+            $violation.Severity = 'High'
+            $violation.Description = $parseMessage
+            $violation.Remediation = 'Fix the YAML syntax so the workflow permissions gate can evaluate this file'
+            $violation.Metadata = @{ FullPath = $file.FullName; ParseError = $model.ParseError }
+            $report.AddViolation($violation)
+
+            Write-SecurityLog "  FAIL: $parseMessage" -Level Error -CIAnnotation
+            Write-CIAnnotation -Message $parseMessage -Level 'Error' -File $relativePath -Line 1
             continue
         }
 

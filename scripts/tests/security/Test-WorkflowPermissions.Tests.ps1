@@ -588,10 +588,12 @@ jobs:
 
             $exitCode = Invoke-WorkflowPermissionsCheck -Path $testPath -OutputPath $outputPath -FailOnViolation
 
-            $exitCode | Should -Be 0
+            $exitCode | Should -Be 1
             $content = Get-Content $outputPath -Raw | ConvertFrom-Json
             $content.Metadata.UnparsedFiles | Should -Be 1
             $content.Metadata.FilesWithPermissions | Should -Be 0
+            @($content.Violations).Count | Should -Be 1
+            $content.Violations[0].ViolationType | Should -Be 'MissingPermissions'
         }
 
         It 'Should emit violation paths with forward slashes only' {
