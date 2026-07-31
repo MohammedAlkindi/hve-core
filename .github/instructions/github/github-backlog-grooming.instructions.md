@@ -13,7 +13,8 @@ similarity comparison, autonomy, and state persistence. Use
 
 ## Outcome
 
-Every open non-pull-request issue remains eligible for eventual assessment.
+Every open non-pull-request issue except the workflow-owned marker-bearing
+tracker remains eligible for eventual assessment.
 Each run surfaces recent work promptly, advances starvation-free coverage
 through the remaining backlog, and produces an advisory Markdown report without
 closing or mutating candidate issues.
@@ -21,8 +22,9 @@ closing or mutating candidate issues.
 ## Eligibility and Inventory
 
 Build the inventory from every open issue in the repository and exclude pull
-requests. Paginate until the complete open-issue metadata inventory has been
-retrieved before selecting issues for deep assessment.
+requests and the marker-bearing tracker. Paginate until the complete open-issue
+metadata inventory has been retrieved before selecting issues for deep
+assessment.
 
 Treat issue age, recent activity, labels, assignees, milestones, and ownership
 claims as evidence and prioritization context. None of these signals excludes
@@ -77,8 +79,8 @@ grooming.
 
 ## Report Contract
 
-Render one canonical Markdown report in both the GitHub Actions step summary
-and the single tracker digest comment.
+Render one canonical Markdown report in both the GitHub Actions job summary and
+the marker-bound tracker body.
 
 Use this run-summary table:
 
@@ -105,27 +107,29 @@ are not source-located code-scanning findings and do not require
 
 ## Tracker Contract
 
-Before enabling automated grooming, require exactly one open tracker issue
-whose body contains this immutable marker:
+Identify the workflow-owned tracker issue by this immutable body marker:
 
 ```html
 <!-- gh-aw:backlog-grooming-tracker -->
 ```
 
-Resolve tracker state before publishing a comment:
+Resolve open and closed tracker state before assessment. No match means no prior
+timestamp or cursor. One match supplies continuation state even when closed.
+Multiple matches across any state combination call `noop` with guidance to
+retain the marker on one tracker and remove it from the others.
 
-* No matching tracker: call `noop` with guidance to create or reopen exactly
-  one tracker containing the marker.
-* Only a closed matching tracker: call `noop` with guidance to reopen it.
-* Multiple open matching trackers: call `noop` with guidance to retain the
-  marker on one tracker and remove it from the others.
-* Exactly one open matching tracker: publish exactly one digest comment after a
-  successful assessment, including when no maintainer action is recommended.
+After successful assessment, the publishing safe-output job independently
+enumerates all issues and repeats the exact marker match immediately before
+mutation. With no non-pull-request match, create one open issue titled `Backlog
+grooming tracker` whose body is the marker followed by the canonical report.
+With one match, replace its body with the marker and canonical report and set
+its state to open in the same update. With multiple matches, fail without
+mutation. The model never supplies the destination issue number.
 
-Do not create a tracker, post per-candidate comments, or publish more than one
-tracker comment per run. The publishing safe-output job must independently
-repeat the exact marker search and select the sole open non-pull-request match;
-the model never supplies the destination issue number.
+Do not post per-candidate comments or mutate candidate issues. Workflow
+serialization reduces overlapping workflow writes, but a concurrent external
+marker creation can still cause a detectable publication conflict that requires
+maintainer repair.
 
 ## Interactive Grooming Handoff
 
@@ -146,9 +150,10 @@ approval.
 
 ## Safety Invariants
 
-Automated grooming has read-only repository and issue permissions. Its only
-permitted safe outputs are `noop` and one custom tracker-report publisher whose
-isolated job has `issues: write` solely to post the validated digest.
+Automated grooming has read-only model permissions. Its only permitted safe
+outputs are `noop` and one custom tracker-report publisher whose isolated job
+has `issues: write` solely to create, replace, or reopen the marker-bound
+tracker.
 
 Automated grooming does not:
 
@@ -157,8 +162,9 @@ Automated grooming does not:
 * Import or invoke the interactive backlog manager
 * Make final duplicate or stale dispositions
 * Publish per-candidate comments
+* Modify any issue that does not contain the exact tracker marker
 
 When no issue requires a maintainer action, retain all assessed rows and publish
 the report so its run timestamp and next cursor become durable continuation
-state. Reserve `noop` for runs that cannot complete assessment or tracker
-validation.
+state. Reserve `noop` for runs that cannot complete assessment or have ambiguous
+tracker state.

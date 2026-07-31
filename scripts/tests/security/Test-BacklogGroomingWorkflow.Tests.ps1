@@ -52,20 +52,6 @@ BeforeAll {
         }
     }
 
-    function Resolve-GroomingTracker {
-        param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$Issues)
-
-        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
-        $trackers = @($Issues | Where-Object {
-                $_.State -eq 'open' -and -not $_.PullRequest -and $_.Body.Contains($marker)
-            })
-        if ($trackers.Count -ne 1) {
-            throw "Expected one open marker-bearing tracker, found $($trackers.Count)"
-        }
-
-        return $trackers[0]
-    }
-
     function New-GroomingReport {
         param(
             [Parameter(Mandatory)] [hashtable]$Run,
@@ -86,6 +72,41 @@ BeforeAll {
         }
 
         return $lines -join "`n"
+    }
+
+    function Publish-GroomingReport {
+        param(
+            [Parameter(Mandatory)] [string]$Report,
+            [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$Issues,
+            [Parameter(Mandatory)] [scriptblock]$CreateSink,
+            [Parameter(Mandatory)] [scriptblock]$UpdateSink,
+            [Parameter(Mandatory)] [scriptblock]$SummarySink,
+            [Parameter(Mandatory)] [scriptblock]$FailureSink
+        )
+
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        $sanitizedReport = $Report -replace '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', ''
+        $sanitizedReport = $sanitizedReport -replace '@(?=[a-z\d](?:[a-z\d-]{0,38})(?![\w-]))', "@`u{200b}"
+        if ($sanitizedReport.Length -lt 20 -or $sanitizedReport.Length -gt 65000) {
+            throw "Report length $($sanitizedReport.Length) is outside the allowed range"
+        }
+
+        $trackers = @($Issues | Where-Object {
+                -not $_.PullRequest -and $_.Body.Contains($marker)
+            })
+        if ($trackers.Count -gt 1) {
+            & $FailureSink "Expected at most one marker-bearing tracker, found $($trackers.Count)"
+            return
+        }
+
+        $body = "$marker`n`n$sanitizedReport"
+        if ($trackers.Count -eq 0) {
+            & $CreateSink 'Backlog grooming tracker' $body
+        }
+        else {
+            & $UpdateSink $trackers[0].Number $body 'open'
+        }
+        & $SummarySink $sanitizedReport
     }
 
     $script:Source = Read-RepoFile '.github/workflows/backlog-groom.md'
@@ -122,21 +143,32 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
         $script:Source | Should -Not -Match '(?i)upload.*sarif'
     }
 
-    It 'fails closed for every invalid tracker state' {
+    It 'accepts absent or sole tracker state and fails closed for ambiguity' {
         $script:Source | Should -Match '<!-- gh-aw:backlog-grooming-tracker -->'
         $script:Source | Should -Match 'When no matching issue exists'
-        $script:Source | Should -Match 'When matching issues exist but all are closed'
-        $script:Source | Should -Match 'When multiple matching trackers are open'
-        $script:Source | Should -Match 'Do not create a tracker or publish a comment'
+        $script:Source | Should -Match 'When exactly one matching issue exists'
+        $script:Source | Should -Match 'When multiple matching issues'
+        $script:Source | Should -Match 'state: "all"'
     }
 
-    It 'persists every successful assessment through an independently resolved tracker' {
+    It 'persists every successful assessment through an independently resolved tracker lifecycle' {
         $script:Source | Should -Match 'After every successful assessment, call `publish-backlog-grooming-report` once'
         $script:Source | Should -Match 'This includes runs where no assessed issue'
         $script:Source | Should -Match 'issue\.body\?\.includes\(marker\)'
-        $script:Source | Should -Match 'trackers\.length !== 1'
+        $script:Source | Should -Match 'trackers\.length > 1'
+        $script:Source | Should -Match 'github\.rest\.issues\.create\('
+        $script:Source | Should -Match '"title": "Backlog grooming tracker"'
+        $script:Source | Should -Match 'github\.rest\.issues\.update\('
         $script:Source | Should -Match 'issue_number: trackers\[0\]\.number'
-        $script:Source | Should -Match 'do not supply\s+an issue number'
+        $script:Source | Should -Match 'state: "open"'
+        $script:Source | Should -Not -Match 'issues\.createComment'
+        $script:Source | Should -Match 'safe-output job independently revalidates tracker state'
+    }
+
+    It 'feeds one sanitized report variable to persistence before the Actions summary' {
+        $script:Source | Should -Match 'const body = `\$\{marker\}\\n\\n\$\{report\}`;'
+        $script:Source | Should -Match 'await core\.summary\.addRaw\(report\)\.write\(\);'
+        $script:Source | Should -Match '(?s)issues\.create\(.*issues\.update\(.*core\.summary\.addRaw\(report\)'
     }
 }
 
@@ -154,10 +186,12 @@ Describe 'Compiled backlog grooming workflow' -Tag 'Unit' {
         $script:Lock | Should -Not -Match '"add_comment"'
         $script:Lock | Should -Not -Match '"(create_issue|update_issue|close_issue|add_labels|remove_labels)"'
         $script:Lock | Should -Not -Match 'GH_AW_\w*CREATE_ISSUE'
+        $script:Lock | Should -Not -Match 'issues\.createComment'
     }
 
-    It 'publishes the final response to the step summary without SARIF permissions' {
+    It 'publishes the validated report to the step summary without SARIF permissions' {
         $script:Lock | Should -Match 'Append agent step summary'
+        $script:Lock | Should -Match 'await core\.summary\.addRaw\(report\)\.write\(\);'
         $script:Lock | Should -Not -Match '(?m)^\s*security-events: write$'
         $script:Lock | Should -Not -Match 'create_code_scanning_alert'
     }
@@ -165,13 +199,15 @@ Describe 'Compiled backlog grooming workflow' -Tag 'Unit' {
 
 Describe 'Backlog grooming policy and agent' -Tag 'Unit' {
     It 'requires complete all-open inventory and starvation-free continuation' {
-        $script:Policy | Should -Match 'Every open non-pull-request issue remains eligible'
-        $script:Policy | Should -Match 'Paginate until the complete open-issue metadata inventory'
+        $script:Policy | Should -Match 'Every open non-pull-request issue except the workflow-owned marker-bearing'
+        $script:Policy | Should -Match 'Paginate until the complete open-issue\s+metadata inventory'
         $script:Policy | Should -Match '(?s)beginning after the\s+previous successful run''s cursor'
         $script:Policy | Should -Match 'Wrap to the start of the inventory'
         $script:Policy | Should -Match 'Do not impose an age threshold or fixed semantic issue-count limit'
-        $script:Policy | Should -Match 'including when no maintainer action is recommended'
+        $script:Policy | Should -Match 'When no issue requires a maintainer action'
         $script:Policy | Should -Match 'the model never supplies the destination issue number'
+        $script:Policy | Should -Match 'create one open issue titled `Backlog\s+grooming tracker`'
+        $script:Policy | Should -Match 'set\s+its state to open in the same update'
     }
 
     It 'defines the canonical tables and qualitative outcomes' {
@@ -241,15 +277,110 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
         $secondRun.NextCursor | Should -Be 2
     }
 
-    It 'rejects zero or multiple open marker-bearing trackers' {
+    It 'creates the fixed-title tracker when no non-pull-request match exists' {
         $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
-        $tracker = [pscustomobject]@{ Number = 10; State = 'open'; PullRequest = $false; Body = $marker }
-        Resolve-GroomingTracker -Issues @($tracker) | Select-Object -ExpandProperty Number | Should -Be 10
-        { Resolve-GroomingTracker -Issues @() } | Should -Throw '*found 0*'
-        { Resolve-GroomingTracker -Issues @($tracker, $tracker.PSObject.Copy()) } | Should -Throw '*found 2*'
+        $creates = [System.Collections.Generic.List[object]]::new()
+        $updates = [System.Collections.Generic.List[object]]::new()
+        $summaries = [System.Collections.Generic.List[string]]::new()
+        $failures = [System.Collections.Generic.List[string]]::new()
+
+        Publish-GroomingReport -Report 'Canonical report with enough content' -Issues @() `
+            -CreateSink { param($title, $body) $creates.Add([pscustomobject]@{ Title = $title; Body = $body }) } `
+            -UpdateSink { param($number, $body, $state) $updates.Add([pscustomobject]@{ Number = $number; Body = $body; State = $state }) } `
+            -SummarySink { param($value) $summaries.Add($value) } `
+            -FailureSink { param($value) $failures.Add($value) }
+
+        $creates | Should -HaveCount 1
+        $creates[0].Title | Should -BeExactly 'Backlog grooming tracker'
+        $creates[0].Body | Should -BeExactly "$marker`n`n$($summaries[0])"
+        $updates | Should -HaveCount 0
+        $failures | Should -HaveCount 0
     }
 
-    It 'renders deferred rows identically for the summary and durable tracker digest' {
+    It 'updates and reopens the sole tracker with full body replacement' {
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        foreach ($state in @('open', 'closed')) {
+            $creates = [System.Collections.Generic.List[object]]::new()
+            $updates = [System.Collections.Generic.List[object]]::new()
+            $summaries = [System.Collections.Generic.List[string]]::new()
+            $failures = [System.Collections.Generic.List[string]]::new()
+            $tracker = [pscustomobject]@{ Number = 10; State = $state; PullRequest = $false; Body = "$marker`n`nOld report" }
+
+            Publish-GroomingReport -Report "Replacement report for $state tracker" -Issues @($tracker) `
+                -CreateSink { param($title, $body) $creates.Add([pscustomobject]@{ Title = $title; Body = $body }) } `
+                -UpdateSink { param($number, $body, $newState) $updates.Add([pscustomobject]@{ Number = $number; Body = $body; State = $newState }) } `
+                -SummarySink { param($value) $summaries.Add($value) } `
+                -FailureSink { param($value) $failures.Add($value) }
+
+            $creates | Should -HaveCount 0
+            $updates | Should -HaveCount 1
+            $updates[0].Number | Should -Be 10
+            $updates[0].State | Should -BeExactly 'open'
+            $updates[0].Body | Should -BeExactly "$marker`n`n$($summaries[0])"
+            $updates[0].Body | Should -Not -Match 'Old report'
+            $failures | Should -HaveCount 0
+        }
+    }
+
+    It 'fails without mutation for every multiple-tracker state combination' {
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        foreach ($states in @(@('open', 'open'), @('closed', 'closed'), @('open', 'closed'))) {
+            $issues = @(0..1 | ForEach-Object {
+                    [pscustomobject]@{ Number = 10 + $_; State = $states[$_]; PullRequest = $false; Body = $marker }
+                })
+            $creates = [System.Collections.Generic.List[object]]::new()
+            $updates = [System.Collections.Generic.List[object]]::new()
+            $summaries = [System.Collections.Generic.List[string]]::new()
+            $failures = [System.Collections.Generic.List[string]]::new()
+
+            Publish-GroomingReport -Report 'Canonical report with enough content' -Issues $issues `
+                -CreateSink { param($title, $body) $creates.Add(@($title, $body)) } `
+                -UpdateSink { param($number, $body, $state) $updates.Add(@($number, $body, $state)) } `
+                -SummarySink { param($value) $summaries.Add($value) } `
+                -FailureSink { param($value) $failures.Add($value) }
+
+            $creates | Should -HaveCount 0
+            $updates | Should -HaveCount 0
+            $summaries | Should -HaveCount 0
+            $failures | Should -HaveCount 1
+        }
+    }
+
+    It 'excludes marker-bearing pull requests and creates the tracker' {
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        $pullRequest = [pscustomobject]@{ Number = 20; State = 'open'; PullRequest = $true; Body = $marker }
+        $creates = [System.Collections.Generic.List[object]]::new()
+        $updates = [System.Collections.Generic.List[object]]::new()
+
+        Publish-GroomingReport -Report 'Canonical report with enough content' -Issues @($pullRequest) `
+            -CreateSink { param($title, $body) $creates.Add([pscustomobject]@{ Title = $title; Body = $body }) } `
+            -UpdateSink { param($number, $body, $state) $updates.Add(@($number, $body, $state)) } `
+            -SummarySink { param($value) } `
+            -FailureSink { param($value) }
+
+        $creates | Should -HaveCount 1
+        $updates | Should -HaveCount 0
+    }
+
+    It 'does not write the summary when tracker persistence fails' {
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        $tracker = [pscustomobject]@{ Number = 10; State = 'open'; PullRequest = $false; Body = $marker }
+        foreach ($issues in @(@(), @($tracker))) {
+            $summaryReports = [System.Collections.Generic.List[string]]::new()
+
+            {
+                Publish-GroomingReport -Report 'Canonical report with enough content' -Issues $issues `
+                    -CreateSink { param($title, $body) throw 'Persistence failed' } `
+                    -UpdateSink { param($number, $body, $state) throw 'Persistence failed' } `
+                    -SummarySink { param($value) $summaryReports.Add($value) } `
+                    -FailureSink { param($value) }
+            } | Should -Throw '*Persistence failed*'
+
+            $summaryReports | Should -HaveCount 0
+        }
+    }
+
+    It 'publishes one sanitized deferred report identically to persistence and summary' {
         $report = New-GroomingReport -Run @{
             Timestamp = '2026-07-29T09:23:00Z'
             Total = 105
@@ -282,10 +413,61 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
             }
         )
 
-        $actionsSummary = $report
-        $trackerDigest = $report
-        $actionsSummary | Should -BeExactly $trackerDigest
-        $report | Should -Match '\| #2 \| Deferred issue .*\| Deferred \|'
-        $report | Should -Match '\| 2026-07-29T09:23:00Z \| 105 \| 1 \| 1 \| 1 \| 1 .*\| 2 \|'
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        $summaryReports = [System.Collections.Generic.List[string]]::new()
+        $trackerBodies = [System.Collections.Generic.List[string]]::new()
+        Publish-GroomingReport -Report "$report`nOwner: @maintainer`u{0007}" `
+            -Issues @() `
+            -CreateSink { param($title, $body) $trackerBodies.Add($body) } `
+            -UpdateSink { param($number, $body, $state) } `
+            -SummarySink { param($value) $summaryReports.Add($value) } `
+            -FailureSink { param($value) }
+
+        $summaryReports.Count | Should -Be 1
+        $trackerBodies.Count | Should -Be 1
+        $trackerBodies[0] | Should -BeExactly "$marker`n`n$($summaryReports[0])"
+        $summaryReports[0] | Should -Match '@\u200bmaintainer'
+        $summaryReports[0] | Should -Not -Match '\x07'
+        $summaryReports[0] | Should -Match '\| #2 \| Deferred issue .*\| Deferred \|'
+        $summaryReports[0] | Should -Match '\| 2026-07-29T09:23:00Z \| 105 \| 1 \| 1 \| 1 \| 1 .*\| 2 \|'
+    }
+
+    It 'persists a successful no-action report before writing the summary' {
+        $report = New-GroomingReport -Run @{
+            Timestamp = '2026-07-30T09:23:00Z'
+            Total = 0
+            Assessed = 0
+            Priority = 0
+            RoundRobin = 0
+            Deferred = 0
+            StopReason = 'No open issues'
+            NextCursor = 0
+        } -Rows @(
+            [pscustomobject]@{
+                Number = '-'
+                Title = 'No issues assessed'
+                SelectionReason = '-'
+                Context = '-'
+                Similarity = '-'
+                Finding = 'No maintainer action'
+                NextStep = 'None'
+                Status = 'Assessed'
+            }
+        )
+        $summaryReports = [System.Collections.Generic.List[string]]::new()
+        $trackerBodies = [System.Collections.Generic.List[string]]::new()
+
+        Publish-GroomingReport -Report $report `
+            -Issues @() `
+            -CreateSink { param($title, $body) $trackerBodies.Add($body) } `
+            -UpdateSink { param($number, $body, $state) } `
+            -SummarySink { param($value) $summaryReports.Add($value) } `
+            -FailureSink { param($value) }
+
+        $summaryReports | Should -HaveCount 1
+        $trackerBodies | Should -HaveCount 1
+        $trackerBodies[0] | Should -Match ([regex]::Escape($summaryReports[0]))
+        $trackerBodies[0] | Should -Match 'No issues assessed'
+        $trackerBodies[0] | Should -Match 'No maintainer action'
     }
 }

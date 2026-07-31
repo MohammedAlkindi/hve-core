@@ -23,12 +23,13 @@ referenced by that policy.
 The final response contains the canonical run-summary and issue-results
 Markdown tables. Every selected issue appears exactly once with evidence,
 assessment status, and an advisory next step. The response is suitable for the
-GitHub Actions step summary and the single grooming tracker digest.
+GitHub Actions job summary and marker-bound grooming tracker body.
 
 ## Success Criteria
 
-* Retrieve the complete open non-pull-request issue inventory before selecting
-  the deep-assessment cohort.
+* Retrieve the complete open non-pull-request issue inventory, excluding the
+  workflow-owned marker-bearing tracker, before selecting the deep-assessment
+  cohort.
 * Prioritize new, materially changed, assigned, or claimed issues, then continue
   from the previous successful issue-number cursor with wraparound.
 * Give every deeply assessed issue exactly one `Match`, `Similar`, `Distinct`,
@@ -45,10 +46,11 @@ Stop assessment early enough to preserve the workflow time and AI-credit budget
 needed to render the final report. Mark selected but incomplete issues as
 `Deferred` and state the reason.
 
-When repository access, pagination, tracker state, or required continuation
-evidence is unavailable, report the missing evidence and use the fail-closed
-`noop` path defined by the workflow and shared policy. Do not invent inventory,
-assessment, or cursor state.
+When repository access, pagination, unambiguous tracker state, or required
+continuation evidence is unavailable, report the missing evidence and use the
+fail-closed `noop` path defined by the workflow and shared policy. An absent
+tracker is valid first-run state. Do not invent inventory, assessment, or cursor
+state.
 
 ## Constraints
 
@@ -59,15 +61,16 @@ assessment, or cursor state.
 * Do not make final duplicate or stale dispositions.
 * Do not import or invoke GitHub Backlog Manager or any execution workflow.
 * Do not generate SARIF or request Code Scanning permissions.
-* Use only the single tracker digest safe output authorized by the calling
-  workflow, and only after tracker validation succeeds.
+* Use only the single tracker publisher safe output authorized by the calling
+  workflow. The publisher owns tracker creation and update after assessment.
 
 ## Assessment Procedure
 
 1. Retrieve all open issues with complete pagination and remove pull requests
-   from the inventory.
+  and the marker-bearing tracker from the inventory.
 2. Resolve the previous successful run timestamp and issue-number cursor from
-   the validated tracker context when available.
+  the sole open or closed tracker when available. Treat no tracker as initial
+  state and multiple trackers as ambiguous.
 3. Build the priority cohort from issues created, materially changed, assigned,
    or claimed since the previous successful run.
 4. Fill remaining capacity by continuing after the prior cursor, wrapping at
