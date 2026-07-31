@@ -3,7 +3,7 @@ title: Copilot CLI Plugins
 description: Install HVE Core agents, prompts, and skills as Copilot CLI plugins
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-07-30
 ms.topic: how-to
 ---
 
@@ -14,8 +14,6 @@ collection IDs published by the repository's plugin output.
 ## Prerequisites
 
 * GitHub Copilot CLI installed and authenticated
-* Git symlink support enabled (Windows: Developer Mode +
-  `git config --global core.symlinks true`)
 
 ## Register hve-core as a Plugin Marketplace
 
@@ -77,8 +75,10 @@ Each plugin includes:
 | Skills       | Yes           | Self-contained skill packages (hve-core-all only)  |
 | Instructions | No            | Included for `#file:` references, not auto-applied |
 
-Artifacts are symlinked from the plugin directory to the source repository,
-enabling zero-copy installation.
+Each plugin is a self-contained tree of regular files and real directories.
+Artifacts are copied from the source repository during generation, so a plugin
+installs the same way on every operating system and needs no symbolic link
+support.
 
 ## Limitations
 
