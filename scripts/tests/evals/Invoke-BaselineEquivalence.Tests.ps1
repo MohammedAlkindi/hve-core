@@ -64,7 +64,12 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
             $customizedCommand = $script:Summary.plannedCommands[1]
 
             $customizedCommand | Should -Match '--workspace "[^"]+"'
-            $customizedCommand | Should -Match '--skill-dir "[^"]+\.github[/\\]skills"'
+            # The customized skill directory is materialized per agent under the run
+            # output root. Pointing it at the whole .github/skills tree would load every
+            # skill for every agent, so two different agents would produce identical
+            # customized runs and the comparison could not distinguish them.
+            $customizedCommand | Should -Match '--skill-dir "[^"]+customized-skill-dir"'
+            $customizedCommand | Should -Not -Match '--skill-dir "[^"]*\.github[/\\]skills"'
         }
 
         It 'Reports zeroed run/aggregate counters' {
@@ -275,6 +280,13 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         $workspaceRoot = Join-Path $baselineRoot 'customized/workspace'
         New-Item -ItemType Directory -Path $signatureRoot, $workspaceRoot -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:StubRepoRoot '.github/skills') -Force | Out-Null
+        # The driver materializes a per-agent customized environment, so the stub repo
+        # needs the agent file it will look for. Without it the run records a
+        # materialization failure and this test would count that instead of the compare
+        # failures it exists to measure.
+        $stubAgentsDir = Join-Path $script:StubRepoRoot '.github/agents/hve-core'
+        New-Item -ItemType Directory -Path $stubAgentsDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $stubAgentsDir 'rpi-agent.agent.md') -Encoding UTF8 -Value "---`nname: RPI Agent`n---`n`nStub agent for driver tests."
         Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'evals/baseline-equivalence/compare.eval.yml') -Destination $baselineRoot
         Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'evals/baseline-equivalence/surface-signatures/rpi-agent.yml') -Destination $signatureRoot
 

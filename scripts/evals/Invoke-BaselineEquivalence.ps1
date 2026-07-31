@@ -82,12 +82,16 @@ param(
     [string]$RepoRoot,
 
     [Parameter(Mandatory = $false)]
-    [string]$OutputPath
+    [string]$OutputPath,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$NoBaselineCache
 )
 
 $ErrorActionPreference = 'Stop'
 
 Import-Module -Name (Join-Path $PSScriptRoot 'lib/EquivalenceParsing.psm1') -Force
+Import-Module -Name (Join-Path $PSScriptRoot 'lib/EquivalenceEnvironment.psm1') -Force
 
 #region Helper Functions
 
@@ -419,13 +423,48 @@ if ($MyInvocation.InvocationName -ne '.') {
         Write-Host "   Results root:    $outputRoot" -ForegroundColor DarkGray
         Write-Host "   Run id:          $runId" -ForegroundColor DarkGray
 
+        # Baseline reuse is keyed on the inputs that would change baseline behavior. A
+        # cached run captured under a different Vally version must not be reused, or a
+        # tooling change would be attributed to the customization under test. The version
+        # is read from the lockfile rather than by invoking the CLI, because the pinned
+        # dependency is what actually determines the runtime and the read cannot fail
+        # partway or cost a subprocess.
+        $vallyVersion = 'unknown'
+        $lockPath = Join-Path $resolvedRoot 'package-lock.json'
+        if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+            try {
+                # -AsHashtable is required: the lockfile's packages map uses an empty
+                # string as the key for the root project, which ConvertFrom-Json rejects
+                # when producing PSCustomObject.
+                $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json -AsHashtable
+                $node = $lock.packages['node_modules/@microsoft/vally-cli']
+                if ($node -and $node.version) { $vallyVersion = [string]$node.version }
+            }
+            catch {
+                $null = $_
+            }
+        }
+        $baselineCacheRoot = Join-Path $resolvedRoot 'evals/results/baseline-equivalence/_baseline-cache'
+        Write-Host "   Vally version:   $vallyVersion" -ForegroundColor DarkGray
+
+        $dependencyMap = $null
+        $dependencyMapPath = Join-Path $resolvedRoot 'logs/agent-dependency-map.json'
+        if (Test-Path -LiteralPath $dependencyMapPath -PathType Leaf) {
+            try {
+                $dependencyMap = Get-Content -LiteralPath $dependencyMapPath -Raw | ConvertFrom-Json
+            }
+            catch {
+                $dependencyMap = $null
+            }
+        }
+
         $renderedCompareSpec = Join-Path $resolvedRoot "logs/baseline-equivalence-compare-$Agent.eval.yml"
         New-RenderedCompareSpec -RepoRoot $resolvedRoot -Agent $Agent -OutputPath $renderedCompareSpec | Out-Null
         $renderedSpecRelative = [System.IO.Path]::GetRelativePath($resolvedRoot, $renderedCompareSpec).Replace('\', '/')
         Write-Host "   Compare spec:    $renderedSpecRelative" -ForegroundColor DarkGray
 
         $customizedWorkspacePath = $workspaceRoot
-        $customizedSkillDirPath = Join-Path $resolvedRoot '.github/skills'
+        $customizedSkillDirPath = Join-Path $outputRoot "$($models[0])/$runId/customized-skill-dir"
         $plannedCommands = Get-PlannedCommands -Models $models -StimulusFilter $StimulusFilter -OutputRoot $outputRoot -RunId $runId -CompareSpecPath $renderedSpecRelative -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath -CustomizedSkillDirPath $customizedSkillDirPath
 
         if ($WhatIfPreference) {
@@ -479,6 +518,48 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
             }
 
+            # The customized side must be specific to the agent under test. Passing the
+            # whole skills tree would load every skill for every agent, so two different
+            # agents would produce identical customized runs and the comparison could not
+            # tell them apart.
+            $customizedSkillDirForModel = Join-Path $outputRoot "$model/$runId/customized-skill-dir"
+            try {
+                $customized = New-CustomizedEnvironment `
+                    -RepoRoot $resolvedRoot `
+                    -Agent $Agent `
+                    -WorkspacePath $workspaceRoot `
+                    -SkillDirPath $customizedSkillDirForModel `
+                    -DependencyMap $dependencyMap
+                $variantB.applied = @($customized.Applied)
+                $variants.b = $variantB
+                Write-Host "   Customized surface: $($customized.Applied.Count) artifact(s)" -ForegroundColor DarkGray
+            }
+            catch {
+                # A customized environment that cannot be built is a divergence failure,
+                # not a crash. Recording it keeps the summary readable and lets the
+                # verdict reflect the problem instead of losing the run entirely.
+                Write-Host "   Customized environment not materialized: $($_.Exception.Message)" -ForegroundColor Yellow
+                $divergenceFailures++
+                if (-not (Test-Path -LiteralPath $customizedSkillDirForModel)) {
+                    New-Item -ItemType Directory -Path $customizedSkillDirForModel -Force | Out-Null
+                }
+            }
+
+            # The baseline is identical for every agent, so running it per agent doubles
+            # cost for no signal. Reuse a persisted baseline whenever the inputs that
+            # shaped it are unchanged, and regenerate when they are not.
+            $stimulusHash = Get-StimulusContentHash -SpecPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/baseline/eval.yaml')
+            $cacheKey = Get-BaselineCacheKey -Model $model -VallyVersion $vallyVersion -StimulusHash $stimulusHash
+            $baselineRunDir = $null
+            $baselineReused = $false
+            if (-not $NoBaselineCache) {
+                $baselineRunDir = Get-BaselineCacheEntry -CacheRoot $baselineCacheRoot -CacheKey $cacheKey
+                if ($baselineRunDir) {
+                    $baselineReused = $true
+                    Write-Host "   Baseline: reusing cached run for $model (vally $vallyVersion)" -ForegroundColor DarkGray
+                }
+            }
+
             $evalBaseline = @(
                 'eval',
                 '--eval-spec', 'evals/baseline-equivalence/baseline/eval.yaml',
@@ -496,20 +577,39 @@ if ($MyInvocation.InvocationName -ne '.') {
                 '--skill-dir', $customizedSkillDirPath
             )
 
-            $codeA = Invoke-VallyCommand -Arguments $evalBaseline
-            $baselineRunDir = Resolve-LatestRunDir -OutputDir $aDir
-            $baselineFailures = Get-InvariantFailureCount -RunDir $baselineRunDir
-            if ($null -ne $baselineFailures) {
-                $invariantFailures += $baselineFailures
+            if ($baselineReused) {
+                # A reused baseline was already graded when it was captured. Its invariant
+                # tally is re-read from the cached run so the verdict still accounts for it.
+                $baselineFailures = Get-InvariantFailureCount -RunDir $baselineRunDir
+                if ($null -ne $baselineFailures) { $invariantFailures += $baselineFailures }
             }
-            elseif ($codeA -ne 0) {
-                $invariantFailures++
+            else {
+                $codeA = Invoke-VallyCommand -Arguments $evalBaseline
+                $baselineRunDir = Resolve-LatestRunDir -OutputDir $aDir
+                $baselineFailures = Get-InvariantFailureCount -RunDir $baselineRunDir
+                if ($null -ne $baselineFailures) {
+                    $invariantFailures += $baselineFailures
+                }
+                elseif ($codeA -ne 0) {
+                    $invariantFailures++
+                }
+
+                if (-not $NoBaselineCache -and $baselineRunDir -and $codeA -eq 0) {
+                    $baselineRunDir = Save-BaselineCacheEntry `
+                        -CacheRoot $baselineCacheRoot `
+                        -CacheKey $cacheKey `
+                        -RunDir $baselineRunDir `
+                        -Model $model `
+                        -VallyVersion $vallyVersion `
+                        -StimulusHash $stimulusHash
+                    Write-Host "   Baseline: cached for reuse by later agents" -ForegroundColor DarkGray
+                }
             }
 
             $codeB = Invoke-VallyCommand -Arguments $evalCustomized
             if ($codeB -ne 0) { $divergenceFailures++ }
 
-            $aRunDir = Resolve-LatestRunDir -OutputDir $aDir
+            $aRunDir = $baselineRunDir
             $bRunDir = Resolve-LatestRunDir -OutputDir $bDir
             if (-not $aRunDir -or -not $bRunDir) {
                 Write-Host "   Compare skipped: missing run dir (a=$aRunDir b=$bRunDir)" -ForegroundColor Yellow
