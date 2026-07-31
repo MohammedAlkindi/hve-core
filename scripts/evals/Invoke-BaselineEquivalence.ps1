@@ -299,6 +299,59 @@ function Invoke-VallyCommandWithCapture {
     return @{ ExitCode = $code; Lines = $lines }
 }
 
+function Get-CanonicalStimulusPolicy {
+    <#
+    .SYNOPSIS
+        Reads comparison policy and declared invariants from the canonical library.
+    .DESCRIPTION
+        The comparison JSONL identifies stimuli by name only, so policy and invariant
+        membership have to come from `stimuli.yml`. Without them the parser would count
+        intentional divergence against equivalence, and the invariant tally would fall
+        back to every deterministic grader rather than the ones actually declared.
+    .OUTPUTS
+        [hashtable] With keys Policy (name to policy) and Invariants (unique names).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$RepoRoot
+    )
+
+    $result = @{ Policy = @{}; Invariants = @() }
+    $path = Join-Path $RepoRoot 'evals/baseline-equivalence/stimuli.yml'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $result }
+
+    try {
+        $parsed = ConvertFrom-Yaml (Get-Content -LiteralPath $path -Raw)
+    }
+    catch {
+        return $result
+    }
+
+    $invariants = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($stimulus in @($parsed.stimuli)) {
+        if (-not $stimulus) { continue }
+        $name = [string]$stimulus.name
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+
+        $policy = ''
+        if ($stimulus.ContainsKey('tags') -and $stimulus.tags -and $stimulus.tags.Contains('policy')) {
+            $policy = [string]$stimulus.tags['policy']
+        }
+        $result.Policy[$name] = $policy
+
+        if ($stimulus.ContainsKey('invariants') -and $stimulus.invariants) {
+            foreach ($invariant in @($stimulus.invariants)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$invariant)) { [void]$invariants.Add([string]$invariant) }
+            }
+        }
+    }
+
+    $result.Invariants = @($invariants)
+    return $result
+}
+
 function Get-InvariantFailureCount {
     [CmdletBinding()]
     param(
@@ -491,6 +544,19 @@ if ($MyInvocation.InvocationName -ne '.') {
         $totalB = 0
         $invariantFailures = 0
         $divergenceFailures = 0
+        $dataQualityViolations = 0
+        $totalJudgeErrors = 0
+        $totalEquivalent = 0
+        $totalEquivalentTies = 0
+        $totalDivergence = 0
+        $dataQualityDiagnostics = [System.Collections.Generic.List[string]]::new()
+
+        # Policy and invariant membership come from the canonical library, because the
+        # comparison JSONL identifies stimuli by name only.
+        $canonical = Get-CanonicalStimulusPolicy -RepoRoot $resolvedRoot
+        $canonicalPolicy = $canonical.Policy
+        $canonicalInvariants = @($canonical.Invariants)
+        Write-Host "   Canonical policy: $($canonicalPolicy.Count) stimulus/stimuli, $($canonicalInvariants.Count) declared invariant(s)" -ForegroundColor DarkGray
         $compareLogs = [System.Collections.Generic.List[string]]::new()
         $meanScores = [System.Collections.Generic.List[double]]::new()
         $winRates = [System.Collections.Generic.List[double]]::new()
@@ -580,21 +646,34 @@ if ($MyInvocation.InvocationName -ne '.') {
             if ($baselineReused) {
                 # A reused baseline was already graded when it was captured. Its invariant
                 # tally is re-read from the cached run so the verdict still accounts for it.
-                $baselineFailures = Get-InvariantFailureCount -RunDir $baselineRunDir
-                if ($null -ne $baselineFailures) { $invariantFailures += $baselineFailures }
+                $baselineTally = Measure-DeclaredInvariantFailures -RunDir $baselineRunDir -InvariantNames $canonicalInvariants
+                if ($baselineTally.HasSignal) {
+                    $invariantFailures += $baselineTally.Failed
+                }
+                else {
+                    # A cached baseline that yields no invariant signal is unusable, not
+                    # clean. Treating it as zero failures would let a corrupted cache
+                    # entry silently pass every later agent.
+                    $dataQualityViolations++
+                    $dataQualityDiagnostics.Add('Cached baseline produced no invariant signal.')
+                }
             }
             else {
                 $codeA = Invoke-VallyCommand -Arguments $evalBaseline
                 $baselineRunDir = Resolve-LatestRunDir -OutputDir $aDir
-                $baselineFailures = Get-InvariantFailureCount -RunDir $baselineRunDir
-                if ($null -ne $baselineFailures) {
-                    $invariantFailures += $baselineFailures
+                $baselineTally = Measure-DeclaredInvariantFailures -RunDir $baselineRunDir -InvariantNames $canonicalInvariants
+                if ($baselineTally.HasSignal) {
+                    $invariantFailures += $baselineTally.Failed
                 }
-                elseif ($codeA -ne 0) {
-                    $invariantFailures++
+                else {
+                    # Previously a missing or unparsable report read as zero failures,
+                    # so a baseline that never produced a usable result looked clean.
+                    $dataQualityViolations++
+                    $dataQualityDiagnostics.Add('Baseline run produced no invariant signal.')
+                    if ($codeA -ne 0) { $invariantFailures++ }
                 }
 
-                if (-not $NoBaselineCache -and $baselineRunDir -and $codeA -eq 0) {
+                if (-not $NoBaselineCache -and $baselineRunDir -and $codeA -eq 0 -and $baselineTally.HasSignal) {
                     $baselineRunDir = Save-BaselineCacheEntry `
                         -CacheRoot $baselineCacheRoot `
                         -CacheKey $cacheKey `
@@ -605,6 +684,7 @@ if ($MyInvocation.InvocationName -ne '.') {
                     Write-Host "   Baseline: cached for reuse by later agents" -ForegroundColor DarkGray
                 }
             }
+            foreach ($diagnostic in @($baselineTally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
 
             $codeB = Invoke-VallyCommand -Arguments $evalCustomized
             if ($codeB -ne 0) { $divergenceFailures++ }
@@ -631,7 +711,7 @@ if ($MyInvocation.InvocationName -ne '.') {
                 $compareLogs.Add($compareLog)
 
                 $jsonlLines = if (Test-Path -LiteralPath $compareJsonlPath) { @(Get-Content -LiteralPath $compareJsonlPath -Encoding utf8) } else { @() }
-                $tally = Measure-CompareTrials -Lines $jsonlLines
+                $tally = Measure-CompareTrials -Lines $jsonlLines -StimulusPolicy $canonicalPolicy
                 if ($tally.Total -le 0) {
                     Write-Host "   Compare emitted no parseable comparison records: $compareJsonlPath" -ForegroundColor Yellow
                     if (-not $compareFailed) { $divergenceFailures++ }
@@ -640,10 +720,29 @@ if ($MyInvocation.InvocationName -ne '.') {
                     Write-Host "   Compare records carried no summary statistics; cannot assess equivalence: $compareJsonlPath" -ForegroundColor Yellow
                     if (-not $compareFailed) { $divergenceFailures++ }
                 }
+
+                # Records that could not be scored are counted rather than dropped. An
+                # unmatched trajectory or malformed record means the comparison is
+                # incomplete, and reporting a tie ratio computed only from the survivors
+                # would overstate equivalence.
+                $structural = $tally.MalformedRecords + $tally.UnmatchedBaseline + $tally.UnmatchedTreatment + $tally.DuplicateTrials
+                if ($structural -gt 0) {
+                    $dataQualityViolations += $structural
+                    Write-Host "   Data quality: $($tally.MalformedRecords) malformed, $($tally.UnmatchedBaseline) unmatched baseline, $($tally.UnmatchedTreatment) unmatched treatment, $($tally.DuplicateTrials) duplicate" -ForegroundColor Yellow
+                }
+                if ($tally.JudgeErrors -gt 0) {
+                    Write-Host "   Judge errors: $($tally.JudgeErrors) of $($tally.Total + $tally.JudgeErrors) attempted trial(s)" -ForegroundColor Yellow
+                }
+                foreach ($diagnostic in @($tally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
+
                 $totalRuns += $tally.Total
                 $totalTies += $tally.Ties
                 $totalA   += $tally.AWins
                 $totalB   += $tally.BWins
+                $totalJudgeErrors += $tally.JudgeErrors
+                $totalEquivalent += $tally.EquivalentTotal
+                $totalEquivalentTies += $tally.EquivalentTies
+                $totalDivergence += $tally.DivergenceTotal
                 if ($tally.SummaryCount -gt 0) {
                     $meanScores.Add([double]$tally.MeanScore)
                     $winRates.Add([double]$tally.WinRate)
@@ -664,6 +763,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             -CiHigh $aggregateCiHigh `
             -InvariantFailures $invariantFailures `
             -DivergenceFailures $divergenceFailures `
+            -DataQualityViolations $dataQualityViolations `
             -Tier $Tier
 
         $summary = [ordered]@{
@@ -681,6 +781,14 @@ if ($MyInvocation.InvocationName -ne '.') {
             winRate            = [math]::Round($aggregateWinRate, 4)
             invariantFailures  = $invariantFailures
             divergenceFailures = $divergenceFailures
+            dataQualityViolations = $dataQualityViolations
+            judgeErrors        = $totalJudgeErrors
+            judgeErrorRate     = if (($totalRuns + $totalJudgeErrors) -gt 0) { [math]::Round($totalJudgeErrors / ($totalRuns + $totalJudgeErrors), 6) } else { 0.0 }
+            equivalentTrials   = $totalEquivalent
+            equivalentTies     = $totalEquivalentTies
+            divergenceTrials   = $totalDivergence
+            tieRatio           = if ($totalEquivalent -gt 0) { [math]::Round($totalEquivalentTies / $totalEquivalent, 4) } else { 0.0 }
+            dataQualityDiagnostics = @($dataQualityDiagnostics | Select-Object -First 50)
             verdict            = $verdict
             variants           = $variants
             compareLogs        = @($compareLogs)

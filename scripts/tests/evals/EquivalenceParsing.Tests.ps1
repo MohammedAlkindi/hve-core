@@ -175,6 +175,14 @@ Describe 'Measure-CompareTrials against captured Vally 0.10 output' -Tag 'Unit' 
         $script:V010Tally.Total | Should -Be 2
     }
 
+    It 'Counts the unmatched trajectories as data-quality signals' {
+        # The counterpart to the assertion above. Total still reflects matched pairs
+        # only, but the unmatched trajectories are now reported instead of vanishing,
+        # so an incomplete comparison cannot present itself as a complete one.
+        $script:V010Tally.UnmatchedBaseline | Should -Be 1
+        $script:V010Tally.UnmatchedTreatment | Should -Be 1
+    }
+
     It 'Exposes the 0.10 summary fields the reporting contract depends on' {
         $summary = $script:V010Record.summary
         $summary.trialCount | Should -Be 2
@@ -183,6 +191,212 @@ Describe 'Measure-CompareTrials against captured Vally 0.10 output' -Tag 'Unit' 
         $summary.PSObject.Properties.Name | Should -Contain 'losses'
         $summary.PSObject.Properties.Name | Should -Contain 'mcnemar'
         $summary.PSObject.Properties.Name | Should -Contain 'metricDeltas'
+    }
+}
+
+Describe 'Measure-CompareTrials data-quality accounting' -Tag 'Unit' {
+    Context 'Judge errors' {
+        It 'Counts an errored trial instead of skipping it silently' {
+            # Previously a bare continue dropped these, so a run whose comparisons
+            # mostly errored could report a healthy tie ratio from the survivors.
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"s","trials":[{"trialIndex":0,"winner":"tie"},{"trialIndex":1,"errored":true}]}]}'
+            $result = Measure-CompareTrials -Lines @($record)
+            $result.Total | Should -Be 1
+            $result.JudgeErrors | Should -Be 1
+        }
+
+        It 'Computes the error rate against every attempted trial' {
+            # The denominator must include the failures, or the rate shrinks as the
+            # failures it measures increase.
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"s","trials":[{"trialIndex":0,"winner":"tie"},{"trialIndex":1,"errored":true},{"trialIndex":2,"errored":true}]}]}'
+            $result = Measure-CompareTrials -Lines @($record)
+            $result.JudgeErrors | Should -Be 2
+            $result.JudgeErrorRate | Should -Be ([math]::Round(2 / 3, 6))
+        }
+
+        It 'Reports a zero error rate when nothing errored' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"s","trials":[{"trialIndex":0,"winner":"tie"}]}]}'
+            (Measure-CompareTrials -Lines @($record)).JudgeErrorRate | Should -Be 0.0
+        }
+
+        It 'Attributes judge errors to their stimulus' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"s","trials":[{"trialIndex":0,"errored":true}]}]}'
+            (Measure-CompareTrials -Lines @($record)).PerStimulus['s'].JudgeErrors | Should -Be 1
+        }
+    }
+
+    Context 'Structural violations' {
+        It 'Counts a malformed line rather than ignoring it' {
+            $result = Measure-CompareTrials -Lines @('{not valid json', '{"type":"comparison","summary":{}}')
+            $result.MalformedRecords | Should -Be 1
+        }
+
+        It 'Counts an unrecognized winner as malformed' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"s","trials":[{"trialIndex":0,"winner":"maybe"}]}]}'
+            $result = Measure-CompareTrials -Lines @($record)
+            $result.Total | Should -Be 0
+            $result.MalformedRecords | Should -Be 1
+        }
+
+        It 'Counts unmatched trajectories on both sides' {
+            $record = '{"type":"comparison","stimuli":[],"unmatchedBaseline":["a (trial 0)","b (trial 0)"],"unmatchedTreatment":["c (trial 0)"]}'
+            $result = Measure-CompareTrials -Lines @($record)
+            $result.UnmatchedBaseline | Should -Be 2
+            $result.UnmatchedTreatment | Should -Be 1
+        }
+
+        It 'Counts a duplicate trial index' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"s","trials":[{"trialIndex":0,"winner":"tie"},{"trialIndex":0,"winner":"tie"}]}]}'
+            (Measure-CompareTrials -Lines @($record)).DuplicateTrials | Should -Be 1
+        }
+
+        It 'Records a diagnostic for each violation' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"s","trials":[{"trialIndex":0,"errored":true}]}],"unmatchedBaseline":["x (trial 0)"]}'
+            $result = Measure-CompareTrials -Lines @($record)
+            @($result.Diagnostics).Count | Should -BeGreaterThan 1
+            ($result.Diagnostics -join ' ') | Should -Match 'Judge error'
+            ($result.Diagnostics -join ' ') | Should -Match 'Unmatched baseline'
+        }
+
+        It 'Counts comparison records so a missing pair is detectable' {
+            $result = Measure-CompareTrials -Lines @('{"type":"comparison","summary":{}}')
+            $result.ComparisonRecords | Should -Be 1
+        }
+    }
+
+    Context 'Comparison policy denominator' {
+        BeforeAll {
+            $script:PolicyMap = @{ 'equal-one' = 'equivalent'; 'equal-two' = 'equivalent'; 'diverges' = 'documented-divergence' }
+            $script:PolicyRecord = '{"type":"comparison","stimuli":[' +
+                '{"stimulusName":"equal-one","trials":[{"trialIndex":0,"winner":"tie"}]},' +
+                '{"stimulusName":"equal-two","trials":[{"trialIndex":0,"winner":"treatment"}]},' +
+                '{"stimulusName":"diverges","trials":[{"trialIndex":0,"winner":"treatment"}]}]}'
+        }
+
+        It 'Excludes documented-divergence stimuli from the equivalence denominator' {
+            # A stimulus expected to differ must not count against equivalence, which
+            # is the scoring defect the policy tag exists to fix.
+            $result = Measure-CompareTrials -Lines @($script:PolicyRecord) -StimulusPolicy $script:PolicyMap
+            $result.EquivalentTotal | Should -Be 2
+            $result.DivergenceTotal | Should -Be 1
+        }
+
+        It 'Computes the tie ratio over equivalent stimuli only' {
+            $result = Measure-CompareTrials -Lines @($script:PolicyRecord) -StimulusPolicy $script:PolicyMap
+            $result.TieRatio | Should -Be 0.5
+        }
+
+        It 'Still counts every trial in the overall total' {
+            $result = Measure-CompareTrials -Lines @($script:PolicyRecord) -StimulusPolicy $script:PolicyMap
+            $result.Total | Should -Be 3
+        }
+
+        It 'Treats all stimuli as equivalent when no policy map is supplied' {
+            $result = Measure-CompareTrials -Lines @($script:PolicyRecord)
+            $result.EquivalentTotal | Should -Be 3
+            $result.DivergenceTotal | Should -Be 0
+        }
+    }
+}
+
+Describe 'Measure-DeclaredInvariantFailures' -Tag 'Unit' {
+    BeforeAll {
+        function New-RunFixture {
+            param(
+                [Parameter(Mandatory = $true)][string]$Root,
+                [Parameter(Mandatory = $true)][string[]]$Lines
+            )
+            New-Item -ItemType Directory -Path $Root -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Root 'results.jsonl') -Value $Lines -Encoding UTF8
+        }
+
+        $script:PassLine = '{"gradeResult":{"stimulusName":"s","details":[{"name":"answers-four","kind":"code","passed":true},{"name":"response-quality","kind":"llm","passed":true}]}}'
+        $script:JudgeFailLine = '{"gradeResult":{"stimulusName":"s","details":[{"name":"answers-four","kind":"code","passed":true},{"name":"response-quality","kind":"llm","passed":false}]}}'
+        $script:InvariantFailLine = '{"gradeResult":{"stimulusName":"s","details":[{"name":"answers-four","kind":"code","passed":false}]}}'
+    }
+
+    It 'Reports no signal when the run directory is missing' {
+        # Previously indistinguishable from zero failures, which let a run that never
+        # produced a report read as clean.
+        $result = Measure-DeclaredInvariantFailures -RunDir (Join-Path ([System.IO.Path]::GetTempPath()) 'absent-run')
+        $result.HasSignal | Should -BeFalse
+        $result.Failed | Should -Be 0
+    }
+
+    It 'Reports no signal when results.jsonl is absent' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        try {
+            (Measure-DeclaredInvariantFailures -RunDir $root).HasSignal | Should -BeFalse
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Reports signal with zero failures for a clean run' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:PassLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four')
+            $result.HasSignal | Should -BeTrue
+            $result.Failed | Should -Be 0
+            $result.Evaluated | Should -Be 1
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Counts a failing declared invariant' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:InvariantFailLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four')
+            $result.Failed | Should -Be 1
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Ignores a failing LLM quality judge when invariants are declared' {
+        # The strict half of the verdict must stay deterministic. A subjective miss on
+        # a benign prompt previously failed the entire run.
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:JudgeFailLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four')
+            $result.HasSignal | Should -BeTrue
+            $result.Failed | Should -Be 0
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Falls back to deterministic graders when no invariants are declared' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:JudgeFailLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root
+            $result.Evaluated | Should -Be 1
+            $result.Failed | Should -Be 0
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Reports no signal when a declared invariant never appears' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:PassLine)
+            (Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('never-present')).HasSignal | Should -BeFalse
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Tolerates a malformed line without losing the rest of the run' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @('{broken', $script:InvariantFailLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four')
+            $result.HasSignal | Should -BeTrue
+            $result.Failed | Should -Be 1
+            ($result.Diagnostics -join ' ') | Should -Match 'Malformed'
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

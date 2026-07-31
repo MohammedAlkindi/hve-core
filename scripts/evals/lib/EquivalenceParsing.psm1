@@ -19,10 +19,22 @@ Set-StrictMode -Version Latest
 function Measure-CompareTrials {
     <#
     .SYNOPSIS
-        Aggregates comparison trials and summary statistics from Vally JSONL records.
+        Aggregates comparison trials, summary statistics, and data-quality signals.
     .DESCRIPTION
         Tallies recognized winners and combines complete confidence-interval pairs
         conservatively by taking the maximum lower and minimum upper bounds.
+
+        Records that cannot be scored are counted rather than skipped. A trial marked
+        `errored` is a judge error, an unparseable line is a malformed record, and a
+        trajectory present on only one side is unmatched. Each of these previously
+        vanished silently, so a run whose comparisons mostly failed could report a
+        healthy tie ratio computed from the few survivors. The counts returned here let
+        the caller decide, rather than inferring success from absence of evidence.
+
+        Optionally accepts a stimulus policy map. Stimuli tagged `documented-divergence`
+        are expected to differ, so counting them against equivalence penalizes intended
+        customization. When the map is supplied, equivalent-only tallies are reported
+        alongside the totals.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -31,16 +43,29 @@ function Measure-CompareTrials {
         [AllowNull()]
         [AllowEmptyCollection()]
         [AllowEmptyString()]
-        [string[]]$Lines
+        [string[]]$Lines,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [hashtable]$StimulusPolicy
     )
 
     $ties = 0; $baselineWins = 0; $treatmentWins = 0; $total = 0
+    $equivalentTies = 0; $equivalentTotal = 0
+    $divergenceTotal = 0
     $summaryCount = 0
+    $judgeErrors = 0
+    $malformedLines = 0
+    $unmatchedBaseline = 0
+    $unmatchedTreatment = 0
+    $comparisonRecords = 0
+    $duplicateTrials = 0
     $perStimulus = @{}
     $meanScores = [System.Collections.Generic.List[double]]::new()
     $winRates = [System.Collections.Generic.List[double]]::new()
     $ciLows = [System.Collections.Generic.List[double]]::new()
     $ciHighs = [System.Collections.Generic.List[double]]::new()
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
 
     foreach ($line in $Lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -48,29 +73,79 @@ function Measure-CompareTrials {
             $record = $line | ConvertFrom-Json -Depth 100 -ErrorAction Stop
         }
         catch {
+            # A malformed line is evidence of a broken run, not an empty one.
+            $malformedLines++
+            $diagnostics.Add('Malformed JSONL line could not be parsed as JSON.')
             continue
         }
         if (-not $record.PSObject.Properties['type'] -or $record.type -ne 'comparison') { continue }
+        $comparisonRecords++
 
         $stimuli = if ($record.PSObject.Properties['stimuli'] -and $record.stimuli) { @($record.stimuli) } else { @() }
         foreach ($stimulus in $stimuli) {
             if (-not $stimulus) { continue }
             $name = if ($stimulus.PSObject.Properties['stimulusName']) { [string]$stimulus.stimulusName } else { '<unknown>' }
             if (-not $perStimulus.ContainsKey($name)) {
-                $perStimulus[$name] = @{ Ties = 0; AWins = 0; BWins = 0 }
+                $perStimulus[$name] = @{ Ties = 0; AWins = 0; BWins = 0; JudgeErrors = 0 }
             }
+
+            $policy = if ($StimulusPolicy -and $StimulusPolicy.ContainsKey($name)) { [string]$StimulusPolicy[$name] } else { '' }
+            $isEquivalent = ($policy -eq 'equivalent') -or (-not $StimulusPolicy)
+
+            $seenIndices = [System.Collections.Generic.HashSet[string]]::new()
             $trials = if ($stimulus.PSObject.Properties['trials'] -and $stimulus.trials) { @($stimulus.trials) } else { @() }
             foreach ($trial in $trials) {
                 if (-not $trial) { continue }
-                if ($trial.PSObject.Properties['errored'] -and $trial.errored) { continue }
+
+                if ($trial.PSObject.Properties['trialIndex'] -and $null -ne $trial.trialIndex) {
+                    $indexKey = [string]$trial.trialIndex
+                    if (-not $seenIndices.Add($indexKey)) {
+                        $duplicateTrials++
+                        $diagnostics.Add("Duplicate trial index '$indexKey' for stimulus '$name'.")
+                    }
+                }
+
+                if ($trial.PSObject.Properties['errored'] -and $trial.errored) {
+                    $judgeErrors++
+                    $perStimulus[$name].JudgeErrors += 1
+                    $diagnostics.Add("Judge error on stimulus '$name'.")
+                    continue
+                }
+
                 $winner = if ($trial.PSObject.Properties['winner']) { [string]$trial.winner } else { '' }
                 switch ($winner) {
-                    'tie' { $ties++; $total++; $perStimulus[$name].Ties += 1 }
-                    'baseline' { $baselineWins++; $total++; $perStimulus[$name].AWins += 1 }
-                    'treatment' { $treatmentWins++; $total++; $perStimulus[$name].BWins += 1 }
-                    default { Write-Verbose "Unrecognized winner '$winner' for stimulus '$name'; excluded from tally." }
+                    'tie' {
+                        $ties++; $total++; $perStimulus[$name].Ties += 1
+                        if ($isEquivalent) { $equivalentTies++; $equivalentTotal++ } else { $divergenceTotal++ }
+                    }
+                    'baseline' {
+                        $baselineWins++; $total++; $perStimulus[$name].AWins += 1
+                        if ($isEquivalent) { $equivalentTotal++ } else { $divergenceTotal++ }
+                    }
+                    'treatment' {
+                        $treatmentWins++; $total++; $perStimulus[$name].BWins += 1
+                        if ($isEquivalent) { $equivalentTotal++ } else { $divergenceTotal++ }
+                    }
+                    default {
+                        $malformedLines++
+                        $diagnostics.Add("Unrecognized winner '$winner' for stimulus '$name'.")
+                    }
                 }
             }
+        }
+
+        # A trajectory present on only one side means the pair could not be compared.
+        # Vally reports these outside the per-stimulus tally, so they are invisible to
+        # any count derived from trials alone.
+        if ($record.PSObject.Properties['unmatchedBaseline'] -and $record.unmatchedBaseline) {
+            $entries = @($record.unmatchedBaseline)
+            $unmatchedBaseline += $entries.Count
+            foreach ($entry in $entries) { $diagnostics.Add("Unmatched baseline trajectory: $entry") }
+        }
+        if ($record.PSObject.Properties['unmatchedTreatment'] -and $record.unmatchedTreatment) {
+            $entries = @($record.unmatchedTreatment)
+            $unmatchedTreatment += $entries.Count
+            foreach ($entry in $entries) { $diagnostics.Add("Unmatched treatment trajectory: $entry") }
         }
 
         if (-not ($record.PSObject.Properties['summary'] -and $record.summary)) { continue }
@@ -93,18 +168,140 @@ function Measure-CompareTrials {
     $ciLow = if ($ciLows.Count -gt 0) { ($ciLows | Measure-Object -Maximum).Maximum } else { 0.0 }
     $ciHigh = if ($ciHighs.Count -gt 0) { ($ciHighs | Measure-Object -Minimum).Minimum } else { 0.0 }
 
+    # The judge-error rate is computed from every trial that was attempted, including
+    # the ones that failed, so the denominator is not silently reduced by the failures
+    # it is meant to measure.
+    $attempted = $total + $judgeErrors
+    $judgeErrorRate = if ($attempted -gt 0) { $judgeErrors / $attempted } else { 0.0 }
+    $tieRatio = if ($equivalentTotal -gt 0) { $equivalentTies / $equivalentTotal } else { 0.0 }
+
     return @{
-        Total        = $total
-        Ties         = $ties
-        AWins        = $baselineWins
-        BWins        = $treatmentWins
-        PerStimulus  = $perStimulus
-        SummaryCount = $summaryCount
-        MeanScore    = [math]::Round($meanScore, 4)
-        WinRate      = [math]::Round($winRate, 4)
-        CiLow        = [math]::Round($ciLow, 4)
-        CiHigh       = [math]::Round($ciHigh, 4)
+        Total              = $total
+        Ties               = $ties
+        AWins              = $baselineWins
+        BWins              = $treatmentWins
+        PerStimulus        = $perStimulus
+        SummaryCount       = $summaryCount
+        MeanScore          = [math]::Round($meanScore, 4)
+        WinRate            = [math]::Round($winRate, 4)
+        CiLow              = [math]::Round($ciLow, 4)
+        CiHigh             = [math]::Round($ciHigh, 4)
+        JudgeErrors        = $judgeErrors
+        JudgeErrorRate     = [math]::Round($judgeErrorRate, 6)
+        MalformedRecords   = $malformedLines
+        UnmatchedBaseline  = $unmatchedBaseline
+        UnmatchedTreatment = $unmatchedTreatment
+        DuplicateTrials    = $duplicateTrials
+        ComparisonRecords  = $comparisonRecords
+        EquivalentTotal    = $equivalentTotal
+        EquivalentTies     = $equivalentTies
+        DivergenceTotal    = $divergenceTotal
+        TieRatio           = [math]::Round($tieRatio, 4)
+        Diagnostics        = @($diagnostics)
     }
+}
+
+function Measure-DeclaredInvariantFailures {
+    <#
+    .SYNOPSIS
+        Counts declared-invariant failures from a run's structured results.
+    .DESCRIPTION
+        Reads `results.jsonl` rather than the rendered Markdown report, and reports
+        whether it found any signal at all. Two defects motivate both choices.
+
+        The Markdown scraper matches any table row ending in a verdict emoji and counts
+        every non-pass as an invariant failure. That population includes the
+        `response-quality` prompt grader, which is judged by an LLM. Because the driver
+        fails outright when the invariant count is nonzero, the strictest half of the
+        verdict was gated on a non-deterministic judge, and one subjective miss on a
+        benign prompt could fail an entire run. Scoping to the named invariants declared
+        in the canonical library keeps the fail-closed half deterministic.
+
+        The scraper also returns no distinguishable value when the directory, the file,
+        the read, or the parse fails, so a run that produced no report at all was
+        indistinguishable from a run with zero failures. `HasSignal` separates those.
+    .OUTPUTS
+        [hashtable] With keys HasSignal, Failed, Evaluated, and Diagnostics.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$RunDir,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string[]]$InvariantNames
+    )
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+
+    if ([string]::IsNullOrWhiteSpace($RunDir) -or -not (Test-Path -LiteralPath $RunDir)) {
+        $diagnostics.Add('Invariant run directory is missing.')
+        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; Diagnostics = @($diagnostics) }
+    }
+
+    $files = @(Get-ChildItem -LiteralPath $RunDir -Filter 'results.jsonl' -Recurse -File -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) {
+        $diagnostics.Add('No results.jsonl found under the run directory.')
+        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; Diagnostics = @($diagnostics) }
+    }
+
+    $scoped = $null
+    if ($InvariantNames) {
+        $scoped = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($name in $InvariantNames) {
+            if (-not [string]::IsNullOrWhiteSpace($name)) { [void]$scoped.Add($name) }
+        }
+        if ($scoped.Count -eq 0) { $scoped = $null }
+    }
+
+    $failed = 0
+    $evaluated = 0
+
+    foreach ($file in $files) {
+        foreach ($line in (Get-Content -LiteralPath $file.FullName -Encoding utf8)) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try {
+                $record = $line | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+            }
+            catch {
+                $diagnostics.Add('Malformed line in results.jsonl.')
+                continue
+            }
+            if (-not $record.PSObject.Properties['gradeResult'] -or -not $record.gradeResult) { continue }
+            $grade = $record.gradeResult
+            if (-not $grade.PSObject.Properties['details'] -or -not $grade.details) { continue }
+
+            $stimulus = if ($grade.PSObject.Properties['stimulusName']) { [string]$grade.stimulusName } else { '<unknown>' }
+            foreach ($detail in @($grade.details)) {
+                if (-not $detail) { continue }
+                $name = if ($detail.PSObject.Properties['name']) { [string]$detail.name } else { '' }
+                if ($scoped -and -not $scoped.Contains($name)) { continue }
+                if (-not $scoped) {
+                    # Without a declared list, restrict to deterministic graders so an
+                    # LLM judge cannot fail the strict half of the verdict.
+                    $kind = if ($detail.PSObject.Properties['kind']) { [string]$detail.kind } else { '' }
+                    if ($kind -ne 'code') { continue }
+                }
+                $evaluated++
+                $passed = $detail.PSObject.Properties['passed'] -and $detail.passed
+                if (-not $passed) {
+                    $failed++
+                    $diagnostics.Add("Invariant '$name' failed on stimulus '$stimulus'.")
+                }
+            }
+        }
+    }
+
+    if ($evaluated -eq 0) {
+        $diagnostics.Add('No invariant graders were evaluated in this run.')
+        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; Diagnostics = @($diagnostics) }
+    }
+
+    return @{ HasSignal = $true; Failed = $failed; Evaluated = $evaluated; Diagnostics = @($diagnostics) }
 }
 
 function Measure-InvariantFailures {
@@ -137,6 +334,15 @@ function Measure-InvariantFailures {
 function Get-VerdictFromAggregate {
     # A confidence interval that excludes zero signals a documented-divergence review.
     # PR runs warn; nightly runs fail. Missing runs always fail.
+    #
+    # Data-quality violations are treated as strictly as invariant failures. Malformed,
+    # unmatched, or duplicate records mean the comparison is incomplete, and an
+    # incomplete comparison cannot evidence equivalence. Reporting a pass from the
+    # records that happened to survive would assert something the run did not measure.
+    #
+    # The judge-error budget is deliberately not enforced here. Its threshold is
+    # unresolved pending calibration, so judge errors are counted and reported without
+    # gating a verdict.
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -145,11 +351,12 @@ function Get-VerdictFromAggregate {
         [Parameter(Mandatory)][double]$CiHigh,
         [Parameter(Mandatory)][int]$InvariantFailures,
         [Parameter(Mandatory)][int]$DivergenceFailures,
-        [Parameter(Mandatory)][string]$Tier
+        [Parameter(Mandatory)][string]$Tier,
+        [Parameter(Mandatory = $false)][int]$DataQualityViolations = 0
     )
 
     if ($Runs -le 0) { return 'fail' }
-    if ($InvariantFailures -gt 0 -or $DivergenceFailures -gt 0) {
+    if ($InvariantFailures -gt 0 -or $DivergenceFailures -gt 0 -or $DataQualityViolations -gt 0) {
         if ($Tier -eq 'pr') { return 'warn' } else { return 'fail' }
     }
 
@@ -678,6 +885,7 @@ function Get-AppliedArtifacts {
 Export-ModuleMember -Function `
     Measure-CompareTrials, `
     Measure-InvariantFailures, `
+    Measure-DeclaredInvariantFailures, `
     Get-VerdictFromAggregate, `
     Get-OutputHash, `
     ConvertFrom-EquivalenceResults, `
