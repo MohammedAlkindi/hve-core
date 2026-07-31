@@ -2,7 +2,7 @@
 title: Agentic Workflows
 description: End-to-end process flow for AI-driven issue triage, implementation, and review workflows in hve-core
 author: HVE Core Team
-ms.date: 2026-07-16
+ms.date: 2026-07-31
 ms.topic: concept
 sidebar_position: 4
 keywords:
@@ -136,9 +136,9 @@ Because these files are generated, Dependabot is configured to leave them alone.
 
 The `gh-aw-actions` version is pinned in `.github/aw/actions-lock.json`, which maps each action reference to a resolved commit SHA. This file, not Dependabot, is the upgrade path:
 
-1. Bump the `gh-aw-actions` version in `.github/aw/actions-lock.json`.
-2. Run `gh aw compile` to regenerate every `*.lock.yml` file against the new version.
-3. Commit the updated `actions-lock.json` and the regenerated lock files together.
+1. Upgrade the `gh aw` CLI/compiler (the resolved `gh-aw-actions` version is tied to the compiler release, not set independently).
+2. Run `gh aw compile` (or `gh aw update-actions`) with API access to re-resolve actions and regenerate `actions-lock.json` plus every `*.lock.yml` file.
+3. Commit `actions-lock.json` and the regenerated lock files together.
 
 The pinned version is version-locked to the `gh aw` compiler that produces the lock files, so the bump and the recompile belong in the same change.
 
