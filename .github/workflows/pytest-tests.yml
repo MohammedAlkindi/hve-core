@@ -84,6 +84,28 @@ jobs:
             echo "Skipping dependency installation"
           fi
 
+      - name: Set up Node for skill-local runtimes
+        if: "!inputs.changed-files-only || steps.check-python.outputs.has_changes == 'true'"
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Install skill-local Node dependencies
+        if: "!inputs.changed-files-only || steps.check-python.outputs.has_changes == 'true'"
+        shell: bash
+        run: |
+          # Python tests may shell out to a Node runtime vendored inside the
+          # skill. Install every committed lockfile so those subprocesses resolve.
+          found=0
+          while IFS= read -r lockfile; do
+            found=1
+            echo "Installing $(dirname "$lockfile")"
+            (cd "$(dirname "$lockfile")" && npm ci)
+          done < <(find "${{ inputs.working-directory }}" -type d -name node_modules -prune -o -type f -name package-lock.json -print)
+          if [ "$found" -eq 0 ]; then
+            echo "No package-lock.json under ${{ inputs.working-directory }}; skipping install"
+          fi
+
       - name: Run pytest with coverage
         if: "!inputs.changed-files-only || steps.check-python.outputs.has_changes == 'true'"
         working-directory: ${{ inputs.working-directory }}

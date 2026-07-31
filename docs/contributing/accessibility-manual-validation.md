@@ -36,20 +36,20 @@ Each item below is grouped into a validation workstream, names the WCAG success 
 
 Use the register below to connect each public-safe bug to its WCAG success criterion, the workstream or workstreams that exercise it, the automation coverage status, and the manual result recorded for each workstream.
 
-| Bug | WCAG SC | Workstream(s) | Automated lock status | Per-workstream manual result |
-| --- | --- | --- | --- | --- |
-| 14399 | 2.1.1 | W1 | Automated: keyboard reachability lock | Record per run |
-| 14396 | 2.4.3 | W4 | Automated: focus-order lock | Record per run |
-| 14400 | 1.4.4 | W3 | Automated: zoom matrix at 100-250 percent; Edge remains manual-authoritative | Record per run |
-| 14401 | 1.4.10 | W3 | Automated: reflow lock plus narrow-viewport brand overlap lock | Record per run |
-| 14404 | 1.3.1 | W5, W7 | Automated: table and structure lock | Record per run for each workstream |
-| 14409 | 4.1.2 | W1, W5 | Automated: clear-button accessible name lock; spoken output remains manual | Record per run for each workstream |
-| 14410 | 4.1.3 | W2 | Automated: status region presence and text; spoken announcement is a manual boundary | Record per run |
-| 14462 | 1.3.1 | W6 | Automated: heading-outline lock | Record per run |
-| 14528 | 1.3.1 | W5 | Automated: structure boundary; spoken association remains manual | Record per run |
-| 14531 | 1.3.1 | W5 | Automated: structure boundary; spoken group label remains manual | Record per run |
-| 14398 | 1.4.1 | W6 | Automated: every prose link carries a non-color cue | Record per run |
-| 14402 | 2.4.7 | W6 | Automated: focus indicator at least 2 CSS px on every focusable | Record per run |
+| Bug   | WCAG SC | Workstream(s) | Automated lock status                                                                | Per-workstream manual result       |
+|-------|---------|---------------|--------------------------------------------------------------------------------------|------------------------------------|
+| 14399 | 2.1.1   | W1            | Automated: keyboard reachability lock                                                | Record per run                     |
+| 14396 | 2.4.3   | W4            | Automated: focus-order lock                                                          | Record per run                     |
+| 14400 | 1.4.4   | W3            | Automated: zoom matrix at 100-250 percent; Edge remains manual-authoritative         | Record per run                     |
+| 14401 | 1.4.10  | W3            | Automated: reflow lock plus narrow-viewport brand overlap lock                       | Record per run                     |
+| 14404 | 1.3.1   | W5, W7        | Automated: table and structure lock                                                  | Record per run for each workstream |
+| 14409 | 4.1.2   | W1, W5        | Automated: clear-button accessible name lock; spoken output remains manual           | Record per run for each workstream |
+| 14410 | 4.1.3   | W2            | Automated: status region presence and text; spoken announcement is a manual boundary | Record per run                     |
+| 14462 | 1.3.1   | W6            | Automated: heading-outline lock                                                      | Record per run                     |
+| 14528 | 1.3.1   | W5            | Automated: structure boundary; spoken association remains manual                     | Record per run                     |
+| 14531 | 1.3.1   | W5            | Automated: structure boundary; spoken group label remains manual                     | Record per run                     |
+| 14398 | 1.4.1   | W6            | Automated: every prose link carries a non-color cue                                  | Record per run                     |
+| 14402 | 2.4.7   | W6            | Automated: focus indicator at least 2 CSS px on every focusable                      | Record per run                     |
 
 > [!NOTE]
 > An automated lock proves the deterministic part of a behavior, such as an accessible name being present or a control being reachable. It does not prove what a screen reader speaks. Every entry above still needs one human pass before closure.
@@ -60,7 +60,7 @@ Use this section when confirming that a specific behavior can be closed. Each it
 
 Run the site locally and browse the served URL. Record every result using the evidence template below.
 
-### 14409 — Search clear button has an accessible name
+### 14409: Search clear button has an accessible name
 
 * Automation covers: the control resolves and exposes a non-empty accessible name.
 * Manual gap: the spoken name and whether it is operable by keyboard alone.
@@ -72,7 +72,7 @@ Run the site locally and browse the served URL. Record every result using the ev
   5. Press `Enter` or `Space` and confirm the query clears and focus remains predictable.
 * Pass condition: the control is keyboard reachable, announces a meaningful name and role, and clears the query.
 
-### 14401 — Narrow viewport does not overlap the site brand
+### 14401: Narrow viewport does not overlap the site brand
 
 * Automation covers: no overlap and no horizontal scroll at 320 pixels.
 * Manual gap: whether the brand still has an accessible name after being visually hidden.
@@ -83,7 +83,7 @@ Run the site locally and browse the served URL. Record every result using the ev
   4. Repeat at 420 pixels, which is the boundary where the rule changes.
 * Pass condition: no overlap, no horizontal scroll, and the brand keeps a spoken name at both widths.
 
-### 14400 — Search placeholder survives text zoom
+### 14400: Search placeholder survives text zoom
 
 * Automation covers: a zoom matrix from 100 through 250 percent using scaled viewports with matching device scale factors, in Chromium.
 * Manual gap: real browser zoom in Edge, which remains authoritative for this criterion.
@@ -94,7 +94,7 @@ Run the site locally and browse the served URL. Record every result using the ev
   4. Confirm the keyboard shortcut badge is hidden rather than overlapping the placeholder at narrower widths.
 * Pass condition: the placeholder stays legible and controls stay separated at every zoom level.
 
-### 14410 — Search result count is announced
+### 14410: Search result count is announced
 
 * Automation covers: the status region exists in the main content and its text matches the visible result count, including the no-match case.
 * Manual gap: whether a screen reader actually speaks the update. Automated capture of spoken live-region output is not supported by the current harness, so this step is the only evidence.
@@ -104,7 +104,7 @@ Run the site locally and browse the served URL. Record every result using the ev
   3. Change to a query with no matches and confirm NVDA speaks the no-results message.
 * Pass condition: both the count and the no-results message are spoken.
 
-### 14399 — Search results are reachable by keyboard
+### 14399: Search results are reachable by keyboard
 
 * Automation covers: option traversal, the footer option being reachable, and focus staying within the combobox.
 * Manual gap: spoken position information and whether the reading order matches the visual order.
@@ -115,7 +115,7 @@ Run the site locally and browse the served URL. Record every result using the ev
   4. Confirm `Enter` activates, `Esc` closes, and `Tab` does not navigate the page away.
 * Pass condition: every option is reachable, announced correctly, and focus never escapes unexpectedly.
 
-### 14398 and 14402 — Link cues and focus indicators
+### 14398 and 14402: Link cues and focus indicators
 
 * Automation covers: every prose link carries a non-color cue, and every visible focusable draws an indicator of at least 2 CSS pixels.
 * Manual gap: whether the indicator is visible on all four sides against real backgrounds, including cards and images.
@@ -126,7 +126,7 @@ Run the site locally and browse the served URL. Record every result using the ev
   4. Repeat in forced-colors mode.
 * Pass condition: color is never the only cue, and focus is visible on all sides in both modes.
 
-### 14404, 14528, and 14531 — Table and group semantics
+### 14404, 14528, and 14531: Table and group semantics
 
 * Automation covers: header scope, accessible names, and structural associations.
 * Manual gap: what is spoken when navigating cells and footer groups.
@@ -136,7 +136,7 @@ Run the site locally and browse the served URL. Record every result using the ev
   3. Navigate the footer and confirm each column announces its group title before its list.
 * Pass condition: table names, header associations, and footer group labels are all spoken correctly.
 
-### 14396 and 14462 — Focus order and heading outline
+### 14396 and 14462: Focus order and heading outline
 
 * Automation covers: focus order after activation and a gap-free heading outline.
 * Manual gap: whether the order is comprehensible, not merely correct.

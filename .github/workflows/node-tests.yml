@@ -67,6 +67,23 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Install skill-local Node dependencies
+        if: steps.detect.outputs.has_tests == 'true' && (!inputs.changed-files-only || steps.check-mjs.outputs.has_changes == 'true')
+        shell: bash
+        run: |
+          # A skill may vendor its own runtime dependencies next to the modules
+          # that import them. Install every committed lockfile under the skill so
+          # module resolution succeeds when the tests import those runtimes.
+          found=0
+          while IFS= read -r lockfile; do
+            found=1
+            echo "Installing $(dirname "$lockfile")"
+            (cd "$(dirname "$lockfile")" && npm ci)
+          done < <(find "${{ inputs.working-directory }}" -type d -name node_modules -prune -o -type f -name package-lock.json -print)
+          if [ "$found" -eq 0 ]; then
+            echo "No package-lock.json under ${{ inputs.working-directory }}; skipping install"
+          fi
+
       - name: Run Node tests with coverage
         if: steps.detect.outputs.has_tests == 'true' && (!inputs.changed-files-only || steps.check-mjs.outputs.has_changes == 'true')
         working-directory: ${{ inputs.working-directory }}

@@ -410,8 +410,6 @@ export async function runCalibrationSession({
   const retainedPreflightValid = validateRetainedBundle(retainedPreflight, runRoot);
   let visualPreflight = null;
   let visualPreflightFailure = false;
-  let visualPreflightExecuted = false;
-  let missingRequiredEvidence = false;
 
   if (retainedPreflightValid) {
     harness.visualPreflightBundle = {
@@ -420,7 +418,6 @@ export async function runCalibrationSession({
       retainedBundleValidated: true,
     };
   } else if (mode === 'nvdaOnly') {
-    missingRequiredEvidence = true;
     const aggregate = {
       status: 'incomplete',
       reason: 'NVDA-only mode requires a validated retained visual preflight bundle under the supplied runRoot.',
@@ -429,7 +426,6 @@ export async function runCalibrationSession({
     persistCalibrationSession(checkpointPath, harness, checkpoints);
     return { harness, checkpoints, aggregate, state: harness.buildResumeState() };
   } else if (runVisualPreflight) {
-    visualPreflightExecuted = true;
     visualPreflight = await runVisualPreflight({ harness, checkpointPath, runRoot });
     if (visualPreflight?.artifactHashes) {
       harness.visualPreflightBundle = {
@@ -494,7 +490,7 @@ export async function runCalibrationSession({
     }
   }
 
-  const aggregate = buildAggregate({ harness, visualPreflightFailure, missingRequiredEvidence });
+  const aggregate = buildAggregate({ harness, visualPreflightFailure });
   persistCalibrationSession(checkpointPath, harness, checkpoints);
   return { harness, checkpoints, aggregate, state: harness.buildResumeState() };
 }

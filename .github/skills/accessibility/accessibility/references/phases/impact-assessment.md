@@ -101,13 +101,13 @@ The following fields share names, semantics, and value spaces with the Security 
 
 ### Accessibility-Specific Extensions
 
-| Field                    | Purpose                                                                     |
-|--------------------------|-----------------------------------------------------------------------------|
-| `assistiveTechValidated` | List of assistive technology stacks the evidence was tested against         |
-| `personaImpact`          | List of impacted persona identifiers from Phase 1 discovery                 |
-| `wcagLevel`              | `A`, `AA`, or `AAA` for WCAG-anchored controls; `N/A` for non-WCAG criteria |
+| Field                    | Purpose                                                                                                                                                    |
+|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `assistiveTechValidated` | List of assistive technology stacks the evidence was tested against                                                                                        |
+| `personaImpact`          | List of impacted persona identifiers from Phase 1 discovery                                                                                                |
+| `wcagLevel`              | `A`, `AA`, or `AAA` for WCAG-anchored controls; `N/A` for non-WCAG criteria                                                                                |
 | `winningMethod`          | The strongest verification method backing the entry (for example, `axe-static`, `probe-keyboard-traversal`, `manual-at`, `manual-keyboard`, `code-review`) |
-| `methodAdequacy`         | `decides` or `informs` for the winning method against this criterion, resolved through the consolidated skill's method-adequacy doctrine |
+| `methodAdequacy`         | `decides` or `informs` for the winning method against this criterion, resolved through the consolidated skill's method-adequacy doctrine                   |
 
 ### Register Rules
 

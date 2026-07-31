@@ -157,8 +157,10 @@ def render_manual_test_plan_markdown(
         "## Execution Rules",
         "",
         "* A qualified tester records observed output and an evidence URI.",
-        "* A test result does not update matrix coverage until the evidence "
-        "is ingested.",
+        (
+            "* A test result does not update matrix coverage until the "
+            "evidence is ingested."
+        ),
         "* JAWS, braille, and cognitive outcomes remain human-decided.",
         "",
         "## Test Cases",

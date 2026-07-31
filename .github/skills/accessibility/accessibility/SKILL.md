@@ -56,13 +56,13 @@ The machine-readable adequacy source is [scripts/runtime_a11y/probe-criteria-map
 
 Accessibility defects generalize into five classes. Static analysis (axe, `eslint-plugin-jsx-a11y`, snapshot structure counts) can decide only the first class; the remaining four require an interaction-state probe or an assistive-technology (AT) pass to be decided rather than merely informed.
 
-| Class | Representative WCAG SC | What static analysis can do | Adequate method to decide |
-|-------|------------------------|-----------------------------|---------------------------|
-| **Static-decidable structure** | 1.1.1, 1.4.3, 4.1.2 (name present), 2.4.2, 3.1.1 | Decide | axe / static scan |
-| **Interaction behavior** | 2.1.1, 2.1.2, 2.4.3, 2.4.7, 2.4.11 | Inform only | Keyboard/interaction probe driving keys across `focus`/`open` states, or manual keyboard pass |
-| **Announcement correctness** | 1.3.1, 4.1.2 (computed name/role), 4.1.3 | Inform only | Accessibility-tree assertion of computed name/role/live, or manual AT pass (Windows NVDA or human-led JAWS) |
-| **Adaptive rendering** | 1.4.4, 1.4.10, 1.4.12, 2.4.11 | Inform only | Rendered probe at 200% zoom, 320px reflow, and text-spacing states |
-| **Faux semantics** | 1.3.1 (faux headings), 2.4.3 (faux controls) | Cannot see | Heuristic source pass plus accessibility-tree assertion; no element exists for a rule engine to flag |
+| Class                          | Representative WCAG SC                           | What static analysis can do | Adequate method to decide                                                                                   |
+|--------------------------------|--------------------------------------------------|-----------------------------|-------------------------------------------------------------------------------------------------------------|
+| **Static-decidable structure** | 1.1.1, 1.4.3, 4.1.2 (name present), 2.4.2, 3.1.1 | Decide                      | axe / static scan                                                                                           |
+| **Interaction behavior**       | 2.1.1, 2.1.2, 2.4.3, 2.4.7, 2.4.11               | Inform only                 | Keyboard/interaction probe driving keys across `focus`/`open` states, or manual keyboard pass               |
+| **Announcement correctness**   | 1.3.1, 4.1.2 (computed name/role), 4.1.3         | Inform only                 | Accessibility-tree assertion of computed name/role/live, or manual AT pass (Windows NVDA or human-led JAWS) |
+| **Adaptive rendering**         | 1.4.4, 1.4.10, 1.4.12, 2.4.11                    | Inform only                 | Rendered probe at 200% zoom, 320px reflow, and text-spacing states                                          |
+| **Faux semantics**             | 1.3.1 (faux headings), 2.4.3 (faux controls)     | Cannot see                  | Heuristic source pass plus accessibility-tree assertion; no element exists for a rule engine to flag        |
 
 For the announcement class, the [assistive-technology announcement model](references/frameworks/at-announcement-model.md) specifies what the user should hear per criterion and how to decide it. For the interaction and faux-semantics classes, the [focus-management anti-pattern catalog](references/frameworks/aria-apg.md#focus-management-anti-patterns) enumerates the defects that pass a static scan yet break keyboard and screen-reader users.
 

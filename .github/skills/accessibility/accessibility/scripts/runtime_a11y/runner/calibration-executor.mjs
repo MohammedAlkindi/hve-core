@@ -431,17 +431,6 @@ export function resolveCalibrationCases(config = {}) {
   ];
 }
 
-function buildArtifactHashes(evidence, journey) {
-  const payload = {
-    journeyId: journey?.journeyId,
-    profileFingerprint: journey?.profileFingerprint,
-    evidence,
-  };
-  return {
-    [`artifacts/${journey?.journeyId || 'journey'}.json`]: createArtifactHash(payload),
-  };
-}
-
 export async function defaultRunAtCase({
   journey,
   config,
@@ -877,7 +866,7 @@ export async function detectGuidepupNvda({ platform = 'linux', spawn, importGuid
     const importedModule = typeof importGuidepup === 'function' ? await importGuidepup() : null;
     const moduleCandidates = [importedModule, importedModule?.default, importedModule?.nvda, importedModule?.default?.nvda].filter(Boolean);
     const moduleTarget = moduleCandidates.find((entry) => entry && typeof entry === 'object' && typeof entry.start === 'function' && typeof entry.stop === 'function') || null;
-    const runtimeTarget = moduleTarget;
+    let runtimeTarget = moduleTarget;
     const capabilities = [];
     if (importedModule) {
       for (const entry of [importedModule, importedModule?.default]) {

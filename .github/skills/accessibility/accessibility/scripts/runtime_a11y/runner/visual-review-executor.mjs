@@ -1,9 +1,7 @@
-import { access, mkdir, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { chromium } from 'playwright';
-
-import { applyStateEmulation, launchChrome, maximizeBrowserWindow } from './_shared.mjs';
+import { launchChrome, maximizeBrowserWindow } from './_shared.mjs';
 
 const DEFAULT_VISUAL_REVIEW_STATES = [
   'desktop',

@@ -13,6 +13,7 @@ test.describe('Search page status announcements', () => {
     await expect(status).toHaveText(/\d+ document(?:s)? found/, { timeout: 15000 });
 
     const searchInput = page.locator('input[name="q"]');
+    // cspell:disable-next-line -- deliberate nonsense token so the query matches nothing
     await searchInput.fill('zzzzzzzzqqqq');
     await expect(status).toHaveText(/No documents found/, { timeout: 15000 });
   });

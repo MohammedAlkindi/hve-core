@@ -28,14 +28,14 @@ This distinction matters for the ARIA-AT catalog. The current catalog defaults a
 
 Results are reported in EARL (Evaluation and Report Language), the ACT ecosystem's interchange format, rendered by [../../scripts/runtime_a11y/matrix/_render_earl.py](../../scripts/runtime_a11y/matrix/_render_earl.py). The status-to-outcome mapping:
 
-| Skill status              | ACT / EARL outcome            |
-|---------------------------|-------------------------------|
-| pass (adequate method)    | passed / `earl:passed`        |
-| pass (informs-only method)| cannot tell / `earl:cantTell` |
-| partial                   | cannot tell / `earl:cantTell` |
-| fail                      | failed / `earl:failed`        |
-| not-applicable            | inapplicable / `earl:inapplicable` |
-| unknown                   | untested / `earl:untested`    |
+| Skill status               | ACT / EARL outcome                 |
+|----------------------------|------------------------------------|
+| pass (adequate method)     | passed / `earl:passed`             |
+| pass (informs-only method) | cannot tell / `earl:cantTell`      |
+| partial                    | cannot tell / `earl:cantTell`      |
+| fail                       | failed / `earl:failed`             |
+| not-applicable             | inapplicable / `earl:inapplicable` |
+| unknown                    | untested / `earl:untested`         |
 
 The `informs -> cantTell` mapping is the ACT/EARL expression of the consolidated skill's method-adequacy rule: a check that cannot decide a criterion reports `cantTell`, never a false `passed`.
 

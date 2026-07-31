@@ -23,12 +23,12 @@ Source anchors: W3C WCAG 2.2 (<https://www.w3.org/TR/WCAG22/>) and the W3C Acces
 
 Every interactive control conveys four things to AT. A control that renders correctly but computes any of these wrongly fails 4.1.2 even though the control "works" for a mouse user.
 
-| Facet | What the user should hear | Common failure |
-|-------|---------------------------|----------------|
-| Role | The control's kind ("button", "link", "combobox", "checkbox") | A `<div>`/`<span>` with a click handler announces as plain text or nothing |
-| Name | The control's accessible name (its label) | An icon-only control announces only its role ("button") with no name |
+| Facet | What the user should hear                                               | Common failure                                                                                                                                                                            |
+|-------|-------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Role  | The control's kind ("button", "link", "combobox", "checkbox")           | A `<div>`/`<span>` with a click handler announces as plain text or nothing                                                                                                                |
+| Name  | The control's accessible name (its label)                               | An icon-only control announces only its role ("button") with no name                                                                                                                      |
 | State | Dynamic state ("expanded"/"collapsed", "checked", "selected", "x of y") | `aria-expanded` announced on a control that is not actually a combobox/disclosure; stale or missing `aria-selected`; wrong `aria-posinset`/`aria-setsize` producing an incorrect "x of y" |
-| Value | The current value for inputs, sliders, spinbuttons | `aria-valuetext` missing so the user hears a raw number with no unit or meaning |
+| Value | The current value for inputs, sliders, spinbuttons                      | `aria-valuetext` missing so the user hears a raw number with no unit or meaning                                                                                                           |
 
 Acceptance conditions:
 

@@ -44,13 +44,13 @@ test.describe('Table accessibility regression locks', () => {
     });
   }
 
-  test('an uncaptained data table exposes an accessible name via aria-labelledby', async ({ page }) => {
+  test('an uncaptioned data table exposes an accessible name via aria-labelledby', async ({ page }) => {
     await page.goto('/hve-core/docs/getting-started/tts-voiceover/', { waitUntil: 'domcontentloaded' });
 
-    const uncaptainedTable = page.locator('table[aria-labelledby]').filter({ hasNot: page.locator('caption') }).first();
-    await expect(uncaptainedTable).toBeVisible();
+    const uncaptionedTable = page.locator('table[aria-labelledby]').filter({ hasNot: page.locator('caption') }).first();
+    await expect(uncaptionedTable).toBeVisible();
 
-    const labelledBy = await uncaptainedTable.getAttribute('aria-labelledby');
+    const labelledBy = await uncaptionedTable.getAttribute('aria-labelledby');
     expect(labelledBy).toBeTruthy();
 
     const labelledByTarget = page.locator(`#${labelledBy}`).first();

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -497,9 +498,8 @@ def write_json_atomic(path_value: str | Path, payload: dict[str, Any]) -> Path:
             file_handle.write(payload_text)
         os.replace(file_handle.name, path)
     except Exception:
-        try:
+        # The temporary file is already gone when replace partially succeeded.
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(file_handle.name)
-        except FileNotFoundError:
-            pass
         raise
     return path
