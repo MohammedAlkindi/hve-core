@@ -224,7 +224,11 @@ def test_resolve_output_allowed_root_and_public_path_cover_fallback_branches(
         == (local_runs_root / "2026-07-22").resolve()
     )
     assert cli._public_path(str(tmp_path / "docs" / "readme.md")) == "docs/readme.md"
-    assert cli._public_path("/tmp/outside") == "C:/tmp/outside"
+    # A path outside the repository is returned resolved. Windows binds a
+    # root-relative path to the current drive, so derive the expectation
+    # instead of hard-coding a drive letter.
+    outside_expected = Path("/tmp/outside").resolve(strict=False).as_posix()
+    assert cli._public_path("/tmp/outside") == outside_expected
     assert cli._public_path(None) is None
 
 

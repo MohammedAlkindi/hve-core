@@ -603,6 +603,15 @@ function normalizeVersionOutput(output) {
     .find(Boolean) || null;
 }
 
+// path.basename follows the host OS separator rules, so a Windows path handed
+// to a Linux process keeps its backslashes and returns unchanged. The probe
+// resolves paths for a caller-supplied platform, which may differ from the host,
+// so split on both separators.
+function executableName(candidate) {
+  const segments = String(candidate || '').split(/[\\/]/);
+  return segments[segments.length - 1] || String(candidate || '');
+}
+
 function normalizeChromeVersion(output) {
   const trimmed = normalizeVersionOutput(output);
   if (!trimmed) {
@@ -704,7 +713,7 @@ export function resolveChromeExecutable({ env = {}, platform = 'linux', spawn })
       const version = probeChromeVersion({ executable: trimmed, env, platform, spawn });
       if (version) {
         return {
-          executable: path.basename(trimmed),
+          executable: executableName(trimmed),
           version,
         };
       }
@@ -730,7 +739,7 @@ export function resolveChromeExecutable({ env = {}, platform = 'linux', spawn })
     const version = probeChromeVersion({ executable: resolvedPath, env, platform, spawn });
     if (version) {
       return {
-        executable: path.basename(resolvedPath),
+        executable: executableName(resolvedPath),
         version,
       };
     }

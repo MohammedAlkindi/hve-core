@@ -114,6 +114,12 @@ jobs:
           # network fetch. They are development-time test tooling that is never
           # linked into or redistributed with a shipped artifact, and no
           # MPL-covered file is modified.
+          #
+          # pkg:npm/through2 resolves as the compound expression
+          # "MIT AND MITNFA", which the action cannot match against
+          # allow-licenses even though both halves are permissive; the package
+          # lockfile records plain MIT. It arrives transitively through regedit,
+          # which the accessibility harness uses to detect a local NVDA install.
           allow-dependencies-licenses: >-
             pkg:pypi/lxml,
             pkg:pypi/typing-extensions,
@@ -159,6 +165,7 @@ jobs:
             pkg:npm/uri-js,
             pkg:npm/axe-core,
             pkg:npm/%40axe-core/playwright,
+            pkg:npm/through2,
             pkg:npm/hve-core
           show-openssf-scorecard: true
           warn-on-openssf-scorecard-level: 3
