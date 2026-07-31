@@ -221,9 +221,9 @@ Describe 'Get-PluginSubdirectory' {
         $result | Should -Be 'commands'
     }
 
-    It 'Maps instruction to instructions' {
+    It 'Maps instruction to rules' {
         $result = Get-PluginSubdirectory -Kind 'instruction'
-        $result | Should -Be 'instructions'
+        $result | Should -Be 'rules'
     }
 
     It 'Maps skill to skills' {
@@ -255,19 +255,12 @@ Describe 'Write-PluginDirectory - DryRun mode' {
     }
 
     It 'Completes DryRun without creating files for agents' {
-        $collection = @{
-            id          = 'dryrun-test'
-            name        = 'DryRun Test'
-            description = 'Testing DryRun mode'
-            items       = @(
-                @{
-                    path = '.github/agents/test/example.agent.md'
-                    kind = 'agent'
-                }
-            )
-        }
+        $entry = @{ name = 'dryrun-test'; description = 'Testing DryRun mode' }
+        $items = @(
+            @{ Kind = 'agent'; Field = 'agents'; PackagePath = 'agents/test/example.md'; SourcePath = '.github/agents/test/example.agent.md' }
+        )
 
-        $result = Write-PluginDirectory -Collection $collection -PluginsDir $script:pluginsDir `
+        $result = Write-PluginDirectory -Entry $entry -Items $items -PluginsDir $script:pluginsDir `
             -RepoRoot $script:repoRoot -Version '1.0.0' -DryRun
 
         $result.Success | Should -BeTrue
@@ -278,20 +271,13 @@ Describe 'Write-PluginDirectory - DryRun mode' {
         Test-Path -Path $pluginDir | Should -BeFalse
     }
 
-    It 'Includes collection subdirectory in GeneratedFiles path' {
-        $collection = @{
-            id          = 'subpath-test'
-            name        = 'Subpath Test'
-            description = 'Testing subpath in destination'
-            items       = @(
-                @{
-                    path = '.github/agents/test/example.agent.md'
-                    kind = 'agent'
-                }
-            )
-        }
+    It 'Includes the declared subdirectory in GeneratedFiles path' {
+        $entry = @{ name = 'subpath-test'; description = 'Testing subpath in destination' }
+        $items = @(
+            @{ Kind = 'agent'; Field = 'agents'; PackagePath = 'agents/test/example.md'; SourcePath = '.github/agents/test/example.agent.md' }
+        )
 
-        $result = Write-PluginDirectory -Collection $collection -PluginsDir $script:pluginsDir `
+        $result = Write-PluginDirectory -Entry $entry -Items $items -PluginsDir $script:pluginsDir `
             -RepoRoot $script:repoRoot -Version '1.0.0' -DryRun
 
         $result.Success | Should -BeTrue
@@ -302,19 +288,12 @@ Describe 'Write-PluginDirectory - DryRun mode' {
     }
 
     It 'Completes DryRun with skill items' {
-        $collection = @{
-            id          = 'dryrun-skill'
-            name        = 'DryRun Skill'
-            description = 'Testing DryRun with skills'
-            items       = @(
-                @{
-                    path = '.github/skills/test/my-skill'
-                    kind = 'skill'
-                }
-            )
-        }
+        $entry = @{ name = 'dryrun-skill'; description = 'Testing DryRun with skills' }
+        $items = @(
+            @{ Kind = 'skill'; Field = 'skills'; PackagePath = 'skills/test/my-skill'; SourcePath = '.github/skills/test/my-skill' }
+        )
 
-        $result = Write-PluginDirectory -Collection $collection -PluginsDir $script:pluginsDir `
+        $result = Write-PluginDirectory -Entry $entry -Items $items -PluginsDir $script:pluginsDir `
             -RepoRoot $script:repoRoot -Version '1.0.0' -DryRun
 
         $result.Success | Should -BeTrue
@@ -322,19 +301,12 @@ Describe 'Write-PluginDirectory - DryRun mode' {
     }
 
     It 'Handles source file not found for non-skill items' {
-        $collection = @{
-            id          = 'missing-source'
-            name        = 'Missing Source'
-            description = 'Non-existent source file'
-            items       = @(
-                @{
-                    path = '.github/agents/test/nonexistent.agent.md'
-                    kind = 'agent'
-                }
-            )
-        }
+        $entry = @{ name = 'missing-source'; description = 'Non-existent source file' }
+        $items = @(
+            @{ Kind = 'agent'; Field = 'agents'; PackagePath = 'agents/test/nonexistent.md'; SourcePath = '.github/agents/test/nonexistent.agent.md' }
+        )
 
-        $result = Write-PluginDirectory -Collection $collection -PluginsDir $script:pluginsDir `
+        $result = Write-PluginDirectory -Entry $entry -Items $items -PluginsDir $script:pluginsDir `
             -RepoRoot $script:repoRoot -Version '1.0.0' -DryRun
 
         $result.Success | Should -BeTrue
@@ -350,19 +322,12 @@ Describe 'Write-PluginDirectory - DryRun mode' {
         New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
         Set-Content -Path (Join-Path $agentDir 'a.agent.md') -Value "---`ndescription: test`n---"
 
-        $collection = @{
-            id          = 'no-shared'
-            name        = 'No Shared'
-            description = 'Missing shared dirs'
-            items       = @(
-                @{
-                    path = '.github/agents/test/a.agent.md'
-                    kind = 'agent'
-                }
-            )
-        }
+        $entry = @{ name = 'no-shared'; description = 'Missing shared dirs' }
+        $items = @(
+            @{ Kind = 'agent'; Field = 'agents'; PackagePath = 'agents/test/a.md'; SourcePath = '.github/agents/test/a.agent.md' }
+        )
 
-        $result = Write-PluginDirectory -Collection $collection -PluginsDir $script:pluginsDir `
+        $result = Write-PluginDirectory -Entry $entry -Items $items -PluginsDir $script:pluginsDir `
             -RepoRoot $emptyRepo -Version '1.0.0' -DryRun
 
         $result.Success | Should -BeTrue
@@ -407,18 +372,14 @@ Describe 'Write-PluginDirectory - destination artifact naming' {
             Pop-Location
         }
 
-        $namingCollection = @{
-            id          = 'naming-test'
-            name        = 'Naming Test'
-            description = 'Destination naming coverage'
-            items       = @(
-                @{ path = '.github/agents/team/example.agent.md'; kind = 'agent' }
-                @{ path = '.github/prompts/team/example.prompt.md'; kind = 'prompt' }
-                @{ path = '.github/instructions/team/example.instructions.md'; kind = 'instruction' }
-            )
-        }
+        $namingEntry = @{ name = 'naming-test'; description = 'Destination naming coverage' }
+        $namingItems = @(
+            @{ Kind = 'agent'; Field = 'agents'; PackagePath = 'agents/team/example.md'; SourcePath = '.github/agents/team/example.agent.md' }
+            @{ Kind = 'prompt'; Field = 'commands'; PackagePath = 'commands/team/example.md'; SourcePath = '.github/prompts/team/example.prompt.md' }
+            @{ Kind = 'instruction'; Field = 'rules'; PackagePath = 'rules/team/example.instructions.md'; SourcePath = '.github/instructions/team/example.instructions.md' }
+        )
 
-        $script:namingResult = Write-PluginDirectory -Collection $namingCollection `
+        $script:namingResult = Write-PluginDirectory -Entry $namingEntry -Items $namingItems `
             -PluginsDir $script:namingPluginsDir -RepoRoot $script:namingRepo -Version '1.0.0'
         $script:namingPluginRoot = Join-Path $script:namingPluginsDir 'naming-test'
     }
@@ -433,16 +394,29 @@ Describe 'Write-PluginDirectory - destination artifact naming' {
         Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'commands/team/example.prompt.md') | Should -BeFalse
     }
 
-    It 'Retains the .instructions.md suffix on the materialized instruction' {
-        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'instructions/team/example.instructions.md') | Should -BeTrue
-        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'instructions/team/example.md') | Should -BeFalse
+    It 'Materializes instructions under rules with the .instructions.md suffix' {
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'rules/team/example.instructions.md') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'rules/team/example.md') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'instructions') | Should -BeFalse
+    }
+
+    It 'Emits exactly one root manifest with no legacy location' {
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot 'plugin.json') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:namingPluginRoot '.github/plugin/plugin.json') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $script:namingPluginRoot -Filter 'plugin.json' -Recurse -File).Count | Should -Be 1
+    }
+
+    It 'Declares the rules directory in the root manifest' {
+        $manifest = Get-Content -LiteralPath (Join-Path $script:namingPluginRoot 'plugin.json') -Raw | ConvertFrom-Json
+        $manifest.rules | Should -Contain 'rules/team/'
+        $manifest.PSObject.Properties.Name | Should -Not -Contain 'x-hve'
     }
 
     It 'Reports the mapped destinations through GeneratedFiles' {
         $generated = @($script:namingResult.GeneratedFiles)
         $generated | Should -Contain (Join-Path $script:namingPluginRoot 'agents/team/example.md')
         $generated | Should -Contain (Join-Path $script:namingPluginRoot 'commands/team/example.md')
-        $generated | Should -Contain (Join-Path $script:namingPluginRoot 'instructions/team/example.instructions.md')
+        $generated | Should -Contain (Join-Path $script:namingPluginRoot 'rules/team/example.instructions.md')
     }
 }
 
@@ -714,18 +688,37 @@ Describe 'New-PluginReleaseLocator' {
 Describe 'New-MarketplaceManifestContent - source forms' {
     BeforeAll {
         $script:plugins = @(
-            [ordered]@{ name = 'rpi'; description = 'RPI'; version = '1.2.3' }
-            [ordered]@{ name = 'security'; description = 'Security'; version = '1.2.3' }
+            [ordered]@{ name = 'rpi'; source = 'rpi'; description = 'RPI'; version = '1.2.3' }
+            [ordered]@{ name = 'security'; source = 'security'; description = 'Security'; version = '1.2.3' }
         )
     }
 
-    It 'Emits bare local sources by default' {
+    It 'Preserves bare local sources when no locator is supplied' {
         $manifest = New-MarketplaceManifestContent -RepoName 'hve-core' -Description 'd' -Version '1.2.3' `
             -OwnerName 'Microsoft' -Plugins $script:plugins
 
         $manifest.plugins[0].source | Should -BeOfType [string]
         $manifest.plugins[0].source | Should -Be 'rpi'
         $manifest.plugins[1].source | Should -Be 'security'
+    }
+
+    It 'Preserves standard membership and the x-hve overlay' {
+        $entries = @(
+            [ordered]@{
+                name        = 'rpi'
+                source      = 'rpi'
+                description = 'RPI'
+                version     = '1.2.3'
+                skills      = @('skills/rpi/rpi-plan')
+                'x-hve'     = [ordered]@{ documentation = 'docs/plugins/rpi.md' }
+            }
+        )
+
+        $manifest = New-MarketplaceManifestContent -RepoName 'hve-core' -Description 'd' -Version '1.2.3' `
+            -OwnerName 'Microsoft' -Plugins $entries
+
+        $manifest.plugins[0].skills | Should -Be @('skills/rpi/rpi-plan')
+        $manifest.plugins[0].'x-hve'.documentation | Should -Be 'docs/plugins/rpi.md'
     }
 
     It 'Emits tag-pinned object sources when a locator is supplied' {
@@ -752,7 +745,7 @@ Describe 'New-MarketplaceManifestContent - source forms' {
     }
 }
 
-Describe 'Write-MarketplaceManifest - locator mode' {
+Describe 'Write-MarketplaceManifest - catalog projection' {
     BeforeAll {
         $script:repoRoot = Join-Path $TestDrive 'marketplace-repo'
         New-Item -ItemType Directory -Path $script:repoRoot -Force | Out-Null
@@ -760,22 +753,25 @@ Describe 'Write-MarketplaceManifest - locator mode' {
         Set-Content -Path (Join-Path $script:repoRoot 'package.json') `
             -Value '{"name":"hve-core","description":"d","version":"1.2.3","author":"Microsoft"}'
         Set-Content -Path (Join-Path $script:repoRoot '.github/plugin/marketplace.json') -Value '{"sentinel":true}'
-        $script:collections = @(
-            @{ id = 'rpi'; description = 'RPI' }
-            @{ id = 'security'; description = 'Security' }
-        )
+        $script:catalog = @{
+            plugins = @(
+                [ordered]@{ name = 'rpi'; source = 'rpi'; description = 'RPI'; version = '1.2.3' }
+                [ordered]@{ name = 'security'; source = 'security'; description = 'Security'; version = '1.2.3' }
+            )
+        }
         Mock Write-Host {}
     }
 
-    It 'Writes bare sources to the production catalog by default' {
-        Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections
-        $manifest = Get-Content -Path (Join-Path $script:repoRoot '.github/plugin/marketplace.json') -Raw | ConvertFrom-Json
+    It 'Writes a bare-source projection to an explicit output path' {
+        $outputPath = Join-Path $TestDrive 'plain/marketplace.json'
+        Write-MarketplaceManifest -RepoRoot $script:repoRoot -Catalog $script:catalog -OutputPath $outputPath
+        $manifest = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
         $manifest.plugins[0].source | Should -Be 'rpi'
     }
 
     It 'Writes tag-pinned object sources to an explicit output path' {
         $outputPath = Join-Path $TestDrive 'snapshot/marketplace.json'
-        Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
+        Write-MarketplaceManifest -RepoRoot $script:repoRoot -Catalog $script:catalog `
             -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') -OutputPath $outputPath
 
         $manifest = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
@@ -784,22 +780,22 @@ Describe 'Write-MarketplaceManifest - locator mode' {
         $manifest.plugins[0].source.path | Should -Be 'plugins/rpi'
     }
 
-    It 'Refuses locator mode without an explicit output path' {
-        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
-                -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') } |
-            Should -Throw '*requires an explicit -OutputPath*'
+    It 'Refuses any projection targeting the production catalog' {
+        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Catalog $script:catalog `
+                -OutputPath '.github/plugin/marketplace.json' } |
+            Should -Throw '*must not write the production catalog*'
     }
 
     It 'Refuses locator mode targeting the production catalog' {
-        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
+        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Catalog $script:catalog `
                 -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') `
                 -OutputPath '.github/plugin/marketplace.json' } |
             Should -Throw '*must not write the production catalog*'
     }
 
-    It 'Leaves the production catalog untouched after a refused locator write' {
+    It 'Leaves the production catalog untouched after a refused write' {
         Set-Content -Path (Join-Path $script:repoRoot '.github/plugin/marketplace.json') -Value '{"sentinel":true}'
-        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Collections $script:collections `
+        { Write-MarketplaceManifest -RepoRoot $script:repoRoot -Catalog $script:catalog `
                 -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') `
                 -OutputPath '.github/plugin/marketplace.json' } | Should -Throw
 
@@ -870,5 +866,502 @@ Describe 'Assert-PluginSnapshotTarget' {
     ) {
         { Assert-PluginSnapshotTarget -Branch $Value -Tag 'plugins-snapshot/run-42-tag' } |
             Should -Throw '*is not a valid git reference name*'
+    }
+}
+
+Describe 'Get-MarketplaceComponentFieldMap' {
+    It 'Maps every standard component field to its artifact kind' {
+        $map = Get-MarketplaceComponentFieldMap
+        @($map.Keys) | Should -Be @('agents', 'commands', 'rules', 'skills', 'hooks')
+        $map['commands'] | Should -Be 'prompt'
+        $map['rules'] | Should -Be 'instruction'
+    }
+
+    It 'Covers the same artifact kinds as plugin subdirectory mapping' {
+        $map = Get-MarketplaceComponentFieldMap
+        foreach ($kind in $map.Values) {
+            { Get-PluginSubdirectory -Kind $kind } | Should -Not -Throw
+        }
+    }
+}
+
+Describe 'Get-MarketplaceMetadataKey' {
+    It 'Closes the x-hve overlay to entry-level metadata keys' {
+        $keys = Get-MarketplaceMetadataKey
+        $keys | Should -Be @('maturity', 'componentMaturity', 'documentation', 'aggregate', 'derived')
+    }
+
+    It 'Excludes every standard component membership field' {
+        $metadataKeys = Get-MarketplaceMetadataKey
+        foreach ($field in (Get-MarketplaceComponentFieldMap).Keys) {
+            $metadataKeys | Should -Not -Contain $field
+        }
+    }
+}
+
+Describe 'Resolve-MarketplaceComponentPath' {
+    It 'Returns the normalized path for a package-relative file path' {
+        $result = Resolve-MarketplaceComponentPath -Path 'commands/rpi/rpi-research.md'
+        $result.Error | Should -BeNullOrEmpty
+        $result.Path | Should -Be 'commands/rpi/rpi-research.md'
+    }
+
+    It 'Normalizes a trailing directory separator' {
+        $result = Resolve-MarketplaceComponentPath -Path 'skills/rpi/'
+        $result.Error | Should -BeNullOrEmpty
+        $result.Path | Should -Be 'skills/rpi'
+    }
+
+    It 'Returns error for an empty path' {
+        (Resolve-MarketplaceComponentPath -Path '  ').Error | Should -BeLike '*must be a non-empty string*'
+    }
+
+    It 'Returns error for a backslash path' {
+        (Resolve-MarketplaceComponentPath -Path 'commands\rpi.md').Error | Should -BeLike '*must use forward slashes*'
+    }
+
+    It 'Returns error for an absolute POSIX path' {
+        (Resolve-MarketplaceComponentPath -Path '/commands/rpi.md').Error | Should -BeLike '*must be relative to the package root*'
+    }
+
+    It 'Returns error for an absolute Windows path' {
+        (Resolve-MarketplaceComponentPath -Path 'C:/commands/rpi.md').Error | Should -BeLike '*must be relative to the package root*'
+    }
+
+    It 'Returns error for an escaping path' {
+        (Resolve-MarketplaceComponentPath -Path '../secrets/key.md').Error | Should -BeLike '*must not escape the package root*'
+    }
+
+    It 'Returns error for an embedded escaping segment' {
+        (Resolve-MarketplaceComponentPath -Path 'commands/../../secrets').Error | Should -BeLike '*must not escape the package root*'
+    }
+
+    It 'Returns error for a relative path segment' {
+        (Resolve-MarketplaceComponentPath -Path './commands/rpi.md').Error | Should -BeLike '*must not contain relative path segments*'
+    }
+
+    It 'Returns error for an empty path segment' {
+        (Resolve-MarketplaceComponentPath -Path 'commands//rpi.md').Error | Should -BeLike '*must not contain empty path segments*'
+    }
+
+    It 'Returns error for a control character' {
+        (Resolve-MarketplaceComponentPath -Path "commands/rpi`t.md").Error | Should -BeLike '*must not contain control characters*'
+    }
+}
+
+Describe 'Test-MarketplaceEntryContract - standard component fields' {
+    It 'Accepts declared membership across every standard field' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name     = 'sample'
+                agents   = @('agents/rpi-planner.md')
+                commands = @('commands/rpi-research.md')
+                rules    = @('instructions/markdown.instructions.md')
+                skills   = @('skills/rpi-plan')
+                hooks    = 'hooks/hve-core.json'
+            })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Accepts a single path string for an array-capable field' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; commands = 'commands/rpi-research.md' })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Returns error for a malformed component path' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; agents = @('/agents/rpi.md') })
+        @($result)[0] | Should -BeLike "*component field 'agents'*must be relative to the package root*"
+    }
+
+    It 'Returns error for a duplicate path within one field' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name     = 'sample'
+                commands = @('commands/rpi-research.md', 'commands/rpi-research.md')
+            })
+        $result | Should -Contain "component field 'commands' declares duplicate path 'commands/rpi-research.md'"
+    }
+
+    It 'Treats a trailing-separator variant as the same declared path' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; skills = @('skills/rpi-plan', 'skills/rpi-plan/') })
+        $result | Should -Contain "component field 'skills' declares duplicate path 'skills/rpi-plan'"
+    }
+
+    It 'Returns error for cross-kind duplicate membership' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name     = 'sample'
+                commands = @('commands/rpi-research.md')
+                rules    = @('commands/rpi-research.md')
+            })
+        $result | Should -Contain "component path 'commands/rpi-research.md' is declared in both 'commands' and 'rules'"
+    }
+
+    It 'Returns error for a non-string membership element' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; skills = @(42) })
+        $result | Should -Contain "component field 'skills' must contain only path strings"
+    }
+
+    It 'Returns error for an empty membership array' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; agents = @() })
+        $result | Should -Contain "component field 'agents' must declare at least one path"
+    }
+}
+
+Describe 'Test-MarketplaceEntryContract - x-hve overlay' {
+    It 'Accepts a metadata-only overlay' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name     = 'sample'
+                commands = @('commands/rpi-research.md')
+                'x-hve'  = [ordered]@{
+                    maturity          = 'preview'
+                    componentMaturity = [ordered]@{ 'commands/rpi-research.md' = 'experimental' }
+                    documentation     = 'docs/plugins/sample.md'
+                    aggregate         = $false
+                }
+            })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Returns error when the overlay is not an object' {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = 'stable' }) |
+            Should -Contain 'x-hve must be an object'
+    }
+
+    It 'Returns error for any membership-owning key' -ForEach @(
+        @{ Key = 'instructions' }
+        @{ Key = 'artifacts' }
+        @{ Key = 'items' }
+        @{ Key = 'agents' }
+    ) {
+        $overlay = [ordered]@{ maturity = 'stable' }
+        $overlay[$Key] = @('instructions/markdown.instructions.md')
+        Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = $overlay }) |
+            Should -Contain "x-hve contains unsupported key '$Key'"
+    }
+
+    It 'Returns error for an unsupported maturity value' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = [ordered]@{ maturity = 'retired' } })
+        @($result)[0] | Should -BeLike "*x-hve.maturity 'retired' must be one of*"
+    }
+
+    It 'Accepts every maturity value in the repository vocabulary' -ForEach @(
+        @{ Maturity = 'stable' }
+        @{ Maturity = 'preview' }
+        @{ Maturity = 'experimental' }
+        @{ Maturity = 'deprecated' }
+        @{ Maturity = 'removed' }
+    ) {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = [ordered]@{ maturity = $Maturity } }) |
+            Should -BeNullOrEmpty
+    }
+
+    It 'Accepts a removed tombstone that is absent from active membership' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name     = 'sample'
+                commands = @('commands/rpi-research.md')
+                'x-hve'  = [ordered]@{
+                    componentMaturity = [ordered]@{ 'commands/retired-command.md' = 'removed' }
+                }
+            })
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'Returns error for a non-normalized componentMaturity key' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name    = 'sample'
+                'x-hve' = [ordered]@{ componentMaturity = [ordered]@{ 'skills/rpi-plan/' = 'preview' } }
+            })
+        $result | Should -Contain "x-hve.componentMaturity key 'skills/rpi-plan/' must be a normalized component path"
+    }
+
+    It 'Returns error for a malformed componentMaturity key' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name    = 'sample'
+                'x-hve' = [ordered]@{ componentMaturity = [ordered]@{ '../escape.md' = 'preview' } }
+            })
+        @($result)[0] | Should -BeLike '*x-hve.componentMaturity*must not escape the package root*'
+    }
+
+    It 'Returns error for an unsupported componentMaturity value' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name    = 'sample'
+                'x-hve' = [ordered]@{ componentMaturity = [ordered]@{ 'commands/rpi-research.md' = 'retired' } }
+            })
+        @($result)[0] | Should -Match "x-hve\.componentMaturity\['commands/rpi-research\.md'\] value 'retired' must be one of"
+    }
+
+    It 'Returns error for a componentMaturity map that is not an object' {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = [ordered]@{ componentMaturity = @('a') } }) |
+            Should -Contain 'x-hve.componentMaturity must be an object keyed by component path'
+    }
+
+    It 'Returns error for an escaping documentation path' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name    = 'sample'
+                'x-hve' = [ordered]@{ documentation = '../../etc/passwd' }
+            })
+        @($result)[0] | Should -BeLike '*x-hve.documentation*must not escape the package root*'
+    }
+
+    It 'Returns error for a non-string documentation value' {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = [ordered]@{ documentation = 3 } }) |
+            Should -Contain 'x-hve.documentation must be a repository-relative path string'
+    }
+
+    It 'Returns error for a non-boolean aggregate value' {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = [ordered]@{ aggregate = 'true' } }) |
+            Should -Contain 'x-hve.aggregate must be a boolean'
+    }
+
+    It 'Accepts the approved derived mode' {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = [ordered]@{ derived = 'skill-union' } }) |
+            Should -BeNullOrEmpty
+    }
+
+    It 'Returns error for an unapproved derived mode' {
+        $result = Test-MarketplaceEntryContract -Entry ([ordered]@{ name = 'sample'; 'x-hve' = [ordered]@{ derived = 'agent-union' } })
+        @($result)[0] | Should -BeLike "*x-hve.derived 'agent-union' must be one of*"
+    }
+
+    It 'Returns error when aggregate and derived are combined' {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name    = 'sample'
+                'x-hve' = [ordered]@{ aggregate = $true; derived = 'skill-union' }
+            }) | Should -Contain 'x-hve must not set both aggregate and derived'
+    }
+
+    It 'Returns error when a derived entry duplicates skills membership' {
+        Test-MarketplaceEntryContract -Entry ([ordered]@{
+                name    = 'sample'
+                skills  = @('skills/rpi-plan')
+                'x-hve' = [ordered]@{ derived = 'skill-union' }
+            }) | Should -Contain "x-hve.derived 'skill-union' must not declare explicit skills membership"
+    }
+}
+
+Describe 'New-PluginManifestContent - x-hve containment' {
+    It 'Never emits x-hve or any metadata overlay key into a root manifest' {
+        $manifest = New-PluginManifestContent -CollectionId 'sample' -Description 'Sample' -Version '1.0.0' `
+            -AgentPaths @('agents') -CommandPaths @('commands') -SkillPaths @('skills') -HookPaths @('hooks/sample.json')
+
+        $manifest.Keys | Should -Not -Contain 'x-hve'
+        foreach ($metadataKey in (Get-MarketplaceMetadataKey)) {
+            $manifest.Keys | Should -Not -Contain $metadataKey
+        }
+    }
+
+    It 'Serializes without any x-hve token' {
+        $manifest = New-PluginManifestContent -CollectionId 'sample' -Description 'Sample' -Version '1.0.0' -CommandPaths @('commands')
+        ($manifest | ConvertTo-Json -Depth 6) | Should -Not -Match 'x-hve'
+    }
+
+    It 'Emits provenance and rules membership from the catalog entry' {
+        $manifest = New-PluginManifestContent -PackageName 'sample' -Description 'Sample' -Version '1.0.0' `
+            -Author 'Microsoft' -Homepage 'https://example.invalid' -Repository 'https://example.invalid' `
+            -License 'MIT' -Keywords @('a', 'b') -RulePaths @('rules/team/')
+
+        $manifest.author | Should -Be 'Microsoft'
+        $manifest.homepage | Should -Be 'https://example.invalid'
+        $manifest.repository | Should -Be 'https://example.invalid'
+        $manifest.license | Should -Be 'MIT'
+        $manifest.keywords | Should -Be @('a', 'b')
+        $manifest.rules | Should -Be @('rules/team/')
+    }
+}
+
+Describe 'Get-MarketplacePackagePath and Resolve-MarketplaceComponentSource' {
+    It 'Round-trips every component kind' {
+        $cases = @(
+            @{ Kind = 'agent'; Source = '.github/agents/team/x.agent.md'; Package = 'agents/team/x.md'; Field = 'agents' }
+            @{ Kind = 'prompt'; Source = '.github/prompts/team/x.prompt.md'; Package = 'commands/team/x.md'; Field = 'commands' }
+            @{ Kind = 'instruction'; Source = '.github/instructions/team/x.instructions.md'; Package = 'rules/team/x.instructions.md'; Field = 'rules' }
+            @{ Kind = 'skill'; Source = '.github/skills/team/demo'; Package = 'skills/team/demo'; Field = 'skills' }
+            @{ Kind = 'hook'; Source = '.github/hooks/team/h.json'; Package = 'hooks/team/h.json'; Field = 'hooks' }
+        )
+
+        foreach ($case in $cases) {
+            (Get-MarketplacePackagePath -SourcePath $case.Source -Kind $case.Kind) | Should -Be $case.Package
+            $resolved = Resolve-MarketplaceComponentSource -PackagePath $case.Package -Field $case.Field
+            $resolved.SourcePath | Should -Be $case.Source
+            $resolved.Kind | Should -Be $case.Kind
+        }
+    }
+
+    It 'Rejects a source outside the canonical kind root' {
+        { Get-MarketplacePackagePath -SourcePath '.github/skills/team/demo/refs/x.instructions.md' -Kind 'instruction' } |
+            Should -Throw '*is not under the canonical*'
+    }
+
+    It 'Rejects a component path that escapes the package root' {
+        { Resolve-MarketplaceComponentSource -PackagePath 'agents/../../etc/passwd' -Field 'agents' } |
+            Should -Throw '*must not escape the package root*'
+    }
+
+    It 'Rejects a component path declared under the wrong field directory' {
+        { Resolve-MarketplaceComponentSource -PackagePath 'commands/team/x.md' -Field 'agents' } |
+            Should -Throw "*must start with the 'agents/' package directory*"
+    }
+
+    It 'Rejects a rules path without the instructions suffix' {
+        { Resolve-MarketplaceComponentSource -PackagePath 'rules/team/x.md' -Field 'rules' } |
+            Should -Throw "*must end with '.instructions.md'*"
+    }
+}
+
+Describe 'ConvertTo-MarketplaceAgentKey' {
+    It 'Normalizes a display name to its file stem form' {
+        ConvertTo-MarketplaceAgentKey -Name 'ADR Creation' | Should -Be 'adr-creation'
+        ConvertTo-MarketplaceAgentKey -Name 'RPI Agent' | Should -Be 'rpi-agent'
+        ConvertTo-MarketplaceAgentKey -Name 'adr-creation' | Should -Be 'adr-creation'
+    }
+}
+
+Describe 'Expand-MarketplaceAgentDependency' {
+    BeforeAll {
+        $script:depRepo = Join-Path $TestDrive 'dep-repo'
+        $agentsDir = Join-Path $script:depRepo '.github/agents/team'
+        New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+
+        Set-Content -LiteralPath (Join-Path $agentsDir 'root.agent.md') -Encoding utf8NoBOM -Value @'
+---
+name: Root Agent
+handoffs:
+  - agent: Leaf Worker
+---
+'@
+        Set-Content -LiteralPath (Join-Path $agentsDir 'leaf-worker.agent.md') -Encoding utf8NoBOM -Value @'
+---
+name: Leaf Worker
+handoffs:
+  - agent: Deep Worker
+---
+'@
+        Set-Content -LiteralPath (Join-Path $agentsDir 'deep-worker.agent.md') -Encoding utf8NoBOM -Value @'
+---
+name: Deep Worker
+---
+'@
+        Set-Content -LiteralPath (Join-Path $agentsDir 'dangling.agent.md') -Encoding utf8NoBOM -Value @'
+---
+name: Dangling Agent
+handoffs:
+  - agent: Never Declared
+---
+'@
+
+        $script:depCatalog = @{
+            plugins = @(
+                @{
+                    name   = 'all'
+                    agents = @(
+                        'agents/team/root.md',
+                        'agents/team/leaf-worker.md',
+                        'agents/team/deep-worker.md',
+                        'agents/team/dangling.md'
+                    )
+                }
+            )
+        }
+        $script:depIndex = Get-MarketplaceAgentIndex -Catalog $script:depCatalog -RepoRoot $script:depRepo
+    }
+
+    It 'Indexes declared agents by file stem and display name' {
+        $script:depIndex.Lookup.ContainsKey('root') | Should -BeTrue
+        $script:depIndex.Lookup.ContainsKey('root-agent') | Should -BeTrue
+        $script:depIndex.Ambiguous.Count | Should -Be 0
+    }
+
+    It 'Closes transitive handoff dependencies and collapses duplicates' {
+        $closed = @(Expand-MarketplaceAgentDependency -Index $script:depIndex `
+                -SeedPackagePaths @('agents/team/root.md') -PackageName 'all')
+        $closed | Should -Be @('agents/team/deep-worker.md', 'agents/team/leaf-worker.md', 'agents/team/root.md')
+    }
+
+    It 'Returns only the seeds when no handoffs are declared' {
+        $closed = @(Expand-MarketplaceAgentDependency -Index $script:depIndex `
+                -SeedPackagePaths @('agents/team/deep-worker.md') -PackageName 'all')
+        $closed | Should -Be @('agents/team/deep-worker.md')
+    }
+
+    It 'Returns an empty set for a package with no agents' {
+        $closed = @(Expand-MarketplaceAgentDependency -Index $script:depIndex `
+                -SeedPackagePaths @() -PackageName 'all')
+        $closed.Count | Should -Be 0
+    }
+
+    It 'Fails on an unresolved handoff target' {
+        { Expand-MarketplaceAgentDependency -Index $script:depIndex `
+                -SeedPackagePaths @('agents/team/dangling.md') -PackageName 'all' } |
+            Should -Throw '*does not resolve to a catalog-declared agent*'
+    }
+
+    It 'Fails on an ambiguous handoff target' {
+        $ambiguousRepo = Join-Path $TestDrive 'ambiguous-repo'
+        foreach ($area in @('alpha', 'beta')) {
+            $dir = Join-Path $ambiguousRepo ".github/agents/$area"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir 'worker.agent.md') -Encoding utf8NoBOM -Value @'
+---
+name: Shared Worker
+---
+'@
+        }
+        $callerDir = Join-Path $ambiguousRepo '.github/agents/caller'
+        New-Item -ItemType Directory -Path $callerDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $callerDir 'caller.agent.md') -Encoding utf8NoBOM -Value @'
+---
+name: Caller
+handoffs:
+  - agent: Shared Worker
+---
+'@
+
+        $catalog = @{
+            plugins = @(
+                @{
+                    name   = 'all'
+                    agents = @('agents/alpha/worker.md', 'agents/beta/worker.md', 'agents/caller/caller.md')
+                }
+            )
+        }
+        $index = Get-MarketplaceAgentIndex -Catalog $catalog -RepoRoot $ambiguousRepo
+        $index.Ambiguous.Count | Should -BeGreaterThan 0
+
+        { Expand-MarketplaceAgentDependency -Index $index -SeedPackagePaths @('agents/caller/caller.md') -PackageName 'all' } |
+            Should -Throw '*is ambiguous across*'
+    }
+}
+
+Describe 'Split-PluginDocumentationSource' {
+    It 'Extracts the frontmatter title, marked notice, and remaining body' {
+        $content = @'
+---
+title: Security
+description: Security package
+---
+
+<!-- BEGIN PACKAGE NOTICE -->
+> [!CAUTION]
+> Assistive tools only.
+<!-- END PACKAGE NOTICE -->
+
+Body paragraph.
+'@
+        $parsed = Split-PluginDocumentationSource -Content $content
+        $parsed.Title | Should -Be 'Security'
+        $parsed.Notice | Should -Be "> [!CAUTION]`n> Assistive tools only."
+        $parsed.Body | Should -Be 'Body paragraph.'
+    }
+
+    It 'Falls back to a legacy leading H1 when frontmatter is absent' {
+        $parsed = Split-PluginDocumentationSource -Content "# Legacy Title`n`nBody."
+        $parsed.Title | Should -Be 'Legacy Title'
+        $parsed.Body | Should -Be 'Body.'
+        $parsed.Notice | Should -Be ''
+    }
+
+    It 'Returns empty values for empty content' {
+        $parsed = Split-PluginDocumentationSource -Content ''
+        $parsed.Title | Should -Be ''
+        $parsed.Notice | Should -Be ''
+        $parsed.Body | Should -Be ''
     }
 }

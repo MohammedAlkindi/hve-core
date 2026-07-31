@@ -3,6 +3,96 @@
   "title": "Marketplace Manifest",
   "description": "Schema for hve-core Copilot CLI marketplace.json plugin manifest",
   "type": "object",
+  "definitions": {
+    "componentPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+      "not": {
+        "pattern": "(^|/)\\.\\.?(/|$)"
+      },
+      "description": "Package-relative forward-slash path. Absolute paths, backslashes, empty segments, and relative or escaping segments are rejected."
+    },
+    "componentMembership": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/componentPath"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/componentPath"
+          }
+        }
+      ],
+      "description": "Standard component membership: one package-relative path or an array of them."
+    },
+    "maturity": {
+      "type": "string",
+      "enum": [
+        "stable",
+        "preview",
+        "experimental",
+        "deprecated",
+        "removed"
+      ]
+    },
+    "objectSource": {
+      "type": "object",
+      "required": [
+        "source",
+        "path"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "github",
+            "url"
+          ],
+          "description": "Remote locator type."
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+          "description": "Repository locator in owner/name form. Required for github sources."
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://\\S+$",
+          "description": "Absolute https repository URL. Required for url sources."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+          "not": {
+            "pattern": "(^|/)\\.\\.?(/|$)"
+          },
+          "description": "Repository-relative package path."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Branch or tag pin. Mutually exclusive with sha."
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Full lowercase commit id. Mutually exclusive with ref."
+        }
+      },
+      "not": {
+        "required": [
+          "ref",
+          "sha"
+        ]
+      },
+      "additionalProperties": false
+    }
+  },
   "required": [
     "name",
     "metadata",
@@ -73,9 +163,17 @@
             "description": "Plugin identifier. Lowercase letters, digits, and hyphens only."
           },
           "source": {
-            "type": "string",
-            "pattern": "^[a-z0-9-]+$",
-            "description": "Plugin directory name within pluginRoot. Must not contain path separators."
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$",
+                "description": "Locally generated package directory name within pluginRoot."
+              },
+              {
+                "$ref": "#/definitions/objectSource"
+              }
+            ],
+            "description": "Package locator: a generated directory name or a remote locator object."
           },
           "description": {
             "type": "string",
@@ -86,6 +184,96 @@
             "type": "string",
             "pattern": "^\\d+\\.\\d+\\.\\d+",
             "description": "Semantic version string matching the marketplace version."
+          },
+          "author": {
+            "type": "string",
+            "minLength": 1
+          },
+          "homepage": {
+            "type": "string",
+            "pattern": "^https://\\S+$"
+          },
+          "repository": {
+            "type": "string",
+            "minLength": 1
+          },
+          "license": {
+            "type": "string",
+            "minLength": 1
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Other marketplace packages this package requires."
+          },
+          "strict": {
+            "type": "boolean"
+          },
+          "agents": {
+            "$ref": "#/definitions/componentMembership"
+          },
+          "commands": {
+            "$ref": "#/definitions/componentMembership",
+            "description": "Prompt component membership."
+          },
+          "rules": {
+            "$ref": "#/definitions/componentMembership",
+            "description": "Instruction component membership."
+          },
+          "skills": {
+            "$ref": "#/definitions/componentMembership"
+          },
+          "hooks": {
+            "$ref": "#/definitions/componentMembership"
+          },
+          "x-hve": {
+            "type": "object",
+            "description": "Entry-level metadata overlay. Never owns component membership and never appears in a generated root plugin.json.",
+            "properties": {
+              "maturity": {
+                "$ref": "#/definitions/maturity"
+              },
+              "componentMaturity": {
+                "type": "object",
+                "propertyNames": {
+                  "$ref": "#/definitions/componentPath"
+                },
+                "additionalProperties": {
+                  "$ref": "#/definitions/maturity"
+                },
+                "description": "Per-component maturity keyed by normalized standard component path. Removed tombstones may be absent from active membership."
+              },
+              "documentation": {
+                "$ref": "#/definitions/componentPath"
+              },
+              "aggregate": {
+                "type": "boolean"
+              },
+              "derived": {
+                "type": "string",
+                "enum": [
+                  "skill-union"
+                ]
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false

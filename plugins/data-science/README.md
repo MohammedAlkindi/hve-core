@@ -27,6 +27,8 @@ Generate data specifications, Jupyter notebooks, and Streamlit dashboards from n
 | **gen-streamlit-dashboard** | Develop a multi-page Streamlit dashboard |
 | **rai-planner** | Responsible AI assessment planner evaluating against NIST AI RMF 1.0, producing an RAI security model, impact assessment, control surface catalog, and backlog handoff |
 | **rpi-researcher** | Executes one delegated internal, external, or hybrid RPI research lane and progressively writes owned evidence. Use for independent research threads. |
+| **security-planner** | Phase-based security planner producing security models, standards mappings, and backlog handoffs with AI/ML detection and RAI Planner integration |
+| **sssc-planner** | Six-phase repository supply chain security assessment against OpenSSF Scorecard, SLSA, Sigstore, and SBOM standards, producing a prioritized backlog of reusable workflows. |
 | **test-streamlit-dashboard** | Automated testing for Streamlit dashboards using Playwright with issue tracking and reporting |
 
 ### Prompts

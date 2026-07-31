@@ -1,0 +1,30 @@
+{
+  "name": "experimental",
+  "description": "Experimental and preview artifacts not yet promoted to stable collections",
+  "version": "3.3.101",
+  "author": "Microsoft",
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "experimental",
+    "preview"
+  ],
+  "agents": [
+    "agents/experimental/",
+    "agents/experimental/subagents/",
+    "agents/hve-core/subagents/"
+  ],
+  "commands": [
+    "commands/experimental/"
+  ],
+  "rules": [
+    "rules/experimental/",
+    "rules/experimental/mural/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/experimental/",
+    "skills/rpi/"
+  ]
+}

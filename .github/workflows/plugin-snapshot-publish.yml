@@ -145,6 +145,7 @@ jobs:
                   pwsh -NoProfile -File scripts/plugins/Assert-PluginReleaseEvidence.ps1 \
                     -SourceCommit "${SOURCE_COMMIT}" \
                     -ReleaseTag "${RELEASE_TAG}" \
+                    -ExpectedPackageCount 15 \
                     -OutputPath logs/plugin-release-evidence.json
 
             - name: Assert snapshot contains no symbolic links
@@ -212,6 +213,7 @@ jobs:
                     -PluginsDir "${verify_dir}/plugins" \
                     -SourceCommit "${SOURCE_COMMIT}" \
                     -ReleaseTag "${RELEASE_TAG}" \
+                    -ExpectedPackageCount 15 \
                     -ExpectedEvidencePath logs/plugin-release-evidence.json \
                     -OutputPath logs/plugin-snapshot-verification.json
 

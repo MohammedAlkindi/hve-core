@@ -44,6 +44,20 @@ plugins.
 A source path that git does not track produces a warning and is skipped. Stage
 new artifacts before generating.
 
+### Derived Skills Package
+
+One catalog entry declares `x-hve.derived: "skill-union"` instead of its own
+membership. Its content is projected from the standard `skills` membership of
+every other eligible entry, deduplicated by the name each `SKILL.md` declares,
+and flattened to `skills/<name>/`. A declared name must be plain kebab-case and
+equal to its source directory name; an omission, a duplicate resolving to two
+canonical sources, or a name that disagrees with its directory fails generation.
+
+That package targets the portable Agent Plugins v1.0.0 contract, so it carries a
+strict root `plugin.json` with only the closed portable fields and no Copilot
+component arrays. Generation validates the produced package against the contract
+and fails on any violation.
+
 ## Refreshing Plugins After Artifact Changes
 
 ```bash

@@ -764,6 +764,102 @@ function Update-HveCoreAllCollection {
     }
 }
 
+function Get-CollectionFreezeSnapshot {
+    <#
+    .SYNOPSIS
+    Records content digests for the frozen collection manifests and companions.
+
+    .DESCRIPTION
+    Collection YAML and Markdown are retiring inputs. After migration they are
+    read-only until deletion, so callers snapshot their digests before an
+    operation and assert the digests afterwards. The files are deliberately not
+    removed here; freezing and deleting are separate steps.
+
+    .PARAMETER RepoRoot
+    Absolute path to the repository root directory.
+
+    .OUTPUTS
+    [hashtable] Repository-relative path to SHA256 digest.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot
+    )
+
+    $snapshot = @{}
+    $collectionsDir = Join-Path -Path $RepoRoot -ChildPath 'collections'
+    if (-not (Test-Path -LiteralPath $collectionsDir -PathType Container)) {
+        return $snapshot
+    }
+
+    foreach ($file in Get-ChildItem -LiteralPath $collectionsDir -File | Where-Object { $_.Name -like '*.collection.yml' -or $_.Name -like '*.collection.md' }) {
+        $relative = [System.IO.Path]::GetRelativePath($RepoRoot, $file.FullName) -replace '\\', '/'
+        $snapshot[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    }
+
+    return $snapshot
+}
+
+function Assert-CollectionFreeze {
+    <#
+    .SYNOPSIS
+    Fails when frozen collection inputs changed since a snapshot.
+
+    .DESCRIPTION
+    Compares the current collection manifest and companion digests against a
+    snapshot taken earlier in the same run. Any modification, addition, or
+    removal fails with the offending paths, so a regression that reintroduces
+    generator writes to the retiring inputs cannot pass silently.
+
+    .PARAMETER RepoRoot
+    Absolute path to the repository root directory.
+
+    .PARAMETER Snapshot
+    Snapshot from Get-CollectionFreezeSnapshot.
+
+    .OUTPUTS
+    [bool] True when the frozen inputs are unchanged.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Snapshot
+    )
+
+    $current = Get-CollectionFreezeSnapshot -RepoRoot $RepoRoot
+    $violations = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($path in $Snapshot.Keys) {
+        if (-not $current.ContainsKey($path)) {
+            $violations.Add("removed: $path")
+            continue
+        }
+        if ($current[$path] -ne $Snapshot[$path]) {
+            $violations.Add("modified: $path")
+        }
+    }
+
+    foreach ($path in $current.Keys) {
+        if (-not $Snapshot.ContainsKey($path)) {
+            $violations.Add("added: $path")
+        }
+    }
+
+    if ($violations.Count -gt 0) {
+        throw "Frozen collection inputs changed ($($violations -join '; ')). Collection YAML and Markdown are read-only until they are deleted."
+    }
+
+    return $true
+}
+
 function Split-CollectionMdByMarkers {
     <#
     .SYNOPSIS
@@ -872,11 +968,13 @@ function Get-ArtifactDescription {
 }
 
 Export-ModuleMember -Function @(
+    'Assert-CollectionFreeze',
     'Get-AllCollections',
     'Get-ArtifactDescription',
     'Get-ArtifactFiles',
     'Get-ArtifactFrontmatter',
     'Get-CollectionArtifactKey',
+    'Get-CollectionFreezeSnapshot',
     'Get-CollectionManifest',
     'Get-CollectionMaturityRank',
     'Get-CollectionMaturityVocabulary',

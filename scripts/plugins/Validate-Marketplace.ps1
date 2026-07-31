@@ -32,6 +32,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Modules/PluginHelpers.psm1') -Force
 
 #region Validation Helpers
 
@@ -458,7 +459,12 @@ function Invoke-MarketplaceValidation {
                     $pluginErrors += $formatError
                 }
 
-                if ($generatedOutputPresent) {
+                # Derived packages declare no membership of their own; their
+                # content is projected from other entries, so the local
+                # directory only exists once that projection has been generated.
+                $isDerived = $null -ne (Get-MarketplaceEntryOverlayValue -Entry $plugin -Key 'derived')
+
+                if ($generatedOutputPresent -and -not $isDerived) {
                     $dirError = Test-PluginSourceDirectory -Source $sourceValue -PluginsRoot $pluginsRoot
                     if ($dirError) {
                         $pluginErrors += $dirError
@@ -479,6 +485,11 @@ function Invoke-MarketplaceValidation {
             # Plugin version consistency
             if ($expectedVersion -and $plugin.version -ne $expectedVersion) {
                 $pluginErrors += "version '$($plugin.version)' does not match package.json version '$expectedVersion'"
+            }
+
+            # Standard component membership and metadata-only x-hve overlay
+            foreach ($contractError in @(Test-MarketplaceEntryContract -Entry $plugin)) {
+                $pluginErrors += $contractError
             }
 
             $results += @{

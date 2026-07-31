@@ -5,19 +5,24 @@
 
 <#
 .SYNOPSIS
-    Generates Copilot CLI plugin directories from collection manifests.
+    Generates Copilot CLI plugin directories from the marketplace catalog.
 
 .DESCRIPTION
-    Reads collection YAML manifests from the collections/ directory and generates
-    plugin directories under plugins/ containing materialized copies of the
-    git-tracked source artifacts, plugin.json manifests, and auto-generated
-    README files.
+    Reads .github/plugin/marketplace.json and generates plugin directories under
+    plugins/ containing materialized copies of the git-tracked source artifacts,
+    a root plugin.json manifest, and an auto-generated README file.
 
-    Supports generating all plugins or specific collections. Use -Refresh to
+    Standard component fields (agents, commands, rules, skills, hooks) are the
+    sole package-definition input; the x-hve overlay contributes maturity,
+    documentation, and aggregate/derived metadata only. Every declared
+    package-relative path maps deterministically back to one canonical
+    repository source, so nothing undeclared is discovered by scanning.
+
+    Supports generating all packages or specific names. Use -Refresh to
     regenerate existing plugins (deletes and recreates).
 
-.PARAMETER CollectionIds
-    Optional. Array of collection IDs to generate. Generates all when omitted.
+.PARAMETER PackageNames
+    Optional. Array of package names to generate. Generates all when omitted.
 
 .PARAMETER Refresh
     Optional. Deletes and recreates existing plugin directories.
@@ -39,18 +44,23 @@
     Optional. Immutable 'plugins-v<version>' tag. Emits object-form marketplace
     sources that resolve each package from that tag instead of local bare
     sources. Requires -MarketplaceOutputPath: generation never rewrites the
-    production catalog with remote locators.
+    production catalog.
 
 .PARAMETER MarketplaceOutputPath
-    Optional. Destination for the generated marketplace manifest, absolute or
-    relative to the repository root. Defaults to the production catalog.
+    Optional. Destination for a projected marketplace snapshot, absolute or
+    relative to the repository root. The production catalog is an input and is
+    never rewritten by generation.
+
+.PARAMETER CatalogPath
+    Optional. Marketplace catalog to read, absolute or relative to the
+    repository root. Defaults to .github/plugin/marketplace.json.
 
 .EXAMPLE
     ./Generate-Plugins.ps1
     # Generates all plugins (default: all + refresh)
 
 .EXAMPLE
-    ./Generate-Plugins.ps1 -CollectionIds rpi,github
+    ./Generate-Plugins.ps1 -PackageNames rpi,github
     # Generates only the rpi and github plugins
 
 .EXAMPLE
@@ -72,7 +82,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string[]]$CollectionIds,
+    [string[]]$PackageNames,
 
     [Parameter(Mandatory = $false)]
     [switch]$Refresh,
@@ -92,7 +102,10 @@ param(
     [string]$ReleaseTag,
 
     [Parameter(Mandatory = $false)]
-    [string]$MarketplaceOutputPath
+    [string]$MarketplaceOutputPath,
+
+    [Parameter(Mandatory = $false)]
+    [string]$CatalogPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,13 +119,13 @@ Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
 function Get-AllowedCollectionMaturities {
     <#
     .SYNOPSIS
-        Returns allowed collection item maturities for a channel.
+        Returns allowed component maturities for a channel.
 
     .PARAMETER Channel
         Release channel ('Stable' or 'PreRelease').
 
     .OUTPUTS
-        [string[]] Allowed maturity values for collection items.
+        [string[]] Allowed maturity values for declared components.
     #>
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -129,52 +142,139 @@ function Get-AllowedCollectionMaturities {
     return @('stable', 'preview', 'experimental')
 }
 
-function Select-CollectionItemsByChannel {
+function New-PluginDocumentationBlock {
     <#
     .SYNOPSIS
-        Filters collection items by channel using item maturity metadata.
+        Builds the auto-generated artifact tables for a package document.
 
-    .PARAMETER Collection
-        Collection manifest hashtable.
+    .DESCRIPTION
+        Renders one table per artifact kind from the resolved package recipe.
+        Names and descriptions come from the declared canonical sources, so the
+        document stays a projection of catalog membership rather than an
+        independent inventory.
 
-    .PARAMETER Channel
-        Release channel ('Stable' or 'PreRelease').
+    .PARAMETER Items
+        Resolved recipe items with Kind and SourcePath keys.
+
+    .PARAMETER RepoRoot
+        Absolute path to the repository root.
 
     .OUTPUTS
-        [hashtable] Collection clone with filtered items.
+        [string] Markdown block placed between the auto-generation markers.
     #>
     [CmdletBinding()]
-    [OutputType([hashtable])]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$Collection,
+        [AllowEmptyCollection()]
+        [hashtable[]]$Items,
 
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Stable', 'PreRelease')]
-        [string]$Channel
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot
     )
 
-    $allowedMaturities = Get-AllowedCollectionMaturities -Channel $Channel
-    $filteredItems = @()
+    $byKind = @{}
+    foreach ($item in $Items) {
+        $resolvedPath = Join-Path -Path $RepoRoot -ChildPath $item.SourcePath
+        if ($item.Kind -eq 'skill') {
+            $resolvedPath = Join-Path -Path $resolvedPath -ChildPath 'SKILL.md'
+        }
 
-    foreach ($item in $Collection.items) {
-        $effectiveMaturity = Resolve-CollectionItemMaturity -Maturity $item.maturity
-        if ($effectiveMaturity -eq 'removed') {
-            Write-Verbose "Skipping removed item: $($item.path)"
-            continue
+        if (-not $byKind.ContainsKey($item.Kind)) {
+            $byKind[$item.Kind] = [System.Collections.Generic.List[hashtable]]::new()
         }
-        if ($allowedMaturities -contains $effectiveMaturity) {
-            $filteredItems += $item
-        }
+        $byKind[$item.Kind].Add(@{
+                Name        = Get-CollectionArtifactKey -Kind $item.Kind -Path $item.SourcePath
+                Description = Get-ArtifactDescription -FilePath $resolvedPath
+            })
     }
 
-    $filteredCollection = @{}
-    foreach ($key in $Collection.Keys) {
-        $filteredCollection[$key] = $Collection[$key]
-    }
-    $filteredCollection['items'] = $filteredItems
+    $sections = [System.Text.StringBuilder]::new()
+    foreach ($section in @(
+            @{ Title = 'Chat Agents'; Kind = 'agent' },
+            @{ Title = 'Prompts'; Kind = 'prompt' },
+            @{ Title = 'Instructions'; Kind = 'instruction' },
+            @{ Title = 'Skills'; Kind = 'skill' },
+            @{ Title = 'Hooks'; Kind = 'hook' }
+        )) {
+        if (-not $byKind.ContainsKey($section.Kind)) { continue }
 
-    return $filteredCollection
+        $null = $sections.AppendLine("### $($section.Title)")
+        $null = $sections.AppendLine()
+        $null = $sections.AppendLine('| Name | Description |')
+        $null = $sections.AppendLine('|------|-------------|')
+        foreach ($entry in ($byKind[$section.Kind] | Sort-Object { $_.Name })) {
+            $null = $sections.AppendLine("| **$($entry.Name)** | $($entry.Description) |")
+        }
+        $null = $sections.AppendLine()
+    }
+
+    return $sections.ToString().TrimEnd()
+}
+
+function Update-PluginDocumentationSource {
+    <#
+    .SYNOPSIS
+        Refreshes the auto-generated artifact block in a package document.
+
+    .DESCRIPTION
+        The durable package prose referenced by x-hve.documentation owns the
+        hand-authored overview and carries one auto-generated artifact block
+        between markers. Documents without markers are left untouched so
+        hand-authored prose is never overwritten.
+
+    .PARAMETER DocumentPath
+        Absolute path to the package document.
+
+    .PARAMETER Items
+        Resolved recipe items used to render the artifact block.
+
+    .PARAMETER RepoRoot
+        Absolute path to the repository root.
+
+    .OUTPUTS
+        [bool] True when the document was rewritten.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$DocumentPath,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [hashtable[]]$Items,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot
+    )
+
+    if (-not (Test-Path -LiteralPath $DocumentPath -PathType Leaf)) {
+        return $false
+    }
+
+    $content = Get-Content -LiteralPath $DocumentPath -Raw -Encoding utf8
+    $parsed = Split-CollectionMdByMarkers -Content $content
+    if (-not $parsed.HasMarkers) {
+        return $false
+    }
+
+    $intro = $parsed.Intro.TrimEnd()
+    if ($intro -notmatch '(?m)^## Included Artifacts\s*$') {
+        $intro = "$intro`n`n## Included Artifacts"
+    }
+
+    $block = New-PluginDocumentationBlock -Items $Items -RepoRoot $RepoRoot
+    $updated = "$intro`n`n$($CollectionMdBeginMarker)`n`n$block`n`n$($CollectionMdEndMarker)"
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Footer)) {
+        $updated += "`n`n$($parsed.Footer.TrimEnd())"
+    }
+    $updated += "`n"
+
+    return (Set-ContentIfChanged -Path $DocumentPath -Value $updated)
 }
 
 function Assert-PluginOutputSize {
@@ -243,20 +343,23 @@ function Assert-PluginOutputSize {
 function Invoke-PluginGeneration {
     <#
     .SYNOPSIS
-        Orchestrates plugin directory generation from collection manifests.
+        Orchestrates plugin directory generation from the marketplace catalog.
 
     .DESCRIPTION
-        Loads collection manifests from the collections/ directory, optionally
-        filters to specified IDs, and generates plugin directory structures
-        under plugins/. Each plugin receives materialized copies of the
-        git-tracked source artifacts, a plugin.json manifest, and an
-        auto-generated README.
+        Loads the marketplace catalog, optionally filters to specified package
+        names, and generates plugin directory structures under plugins/. Each
+        package receives materialized copies of the declared git-tracked source
+        artifacts, a root plugin.json manifest, and an auto-generated README.
+
+        Derived packages declare no membership of their own and are skipped
+        here; their projection is generated by the dedicated skills-union
+        pipeline.
 
     .PARAMETER RepoRoot
         Absolute path to the repository root directory.
 
-    .PARAMETER CollectionIds
-        Optional. Array of collection IDs to generate. Generates all when omitted.
+    .PARAMETER PackageNames
+        Optional. Array of package names to generate. Generates all when omitted.
 
     .PARAMETER Refresh
         When specified, removes existing plugin directories before regenerating.
@@ -275,7 +378,10 @@ function Invoke-PluginGeneration {
         marketplace sources.
 
     .PARAMETER MarketplaceOutputPath
-        Optional destination for the generated marketplace manifest.
+        Optional destination for a projected marketplace snapshot.
+
+    .PARAMETER CatalogPath
+        Optional marketplace catalog path, absolute or relative to RepoRoot.
 
     .OUTPUTS
         Hashtable with Success, PluginCount, and ErrorMessage keys
@@ -289,7 +395,7 @@ function Invoke-PluginGeneration {
         [string]$RepoRoot,
 
         [Parameter(Mandatory = $false)]
-        [string[]]$CollectionIds,
+        [string[]]$PackageNames,
 
         [Parameter(Mandatory = $false)]
         [switch]$Refresh,
@@ -309,7 +415,10 @@ function Invoke-PluginGeneration {
         [string]$ReleaseTag,
 
         [Parameter(Mandatory = $false)]
-        [string]$MarketplaceOutputPath
+        [string]$MarketplaceOutputPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$CatalogPath
     )
 
     $releaseLocator = $null
@@ -317,38 +426,50 @@ function Invoke-PluginGeneration {
         $releaseLocator = New-PluginReleaseLocator -Tag $ReleaseTag
     }
 
-    $collectionsDir = Join-Path -Path $RepoRoot -ChildPath 'collections'
     $pluginsDir = Join-Path -Path $RepoRoot -ChildPath 'plugins'
+
+    $resolvedCatalogPath = if ([string]::IsNullOrWhiteSpace($CatalogPath)) {
+        Join-Path -Path $RepoRoot -ChildPath '.github' -AdditionalChildPath 'plugin', 'marketplace.json'
+    }
+    elseif ([System.IO.Path]::IsPathRooted($CatalogPath)) {
+        $CatalogPath
+    }
+    else {
+        Join-Path -Path $RepoRoot -ChildPath $CatalogPath
+    }
 
     # Read repo version from package.json for plugin manifests
     $packageJsonPath = Join-Path -Path $RepoRoot -ChildPath 'package.json'
     $repoVersion = (Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json).version
 
-    # Auto-update hve-core-all collection with discovered artifacts
-    $updateResult = Update-HveCoreAllCollection -RepoRoot $RepoRoot -DryRun:$DryRun
-    Write-Verbose "hve-core-all updated: $($updateResult.ItemCount) items ($($updateResult.AddedCount) added, $($updateResult.RemovedCount) removed)"
+    # Retiring YAML inputs are frozen: generation reads the catalog only and
+    # proves it wrote nothing back to collections/ before returning.
+    $freezeSnapshot = Get-CollectionFreezeSnapshot -RepoRoot $RepoRoot
 
-    # Load all collection manifests
-    $allCollections = Get-AllCollections -CollectionsDir $collectionsDir
+    $catalog = Get-MarketplaceCatalog -Path $resolvedCatalogPath
+    $allEntries = @($catalog['plugins'])
 
-    if ($allCollections.Count -eq 0) {
-        Write-Warning 'No collection manifests found in collections/'
+    if ($allEntries.Count -eq 0) {
+        Write-Warning "No packages declared in $resolvedCatalogPath"
         return New-GenerateResult -Success $true -PluginCount 0
     }
 
-    # Filter to requested IDs when provided
-    if ($CollectionIds -and $CollectionIds.Count -gt 0) {
-        $filtered = @($allCollections | Where-Object { $CollectionIds -contains $_.id })
-        $missing = @($CollectionIds | Where-Object { $_ -notin ($allCollections | ForEach-Object { $_.id }) })
+    $agentIndex = Get-MarketplaceAgentIndex -Catalog $catalog -RepoRoot $RepoRoot
+
+    # Filter to requested names when provided
+    if ($PackageNames -and $PackageNames.Count -gt 0) {
+        $filtered = @($allEntries | Where-Object { $PackageNames -contains $_['name'] })
+        $missing = @($PackageNames | Where-Object { $_ -notin ($allEntries | ForEach-Object { $_['name'] }) })
         if ($missing.Count -gt 0) {
-            Write-Warning "Collections not found: $($missing -join ', ')"
+            Write-Warning "Packages not found: $($missing -join ', ')"
         }
-        $allCollections = $filtered
+        $allEntries = $filtered
     }
 
     Write-Host "`n=== Plugin Generation ===" -ForegroundColor Cyan
-    Write-Host "Collections: $($allCollections.Count)"
+    Write-Host "Packages: $($allEntries.Count)"
     Write-Host "Channel: $Channel"
+    Write-Host "Catalog: $resolvedCatalogPath"
     Write-Host "Plugins dir: $pluginsDir"
     if ($DryRun) {
         Write-Host '[DRY RUN] No changes will be made' -ForegroundColor Yellow
@@ -361,109 +482,88 @@ function Invoke-PluginGeneration {
     $totalSkills = 0
     $totalHooks = 0
 
-    foreach ($collection in $allCollections) {
-        $id = $collection.id
+    foreach ($entry in ($allEntries | Sort-Object { $_['name'] })) {
+        $id = [string]$entry['name']
         $pluginDir = Join-Path -Path $pluginsDir -ChildPath $id
 
-        # Skip deprecated collections
-        $collectionMaturity = if ($collection.ContainsKey('maturity') -and $collection.maturity) {
-            [string]$collection.maturity
-        } else { 'stable' }
+        $packageMaturity = Get-MarketplaceEntryMaturity -Entry $entry
 
-        if ($collectionMaturity -eq 'deprecated') {
-            Write-Verbose "Skipping deprecated collection: $id"
+        if ($packageMaturity -eq 'deprecated') {
+            Write-Verbose "Skipping deprecated package: $id"
             continue
         }
 
-        if ($collectionMaturity -eq 'removed') {
-            Write-Verbose "Skipping removed collection: $id"
+        if ($packageMaturity -eq 'removed') {
+            Write-Verbose "Skipping removed package: $id"
             continue
         }
 
-        # Generate plugin directory structure (overwrites in place)
-        $filteredCollection = Select-CollectionItemsByChannel -Collection $collection -Channel $Channel
-
-        # Refresh collection.md before generating the plugin README so the
-        # embedded Overview block uses current artifact descriptions.
-        if (-not $DryRun) {
-            $collectionMdPath = Join-Path $collectionsDir "$id.collection.md"
-            if (Test-Path $collectionMdPath) {
-                $bodyContent = Get-Content -Path $collectionMdPath -Raw
-                $parsed = Split-CollectionMdByMarkers -Content $bodyContent
-
-                if ($parsed.HasMarkers) {
-                    $agents = @()
-                    $prompts = @()
-                    $instructions = @()
-                    $skills = @()
-                    $hooks = @()
-
-                    foreach ($item in $filteredCollection.items) {
-                        if (-not $item.ContainsKey('kind') -or -not $item.ContainsKey('path')) {
-                            continue
-                        }
-                        $kind = [string]$item.kind
-                        $path = [string]$item.path
-                        $artifactName = Get-CollectionArtifactKey -Kind $kind -Path $path
-
-                        $resolvedPath = Join-Path $RepoRoot ($path -replace '^\./', '')
-                        if ($kind -eq 'skill') {
-                            $resolvedPath = Join-Path $resolvedPath 'SKILL.md'
-                        }
-                        $artifactDesc = Get-ArtifactDescription -FilePath $resolvedPath
-
-                        $entry = @{ Name = $artifactName; Description = $artifactDesc }
-                        switch ($kind) {
-                            'agent' { $agents += $entry }
-                            'prompt' { $prompts += $entry }
-                            'instruction' { $instructions += $entry }
-                            'skill' { $skills += $entry }
-                            'hook' { $hooks += $entry }
-                        }
+        $derivedMode = [string](Get-MarketplaceEntryOverlayValue -Entry $entry -Key 'derived')
+        if ($derivedMode) {
+            # A derived package declares no membership of its own: its content
+            # is projected from the other catalog entries.
+            $union = @(Get-MarketplaceSkillUnion -Catalog $catalog -Channel $Channel -RepoRoot $RepoRoot)
+            $items = @($union | ForEach-Object {
+                    @{
+                        Kind        = 'skill'
+                        Field       = 'skills'
+                        PackagePath = "skills/$($_.Name)"
+                        SourcePath  = $_.SourcePath
+                        Maturity    = 'stable'
                     }
+                })
+        }
+        else {
+            $items = @(Get-MarketplacePackageRecipe -Entry $entry -Channel $Channel)
 
-                    $artifactSections = [System.Text.StringBuilder]::new()
-
-                    foreach ($section in @(
-                        @{ Title = 'Chat Agents'; Items = $agents },
-                        @{ Title = 'Prompts'; Items = $prompts },
-                        @{ Title = 'Instructions'; Items = $instructions },
-                        @{ Title = 'Skills'; Items = $skills },
-                        @{ Title = 'Hooks'; Items = $hooks }
-                    )) {
-                        if ($section.Items.Count -eq 0) { continue }
-
-                        $null = $artifactSections.AppendLine("### $($section.Title)")
-                        $null = $artifactSections.AppendLine()
-                        $null = $artifactSections.AppendLine('| Name | Description |')
-                        $null = $artifactSections.AppendLine('|------|-------------|')
-                        foreach ($entry in ($section.Items | Sort-Object { $_.Name })) {
-                            $null = $artifactSections.AppendLine("| **$($entry.Name)** | $($entry.Description) |")
-                        }
-                        $null = $artifactSections.AppendLine()
-                    }
-
-                    $generatedBlock = $artifactSections.ToString().TrimEnd()
-                    $intro = $parsed.Intro.TrimEnd()
-                    if ($intro -notmatch '(?m)^## Included Artifacts\s*$') {
-                        $intro = "$intro`n`n## Included Artifacts"
-                    }
-                    $updatedCollectionMd = "$intro`n`n$($CollectionMdBeginMarker)`n`n$generatedBlock`n`n$($CollectionMdEndMarker)"
-                    if (-not [string]::IsNullOrWhiteSpace($parsed.Footer)) {
-                        $updatedCollectionMd += "`n`n$($parsed.Footer.TrimEnd())"
-                    }
-                    $updatedCollectionMd += "`n"
-                    Set-ContentIfChanged -Path $collectionMdPath -Value $updatedCollectionMd
+            # Close transitive agent handoffs over catalog-declared agents so an
+            # installed package can satisfy every handoff it advertises.
+            $seedAgents = @($items | Where-Object { $_.Kind -eq 'agent' } | ForEach-Object { $_.PackagePath })
+            $closedAgents = @(Expand-MarketplaceAgentDependency -Index $agentIndex -SeedPackagePaths $seedAgents -PackageName $id)
+            foreach ($agentPath in $closedAgents) {
+                if ($seedAgents -contains $agentPath) { continue }
+                $component = Resolve-MarketplaceComponentSource -PackagePath $agentPath -Field 'agents'
+                $items += @{
+                    Kind        = $component.Kind
+                    Field       = 'agents'
+                    PackagePath = $component.PackagePath
+                    SourcePath  = $component.SourcePath
+                    Maturity    = 'stable'
                 }
+            }
+            $items = @($items | Sort-Object { $_.Field }, { $_.PackagePath })
+        }
+
+        # Refresh the durable package document before generating the README so
+        # the embedded Overview block uses current artifact descriptions.
+        $documentation = Get-MarketplaceEntryOverlayValue -Entry $entry -Key 'documentation'
+        $documentPath = $null
+        if ($documentation) {
+            $documentPath = Join-Path -Path $RepoRoot -ChildPath ([string]$documentation)
+            if (-not $DryRun) {
+                Update-PluginDocumentationSource -DocumentPath $documentPath -Items $items -RepoRoot $RepoRoot | Out-Null
             }
         }
 
-        $result = Write-PluginDirectory -Collection $filteredCollection `
-            -PluginsDir $pluginsDir `
-            -RepoRoot $RepoRoot `
-            -Version $repoVersion `
-            -Maturity $collectionMaturity `
-            -DryRun:$DryRun
+        $result = if ($derivedMode) {
+            Write-StrictSkillsPackage -Entry $entry `
+                -Skills @($union) `
+                -PluginsDir $pluginsDir `
+                -RepoRoot $RepoRoot `
+                -Version $repoVersion `
+                -DocumentPath $documentPath `
+                -DryRun:$DryRun
+        }
+        else {
+            Write-PluginDirectory -Entry $entry `
+                -Items $items `
+                -PluginsDir $pluginsDir `
+                -RepoRoot $RepoRoot `
+                -Version $repoVersion `
+                -Maturity $packageMaturity `
+                -DocumentPath $documentPath `
+                -DryRun:$DryRun
+        }
 
         # Orphan cleanup in Refresh mode. Generated directories are real trees,
         # so the walker descends into every one and compares each contained file
@@ -475,12 +575,12 @@ function Invoke-PluginGeneration {
             $scanQueue.Enqueue($pluginDir)
             while ($scanQueue.Count -gt 0) {
                 $currentDir = $scanQueue.Dequeue()
-                foreach ($entry in Get-ChildItem -LiteralPath $currentDir -Force) {
-                    if ($entry.PSIsContainer) {
-                        $scanQueue.Enqueue($entry.FullName)
+                foreach ($existing in Get-ChildItem -LiteralPath $currentDir -Force) {
+                    if ($existing.PSIsContainer) {
+                        $scanQueue.Enqueue($existing.FullName)
                     }
                     else {
-                        $existingFiles.Add($entry.FullName)
+                        $existingFiles.Add($existing.FullName)
                     }
                 }
             }
@@ -507,7 +607,7 @@ function Invoke-PluginGeneration {
             }
         }
 
-        $itemCount = $filteredCollection.items.Count
+        $itemCount = $items.Count
         $totalAgents += $result.AgentCount
         $totalCommands += $result.CommandCount
         $totalInstructions += $result.InstructionCount
@@ -515,22 +615,36 @@ function Invoke-PluginGeneration {
         $totalHooks += $result.HookCount
         $generated++
 
+        # A derived package claims the portable contract, so generation proves
+        # the produced package against it instead of deferring to review.
+        if ($derivedMode -and -not $DryRun) {
+            $conformance = @(Test-StrictPluginPackage -PackageRoot $pluginDir)
+            if ($conformance.Count -gt 0) {
+                throw "Package '$id' violates the Agent Plugins contract: $($conformance -join '; ')"
+            }
+        }
+
         Write-Host "  $id ($itemCount items)" -ForegroundColor Green
     }
 
-    # Generate marketplace.json from all collections
-    $marketplaceArgs = @{
-        RepoRoot    = $RepoRoot
-        Collections = $allCollections
-        DryRun      = $DryRun
+    # The catalog is the package-definition input, so generation only projects
+    # snapshots to an explicit destination and never rewrites production.
+    if ($releaseLocator -or -not [string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
+        $marketplaceArgs = @{
+            RepoRoot = $RepoRoot
+            Catalog  = $catalog
+            DryRun   = $DryRun
+        }
+        if ($releaseLocator) {
+            $marketplaceArgs['ReleaseLocator'] = $releaseLocator
+        }
+        if (-not [string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
+            $marketplaceArgs['OutputPath'] = $MarketplaceOutputPath
+        }
+        Write-MarketplaceManifest @marketplaceArgs
     }
-    if ($releaseLocator) {
-        $marketplaceArgs['ReleaseLocator'] = $releaseLocator
-    }
-    if (-not [string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
-        $marketplaceArgs['OutputPath'] = $MarketplaceOutputPath
-    }
-    Write-MarketplaceManifest @marketplaceArgs
+
+    Assert-CollectionFreeze -RepoRoot $RepoRoot -Snapshot $freezeSnapshot
 
     if (-not $DryRun) {
         $sizeReport = Assert-PluginOutputSize -PluginsDir $pluginsDir -MaxTotalSizeMB $MaxTotalSizeMB
@@ -560,8 +674,8 @@ function Start-PluginGeneration {
     .PARAMETER ScriptPath
         Absolute path to this script file, used to resolve the repo root.
 
-    .PARAMETER CollectionIds
-        Optional collection IDs forwarded to Invoke-PluginGeneration.
+    .PARAMETER PackageNames
+        Optional package names forwarded to Invoke-PluginGeneration.
 
     .PARAMETER Refresh
         Forwarded refresh switch.
@@ -579,7 +693,10 @@ function Start-PluginGeneration {
         Forwarded immutable release tag.
 
     .PARAMETER MarketplaceOutputPath
-        Forwarded marketplace manifest destination.
+        Forwarded marketplace snapshot destination.
+
+    .PARAMETER CatalogPath
+        Forwarded marketplace catalog path.
 
     .OUTPUTS
         [int] Exit code: 0 for success, 1 for failure.
@@ -591,7 +708,7 @@ function Start-PluginGeneration {
         [string]$ScriptPath,
 
         [Parameter(Mandatory = $false)]
-        [string[]]$CollectionIds,
+        [string[]]$PackageNames,
 
         [Parameter(Mandatory = $false)]
         [switch]$Refresh,
@@ -611,7 +728,10 @@ function Start-PluginGeneration {
         [string]$ReleaseTag,
 
         [Parameter(Mandatory = $false)]
-        [string]$MarketplaceOutputPath
+        [string]$MarketplaceOutputPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$CatalogPath
     )
 
     try {
@@ -630,19 +750,20 @@ function Start-PluginGeneration {
 
         # Default to all + refresh when no args
         $effectiveRefresh = $Refresh
-        if (-not $CollectionIds -and -not $Refresh.IsPresent -and -not $DryRun.IsPresent) {
+        if (-not $PackageNames -and -not $Refresh.IsPresent -and -not $DryRun.IsPresent) {
             $effectiveRefresh = [switch]::new($true)
         }
 
         $result = Invoke-PluginGeneration `
             -RepoRoot $RepoRoot `
-            -CollectionIds $CollectionIds `
+            -PackageNames $PackageNames `
             -Refresh:$effectiveRefresh `
             -DryRun:$DryRun `
             -Channel $Channel `
             -MaxTotalSizeMB $MaxTotalSizeMB `
             -ReleaseTag $ReleaseTag `
-            -MarketplaceOutputPath $MarketplaceOutputPath
+            -MarketplaceOutputPath $MarketplaceOutputPath `
+            -CatalogPath $CatalogPath
 
         if (-not $result.Success) {
             throw $result.ErrorMessage
@@ -669,12 +790,13 @@ function Start-PluginGeneration {
 if ($MyInvocation.InvocationName -ne '.') {
     exit (Start-PluginGeneration `
         -ScriptPath $MyInvocation.MyCommand.Path `
-        -CollectionIds $CollectionIds `
+        -PackageNames $PackageNames `
         -Refresh:$Refresh `
         -DryRun:$DryRun `
         -Channel $Channel `
         -MaxTotalSizeMB $MaxTotalSizeMB `
         -ReleaseTag $ReleaseTag `
-        -MarketplaceOutputPath $MarketplaceOutputPath)
+        -MarketplaceOutputPath $MarketplaceOutputPath `
+        -CatalogPath $CatalogPath)
 }
 #endregion

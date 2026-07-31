@@ -1,0 +1,26 @@
+{
+  "name": "rpi",
+  "description": "Skill-forward Research, Plan, Implement, Review, and Follow-up entry points with bounded planning and critique support.",
+  "version": "3.3.101",
+  "author": "Microsoft",
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "rpi",
+    "research",
+    "planning",
+    "implementation",
+    "review",
+    "skills"
+  ],
+  "agents": [
+    "agents/hve-core/subagents/"
+  ],
+  "rules": [
+    "rules/hve-core/"
+  ],
+  "skills": [
+    "skills/rpi/"
+  ]
+}

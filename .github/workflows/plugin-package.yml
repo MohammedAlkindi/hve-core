@@ -12,7 +12,7 @@ on:
                 default: ""
         outputs:
             collections-matrix:
-                description: "JSON matrix of plugin collections that were packaged"
+                description: "JSON matrix of plugin packages that were packaged"
                 value: ${{ jobs.discover-collections.outputs.matrix }}
 
 permissions:
@@ -20,30 +20,56 @@ permissions:
 
 jobs:
     discover-collections:
-        name: Discover Plugin Collections
+        name: Discover Plugin Packages
         runs-on: ubuntu-latest
         permissions:
             contents: read
         outputs:
             matrix: ${{ steps.discover.outputs.matrix }}
+            names: ${{ steps.discover.outputs.names }}
         steps:
             - name: Checkout code
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   persist-credentials: false
 
-            - name: Discover collection manifests
+            - name: Discover marketplace packages
               id: discover
               shell: bash
               run: |
-                  matrix_json=$(find collections -name '*.collection.yml' -type f | sort | while IFS= read -r file; do
-                    id=$(basename "$file" .collection.yml)
-                    echo "{\"id\":\"$id\"}"
-                  done | jq -sc '{include: .}')
+                  set -euo pipefail
+                  catalog=.github/plugin/marketplace.json
 
-                  echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
-                  echo "Discovered plugin collections:"
-                  echo "$matrix_json" | jq .
+                  # The catalog is the sole package-definition input, so every
+                  # publishable package is discovered here, including the derived
+                  # skills package that declares no membership of its own.
+                  names=$(jq -r '
+                    [ .plugins[]
+                      | select((."x-hve".maturity // "stable") as $m | $m != "deprecated" and $m != "removed")
+                      | .name ]
+                    | sort
+                    | .[]' "$catalog")
+
+                  total=$(printf '%s\n' "$names" | grep -c . || true)
+                  unique=$(printf '%s\n' "$names" | sort -u | grep -c . || true)
+                  if [ "$total" -eq 0 ]; then
+                    echo "::error::No publishable packages found in $catalog"
+                    exit 1
+                  fi
+                  if [ "$total" -ne "$unique" ]; then
+                    echo "::error::Duplicate package names in $catalog"
+                    exit 1
+                  fi
+
+                  matrix_json=$(printf '%s\n' "$names" | jq -R '{id: .}' | jq -sc '{include: .}')
+
+                  {
+                    echo "matrix=$matrix_json"
+                    echo "names=$(printf '%s\n' "$names" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+                  } >> "$GITHUB_OUTPUT"
+
+                  echo "Discovered $total plugin packages:"
+                  printf '%s\n' "$names"
 
     package:
         name: Package Plugin ${{ matrix.id }}
@@ -77,17 +103,35 @@ jobs:
                   mkdir -p logs
                   npm run plugin:generate
 
+            - name: Verify generated roots match discovered packages
+              shell: bash
+              env:
+                  DISCOVERED_NAMES: ${{ needs.discover-collections.outputs.names }}
+              run: |
+                  set -euo pipefail
+                  expected=$(printf '%s' "$DISCOVERED_NAMES" | jq -r '.[]' | sort)
+                  actual=$(find plugins -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+                  if [ "$expected" != "$actual" ]; then
+                    echo "::error::Generated package roots do not match the discovered package set"
+                    diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+                    exit 1
+                  fi
+                  echo "Verified $(printf '%s\n' "$actual" | grep -c .) generated package roots"
+
             - name: Package plugin directory
               shell: bash
+              env:
+                  PACKAGE_ID: ${{ matrix.id }}
               run: |
-                  plugin_dir="plugins/${{ matrix.id }}"
+                  set -euo pipefail
+                  plugin_dir="plugins/${PACKAGE_ID}"
                   if [ ! -d "$plugin_dir" ]; then
                     echo "::error::Expected plugin directory not found: $plugin_dir"
                     exit 1
                   fi
 
                   mkdir -p dist/plugins
-                  zip -r "dist/plugins/${{ matrix.id }}.zip" "$plugin_dir"
+                  zip -r "dist/plugins/${PACKAGE_ID}.zip" "$plugin_dir"
 
             - name: Upload plugin artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

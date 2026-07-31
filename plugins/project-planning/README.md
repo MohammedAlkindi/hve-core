@@ -119,11 +119,11 @@ Create architecture decision records (MADR v4 + Y-Statement) with phase-gated co
 
 The standalone `brd-author` skill and helper skills were consolidated into the `requirements-author` skill, which now covers both BRD and PRD authoring. Update stale references as follows:
 
-| Old path                                                           | Canonical path                                                                  |
-|--------------------------------------------------------------------|---------------------------------------------------------------------------------|
-| `.github/skills/project-planning/brd-author/`                      | `.github/skills/project-planning/requirements-author/`                          |
+| Old path | Canonical path |
+|----------|----------------|
+| `.github/skills/project-planning/brd-author/` | `.github/skills/project-planning/requirements-author/` |
 | `.github/skills/project-planning/brd-author/templates/brd-full.md` | `.github/skills/project-planning/requirements-author/templates/brd/brd-full.md` |
-| `docs/templates/brd-template.md` (deleted)                         | `.github/skills/project-planning/requirements-author/templates/brd/brd-full.md` |
+| `docs/templates/brd-template.md` (deleted) | `.github/skills/project-planning/requirements-author/templates/brd/brd-full.md` |
 
 ## Install
 

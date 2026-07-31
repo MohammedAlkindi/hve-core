@@ -1,0 +1,33 @@
+{
+  "name": "design-thinking",
+  "description": "Design Thinking coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods",
+  "version": "3.3.101",
+  "author": "Microsoft",
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "design-thinking",
+    "coaching",
+    "methodology",
+    "ux"
+  ],
+  "agents": [
+    "agents/design-thinking/",
+    "agents/hve-core/",
+    "agents/hve-core/subagents/"
+  ],
+  "commands": [
+    "commands/design-thinking/",
+    "commands/hve-core/"
+  ],
+  "rules": [
+    "rules/design-thinking/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/design-thinking/",
+    "skills/rpi/",
+    "skills/shared/"
+  ]
+}

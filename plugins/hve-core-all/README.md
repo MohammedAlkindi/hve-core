@@ -168,7 +168,6 @@ Use this edition when you want access to everything without choosing a focused c
 
 | Name | Description |
 |------|-------------|
-| **.github/skills/design-thinking/dt-methods/references/dt-coach-telemetry** | Design Thinking Coach telemetry overlay applying telemetry-foundations vocabulary to DT session artifacts |
 | **accessibility/accessibility-identity** | Identity and orchestration instructions for the Accessibility Planner agent. Contains six-phase workflow, state.json schema reference, session recovery, and question cadence. |
 | **accessibility/accessibility-license-posture** | Accessibility-specific overlay mapping accessibility standards onto the repository licensing posture |
 | **ado/ado-backlog-sprint** | Sprint planning workflow for Azure DevOps iterations with coverage analysis, capacity tracking, and gap detection |
@@ -193,6 +192,7 @@ Use this edition when you want access to everything without choosing a focused c
 | **coding-standards/rust/rust-tests** | Rust test code authoring conventions |
 | **coding-standards/terraform/terraform** | Terraform infrastructure-as-code authoring conventions |
 | **coding-standards/uv-projects** | Create and manage Python virtual environments using uv commands |
+| **design-thinking/dt-coach-telemetry** | Applies Design Thinking telemetry expectations to DT session artifacts |
 | **experimental/experiment-designer** | MVE domain knowledge and coaching conventions for the Experiment Designer agent |
 | **experimental/graphify** | Conventions for consuming graphify-out/ knowledge-graph evidence inside the RPI workflow |
 | **experimental/mural/mural-bootstrap** | Fresh-session Mural bootstrap requirements for doctor checks, credential backend selection, and safe escalation before Mural tool use. |

@@ -702,3 +702,65 @@ Describe 'Invoke-MarketplaceValidation - bare source directory conditionality' {
             Should -Contain 'plugin source directory not found: plugins/my-plugin'
     }
 }
+
+Describe 'Invoke-MarketplaceValidation - entry component contract' {
+    BeforeAll {
+        $script:repoRoot = Join-Path $TestDrive 'repo-entry-contract'
+        $script:manifestDir = Join-Path $script:repoRoot '.github/plugin'
+        New-Item -ItemType Directory -Path $script:manifestDir -Force | Out-Null
+        Set-Content -Path (Join-Path $script:repoRoot 'package.json') -Value '{"version":"1.0.0"}'
+
+        function script:Set-EntryContractManifest {
+            param([hashtable]$Entry)
+
+            $json = @{
+                name     = 'test'
+                metadata = @{ description = 'd'; version = '1.0.0'; pluginRoot = 'plugins' }
+                owner    = @{ name = 'owner' }
+                plugins  = @($Entry)
+            } | ConvertTo-Json -Depth 8
+            Set-Content -Path (Join-Path $script:manifestDir 'marketplace.json') -Value $json
+        }
+    }
+
+    It 'Accepts standard commands and rules membership with a metadata-only x-hve overlay' {
+        Set-EntryContractManifest -Entry @{
+            name        = 'my-plugin'
+            source      = 'my-plugin'
+            description = 'A plugin'
+            version     = '1.0.0'
+            commands    = @('commands/rpi-research.md')
+            rules       = @('instructions/markdown.instructions.md')
+            'x-hve'     = [ordered]@{
+                maturity          = 'stable'
+                componentMaturity = [ordered]@{ 'commands/rpi-research.md' = 'preview' }
+                documentation     = 'docs/plugins/my-plugin.md'
+            }
+        }
+
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath (Join-Path $TestDrive 'logs/entry-contract-valid.json')
+        $result.Success | Should -BeTrue
+        $result.ErrorCount | Should -Be 0
+    }
+
+    It 'Rejects an x-hve overlay that owns component membership' {
+        Set-EntryContractManifest -Entry @{
+            name        = 'my-plugin'
+            source      = 'my-plugin'
+            description = 'A plugin'
+            version     = '1.0.0'
+            'x-hve'     = [ordered]@{
+                maturity     = 'stable'
+                instructions = @('instructions/markdown.instructions.md')
+            }
+        }
+
+        $outputPath = Join-Path $TestDrive 'logs/entry-contract-membership.json'
+        $result = Invoke-MarketplaceValidation -RepoRoot $script:repoRoot -OutputPath $outputPath
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+
+        $result.Success | Should -BeFalse
+        @($report.Results | Where-Object { $_.PluginName -eq 'my-plugin' })[0].Errors |
+            Should -Contain "x-hve contains unsupported key 'instructions'"
+    }
+}
