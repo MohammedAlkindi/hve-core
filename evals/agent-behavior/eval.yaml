@@ -38,7 +38,7 @@ stimuli:
   - type: output-matches
     name: findings-format-vocabulary
     config:
-      pattern: (?i)(SKILL_FINDINGS_V1|success criteri|structured findings)
+      pattern: (?i)(SKILL_FINDINGS_V1|success criterion|success criteria|structured findings)
   - type: output-matches
     name: status-vocabulary
     config:
