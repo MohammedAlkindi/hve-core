@@ -37,9 +37,9 @@ configuration.
 Each declared collection source is materialized from the paths git currently
 tracks beneath it. Working-tree bytes are copied, so locally modified tracked
 files are included, while untracked content such as `.venv/`, `node_modules/`,
-and `__pycache__/` is never ingested. Generation fails when the combined output
-exceeds `-MaxTotalSizeMB` (default 40), and the failure names the largest
-plugins.
+and Python bytecode cache directories is never ingested. Generation fails when
+the combined output exceeds `-MaxTotalSizeMB` (default 40), and the failure names
+the largest plugins.
 
 A source path that git does not track produces a warning and is skipped. Stage
 new artifacts before generating.
