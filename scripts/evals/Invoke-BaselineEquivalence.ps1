@@ -10,15 +10,15 @@
 
 .DESCRIPTION
     Drives the `evals/baseline-equivalence/` Vally suite end-to-end. Resolves the target
-    agent's frontmatter `model:` hint, selects a model tier (PR or nightly), invokes
-    `vally eval` once per environment (`baseline` and `rpi-agent-context`), invokes
+    agent's frontmatter `model:` hint, selects a model tier, invokes `vally eval` once
+    per environment (`baseline` and the materialized agent context), invokes
     `vally compare` to produce comparison JSONL, and writes a machine-readable summary
     to `logs/baseline-equivalence-summary.json`.
 
     Exit policy by tier:
-    - PR tier always exits 0. Equivalence failures surface as `verdict: warn` in the
+    - `devloop` always exits 0. Failing gates surface as `verdict: warn` in the
       summary JSON. Advisory only.
-    - Nightly tier exits non-zero (1) when `verdict == fail`. Source of truth.
+    - `ci` exits non-zero (1) when `verdict == fail`. Source of truth.
 
     `-WhatIf` (dry-run) mode prints the planned `vally` command lines, emits a summary
     JSON populated with zeros and `verdict: dry-run`, and exits 0 without invoking any
@@ -29,17 +29,20 @@
     `.github/agents/`. Defaults to `rpi-agent`.
 
 .PARAMETER Tier
-    The model tier to exercise. `pr` runs a single primary model; `nightly` runs a model
-    array for broader coverage. Defaults to `pr`.
-
-.PARAMETER StimulusFilter
-    Optional regular expression filtering stimulus names. Defaults to `.*` (all stimuli).
+    The harness mode. `devloop` runs a single primary model and stays advisory; `ci`
+    runs a model array for broader coverage and is authoritative. Defaults to `devloop`.
+    The former `pr` and `nightly` names are rejected with a migration message rather
+    than aliased, so a stale caller fails loudly instead of silently selecting a
+    different exit policy.
 
 .PARAMETER Model
-    Optional explicit model id for the PR tier. When supplied it overrides the agent's
-    frontmatter `model:` hint and the built-in default, letting callers pin a cheaper
-    model for advisory PR-tier runs. Ignored for the `nightly` tier, which always runs
-    its fixed model array.
+    Optional explicit model id for the `devloop` tier. When supplied it overrides the
+    agent's frontmatter `model:` hint and the built-in default, letting callers pin a
+    cheaper model for advisory runs. Ignored for the `ci` tier, which always runs its
+    fixed model array.
+
+.PARAMETER ComparisonJudgeModel
+    Model used as the `vally compare` judge. Defaults to `claude-haiku-4.5`.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the result of `git rev-parse --show-toplevel`, falling
@@ -49,14 +52,14 @@
     Path to the summary JSON. Defaults to `<RepoRoot>/logs/baseline-equivalence-summary.json`.
 
 .EXAMPLE
-    ./Invoke-BaselineEquivalence.ps1 -Agent rpi-agent -Tier pr -WhatIf
+    ./Invoke-BaselineEquivalence.ps1 -Agent rpi-agent -Tier devloop -WhatIf
 
     Prints the planned commands and writes a dry-run summary.
 
 .EXAMPLE
-    npm run ci:eval:equivalence -- -Agent rpi-agent -Tier pr
+    npm run ci:eval:equivalence -- -Agent rpi-agent -Tier devloop
 
-    Runs the PR-tier flow via the npm wrapper.
+    Runs the advisory flow via the npm wrapper.
 
 .NOTES
     Runs via: npm run ci:eval:equivalence
@@ -69,11 +72,7 @@ param(
     [string]$Agent = 'rpi-agent',
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet('pr', 'nightly')]
-    [string]$Tier = 'pr',
-
-    [Parameter(Mandatory = $false)]
-    [string]$StimulusFilter = '.*',
+    [string]$Tier = 'devloop',
 
     [Parameter(Mandatory = $false)]
     [string]$Model,
@@ -101,6 +100,39 @@ Import-Module -Name (Join-Path $PSScriptRoot 'lib/EquivalenceParsing.psm1') -For
 Import-Module -Name (Join-Path $PSScriptRoot 'lib/EquivalenceEnvironment.psm1') -Force
 
 #region Helper Functions
+
+function Assert-SupportedTier {
+    <#
+    .SYNOPSIS
+        Validates the harness mode and rejects the retired tier names by name.
+    .DESCRIPTION
+        A ValidateSet would reject `pr` and `nightly` with a generic enumeration error
+        that says nothing about why they stopped working or what replaced them. The two
+        names also carried different exit policies, so a caller left on the old
+        vocabulary would otherwise discover the change through a surprising exit code.
+
+        No alias is provided deliberately. `pr` mapping silently to `devloop` would let
+        a stale CI caller keep running while reporting a mode that no longer exists.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$Tier
+    )
+
+    $supported = @('devloop', 'ci')
+    if ($supported -contains $Tier) { return }
+
+    $migrated = @{ 'pr' = 'devloop'; 'nightly' = 'ci' }
+    if ($migrated.ContainsKey($Tier)) {
+        throw "Tier '$Tier' was renamed. Use '-Tier $($migrated[$Tier])' instead. The advisory mode is now 'devloop' and the authoritative mode is now 'ci'; no alias is provided so a stale caller cannot silently select a different exit policy."
+    }
+
+    throw "Unsupported tier '$Tier'. Supported values are: $($supported -join ', ')."
+}
 
 function Resolve-RepoRoot {
     [CmdletBinding()]
@@ -152,7 +184,7 @@ function Resolve-ModelList {
         [string]$ModelOverride
     )
 
-    if ($Tier -eq 'nightly') {
+    if ($Tier -eq 'ci') {
         return @('gpt-5.5', 'claude-opus-4.6', 'claude-sonnet-latest')
     }
 
@@ -172,8 +204,6 @@ function New-DryRunSummary {
         [Parameter(Mandatory)]
         [string]$Model,
         [Parameter(Mandatory)]
-        [string]$StimulusFilter,
-        [Parameter(Mandatory)]
         [string[]]$PlannedCommands,
         [hashtable]$Variants
     )
@@ -183,7 +213,6 @@ function New-DryRunSummary {
         agent                    = $Agent
         tier                     = $Tier
         model                    = $Model
-        stimulusFilter           = $StimulusFilter
         runs                     = 0
         ties                     = 0
         baselineWins             = 0
@@ -345,8 +374,6 @@ function Get-PlannedCommands {
         [Parameter(Mandatory)]
         [string[]]$Models,
         [Parameter(Mandatory)]
-        [string]$StimulusFilter,
-        [Parameter(Mandatory)]
         [string]$OutputRoot,
         [Parameter(Mandatory)]
         [string]$RunId,
@@ -358,7 +385,6 @@ function Get-PlannedCommands {
         [string]$CustomizedSkillDirPath
     )
 
-    $filterTag = if ($StimulusFilter -eq '.*') { '' } else { "  # filter: $StimulusFilter" }
     $plan = [System.Collections.Generic.List[string]]::new()
     foreach ($model in $Models) {
         $aDir = Join-Path $OutputRoot "$model/$RunId/baseline"
@@ -367,8 +393,8 @@ function Get-PlannedCommands {
         $baselineSkillArg = if ([string]::IsNullOrEmpty($BaselineSkillDirPath)) { '""' } else { '"' + $BaselineSkillDirPath + '"' }
         $customizedWorkspaceArg = if ([string]::IsNullOrEmpty($CustomizedWorkspacePath)) { '""' } else { '"' + $CustomizedWorkspacePath + '"' }
         $customizedSkillArg = if ([string]::IsNullOrEmpty($CustomizedSkillDirPath)) { '""' } else { '"' + $CustomizedSkillDirPath + '"' }
-        $plan.Add("vally eval --eval-spec evals/baseline-equivalence/baseline/eval.yaml --model $model --output-dir $aDir --workspace $baselineWorkspaceArg --skill-dir $baselineSkillArg$filterTag")
-        $plan.Add("vally eval --eval-spec evals/baseline-equivalence/customized/eval.yaml --model $model --output-dir $bDir --workspace $customizedWorkspaceArg --skill-dir $customizedSkillArg$filterTag")
+        $plan.Add("vally eval --eval-spec evals/baseline-equivalence/baseline/eval.yaml --model $model --output-dir $aDir --workspace $baselineWorkspaceArg --skill-dir $baselineSkillArg")
+        $plan.Add("vally eval --eval-spec evals/baseline-equivalence/customized/eval.yaml --model $model --output-dir $bDir --workspace $customizedWorkspaceArg --skill-dir $customizedSkillArg")
         $plan.Add("vally compare --judge-model $JudgeModel --baseline <resolved baseline run> --treatment <resolved customized run> --output <compare jsonl path>")
     }
     return $plan.ToArray()
@@ -413,6 +439,8 @@ function Write-SummaryJson {
 #region Main Execution
 if ($MyInvocation.InvocationName -ne '.') {
     try {
+        Assert-SupportedTier -Tier $Tier
+
         $resolvedRoot = Resolve-RepoRoot -Hint $RepoRoot
         if (-not $OutputPath) {
             $OutputPath = Join-Path $resolvedRoot 'logs/baseline-equivalence-summary.json'
@@ -443,7 +471,6 @@ if ($MyInvocation.InvocationName -ne '.') {
         $variants = @{ a = $variantA; b = $variantB; subject = [string]$variantB.name }
 
         Write-Host "Baseline equivalence: agent=$Agent tier=$Tier model(s)=$($models -join ',')" -ForegroundColor Cyan
-        Write-Host "   Stimulus filter: $StimulusFilter" -ForegroundColor DarkGray
         Write-Host "   Summary output:  $OutputPath" -ForegroundColor DarkGray
         Write-Host "   Results root:    $outputRoot" -ForegroundColor DarkGray
         Write-Host "   Run id:          $runId" -ForegroundColor DarkGray
@@ -485,7 +512,7 @@ if ($MyInvocation.InvocationName -ne '.') {
 
         $customizedWorkspacePath = $workspaceRoot
         $customizedSkillDirPath = Join-Path $outputRoot "$($models[0])/$runId/customized-skill-dir"
-        $plannedCommands = Get-PlannedCommands -Models $models -StimulusFilter $StimulusFilter -OutputRoot $outputRoot -RunId $runId -JudgeModel $ComparisonJudgeModel -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath -CustomizedSkillDirPath $customizedSkillDirPath
+        $plannedCommands = Get-PlannedCommands -Models $models -OutputRoot $outputRoot -RunId $runId -JudgeModel $ComparisonJudgeModel -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath -CustomizedSkillDirPath $customizedSkillDirPath
 
         if ($WhatIfPreference) {
             Write-Host "Dry-run mode: skipping live SDK calls." -ForegroundColor Yellow
@@ -497,7 +524,6 @@ if ($MyInvocation.InvocationName -ne '.') {
                 -Agent $Agent `
                 -Tier $Tier `
                 -Model $primaryModel `
-                -StimulusFilter $StimulusFilter `
                 -PlannedCommands $plannedCommands `
                 -Variants $variants
             Write-SummaryJson -Summary $dry -Path $OutputPath
@@ -794,7 +820,6 @@ if ($MyInvocation.InvocationName -ne '.') {
             agent                    = $Agent
             tier                     = $Tier
             model                    = $primaryModel
-            stimulusFilter           = $StimulusFilter
             runs                     = $totalRuns
             ties                     = $totalTies
             baselineWins             = $totalBaselineWins
@@ -826,12 +851,12 @@ if ($MyInvocation.InvocationName -ne '.') {
         Write-SummaryJson -Summary $summary -Path $OutputPath
         Write-Host "Summary written: $OutputPath (equivalence=$($gates.EquivalenceGate) divergence=$($gates.DocumentedDivergenceGate) verdict=$verdict)" -ForegroundColor Cyan
 
-        if ($Tier -eq 'pr') {
+        if ($Tier -eq 'devloop') {
             exit 0
         }
 
         if ($verdict -eq 'fail') {
-            Write-Host "Nightly verdict: fail" -ForegroundColor Red
+            Write-Host "CI verdict: fail" -ForegroundColor Red
             exit 1
         }
 

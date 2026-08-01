@@ -12,10 +12,10 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         $script:OutputPath = Join-Path $TestDrive "summary-$([Guid]::NewGuid()).json"
     }
 
-    Context 'PR tier defaults' {
+    Context 'Devloop tier defaults' {
         BeforeEach {
             & $script:ScriptPath `
-                -Tier 'pr' `
+                -Tier 'devloop' `
                 -RepoRoot $script:RepoRoot `
                 -OutputPath $script:OutputPath `
                 -WhatIf *> $null
@@ -34,8 +34,8 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
             $script:Summary.agent | Should -Be 'rpi-agent'
         }
 
-        It 'Records tier=pr' {
-            $script:Summary.tier | Should -Be 'pr'
+        It 'Records tier=devloop' {
+            $script:Summary.tier | Should -Be 'devloop'
         }
 
         It 'Selects exactly one PR-tier model' {
@@ -108,19 +108,19 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         }
     }
 
-    Context 'Nightly tier expansion' {
+    Context 'CI tier expansion' {
         BeforeEach {
             & $script:ScriptPath `
                 -Agent 'rpi-agent' `
-                -Tier 'nightly' `
+                -Tier 'ci' `
                 -RepoRoot $script:RepoRoot `
                 -OutputPath $script:OutputPath `
                 -WhatIf *> $null
             $script:Summary = Get-Content -LiteralPath $script:OutputPath -Raw | ConvertFrom-Json
         }
 
-        It 'Records tier=nightly' {
-            $script:Summary.tier | Should -Be 'nightly'
+        It 'Records tier=ci' {
+            $script:Summary.tier | Should -Be 'ci'
         }
 
         It 'Plans commands for three nightly models' {
@@ -132,19 +132,43 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         }
     }
 
-    Context 'Stimulus filter passthrough' {
-        It 'Embeds the filter in the planned commands' {
-            & $script:ScriptPath `
-                -Agent 'rpi-agent' `
-                -Tier 'pr' `
-                -StimulusFilter '^code-' `
-                -RepoRoot $script:RepoRoot `
-                -OutputPath $script:OutputPath `
-                -WhatIf *> $null
+    Context 'Retired parameters and tiers' {
+        BeforeAll {
+            . $script:ScriptPath
+        }
 
-            $summary = Get-Content -LiteralPath $script:OutputPath -Raw | ConvertFrom-Json
-            $summary.stimulusFilter | Should -Be '^code-'
-            ($summary.plannedCommands -join "`n") | Should -Match '\^code-'
+        It 'Rejects the removed StimulusFilter parameter' {
+            # It was a no-op: it only appended a comment to dry-run command text and was
+            # never passed to Vally, so a run believed to be filtered ran the full suite.
+            { & $script:ScriptPath `
+                    -Agent 'rpi-agent' `
+                    -Tier 'devloop' `
+                    -StimulusFilter '^code-' `
+                    -RepoRoot $script:RepoRoot `
+                    -OutputPath $script:OutputPath `
+                    -WhatIf *> $null } | Should -Throw
+        }
+
+        It 'Rejects the retired pr tier by name' {
+            # No alias: pr and nightly carried different exit policies, so silently
+            # mapping one onto a new name would change a caller's gating behavior.
+            $err = { Assert-SupportedTier -Tier 'pr' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -Match 'devloop'
+        }
+
+        It 'Rejects the retired nightly tier by name' {
+            $err = { Assert-SupportedTier -Tier 'nightly' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -Match "'-Tier ci'"
+        }
+
+        It 'Accepts the supported tiers' {
+            { Assert-SupportedTier -Tier 'devloop' } | Should -Not -Throw
+            { Assert-SupportedTier -Tier 'ci' } | Should -Not -Throw
+        }
+
+        It 'Rejects an unknown tier without suggesting a migration' {
+            $err = { Assert-SupportedTier -Tier 'staging' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -Match 'Unsupported tier'
         }
     }
 
@@ -152,7 +176,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         It 'Pins the PR-tier model to the supplied override' {
             & $script:ScriptPath `
                 -Agent 'rpi-agent' `
-                -Tier 'pr' `
+                -Tier 'devloop' `
                 -Model 'gpt-5-mini' `
                 -RepoRoot $script:RepoRoot `
                 -OutputPath $script:OutputPath `
@@ -166,7 +190,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         It 'Ignores the override for the nightly tier' {
             & $script:ScriptPath `
                 -Agent 'rpi-agent' `
-                -Tier 'nightly' `
+                -Tier 'ci' `
                 -Model 'gpt-5-mini' `
                 -RepoRoot $script:RepoRoot `
                 -OutputPath $script:OutputPath `
@@ -179,8 +203,9 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
 
     Context 'Parameter validation' {
         It 'Rejects an unknown tier' {
-            { & $script:ScriptPath -Tier 'weekly' -RepoRoot $script:RepoRoot -OutputPath $script:OutputPath -WhatIf } |
-                Should -Throw
+            # Assert-SupportedTier throws, but the script's outer catch converts it to exit 3.
+            & $script:ScriptPath -Tier 'weekly' -RepoRoot $script:RepoRoot -OutputPath $script:OutputPath -WhatIf *> $null
+            $LASTEXITCODE | Should -Be 3
         }
     }
 }
@@ -266,7 +291,7 @@ Describe 'Resolve-ModelList' -Tag 'Unit' {
     }
 
     It 'Uses GPT-5.6 Luna as the low-cost PR default' {
-        $models = Resolve-ModelList -Tier 'pr' -Hint '' -ModelOverride ''
+        $models = Resolve-ModelList -Tier 'devloop' -Hint '' -ModelOverride ''
 
         $models | Should -Be @('gpt-5.6-luna')
     }
@@ -333,7 +358,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
     It 'Counts each failed empty compare once across nightly models' {
         & $script:ScriptPath `
             -Agent 'rpi-agent' `
-            -Tier 'nightly' `
+            -Tier 'ci' `
             -RepoRoot $script:StubRepoRoot `
             -OutputPath $script:StubOutputPath *> $null
 

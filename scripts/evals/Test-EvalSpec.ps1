@@ -137,7 +137,6 @@ function Invoke-EvalSpecValidation {
     $specFiles = Get-ChildItem -LiteralPath $rootFull -Recurse -File -Include '*.yaml', '*.yml' -ErrorAction SilentlyContinue |
         Where-Object {
             $_.Name -notin @('variant.yaml', 'variant.yml', 'AGENTS.yml') -and
-            $_.FullName.Replace('\', '/') -notmatch '/surface-signatures/' -and
             $_.FullName.Replace('\', '/') -notmatch '/agent-behavior/stimuli/' -and
             $_.FullName.Replace('\', '/') -notmatch '/agent-behavior/expectations/'
         }

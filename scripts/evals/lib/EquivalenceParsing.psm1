@@ -456,10 +456,8 @@ function Get-EquivalenceGateResults {
         pass from the records that happened to survive would assert something the run
         did not measure.
 
-        Tier controls severity, not correctness. The advisory tier downgrades a failing
-        gate to `warn` so local iteration stays non-blocking; the authoritative tier
-        reports it as `fail`. The tier vocabulary is renamed separately, so this reads
-        the advisory tier by name rather than assuming a position.
+        Tier controls severity, not correctness. `devloop` downgrades a failing gate to
+        `warn` so local iteration stays non-blocking; `ci` reports it as `fail`.
 
         The judge-error budget is deliberately not enforced. Its threshold is unresolved
         pending calibration, so judge errors are counted and reported without gating.
@@ -480,7 +478,7 @@ function Get-EquivalenceGateResults {
         [Parameter(Mandatory = $false)][int]$RunHealthFailures = 0
     )
 
-    $advisory = ($Tier -eq 'pr' -or $Tier -eq 'devloop')
+    $advisory = ($Tier -eq 'devloop')
     $downgrade = { param($state) if ($state -eq 'fail' -and $advisory) { 'warn' } else { $state } }
 
     # Equivalence gate.

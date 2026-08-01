@@ -63,10 +63,12 @@
     to point at a stub script.
 
 .PARAMETER EquivalenceTier
-    Tier passed to the equivalence driver (`pr` or `nightly`). Defaults to `pr`.
-    Applies only when `-EnableBaselineEquivalence` is set. Per DD-01, PR-tier
+    Tier passed to the equivalence driver (`devloop` or `ci`). Defaults to `devloop`.
+    Applies only when `-EnableBaselineEquivalence` is set. Per DD-01, `devloop`
     equivalence dispatch is advisory: failures surface in summary JSON but do
-    not increment `failedSpecs` or change exit code.
+    not increment `failedSpecs` or change exit code. This ValidateSet must stay in
+    step with the driver's accepted tiers, which reject the retired `pr` and
+    `nightly` names outright rather than aliasing them.
 
 .PARAMETER EnableBaselineEquivalence
     Enables Tier 2 baseline-equivalence dispatch for changed or affected agents.
@@ -111,8 +113,8 @@ param(
     [string]$Model = 'gpt-5.6-luna',
     [string]$VallyCommand = 'vally',
     [string]$EquivalenceDriverPath,
-    [ValidateSet('pr','nightly')]
-    [string]$EquivalenceTier = 'pr',
+    [ValidateSet('devloop','ci')]
+    [string]$EquivalenceTier = 'devloop',
     [switch]$EnableBaselineEquivalence,
     [switch]$FailFast,
     [switch]$SkipInputModeration,
@@ -948,7 +950,7 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
             # failing gate, but they cannot tolerate not knowing what the run reported.
             $failedSpecs++
         }
-        elseif ($EquivalenceTier -ne 'pr' -and ($equivExit -ne 0 -or $assertionsFailed -gt 0)) {
+        elseif ($EquivalenceTier -ne 'devloop' -and ($equivExit -ne 0 -or $assertionsFailed -gt 0)) {
             $failedSpecs++
         }
     }

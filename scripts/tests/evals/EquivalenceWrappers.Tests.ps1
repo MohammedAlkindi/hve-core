@@ -101,16 +101,10 @@ Describe 'Invoke-BaselineEquivalence.ps1' -Tag 'Unit' {
             New-Item -ItemType Directory -Path (Join-Path $script:Workspace '.github/agents') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $script:Workspace '.github/agents/bar.agent.md') -Value 'seed' -Encoding utf8NoBOM
 
-            $signatureDir = Join-Path $script:DriverRepo 'evals/baseline-equivalence/surface-signatures'
-            New-Item -ItemType Directory -Path $signatureDir -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $signatureDir 'rpi-agent.yml') -Value "description: stub`n" -Encoding utf8NoBOM
-            $compareSpecPath = Join-Path $script:DriverRepo 'evals/baseline-equivalence/compare.eval.yml'
-            Set-Content -LiteralPath $compareSpecPath -Value "surface_signatures: {}`n" -Encoding utf8NoBOM
-
             $script:SummaryPath = Join-Path $TestDrive 'driver-summary.json'
             & $script:DriverScript `
                 -Agent 'rpi-agent' `
-                -Tier 'pr' `
+                -Tier 'devloop' `
                 -RepoRoot $script:DriverRepo `
                 -OutputPath $script:SummaryPath `
                 -WhatIf *> $null
@@ -131,17 +125,10 @@ Describe 'Invoke-BaselineEquivalence.ps1' -Tag 'Unit' {
             $script:DriverRepoEmpty = Join-Path $TestDrive 'driver-repo-empty'
             New-Item -ItemType Directory -Path $script:DriverRepoEmpty -Force | Out-Null
 
-            $signatureDirEmpty = Join-Path $script:DriverRepoEmpty 'evals/baseline-equivalence/surface-signatures'
-            New-Item -ItemType Directory -Path $signatureDirEmpty -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $signatureDirEmpty 'rpi-agent.yml') -Value "description: stub`n" -Encoding utf8NoBOM
-            $compareSpecPathEmpty = Join-Path $script:DriverRepoEmpty 'evals/baseline-equivalence/compare.eval.yml'
-            New-Item -ItemType Directory -Path (Split-Path -Parent $compareSpecPathEmpty) -Force | Out-Null
-            Set-Content -LiteralPath $compareSpecPathEmpty -Value "surface_signatures: {}`n" -Encoding utf8NoBOM
-
             $script:SummaryPathEmpty = Join-Path $TestDrive 'driver-summary-empty.json'
             & $script:DriverScript `
                 -Agent 'rpi-agent' `
-                -Tier 'pr' `
+                -Tier 'devloop' `
                 -RepoRoot $script:DriverRepoEmpty `
                 -OutputPath $script:SummaryPathEmpty `
                 -WhatIf *> $null

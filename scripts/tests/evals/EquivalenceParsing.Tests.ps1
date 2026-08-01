@@ -437,53 +437,53 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
     }
 
     It 'Returns fail when there are zero runs' {
-        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns fail for a zero-run nightly evaluation' {
-        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns pass when the 95% confidence interval straddles zero' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'pr' @script:Healthy
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'devloop' @script:Healthy
         $r.EquivalenceGate | Should -Be 'pass'
         $r.Verdict | Should -Be 'pass'
     }
 
     It 'Returns warn on PR when invariants fail' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Returns fail on nightly when invariants fail' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns warn on PR when the confidence interval excludes zero on the negative side (regression)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Returns fail on nightly when the confidence interval excludes zero on the negative side (regression)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns warn on PR when the confidence interval excludes zero on the positive side (unexpected improvement)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Returns fail on nightly when the confidence interval excludes zero on the positive side (unexpected improvement)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Fails a data-quality violation closed even on the advisory tier' {
         # An incomplete comparison cannot evidence equivalence at any tier. Only a
         # statistical or guard result is advisory.
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -DataQualityViolations 3 -Tier 'pr' @script:Healthy
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -DataQualityViolations 3 -Tier 'devloop' @script:Healthy
         $r.EquivalenceGate | Should -Be 'fail'
         $r.Verdict | Should -Be 'fail'
     }
 
     It 'Fails the divergence gate when a declared guard fails' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'nightly' -DivergenceHasSignal $true -DivergenceGuardFailures 1
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $true -DivergenceGuardFailures 1
         $r.DocumentedDivergenceGate | Should -Be 'fail'
         $r.EquivalenceGate | Should -Be 'pass'
         $r.Verdict | Should -Be 'fail'
@@ -492,19 +492,19 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
     It 'Fails the divergence gate when the customized run produced no guard signal' {
         # No signal is not conformance. Treating an absent result as a pass is the
         # defect that made the retired signature subsystem look healthy for months.
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'nightly' -DivergenceHasSignal $false
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $false
         $r.DocumentedDivergenceGate | Should -Be 'fail'
         $r.Verdict | Should -Be 'fail'
     }
 
     It 'Downgrades a failing divergence gate to warn on the advisory tier' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'pr' -DivergenceHasSignal $true -DivergenceGuardFailures 2
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'devloop' -DivergenceHasSignal $true -DivergenceGuardFailures 2
         $r.DocumentedDivergenceGate | Should -Be 'warn'
         $r.Verdict | Should -Be 'warn'
     }
 
     It 'Reports the two gates independently' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'nightly' @script:Healthy
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'ci' @script:Healthy
         $r.EquivalenceGate | Should -Be 'fail'
         $r.DocumentedDivergenceGate | Should -Be 'pass'
     }

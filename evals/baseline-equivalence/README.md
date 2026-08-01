@@ -40,18 +40,17 @@ Comparison uses Vally's embedded default rubric. The judge model is pinned expli
 The PowerShell driver at [scripts/evals/Invoke-BaselineEquivalence.ps1](../../scripts/evals/Invoke-BaselineEquivalence.ps1) is the single entry point. Invoke it through the npm wrapper:
 
 ```bash
-# PR tier (default): single primary model, advisory verdict, always exits 0
-npm run ci:eval:equivalence -- -Agent rpi-agent -Tier pr
+# devloop (default): single primary model, advisory verdict, always exits 0
+npm run ci:eval:equivalence -- -Agent rpi-agent -Tier devloop
 
-# Nightly tier: three-model sweep, authoritative verdict, exits non-zero on fail
-npm run ci:eval:equivalence -- -Agent rpi-agent -Tier nightly
-
-# Narrow the stimulus set during smoke testing
-npm run ci:eval:equivalence -- -Agent rpi-agent -Tier pr -StimulusFilter '^factual-'
+# ci: three-model sweep, authoritative verdict, exits non-zero on fail
+npm run ci:eval:equivalence -- -Agent rpi-agent -Tier ci
 
 # Dry run: print planned vally commands and emit a placeholder summary without SDK calls
 npm run ci:eval:equivalence -- -Agent rpi-agent -WhatIf
 ```
+
+The former `pr` and `nightly` tier names are rejected with a migration message rather than aliased, because they carried different exit policies and a silent alias would let a stale caller select the wrong one.
 
 The driver writes a machine-readable summary to `logs/baseline-equivalence-summary.json` and per-environment trajectories under `evals/results/`. The trajectory directories are gitignored.
 
@@ -59,30 +58,38 @@ The driver writes a machine-readable summary to `logs/baseline-equivalence-summa
 
 Each `vally compare --judge-model <model> --baseline <baseline-run-dir> --treatment <customized-run-dir> --output <path>.jsonl` invocation writes one or more typed `type: "comparison"` records to `logs/vally-compare-<model>-<runId>.jsonl` (a console `.log` capture of the same invocation is kept alongside for troubleshooting, at the paths listed in `compareLogs`).
 `Measure-CompareTrials` in [scripts/evals/lib/EquivalenceParsing.psm1](../../scripts/evals/lib/EquivalenceParsing.psm1) reads that JSONL, tallies each non-errored trial's `winner` (`baseline` / `treatment` / `tie`), and carries forward the record's `summary` statistics (signed mean score, 95% confidence interval, win rate).
-The driver aggregates one JSONL per model into a single JSON summary; the summary is the contract every downstream consumer (PR bot, nightly dashboard, future change-detection workflow) reads.
-The compare invocation deliberately omits `--fail-on-regression` so `Get-VerdictFromAggregate` remains the single equivalence authority instead of double-counting the same regression signal.
+The driver aggregates one JSONL per model into a single JSON summary; the summary is the contract every downstream consumer reads. It carries `schemaVersion: "2.0.0"`, and consumers reject an unsupported major version rather than reading absent fields as zeros.
+The compare invocation deliberately omits `--fail-on-regression` so `Get-EquivalenceGateResults` remains the single equivalence authority instead of double-counting the same regression signal.
 
-| Field                | Type   | Meaning                                                                                                                                                                      |
-|----------------------|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `agent`              | string | Agent slug under test (matches `-Agent`)                                                                                                                                     |
-| `tier`               | string | `pr` (advisory, exit 0) or `nightly` (authoritative, exit 1 on fail)                                                                                                         |
-| `model`              | string | Primary model for the run: PR tier resolves `-Model` override, then frontmatter `model:` hint, then the cheap default (`gpt-5.6-luna`); nightly runs its fixed model array   |
-| `stimulusFilter`     | string | Regex applied to stimulus names; empty when the full corpus ran                                                                                                              |
-| `runs`               | int    | Total non-errored comparison trials parsed across all `--output` JSONL files                                                                                                 |
-| `ties`               | int    | Trials with `winner: "tie"`; neither environment showed a clear preference                                                                                                   |
-| `aWins`              | int    | Trials with `winner: "baseline"`; the customization underperformed                                                                                                           |
-| `bWins`              | int    | Trials with `winner: "treatment"`; the customization outperformed                                                                                                            |
-| `meanScore`          | number | Unweighted average, across records and models, of signed treatment-relative `summary.meanScore` values (positive favors the customization); reporting only                   |
-| `ciLow`              | number | Conservative maximum lower bound of `summary.ciLow` across records and models                                                                                                |
-| `ciHigh`             | number | Conservative minimum upper bound of `summary.ciHigh` across records and models                                                                                               |
-| `winRate`            | number | Unweighted average, across records and models, of `summary.winRate` values; reporting only                                                                                   |
-| `invariantFailures`  | int    | Spec-level invariant violations plus a baseline `vally eval` nonzero-exit fallback when no invariant count can be read                                                       |
-| `divergenceFailures` | int    | Customized `vally eval` nonzero exits and one signal per compare run that exits nonzero, emits no parseable comparison records, or carries trials without summary statistics |
-| `verdict`            | string | Aggregated verdict; see [Pass and Fail Interpretation](#pass-and-fail-interpretation)                                                                                        |
-| `variants`           | list   | Per-model variant metadata (model id, baseline run directory, customized run directory)                                                                                      |
-| `compareLogs`        | list   | Absolute paths to every captured `vally compare` console log; the sibling `--output` JSONL lives at `logs/vally-compare-<model>-<runId>.jsonl`                               |
+| Field                                                                | Type        | Meaning                                                                                                                                                                   |
+|----------------------------------------------------------------------|-------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `schemaVersion`                                                      | string      | Reporting contract version. `2.0.0` is the current contract; consumers fail loudly on an unsupported major                                                                |
+| `agent`                                                              | string      | Agent slug under test (matches `-Agent`)                                                                                                                                  |
+| `tier`                                                               | string      | `devloop` (advisory, exit 0) or `ci` (authoritative, exit 1 on fail)                                                                                                      |
+| `model`                                                              | string      | Primary model for the run: `devloop` resolves `-Model` override, then frontmatter `model:` hint, then the cheap default (`gpt-5.6-luna`); `ci` runs its fixed model array |
+| `runs`                                                               | int         | Total non-errored comparison trials parsed across all `--output` JSONL files                                                                                              |
+| `ties`                                                               | int         | Trials with `winner: "tie"`; neither environment showed a clear preference                                                                                                |
+| `baselineWins`                                                       | int         | Trials with `winner: "baseline"`; the customization underperformed                                                                                                        |
+| `treatmentWins`                                                      | int         | Trials with `winner: "treatment"`; the customization outperformed                                                                                                         |
+| `meanScore`                                                          | number      | Unweighted average, across records and models, of signed treatment-relative `summary.meanScore` values (positive favors the customization); reporting only                |
+| `ciLow`                                                              | number      | Conservative maximum lower bound of `summary.ciLow` across records and models                                                                                             |
+| `ciHigh`                                                             | number      | Conservative minimum upper bound of `summary.ciHigh` across records and models                                                                                            |
+| `winRate`                                                            | number      | Unweighted average, across records and models, of `summary.winRate` values; reporting only                                                                                |
+| `invariantFailures`                                                  | int         | Declared-invariant violations read from the baseline run's structured results                                                                                             |
+| `runHealthFailures`                                                  | int         | Run-integrity signals: nonzero `vally eval` or `vally compare` exits, missing run directories, and unparseable compare output                                             |
+| `divergenceGuardFailures`                                            | int         | Declared `customized_required` and `customized_disallow` guards that failed in the customized run                                                                         |
+| `divergenceGuardsEvaluated`                                          | int         | Declared guards actually evaluated; zero means the gate had no signal and fails closed                                                                                    |
+| `failedDivergenceGuards`                                             | list        | Up to 50 `stimulus/guard` identifiers for the failing guards                                                                                                              |
+| `dataQualityViolations`                                              | int         | Malformed, unmatched, or duplicate comparison records; any nonzero value fails closed at every tier                                                                       |
+| `judgeErrors`, `judgeErrorRate`                                      | int, number | Errored comparison trials and their share of attempted trials; counted and reported, not yet enforced                                                                     |
+| `equivalentTrials`, `equivalentTies`, `divergenceTrials`, `tieRatio` | int, number | Population split by comparison policy, so intended divergence is excluded from the equivalence denominator                                                                |
+| `equivalenceGate`                                                    | string      | Whether behavior that should not change stayed the same                                                                                                                   |
+| `documentedDivergenceGate`                                           | string      | Whether declared customization guards held                                                                                                                                |
+| `verdict`                                                            | string      | Worst of the two gates; see [Pass and Fail Interpretation](#pass-and-fail-interpretation)                                                                                 |
+| `variants`                                                           | list        | Per-model variant metadata (model id, baseline run directory, customized run directory)                                                                                   |
+| `compareLogs`                                                        | list        | Absolute paths to every captured `vally compare` console log; the sibling `--output` JSONL lives at `logs/vally-compare-<model>-<runId>.jsonl`                            |
 
-The verdict field is derived from `ciLow`/`ciHigh` and the failure counts by `Get-VerdictFromAggregate` in [scripts/evals/lib/EquivalenceParsing.psm1](../../scripts/evals/lib/EquivalenceParsing.psm1); the exact rule is documented below.
+The gates are derived by `Get-EquivalenceGateResults` in [scripts/evals/lib/EquivalenceParsing.psm1](../../scripts/evals/lib/EquivalenceParsing.psm1); the exact rule is documented below.
 
 `meanScore` and `winRate` are unweighted diagnostics, not pooled estimates.
 
@@ -184,18 +191,23 @@ because classifying under-specified asks and grooming vague work items are natur
 
 ## Pass and Fail Interpretation
 
-The driver aggregates the `vally compare` comparison-record statistics and trajectory invariants into a single verdict via `Get-VerdictFromAggregate` in [scripts/evals/lib/EquivalenceParsing.psm1](../../scripts/evals/lib/EquivalenceParsing.psm1).
-Equivalence holds when the conservative cross-model bounds (`ciLow`/`ciHigh`) straddle zero, meaning every contributing model's 95% confidence interval includes zero. These bounds are not a pooled confidence interval. Opposing significant model results can produce `ciLow > ciHigh`; that intentionally fails the straddle test and triggers review. The rules use the JSON fields documented in [Driver output contract](#driver-output-contract):
+The driver reports two independent gates via `Get-EquivalenceGateResults` in [scripts/evals/lib/EquivalenceParsing.psm1](../../scripts/evals/lib/EquivalenceParsing.psm1), and `verdict` is the worse of the two.
 
-* `runs <= 0`: the driver returns `fail` unconditionally, leaving the summary on disk so the cause (typically zero parseable `type: "comparison"` records) can be diagnosed from `compareLogs` and the sibling `--output` JSONL.
-* `invariantFailures > 0` or `divergenceFailures > 0`: `warn` on `pr` tier, `fail` on `nightly` tier.
-* Otherwise, `pass` when the confidence interval straddles zero (`ciLow <= 0 <= ciHigh`); `warn` on `pr` tier or `fail` on `nightly` tier when the interval excludes zero on either side.
+**Equivalence gate.** Asks whether behavior that should not change stayed the same. Equivalence holds when the conservative cross-model bounds (`ciLow`/`ciHigh`) straddle zero, meaning every contributing model's 95% confidence interval includes zero. These bounds are not a pooled confidence interval. Opposing significant model results can produce `ciLow > ciHigh`; that intentionally fails the straddle test and triggers review.
 
-There is no `inconclusive` bucket and no fixed tie-ratio or symmetry threshold; the 0.80 tie-ratio and
-`|aWins - bWins|` symmetry heuristic from the Vally 0.6-era driver no longer applies. PR-tier verdicts surface as warnings on the PR; nightly-tier verdicts gate the nightly workflow. This split keeps the per-PR signal low-friction while preserving a hard regression gate on the main branch.
+* `runs <= 0` or `dataQualityViolations > 0`: `fail` at **every** tier, including `devloop`. An incomplete comparison cannot evidence equivalence regardless of who runs it, and the summary is left on disk so the cause can be diagnosed from `compareLogs` and the sibling `--output` JSONL.
+* `invariantFailures > 0` or `runHealthFailures > 0`: `warn` on `devloop`, `fail` on `ci`.
+* Otherwise, `pass` when the interval straddles zero (`ciLow <= 0 <= ciHigh`); `warn` on `devloop` or `fail` on `ci` when it excludes zero on either side.
+
+**Documented-divergence gate.** Asks whether the declared customization guards actually held, read per-guard from the customized run.
+
+* `divergenceGuardsEvaluated == 0`: `fail`. No guard signal is not conformance; a run that evaluated nothing cannot evidence that its declared divergence held.
+* `divergenceGuardFailures > 0`: `warn` on `devloop`, `fail` on `ci`.
+
+Only the equivalent-policy population contributes to `tieRatio`, so intended divergence is not scored as an equivalence failure. There is no `inconclusive` bucket and no fixed tie-ratio or symmetry threshold; the 0.80 tie-ratio and `|aWins - bWins|` symmetry heuristic from the Vally 0.6-era driver no longer applies. `devloop` verdicts stay advisory; `ci` verdicts gate. This split keeps the per-PR signal low-friction while preserving a hard regression gate.
 
 A confidence interval excluding zero on the negative side (`ciHigh < 0`) signals a statistically significant regression: the baseline outperformed the customization.
-This is the same condition `vally compare --fail-on-regression` would flag, which this driver deliberately does not pass on the compare invocation so `Get-VerdictFromAggregate` remains the single equivalence authority (see [Driver output contract](#driver-output-contract)).
+This is the same condition `vally compare --fail-on-regression` would flag, which this driver deliberately does not pass on the compare invocation so the gate function remains the single equivalence authority (see [Driver output contract](#driver-output-contract)).
 A confidence interval excluding zero on the positive side (`ciLow > 0`) signals the opposite: an unexpected, statistically significant improvement. Both directions are documented-divergence review triggers for an equivalence suite, since its purpose is proving no undocumented behavior change occurred rather than proving the customization is better.
 
 ## Stimulus Shape
