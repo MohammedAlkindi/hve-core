@@ -11,8 +11,8 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = ROOT.parents[3]
 SCRIPTS_DIR = ROOT / "scripts"
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -21,24 +21,10 @@ import generate_tm7  # noqa: E402
 import populate_tm7_threats  # noqa: E402
 import tm7_threat_contract  # noqa: E402
 
-COMPREHENSIVE_SPEC_PATH = (
-    REPO_ROOT
-    / ".copilot-tracking"
-    / "security-plans"
-    / "hve-core-comprehensive"
-    / "threat-model-spec.yaml"
-)
-COMPREHENSIVE_MODEL_PATH = (
-    REPO_ROOT
-    / ".copilot-tracking"
-    / "security-plans"
-    / "hve-core-comprehensive"
-    / "HVE-Core-Comprehensive-TMT-Authored.tm7"
-)
+COMPREHENSIVE_SPEC_PATH = FIXTURES_DIR / "comprehensive-spec.yaml"
 
 
-def _write_complete_base(tmp_path: Path) -> Path:
-    spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
+def _render_base(spec: dict, tmp_path: Path, name: str) -> Path:
     profile = generate_tm7.resolve_profile(spec, None, ROOT)
     profile["name"] = "sdl_core_generic"
     payload = generate_tm7.build_tm7_payload(
@@ -52,9 +38,55 @@ def _write_complete_base(tmp_path: Path) -> Path:
         ROOT,
         "sdl_core_generic",
     )
-    base_path = tmp_path / "complete-base.tm7"
+    base_path = tmp_path / name
     base_path.write_text(xml_text, encoding="utf-8")
     return base_path
+
+
+def _write_complete_base(tmp_path: Path) -> Path:
+    spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
+    return _render_base(spec, tmp_path, "complete-base.tm7")
+
+
+@pytest.fixture(scope="module")
+def complete_base(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Render the comprehensive base once per module.
+
+    Rendering the full spec is expensive and population never writes to the base,
+    so every test can share one rendered copy.
+    """
+    return _write_complete_base(tmp_path_factory.mktemp("complete-base"))
+
+
+def _write_base_missing_flow(tmp_path: Path, flow_id: str) -> Path:
+    """Render a base whose topology omits one flow the full spec's threats reference.
+
+    The base spec must also drop the threats that reference the removed flow,
+    because generation validates every threat's interaction_ref. Populating this
+    base with the full spec then exercises the absent-connector guard.
+    """
+    spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
+    remaining = [
+        flow
+        for flow in spec.get("data_flows") or []
+        if isinstance(flow, dict) and flow.get("id") != flow_id
+    ]
+    spec["data_flows"] = remaining
+    spec["threats"] = [
+        threat
+        for threat in spec.get("threats") or []
+        if isinstance(threat, dict) and threat.get("interaction_ref") != flow_id
+    ]
+    still_connected = {flow.get("source_ref") for flow in remaining}
+    still_connected.update(flow.get("target_ref") for flow in remaining)
+    for component in spec.get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        if component.get("id") not in still_connected and not component.get(
+            "layout_role"
+        ):
+            component["layout_role"] = "contextual"
+    return _render_base(spec, tmp_path, "base-missing-flow.tm7")
 
 
 def test_given_tb7_generation_when_filters_are_built_then_expression_is_safe() -> None:
@@ -67,10 +99,12 @@ def test_given_tb7_generation_when_filters_are_built_then_expression_is_safe() -
     assert "and" not in include_text.lower()
 
 
-def test_given_comprehensive_spec_when_populated_then_has_expected_count() -> None:
+def test_given_comprehensive_spec_when_populated_then_has_expected_count(
+    complete_base: Path,
+) -> None:
     result = populate_tm7_threats.populate_tm7_threats(
         COMPREHENSIVE_SPEC_PATH,
-        COMPREHENSIVE_MODEL_PATH,
+        complete_base,
         generation_state=False,
     )
 
@@ -100,6 +134,7 @@ def test_given_comprehensive_spec_when_validated_then_all_mappings_resolve() -> 
 
 def test_given_reordered_threats_when_populated_then_output_is_deterministic(
     tmp_path: Path,
+    complete_base: Path,
 ) -> None:
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
@@ -107,7 +142,7 @@ def test_given_reordered_threats_when_populated_then_output_is_deterministic(
 
     spec_path = tmp_path / "reordered-spec.yaml"
     spec_path.write_text(yaml.safe_dump(spec), encoding="utf-8")
-    base_path = _write_complete_base(tmp_path)
+    base_path = complete_base
     output_path = tmp_path / "reordered.tm7"
     original_output_path = tmp_path / "original.tm7"
 
@@ -131,6 +166,7 @@ def test_given_reordered_threats_when_populated_then_output_is_deterministic(
 
 def test_given_non_endpoint_mapping_without_override_when_populated_then_rejected(
     tmp_path: Path,
+    complete_base: Path,
 ) -> None:
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
@@ -147,13 +183,14 @@ def test_given_non_endpoint_mapping_without_override_when_populated_then_rejecte
     ):
         populate_tm7_threats.populate_tm7_threats(
             spec_path,
-            COMPREHENSIVE_MODEL_PATH,
+            complete_base,
             generation_state=False,
         )
 
 
 def test_given_unknown_flow_reference_when_validated_then_reports_source_threat(
     tmp_path: Path,
+    complete_base: Path,
 ) -> None:
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
@@ -170,7 +207,7 @@ def test_given_unknown_flow_reference_when_validated_then_reports_source_threat(
     ):
         populate_tm7_threats.populate_tm7_threats(
             spec_path,
-            COMPREHENSIVE_MODEL_PATH,
+            complete_base,
             generation_state=False,
         )
 
@@ -197,6 +234,7 @@ def test_given_production_base_when_writing_then_missing_connectors_block_output
     tmp_path: Path,
 ) -> None:
     output_path = tmp_path / "blocked.tm7"
+    base_path = _write_base_missing_flow(tmp_path, "flow-21")
 
     with pytest.raises(
         populate_tm7_threats.GenerationError,
@@ -204,7 +242,7 @@ def test_given_production_base_when_writing_then_missing_connectors_block_output
     ):
         populate_tm7_threats.populate_tm7_threats(
             COMPREHENSIVE_SPEC_PATH,
-            COMPREHENSIVE_MODEL_PATH,
+            base_path,
             output_path=output_path,
             generation_state=False,
         )
@@ -239,13 +277,13 @@ def test_given_comprehensive_spec_when_inspected_then_ax_1_uses_scan_target_flow
 
 def test_given_output_without_generation_state_when_populated_then_defaults_false(
     tmp_path: Path,
+    complete_base: Path,
 ) -> None:
-    base_path = _write_complete_base(tmp_path)
     output_path = tmp_path / "candidate.tm7"
 
     result = populate_tm7_threats.populate_tm7_threats(
         COMPREHENSIVE_SPEC_PATH,
-        base_path,
+        complete_base,
         output_path=output_path,
     )
 
@@ -255,11 +293,11 @@ def test_given_output_without_generation_state_when_populated_then_defaults_fals
 
 @pytest.mark.parametrize("subtree_name", ["DrawingSurfaceList", "KnowledgeBase"])
 def test_given_semantic_subtree_mutation_when_populated_then_rejected(
-    tmp_path: Path,
+    complete_base: Path,
     monkeypatch: pytest.MonkeyPatch,
     subtree_name: str,
 ) -> None:
-    base_path = _write_complete_base(tmp_path)
+    base_path = complete_base
     original_serializer = populate_tm7_threats.serialize_threat_instances
 
     def mutate_subtree(root, threats, *, type_ids=None):
@@ -285,8 +323,9 @@ def test_given_semantic_subtree_mutation_when_populated_then_rejected(
 
 def test_given_separate_output_when_populated_then_base_bytes_remain_unchanged(
     tmp_path: Path,
+    complete_base: Path,
 ) -> None:
-    base_path = _write_complete_base(tmp_path)
+    base_path = complete_base
     original_bytes = base_path.read_bytes()
 
     output_path = tmp_path / "candidate.tm7"

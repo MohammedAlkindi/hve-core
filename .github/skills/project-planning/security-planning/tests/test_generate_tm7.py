@@ -18,7 +18,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "scripts"
-REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -28,6 +27,9 @@ import tm7_threat_contract  # noqa: E402
 import tm7_visual_feedback  # noqa: E402
 
 SPEC_PATH = ROOT / "templates" / "threat-model-spec-example.yaml"
+COMPREHENSIVE_SPEC_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "comprehensive-spec.yaml"
+)
 SCRIPT_PATH = ROOT / "scripts" / "generate_tm7.py"
 MARKDOWN_SCRIPT_PATH = ROOT / "scripts" / "generate_markdown.py"
 FIXTURE_PATH = ROOT / "tests" / "fixtures" / "expected.tm7"
@@ -2440,14 +2442,7 @@ class TestGenerateTm7:
         self,
     ) -> None:
         # Arrange
-        spec_path = (
-            REPO_ROOT
-            / ".copilot-tracking"
-            / "security-plans"
-            / "hve-core-comprehensive"
-            / "threat-model-spec.yaml"
-        )
-        spec = generate_tm7.load_spec(spec_path)
+        spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
         profile = generate_tm7.resolve_profile(spec, None, ROOT)
         model = generate_tm7.build_model_from_spec(
             spec,
@@ -3596,14 +3591,7 @@ class TestGenerateTm7:
 
     def test_given_ctx_flow_04_when_layout_then_label_has_clear_position(self) -> None:
         # Arrange
-        spec_path = (
-            REPO_ROOT
-            / ".copilot-tracking"
-            / "security-plans"
-            / "hve-core-comprehensive"
-            / "threat-model-spec.yaml"
-        )
-        spec = generate_tm7.load_spec(spec_path)
+        spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
         profile = generate_tm7.resolve_profile(spec, None, ROOT)
         model = generate_tm7.build_model_from_spec(
             spec, profile, "pre-populated-comprehensive"
@@ -3631,14 +3619,7 @@ class TestGenerateTm7:
         self,
     ) -> None:
         # Arrange
-        spec_path = (
-            REPO_ROOT
-            / ".copilot-tracking"
-            / "security-plans"
-            / "hve-core-comprehensive"
-            / "threat-model-spec.yaml"
-        )
-        spec = generate_tm7.load_spec(spec_path)
+        spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
         profile = generate_tm7.resolve_profile(spec, None, ROOT)
         model = generate_tm7.build_model_from_spec(
             spec, profile, "pre-populated-comprehensive"
@@ -3818,14 +3799,7 @@ class TestGenerateTm7:
             assert metrics["detached_endpoint_count"] == 0, surface.get("id")
 
     def test_comprehensive_layout_prunes_empty_zones_and_compacts_height(self) -> None:
-        spec_path = (
-            REPO_ROOT
-            / ".copilot-tracking"
-            / "security-plans"
-            / "hve-core-comprehensive"
-            / "threat-model-spec.yaml"
-        )
-        spec = generate_tm7.load_spec(spec_path)
+        spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
         profile = generate_tm7.resolve_profile(spec, None, ROOT)
         model = generate_tm7.build_model_from_spec(
             spec,
