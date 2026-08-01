@@ -515,8 +515,52 @@ Describe 'ConvertFrom-EquivalenceResults' -Tag 'Unit' {
         $script:Records = ConvertFrom-EquivalenceResults -RunDir (Join-Path $script:FixturesRoot 'baseline') -WarningAction SilentlyContinue
     }
 
-    It 'Loads one record per JSONL line' {
+    It 'Loads one record per trial-result line' {
+        # The fixture carries three lines: two trial-result and one run-summary.
         $script:Records.Count | Should -Be 2
+    }
+
+    It 'Skips the run-summary line that vally appends to every results.jsonl' {
+        # The summary reports its own passed/stimuliRun totals. Counting it as a
+        # trial would inflate the population and skew every downstream tally.
+        @($script:Records | Where-Object { $_.stimulusName -eq '<unknown>' }).Count | Should -Be 0
+    }
+
+    It 'Selects on the declared record type rather than trajectory presence' {
+        # A non-trial record that carries a trajectory must still be excluded,
+        # otherwise a future vally record kind silently joins the trial set.
+        $runDir = Join-Path $TestDrive ("typed-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+        $trial = '{"type":"trial-result","stimulus":"kept","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"kept"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
+        $other = '{"type":"future-record-kind","stimulus":"dropped","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"dropped"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
+        Set-Content -LiteralPath (Join-Path $runDir 'results.jsonl') -Value "$trial`n$other" -Encoding utf8NoBOM
+
+        $records = ConvertFrom-EquivalenceResults -RunDir $runDir -WarningAction SilentlyContinue
+        $records.Count | Should -Be 1
+        $records[0].stimulusName | Should -Be 'kept'
+    }
+
+    It 'Keeps records that predate the type field' {
+        $runDir = Join-Path $TestDrive ("untyped-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+        $legacy = '{"status":"ok","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"legacy"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
+        Set-Content -LiteralPath (Join-Path $runDir 'results.jsonl') -Value $legacy -Encoding utf8NoBOM
+
+        $records = ConvertFrom-EquivalenceResults -RunDir $runDir -WarningAction SilentlyContinue
+        $records.Count | Should -Be 1
+        $records[0].stimulusName | Should -Be 'legacy'
+    }
+
+    It 'Reads the stimulus name from the trajectory, not the top-level field' {
+        # vally writes both: a top-level string and the full Stimulus object on
+        # the trajectory. Only the nested one is authoritative for this parser.
+        $runDir = Join-Path $TestDrive ("nested-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+        $rec = '{"type":"trial-result","stimulus":"top-level-name","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"trajectory-name"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
+        Set-Content -LiteralPath (Join-Path $runDir 'results.jsonl') -Value $rec -Encoding utf8NoBOM
+
+        $records = ConvertFrom-EquivalenceResults -RunDir $runDir -WarningAction SilentlyContinue
+        $records[0].stimulusName | Should -Be 'trajectory-name'
     }
 
     It 'Extracts the stimulus name' {
