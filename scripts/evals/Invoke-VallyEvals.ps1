@@ -878,37 +878,77 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
         & pwsh @equivArgs
         $equivExit = $LASTEXITCODE
 
-        $runs = 0; $invFail = 0; $divFail = 0; $verdict = 'unknown'
-        if (Test-Path -LiteralPath $equivOutPath) {
+        # The previous reader guarded every field with `if ($null -ne ...)` over
+        # zero-initialized defaults, so a renamed or dropped field degraded silently
+        # into `runs = 0` and `verdict = unknown`: a successful run reported as an empty
+        # one, with nothing in the output saying the contract had moved. The schema
+        # version is now checked explicitly and a mismatch is surfaced as a failure.
+        $runs = 0
+        $invFail = 0
+        $runHealthFail = 0
+        $guardFail = 0
+        $verdict = 'unknown'
+        $equivalenceGate = 'unknown'
+        $divergenceGate = 'unknown'
+        $contractError = $null
+
+        if (-not (Test-Path -LiteralPath $equivOutPath)) {
+            $contractError = "Equivalence summary not written: $equivOutPath"
+        }
+        else {
             try {
                 $equivSummary = Get-Content -LiteralPath $equivOutPath -Raw | ConvertFrom-Json
-                if ($null -ne $equivSummary.runs)               { $runs    = [int]$equivSummary.runs }
-                if ($null -ne $equivSummary.invariantFailures)  { $invFail = [int]$equivSummary.invariantFailures }
-                if ($null -ne $equivSummary.divergenceFailures) { $divFail = [int]$equivSummary.divergenceFailures }
-                if ($null -ne $equivSummary.verdict)            { $verdict = [string]$equivSummary.verdict }
+
+                $schemaVersion = if ($equivSummary.PSObject.Properties['schemaVersion']) { [string]$equivSummary.schemaVersion } else { '' }
+                $major = ($schemaVersion -split '\.')[0]
+                if ($major -ne '2') {
+                    $contractError = "Unsupported equivalence summary schemaVersion '$schemaVersion'; this consumer requires 2.x. Rerun the equivalence driver."
+                }
+                else {
+                    $runs            = [int]$equivSummary.runs
+                    $invFail         = [int]$equivSummary.invariantFailures
+                    $runHealthFail   = [int]$equivSummary.runHealthFailures
+                    $guardFail       = [int]$equivSummary.divergenceGuardFailures
+                    $verdict         = [string]$equivSummary.verdict
+                    $equivalenceGate = [string]$equivSummary.equivalenceGate
+                    $divergenceGate  = [string]$equivSummary.documentedDivergenceGate
+                }
             }
             catch {
-                Write-Host "::warning::Failed to parse equivalence summary $equivOutPath" -ForegroundColor Yellow
+                $contractError = "Failed to read equivalence summary $equivOutPath : $($_.Exception.Message)"
             }
         }
 
-        $assertionsFailed = $invFail + $divFail
+        if ($contractError) {
+            Write-Host "::error::$contractError"
+            $verdict = 'fail'
+        }
+
+        $assertionsFailed = $invFail + $runHealthFail + $guardFail
         $assertionsPassed = [Math]::Max(0, $runs - $assertionsFailed)
 
         $equivalenceResults.Add([ordered]@{
-            agent              = $agentSlug
-            tier               = $EquivalenceTier
-            verdict            = $verdict
-            exitCode           = $equivExit
-            trials             = $runs
-            assertionsPassed   = $assertionsPassed
-            assertionsFailed   = $assertionsFailed
-            invariantFailures  = $invFail
-            divergenceFailures = $divFail
-            resultsPath        = "logs/baseline-equivalence-$agentSlug.json"
+            agent                    = $agentSlug
+            tier                     = $EquivalenceTier
+            verdict                  = $verdict
+            equivalenceGate          = $equivalenceGate
+            documentedDivergenceGate = $divergenceGate
+            exitCode                 = $equivExit
+            trials                   = $runs
+            assertionsPassed         = $assertionsPassed
+            assertionsFailed         = $assertionsFailed
+            invariantFailures        = $invFail
+            runHealthFailures        = $runHealthFail
+            divergenceGuardFailures  = $guardFail
+            resultsPath              = "logs/baseline-equivalence-$agentSlug.json"
         }) | Out-Null
 
-        if ($EquivalenceTier -ne 'pr' -and ($equivExit -ne 0 -or $assertionsFailed -gt 0)) {
+        if ($contractError) {
+            # A contract mismatch is not a soft signal. Advisory tiers still tolerate a
+            # failing gate, but they cannot tolerate not knowing what the run reported.
+            $failedSpecs++
+        }
+        elseif ($EquivalenceTier -ne 'pr' -and ($equivExit -ne 0 -or $assertionsFailed -gt 0)) {
             $failedSpecs++
         }
     }

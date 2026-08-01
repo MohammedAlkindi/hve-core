@@ -86,7 +86,7 @@ function Measure-CompareTrials {
             if (-not $stimulus) { continue }
             $name = if ($stimulus.PSObject.Properties['stimulusName']) { [string]$stimulus.stimulusName } else { '<unknown>' }
             if (-not $perStimulus.ContainsKey($name)) {
-                $perStimulus[$name] = @{ Ties = 0; AWins = 0; BWins = 0; JudgeErrors = 0 }
+                $perStimulus[$name] = @{ Ties = 0; BaselineWins = 0; TreatmentWins = 0; JudgeErrors = 0 }
             }
 
             $policy = if ($StimulusPolicy -and $StimulusPolicy.ContainsKey($name)) { [string]$StimulusPolicy[$name] } else { '' }
@@ -119,11 +119,11 @@ function Measure-CompareTrials {
                         if ($isEquivalent) { $equivalentTies++; $equivalentTotal++ } else { $divergenceTotal++ }
                     }
                     'baseline' {
-                        $baselineWins++; $total++; $perStimulus[$name].AWins += 1
+                        $baselineWins++; $total++; $perStimulus[$name].BaselineWins += 1
                         if ($isEquivalent) { $equivalentTotal++ } else { $divergenceTotal++ }
                     }
                     'treatment' {
-                        $treatmentWins++; $total++; $perStimulus[$name].BWins += 1
+                        $treatmentWins++; $total++; $perStimulus[$name].TreatmentWins += 1
                         if ($isEquivalent) { $equivalentTotal++ } else { $divergenceTotal++ }
                     }
                     default {
@@ -178,8 +178,8 @@ function Measure-CompareTrials {
     return @{
         Total              = $total
         Ties               = $ties
-        AWins              = $baselineWins
-        BWins              = $treatmentWins
+        BaselineWins       = $baselineWins
+        TreatmentWins      = $treatmentWins
         PerStimulus        = $perStimulus
         SummaryCount       = $summaryCount
         MeanScore          = [math]::Round($meanScore, 4)
@@ -304,6 +304,114 @@ function Measure-DeclaredInvariantFailures {
     return @{ HasSignal = $true; Failed = $failed; Evaluated = $evaluated; Diagnostics = @($diagnostics) }
 }
 
+function Measure-DivergenceGuardResults {
+    <#
+    .SYNOPSIS
+        Counts declared divergence-guard failures from the customized run's results.
+    .DESCRIPTION
+        The documented-divergence gate asks whether the customization behaved the way
+        the suite says it is allowed to. That question is answered by the
+        `customized_required` and `customized_disallow` guards declared in the canonical
+        library, and those results live in the customized run's `results.jsonl`.
+
+        Before this existed the driver had no per-guard data at all. The only signal
+        available to a divergence gate was a counter incremented by nonzero exit codes,
+        missing run directories, and unparseable output, which measures operational
+        health rather than guard conformance. A gate built on it could not detect the
+        failures its name implies: a single guard failure among forty stimuli does not
+        move the run's 0.7 scoring threshold, so it never reaches the exit code either.
+
+        `HasSignal` distinguishes a run where no guard was evaluated from a run where
+        every guard passed. Treating the former as clean would let a broken or empty
+        customized run report perfect divergence conformance.
+    .OUTPUTS
+        [hashtable] With keys HasSignal, Failed, Evaluated, FailedGuards, Diagnostics.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$RunDir,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string[]]$GuardNames
+    )
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    $failedGuards = [System.Collections.Generic.List[string]]::new()
+
+    if ([string]::IsNullOrWhiteSpace($RunDir) -or -not (Test-Path -LiteralPath $RunDir)) {
+        $diagnostics.Add('Customized run directory is missing.')
+        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+    }
+
+    $scoped = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @($GuardNames)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$name)) { [void]$scoped.Add([string]$name) }
+    }
+    if ($scoped.Count -eq 0) {
+        # No declared guards means there is nothing for this gate to assert. That is a
+        # legitimate configuration, not a passing run, so it reports no signal.
+        $diagnostics.Add('No divergence guards are declared in the canonical library.')
+        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+    }
+
+    $files = @(Get-ChildItem -LiteralPath $RunDir -Filter 'results.jsonl' -Recurse -File -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) {
+        $diagnostics.Add('No results.jsonl found under the customized run directory.')
+        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+    }
+
+    $failed = 0
+    $evaluated = 0
+
+    foreach ($file in $files) {
+        foreach ($line in (Get-Content -LiteralPath $file.FullName -Encoding utf8)) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try {
+                $record = $line | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+            }
+            catch {
+                $diagnostics.Add('Malformed line in customized results.jsonl.')
+                continue
+            }
+            if (-not $record.PSObject.Properties['gradeResult'] -or -not $record.gradeResult) { continue }
+            $grade = $record.gradeResult
+            if (-not $grade.PSObject.Properties['details'] -or -not $grade.details) { continue }
+
+            $stimulus = if ($grade.PSObject.Properties['stimulusName']) { [string]$grade.stimulusName } else { '<unknown>' }
+            foreach ($detail in @($grade.details)) {
+                if (-not $detail) { continue }
+                $name = if ($detail.PSObject.Properties['name']) { [string]$detail.name } else { '' }
+                if (-not $scoped.Contains($name)) { continue }
+                $evaluated++
+                $passed = $detail.PSObject.Properties['passed'] -and $detail.passed
+                if (-not $passed) {
+                    $failed++
+                    $failedGuards.Add("$stimulus/$name")
+                    $diagnostics.Add("Divergence guard '$name' failed on stimulus '$stimulus'.")
+                }
+            }
+        }
+    }
+
+    if ($evaluated -eq 0) {
+        $diagnostics.Add('No divergence guards were evaluated in the customized run.')
+        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+    }
+
+    return @{
+        HasSignal    = $true
+        Failed       = $failed
+        Evaluated    = $evaluated
+        FailedGuards = @($failedGuards)
+        Diagnostics  = @($diagnostics)
+    }
+}
+
 function Measure-InvariantFailures {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -331,39 +439,90 @@ function Measure-InvariantFailures {
     return @{ Total = $total; Failed = $failed }
 }
 
-function Get-VerdictFromAggregate {
-    # A confidence interval that excludes zero signals a documented-divergence review.
-    # PR runs warn; nightly runs fail. Missing runs always fail.
-    #
-    # Data-quality violations are treated as strictly as invariant failures. Malformed,
-    # unmatched, or duplicate records mean the comparison is incomplete, and an
-    # incomplete comparison cannot evidence equivalence. Reporting a pass from the
-    # records that happened to survive would assert something the run did not measure.
-    #
-    # The judge-error budget is deliberately not enforced here. Its threshold is
-    # unresolved pending calibration, so judge errors are counted and reported without
-    # gating a verdict.
+function Get-EquivalenceGateResults {
+    <#
+    .SYNOPSIS
+        Computes the equivalence and documented-divergence gates and the overall verdict.
+    .DESCRIPTION
+        Two questions are being asked, and folding them into one verdict made neither
+        answerable. The equivalence gate asks whether behavior that should not change
+        stayed the same; it reads confidence-interval bounds over the equivalent-policy
+        population only. The documented-divergence gate asks whether declared
+        customization guards actually held; it reads per-guard conformance from the
+        customized run.
+
+        Data-quality violations and invariant failures fail closed regardless of tier,
+        because an incomplete comparison cannot evidence equivalence and reporting a
+        pass from the records that happened to survive would assert something the run
+        did not measure.
+
+        Tier controls severity, not correctness. The advisory tier downgrades a failing
+        gate to `warn` so local iteration stays non-blocking; the authoritative tier
+        reports it as `fail`. The tier vocabulary is renamed separately, so this reads
+        the advisory tier by name rather than assuming a position.
+
+        The judge-error budget is deliberately not enforced. Its threshold is unresolved
+        pending calibration, so judge errors are counted and reported without gating.
+    .OUTPUTS
+        [hashtable] With keys EquivalenceGate, DocumentedDivergenceGate, and Verdict.
+    #>
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][int]$Runs,
         [Parameter(Mandatory)][double]$CiLow,
         [Parameter(Mandatory)][double]$CiHigh,
         [Parameter(Mandatory)][int]$InvariantFailures,
-        [Parameter(Mandatory)][int]$DivergenceFailures,
         [Parameter(Mandatory)][string]$Tier,
-        [Parameter(Mandatory = $false)][int]$DataQualityViolations = 0
+        [Parameter(Mandatory = $false)][int]$DataQualityViolations = 0,
+        [Parameter(Mandatory = $false)][int]$DivergenceGuardFailures = 0,
+        [Parameter(Mandatory = $false)][bool]$DivergenceHasSignal = $false,
+        [Parameter(Mandatory = $false)][int]$RunHealthFailures = 0
     )
 
-    if ($Runs -le 0) { return 'fail' }
-    if ($InvariantFailures -gt 0 -or $DivergenceFailures -gt 0 -or $DataQualityViolations -gt 0) {
-        if ($Tier -eq 'pr') { return 'warn' } else { return 'fail' }
+    $advisory = ($Tier -eq 'pr' -or $Tier -eq 'devloop')
+    $downgrade = { param($state) if ($state -eq 'fail' -and $advisory) { 'warn' } else { $state } }
+
+    # Equivalence gate.
+    $equivalence = 'pass'
+    if ($Runs -le 0) {
+        $equivalence = 'fail'
+    }
+    elseif ($InvariantFailures -gt 0 -or $DataQualityViolations -gt 0 -or $RunHealthFailures -gt 0) {
+        $equivalence = 'fail'
+    }
+    elseif (($CiLow -gt 0) -or ($CiHigh -lt 0)) {
+        $equivalence = 'fail'
     }
 
-    $significantDifference = ($CiLow -gt 0) -or ($CiHigh -lt 0)
-    if (-not $significantDifference) { return 'pass' }
+    # A structurally broken run fails closed at both tiers. Only a statistical or
+    # guard-conformance result is advisory in devloop.
+    $structural = ($Runs -le 0) -or ($DataQualityViolations -gt 0)
+    $equivalenceGate = if ($structural) { $equivalence } else { & $downgrade $equivalence }
 
-    if ($Tier -eq 'pr') { return 'warn' } else { return 'fail' }
+    # Documented-divergence gate.
+    $divergence = 'pass'
+    if (-not $DivergenceHasSignal) {
+        # No guard signal is not conformance. A customized run that produced no guard
+        # results cannot evidence that its declared divergence held.
+        $divergence = 'fail'
+    }
+    elseif ($DivergenceGuardFailures -gt 0) {
+        $divergence = 'fail'
+    }
+    $divergenceGate = & $downgrade $divergence
+
+    $verdict = 'pass'
+    foreach ($gate in @($equivalenceGate, $divergenceGate)) {
+        if ($gate -eq 'fail') { $verdict = 'fail'; break }
+        if ($gate -eq 'warn') { $verdict = 'warn' }
+    }
+
+    return @{
+        EquivalenceGate          = $equivalenceGate
+        DocumentedDivergenceGate = $divergenceGate
+        Verdict                  = $verdict
+    }
 }
 
 function Get-OutputHash {
@@ -513,7 +672,7 @@ function Merge-EquivalenceStimuli {
         $basePassed = @($b | Where-Object { $_.passed }).Count
         $custPassed = @($c | Where-Object { $_.passed }).Count
 
-        $tally = if ($perStim.ContainsKey($name)) { $perStim[$name] } else { @{ Ties = 0; AWins = 0; BWins = 0 } }
+        $tally = if ($perStim.ContainsKey($name)) { $perStim[$name] } else { @{ Ties = 0; BaselineWins = 0; TreatmentWins = 0 } }
 
         $meanWall = if ($wallDiffs.Count -gt 0) { ($wallDiffs | Measure-Object -Average).Average } else { 0.0 }
         $meanTokens = if ($tokenDiffs.Count -gt 0) { ($tokenDiffs | Measure-Object -Average).Average } else { 0.0 }
@@ -529,8 +688,8 @@ function Merge-EquivalenceStimuli {
                 identicalCount     = $identical
                 identicalTotal     = $trialCount
                 ties               = [int]$tally.Ties
-                aWins              = [int]$tally.AWins
-                bWins              = [int]$tally.BWins
+                baselineWins       = [int]$tally.BaselineWins
+                treatmentWins      = [int]$tally.TreatmentWins
                 meanWallTimeDeltaMs = [math]::Round($meanWall, 2)
                 meanTokenDelta     = [math]::Round($meanTokens, 2)
                 trials             = $pairs
@@ -688,8 +847,8 @@ pre { background: #f5f5f5; padding: 0.5rem; border: 1px solid #ddd; overflow: au
   var search = document.getElementById('search');
   var sortKey = 'stimulusName';
   var sortDir = 1;
-  var aLabel = (data.variants && data.variants.a && data.variants.a.label) || 'Variant A';
-  var bLabel = (data.variants && data.variants.b && data.variants.b.label) || 'Variant B';
+  var aLabel = (data.variants && data.variants.a && data.variants.a.label) || 'Baseline';
+  var bLabel = (data.variants && data.variants.b && data.variants.b.label) || 'Treatment';
 
   function escapeHtml(s) {
     return String(s == null ? '' : s)
@@ -746,7 +905,7 @@ pre { background: #f5f5f5; padding: 0.5rem; border: 1px solid #ddd; overflow: au
         '<td>' + (s.baselinePassRate * 100).toFixed(1) + '%</td>' +
         '<td>' + (s.customizedPassRate * 100).toFixed(1) + '%</td>' +
         '<td>' + s.identicalCount + '/' + s.identicalTotal + '</td>' +
-        '<td>' + s.ties + '</td><td>' + s.aWins + '</td><td>' + s.bWins + '</td>' +
+        '<td>' + s.ties + '</td><td>' + s.baselineWins + '</td><td>' + s.treatmentWins + '</td>' +
         '<td>' + s.meanWallTimeDeltaMs + '</td>' +
         '<td>' + s.meanTokenDelta + '</td>' +
         '<td>' + verdictGlyph(s) + '</td>' +
@@ -797,12 +956,12 @@ $css
 </div>
 <div class="variant-strip">
 <div class="variant-card">
-<div><strong>Variant A &mdash; $aLabelEsc</strong> <span class="variant-kind">[$aKindEsc]</span></div>
+<div><strong>Baseline &mdash; $aLabelEsc</strong> <span class="variant-kind">[$aKindEsc]</span></div>
 <div class="variant-desc">$aDescEsc</div>
 <div class="variant-applied"><div>Applied:</div><ul>$aAppliedList</ul></div>
 </div>
 <div class="variant-card">
-<div><strong>Variant B &mdash; $bLabelEsc</strong> <span class="variant-kind">[$bKindEsc]</span></div>
+<div><strong>Treatment &mdash; $bLabelEsc</strong> <span class="variant-kind">[$bKindEsc]</span></div>
 <div class="variant-desc">$bDescEsc</div>
 <div class="variant-applied"><div>Applied:</div><ul>$bAppliedList</ul></div>
 </div>
@@ -816,8 +975,8 @@ $css
 <th data-key="customizedPassRate">$bLabelEsc pass</th>
 <th data-key="identicalCount">Identical</th>
 <th data-key="ties">Ties</th>
-<th data-key="aWins">$aLabelEsc wins</th>
-<th data-key="bWins">$bLabelEsc wins</th>
+<th data-key="baselineWins">$aLabelEsc wins</th>
+<th data-key="treatmentWins">$bLabelEsc wins</th>
 <th data-key="meanWallTimeDeltaMs">Wall &Delta; (ms)</th>
 <th data-key="meanTokenDelta">Tokens &Delta;</th>
 <th>Verdict</th>
@@ -886,7 +1045,8 @@ Export-ModuleMember -Function `
     Measure-CompareTrials, `
     Measure-InvariantFailures, `
     Measure-DeclaredInvariantFailures, `
-    Get-VerdictFromAggregate, `
+    Get-EquivalenceGateResults, `
+    Measure-DivergenceGuardResults, `
     Get-OutputHash, `
     ConvertFrom-EquivalenceResults, `
     Merge-EquivalenceStimuli, `

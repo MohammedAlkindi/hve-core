@@ -179,23 +179,27 @@ function New-DryRunSummary {
     )
 
     return [ordered]@{
-        agent              = $Agent
-        tier               = $Tier
-        model              = $Model
-        stimulusFilter     = $StimulusFilter
-        runs               = 0
-        ties               = 0
-        aWins              = 0
-        bWins              = 0
-        meanScore          = 0.0
-        ciLow              = 0.0
-        ciHigh             = 0.0
-        winRate            = 0.0
-        invariantFailures  = 0
-        divergenceFailures = 0
-        verdict            = 'dry-run'
-        variants           = $Variants
-        plannedCommands    = $PlannedCommands
+        schemaVersion            = '2.0.0'
+        agent                    = $Agent
+        tier                     = $Tier
+        model                    = $Model
+        stimulusFilter           = $StimulusFilter
+        runs                     = 0
+        ties                     = 0
+        baselineWins             = 0
+        treatmentWins            = 0
+        meanScore                = 0.0
+        ciLow                    = 0.0
+        ciHigh                   = 0.0
+        winRate                  = 0.0
+        invariantFailures        = 0
+        runHealthFailures        = 0
+        divergenceGuardFailures  = 0
+        equivalenceGate          = 'dry-run'
+        documentedDivergenceGate = 'dry-run'
+        verdict                  = 'dry-run'
+        variants                 = $Variants
+        plannedCommands          = $PlannedCommands
     }
 }
 
@@ -253,7 +257,8 @@ function Get-CanonicalStimulusPolicy {
         intentional divergence against equivalence, and the invariant tally would fall
         back to every deterministic grader rather than the ones actually declared.
     .OUTPUTS
-        [hashtable] With keys Policy (name to policy) and Invariants (unique names).
+        [hashtable] With keys Policy (name to policy), Invariants (unique names), and
+        Guards (unique customized_required and customized_disallow grader names).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -262,7 +267,7 @@ function Get-CanonicalStimulusPolicy {
         [string]$RepoRoot
     )
 
-    $result = @{ Policy = @{}; Invariants = @() }
+    $result = @{ Policy = @{}; Invariants = @(); Guards = @() }
     $path = Join-Path $RepoRoot 'evals/baseline-equivalence/stimuli.yml'
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $result }
 
@@ -274,6 +279,7 @@ function Get-CanonicalStimulusPolicy {
     }
 
     $invariants = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $guards = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($stimulus in @($parsed.stimuli)) {
         if (-not $stimulus) { continue }
         $name = [string]$stimulus.name
@@ -290,9 +296,22 @@ function Get-CanonicalStimulusPolicy {
                 if (-not [string]::IsNullOrWhiteSpace([string]$invariant)) { [void]$invariants.Add([string]$invariant) }
             }
         }
+
+        # The divergence gate asserts that declared customization guards actually held.
+        # Both kinds belong: customized_required asserts a behavior the customization
+        # mandates, and customized_disallow asserts one it must not produce. Either
+        # failing means the customization did not behave as documented.
+        foreach ($key in @('customized_required', 'customized_disallow')) {
+            if ($stimulus.ContainsKey($key) -and $stimulus[$key]) {
+                foreach ($guard in @($stimulus[$key])) {
+                    if (-not [string]::IsNullOrWhiteSpace([string]$guard)) { [void]$guards.Add([string]$guard) }
+                }
+            }
+        }
     }
 
     $result.Invariants = @($invariants)
+    $result.Guards = @($guards)
     return $result
 }
 
@@ -488,10 +507,18 @@ if ($MyInvocation.InvocationName -ne '.') {
 
         $totalRuns = 0
         $totalTies = 0
-        $totalA = 0
-        $totalB = 0
+        $totalBaselineWins = 0
+        $totalTreatmentWins = 0
         $invariantFailures = 0
-        $divergenceFailures = 0
+        # Renamed from divergenceFailures. This counter only ever measured operational
+        # health: nonzero exit codes, missing run directories, and unparseable output.
+        # The documented-divergence gate now reads per-guard conformance instead, so the
+        # counter keeps its real meaning under an honest name.
+        $runHealthFailures = 0
+        $divergenceGuardFailures = 0
+        $divergenceGuardsEvaluated = 0
+        $divergenceHasSignal = $false
+        $failedDivergenceGuards = [System.Collections.Generic.List[string]]::new()
         $dataQualityViolations = 0
         $totalJudgeErrors = 0
         $totalEquivalent = 0
@@ -504,7 +531,8 @@ if ($MyInvocation.InvocationName -ne '.') {
         $canonical = Get-CanonicalStimulusPolicy -RepoRoot $resolvedRoot
         $canonicalPolicy = $canonical.Policy
         $canonicalInvariants = @($canonical.Invariants)
-        Write-Host "   Canonical policy: $($canonicalPolicy.Count) stimulus/stimuli, $($canonicalInvariants.Count) declared invariant(s)" -ForegroundColor DarkGray
+        $canonicalGuards = @($canonical.Guards)
+        Write-Host "   Canonical policy: $($canonicalPolicy.Count) stimulus/stimuli, $($canonicalInvariants.Count) declared invariant(s), $($canonicalGuards.Count) divergence guard(s)" -ForegroundColor DarkGray
         $compareLogs = [System.Collections.Generic.List[string]]::new()
         $meanScores = [System.Collections.Generic.List[double]]::new()
         $winRates = [System.Collections.Generic.List[double]]::new()
@@ -553,7 +581,7 @@ if ($MyInvocation.InvocationName -ne '.') {
                 # not a crash. Recording it keeps the summary readable and lets the
                 # verdict reflect the problem instead of losing the run entirely.
                 Write-Host "   Customized environment not materialized: $($_.Exception.Message)" -ForegroundColor Yellow
-                $divergenceFailures++
+                $runHealthFailures++
                 if (-not (Test-Path -LiteralPath $customizedSkillDirForModel)) {
                     New-Item -ItemType Directory -Path $customizedSkillDirForModel -Force | Out-Null
                 }
@@ -649,13 +677,36 @@ if ($MyInvocation.InvocationName -ne '.') {
             foreach ($diagnostic in @($baselineTally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
 
             $codeB = Invoke-VallyCommand -Arguments $evalCustomized
-            if ($codeB -ne 0) { $divergenceFailures++ }
+            if ($codeB -ne 0) { $runHealthFailures++ }
 
             $aRunDir = $baselineRunDir
             $bRunDir = Resolve-LatestRunDir -OutputDir $bDir
+
+            # The documented-divergence gate reads per-guard conformance from the
+            # customized run. This is the only place those results exist: comparison
+            # JSONL carries winners, not grader detail, and the run's own 0.7 scoring
+            # threshold is too coarse for a single guard failure to move.
+            $guardTally = Measure-DivergenceGuardResults -RunDir $bRunDir -GuardNames $canonicalGuards
+            if ($guardTally.HasSignal) {
+                $divergenceHasSignal = $true
+                $divergenceGuardFailures += $guardTally.Failed
+                $divergenceGuardsEvaluated += $guardTally.Evaluated
+                foreach ($failedGuard in @($guardTally.FailedGuards)) { $failedDivergenceGuards.Add($failedGuard) }
+                if ($guardTally.Failed -gt 0) {
+                    Write-Host "   Divergence guards: $($guardTally.Failed) of $($guardTally.Evaluated) failed" -ForegroundColor Yellow
+                }
+                else {
+                    Write-Host "   Divergence guards: $($guardTally.Evaluated) evaluated, all passed" -ForegroundColor DarkGray
+                }
+            }
+            else {
+                Write-Host "   Divergence guards: no signal from the customized run" -ForegroundColor Yellow
+            }
+            foreach ($diagnostic in @($guardTally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
+
             if (-not $aRunDir -or -not $bRunDir) {
                 Write-Host "   Compare skipped: missing run dir (a=$aRunDir b=$bRunDir)" -ForegroundColor Yellow
-                $divergenceFailures++
+                $runHealthFailures++
             }
             else {
                 $compareJsonlPath = Join-Path $resolvedRoot "logs/vally-compare-$model-$runId.jsonl"
@@ -673,18 +724,18 @@ if ($MyInvocation.InvocationName -ne '.') {
                 $compareLog = Join-Path $resolvedRoot "logs/vally-compare-$model-$runId.log"
                 $resultC = Invoke-VallyCommandWithCapture -Arguments $compareArgs -LogPath $compareLog
                 $compareFailed = $resultC.ExitCode -ne 0
-                if ($compareFailed) { $divergenceFailures++ }
+                if ($compareFailed) { $runHealthFailures++ }
                 $compareLogs.Add($compareLog)
 
                 $jsonlLines = if (Test-Path -LiteralPath $compareJsonlPath) { @(Get-Content -LiteralPath $compareJsonlPath -Encoding utf8) } else { @() }
                 $tally = Measure-CompareTrials -Lines $jsonlLines -StimulusPolicy $canonicalPolicy
                 if ($tally.Total -le 0) {
                     Write-Host "   Compare emitted no parseable comparison records: $compareJsonlPath" -ForegroundColor Yellow
-                    if (-not $compareFailed) { $divergenceFailures++ }
+                    if (-not $compareFailed) { $runHealthFailures++ }
                 }
                 elseif ($tally.SummaryCount -le 0) {
                     Write-Host "   Compare records carried no summary statistics; cannot assess equivalence: $compareJsonlPath" -ForegroundColor Yellow
-                    if (-not $compareFailed) { $divergenceFailures++ }
+                    if (-not $compareFailed) { $runHealthFailures++ }
                 }
 
                 # Records that could not be scored are counted rather than dropped. An
@@ -703,8 +754,8 @@ if ($MyInvocation.InvocationName -ne '.') {
 
                 $totalRuns += $tally.Total
                 $totalTies += $tally.Ties
-                $totalA   += $tally.AWins
-                $totalB   += $tally.BWins
+                $totalBaselineWins  += $tally.BaselineWins
+                $totalTreatmentWins += $tally.TreatmentWins
                 $totalJudgeErrors += $tally.JudgeErrors
                 $totalEquivalent += $tally.EquivalentTotal
                 $totalEquivalentTies += $tally.EquivalentTies
@@ -723,45 +774,57 @@ if ($MyInvocation.InvocationName -ne '.') {
         $aggregateCiLow = if ($ciLows.Count -gt 0) { ($ciLows | Measure-Object -Maximum).Maximum } else { 0.0 }
         $aggregateCiHigh = if ($ciHighs.Count -gt 0) { ($ciHighs | Measure-Object -Minimum).Minimum } else { 0.0 }
 
-        $verdict = Get-VerdictFromAggregate `
+        $gates = Get-EquivalenceGateResults `
             -Runs $totalRuns `
             -CiLow $aggregateCiLow `
             -CiHigh $aggregateCiHigh `
             -InvariantFailures $invariantFailures `
-            -DivergenceFailures $divergenceFailures `
             -DataQualityViolations $dataQualityViolations `
+            -DivergenceGuardFailures $divergenceGuardFailures `
+            -DivergenceHasSignal $divergenceHasSignal `
+            -RunHealthFailures $runHealthFailures `
             -Tier $Tier
+        $verdict = $gates.Verdict
 
         $summary = [ordered]@{
-            agent              = $Agent
-            tier               = $Tier
-            model              = $primaryModel
-            stimulusFilter     = $StimulusFilter
-            runs               = $totalRuns
-            ties               = $totalTies
-            aWins              = $totalA
-            bWins              = $totalB
-            meanScore          = [math]::Round($aggregateMeanScore, 4)
-            ciLow              = [math]::Round($aggregateCiLow, 4)
-            ciHigh             = [math]::Round($aggregateCiHigh, 4)
-            winRate            = [math]::Round($aggregateWinRate, 4)
-            invariantFailures  = $invariantFailures
-            divergenceFailures = $divergenceFailures
-            dataQualityViolations = $dataQualityViolations
-            judgeErrors        = $totalJudgeErrors
-            judgeErrorRate     = if (($totalRuns + $totalJudgeErrors) -gt 0) { [math]::Round($totalJudgeErrors / ($totalRuns + $totalJudgeErrors), 6) } else { 0.0 }
-            equivalentTrials   = $totalEquivalent
-            equivalentTies     = $totalEquivalentTies
-            divergenceTrials   = $totalDivergence
-            tieRatio           = if ($totalEquivalent -gt 0) { [math]::Round($totalEquivalentTies / $totalEquivalent, 4) } else { 0.0 }
-            dataQualityDiagnostics = @($dataQualityDiagnostics | Select-Object -First 50)
-            verdict            = $verdict
-            variants           = $variants
-            compareLogs        = @($compareLogs)
+            # A breaking contract change. Consumers reject an unsupported major version
+            # rather than reading absent fields as zeros, which is how a dropped field
+            # previously degraded into a plausible-looking healthy run.
+            schemaVersion            = '2.0.0'
+            agent                    = $Agent
+            tier                     = $Tier
+            model                    = $primaryModel
+            stimulusFilter           = $StimulusFilter
+            runs                     = $totalRuns
+            ties                     = $totalTies
+            baselineWins             = $totalBaselineWins
+            treatmentWins            = $totalTreatmentWins
+            meanScore                = [math]::Round($aggregateMeanScore, 4)
+            ciLow                    = [math]::Round($aggregateCiLow, 4)
+            ciHigh                   = [math]::Round($aggregateCiHigh, 4)
+            winRate                  = [math]::Round($aggregateWinRate, 4)
+            invariantFailures        = $invariantFailures
+            runHealthFailures        = $runHealthFailures
+            divergenceGuardFailures  = $divergenceGuardFailures
+            divergenceGuardsEvaluated = $divergenceGuardsEvaluated
+            failedDivergenceGuards   = @($failedDivergenceGuards | Select-Object -First 50)
+            dataQualityViolations    = $dataQualityViolations
+            judgeErrors              = $totalJudgeErrors
+            judgeErrorRate           = if (($totalRuns + $totalJudgeErrors) -gt 0) { [math]::Round($totalJudgeErrors / ($totalRuns + $totalJudgeErrors), 6) } else { 0.0 }
+            equivalentTrials         = $totalEquivalent
+            equivalentTies           = $totalEquivalentTies
+            divergenceTrials         = $totalDivergence
+            tieRatio                 = if ($totalEquivalent -gt 0) { [math]::Round($totalEquivalentTies / $totalEquivalent, 4) } else { 0.0 }
+            dataQualityDiagnostics   = @($dataQualityDiagnostics | Select-Object -First 50)
+            equivalenceGate          = $gates.EquivalenceGate
+            documentedDivergenceGate = $gates.DocumentedDivergenceGate
+            verdict                  = $verdict
+            variants                 = $variants
+            compareLogs              = @($compareLogs)
         }
 
         Write-SummaryJson -Summary $summary -Path $OutputPath
-        Write-Host "Summary written: $OutputPath ($verdict)" -ForegroundColor Cyan
+        Write-Host "Summary written: $OutputPath (equivalence=$($gates.EquivalenceGate) divergence=$($gates.DocumentedDivergenceGate) verdict=$verdict)" -ForegroundColor Cyan
 
         if ($Tier -eq 'pr') {
             exit 0

@@ -23,25 +23,25 @@ Describe 'Measure-CompareTrials' -Tag 'Unit' {
     }
 
     It 'Counts baseline wins' {
-        $script:Tally.AWins | Should -Be 1
+        $script:Tally.BaselineWins | Should -Be 1
     }
 
     It 'Counts treatment wins' {
-        $script:Tally.BWins | Should -Be 1
+        $script:Tally.TreatmentWins | Should -Be 1
     }
 
     It 'Groups results per stimulus' {
         $script:Tally.PerStimulus.Keys | Should -Contain 'test-stim-a'
         $script:Tally.PerStimulus.Keys | Should -Contain 'test-stim-b'
         $script:Tally.PerStimulus['test-stim-a'].Ties | Should -Be 1
-        $script:Tally.PerStimulus['test-stim-a'].AWins | Should -Be 1
-        $script:Tally.PerStimulus['test-stim-b'].BWins | Should -Be 1
+        $script:Tally.PerStimulus['test-stim-a'].BaselineWins | Should -Be 1
+        $script:Tally.PerStimulus['test-stim-b'].TreatmentWins | Should -Be 1
     }
 
     It 'Excludes errored trials from the per-stimulus tally' {
         $script:Tally.PerStimulus['test-stim-a'].Ties | Should -Be 1
-        $script:Tally.PerStimulus['test-stim-a'].AWins | Should -Be 1
-        $script:Tally.PerStimulus['test-stim-a'].BWins | Should -Be 0
+        $script:Tally.PerStimulus['test-stim-a'].BaselineWins | Should -Be 1
+        $script:Tally.PerStimulus['test-stim-a'].TreatmentWins | Should -Be 0
     }
 
     It 'Carries the summary mean score and confidence interval' {
@@ -149,8 +149,8 @@ Describe 'Measure-CompareTrials against captured Vally 0.10 output' -Tag 'Unit' 
     It 'Parses the 0.10 comparison record without contract changes' {
         $script:V010Tally.Total | Should -Be 2
         $script:V010Tally.Ties | Should -Be 2
-        $script:V010Tally.AWins | Should -Be 0
-        $script:V010Tally.BWins | Should -Be 0
+        $script:V010Tally.BaselineWins | Should -Be 0
+        $script:V010Tally.TreatmentWins | Should -Be 0
     }
 
     It 'Consumes native 0.10 summary statistics' {
@@ -428,41 +428,85 @@ Describe 'Measure-InvariantFailures' -Tag 'Unit' {
     }
 }
 
-Describe 'Get-VerdictFromAggregate' -Tag 'Unit' {
+Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
+    BeforeAll {
+        # Most cases assert the equivalence gate, so supply a healthy divergence signal
+        # by default. Without it every case would fail on the divergence gate instead,
+        # which would hide whatever the case is actually testing.
+        $script:Healthy = @{ DivergenceHasSignal = $true; DivergenceGuardFailures = 0 }
+    }
+
     It 'Returns fail when there are zero runs' {
-        Get-VerdictFromAggregate -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -DivergenceFailures 0 -Tier 'pr' | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns fail for a zero-run nightly evaluation' {
-        Get-VerdictFromAggregate -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -DivergenceFailures 0 -Tier 'nightly' | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns pass when the 95% confidence interval straddles zero' {
-        Get-VerdictFromAggregate -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -DivergenceFailures 0 -Tier 'pr' | Should -Be 'pass'
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'pr' @script:Healthy
+        $r.EquivalenceGate | Should -Be 'pass'
+        $r.Verdict | Should -Be 'pass'
     }
 
     It 'Returns warn on PR when invariants fail' {
-        Get-VerdictFromAggregate -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -DivergenceFailures 0 -Tier 'pr' | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Returns fail on nightly when invariants fail' {
-        Get-VerdictFromAggregate -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -DivergenceFailures 0 -Tier 'nightly' | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns warn on PR when the confidence interval excludes zero on the negative side (regression)' {
-        Get-VerdictFromAggregate -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -DivergenceFailures 0 -Tier 'pr' | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Returns fail on nightly when the confidence interval excludes zero on the negative side (regression)' {
-        Get-VerdictFromAggregate -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -DivergenceFailures 0 -Tier 'nightly' | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns warn on PR when the confidence interval excludes zero on the positive side (unexpected improvement)' {
-        Get-VerdictFromAggregate -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -DivergenceFailures 0 -Tier 'pr' | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'pr' @script:Healthy).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Returns fail on nightly when the confidence interval excludes zero on the positive side (unexpected improvement)' {
-        Get-VerdictFromAggregate -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -DivergenceFailures 0 -Tier 'nightly' | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'nightly' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+    }
+
+    It 'Fails a data-quality violation closed even on the advisory tier' {
+        # An incomplete comparison cannot evidence equivalence at any tier. Only a
+        # statistical or guard result is advisory.
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -DataQualityViolations 3 -Tier 'pr' @script:Healthy
+        $r.EquivalenceGate | Should -Be 'fail'
+        $r.Verdict | Should -Be 'fail'
+    }
+
+    It 'Fails the divergence gate when a declared guard fails' {
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'nightly' -DivergenceHasSignal $true -DivergenceGuardFailures 1
+        $r.DocumentedDivergenceGate | Should -Be 'fail'
+        $r.EquivalenceGate | Should -Be 'pass'
+        $r.Verdict | Should -Be 'fail'
+    }
+
+    It 'Fails the divergence gate when the customized run produced no guard signal' {
+        # No signal is not conformance. Treating an absent result as a pass is the
+        # defect that made the retired signature subsystem look healthy for months.
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'nightly' -DivergenceHasSignal $false
+        $r.DocumentedDivergenceGate | Should -Be 'fail'
+        $r.Verdict | Should -Be 'fail'
+    }
+
+    It 'Downgrades a failing divergence gate to warn on the advisory tier' {
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'pr' -DivergenceHasSignal $true -DivergenceGuardFailures 2
+        $r.DocumentedDivergenceGate | Should -Be 'warn'
+        $r.Verdict | Should -Be 'warn'
+    }
+
+    It 'Reports the two gates independently' {
+        $r = Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'nightly' @script:Healthy
+        $r.EquivalenceGate | Should -Be 'fail'
+        $r.DocumentedDivergenceGate | Should -Be 'pass'
     }
 }
 
@@ -558,8 +602,8 @@ Describe 'Merge-EquivalenceStimuli' -Tag 'Unit' {
     It 'Carries per-stimulus compare tallies through' {
         $a = $script:Merged | Where-Object { $_.stimulusName -eq 'test-stim-a' }
         $a.ties | Should -Be 1
-        $a.aWins | Should -Be 1
-        $a.bWins | Should -Be 0
+        $a.baselineWins | Should -Be 1
+        $a.treatmentWins | Should -Be 0
     }
 
     It 'Handles missing-side stimuli with zero pass rate' {
@@ -670,8 +714,8 @@ Describe 'ConvertTo-EquivalenceHtml' -Tag 'Unit' {
             identicalCount      = 1
             identicalTotal      = 1
             ties                = 1
-            aWins               = 0
-            bWins               = 0
+            baselineWins        = 0
+            treatmentWins       = 0
             meanWallTimeDeltaMs = 0
             meanTokenDelta      = 0
             trials              = @()
@@ -694,8 +738,8 @@ Describe 'ConvertTo-EquivalenceHtml' -Tag 'Unit' {
             identicalCount      = 1
             identicalTotal      = 1
             ties                = 1
-            aWins               = 0
-            bWins               = 0
+            baselineWins        = 0
+            treatmentWins       = 0
             meanWallTimeDeltaMs = 0
             meanTokenDelta      = 0
             trials              = @()
@@ -717,8 +761,8 @@ Describe 'ConvertTo-EquivalenceHtml' -Tag 'Unit' {
             identicalCount      = 1
             identicalTotal      = 1
             ties                = 1
-            aWins               = 0
-            bWins               = 0
+            baselineWins        = 0
+            treatmentWins       = 0
             meanWallTimeDeltaMs = 0
             meanTokenDelta      = 0
             trials              = @()
@@ -756,8 +800,8 @@ Describe 'ConvertTo-EquivalenceHtml' -Tag 'Unit' {
             identicalCount      = 1
             identicalTotal      = 1
             ties                = 1
-            aWins               = 0
-            bWins               = 0
+            baselineWins        = 0
+            treatmentWins       = 0
             meanWallTimeDeltaMs = 0
             meanTokenDelta      = 0
             trials              = @()
@@ -786,8 +830,8 @@ Describe 'ConvertTo-EquivalenceHtml' -Tag 'Unit' {
             identicalCount      = 1
             identicalTotal      = 1
             ties                = 1
-            aWins               = 0
-            bWins               = 0
+            baselineWins        = 0
+            treatmentWins       = 0
             meanWallTimeDeltaMs = 0
             meanTokenDelta      = 0
             trials              = @()
@@ -875,5 +919,92 @@ Describe 'Get-AppliedArtifacts' -Tag 'Unit' {
         Set-Content -LiteralPath (Join-Path $bareRoot 'stray.md') -Value 'x' -Encoding utf8NoBOM
         $result = Get-AppliedArtifacts -WorkspaceRoot $bareRoot
         @($result).Count | Should -Be 0
+    }
+}
+
+Describe 'Measure-DivergenceGuardResults' -Tag 'Unit' {
+    BeforeAll {
+        function New-GuardRun {
+            <#
+            .SYNOPSIS
+                Writes a results.jsonl shaped like a customized run's grader output.
+            #>
+            param(
+                [Parameter(Mandatory)][string]$Root,
+                [Parameter(Mandatory)][array]$Details
+            )
+            New-Item -ItemType Directory -Path $Root -Force | Out-Null
+            $record = @{
+                type        = 'trial-result'
+                gradeResult = @{
+                    stimulusName = 'customization-boundary-write-tmp'
+                    details      = $Details
+                }
+            }
+            Set-Content -LiteralPath (Join-Path $Root 'results.jsonl') -Encoding utf8NoBOM `
+                -Value ($record | ConvertTo-Json -Depth 10 -Compress)
+        }
+
+        $script:GuardNames = @('routes-through-rpi-lifecycle', 'scope-language')
+    }
+
+    It 'Reports no signal when the run directory is missing' {
+        $r = Measure-DivergenceGuardResults -RunDir (Join-Path $TestDrive 'absent') -GuardNames $script:GuardNames
+        $r.HasSignal | Should -BeFalse
+        $r.Failed | Should -Be 0
+    }
+
+    It 'Reports no signal when no guards are declared' {
+        # An empty declared set means the gate has nothing to assert. Returning a pass
+        # would claim conformance the run never demonstrated.
+        $root = Join-Path $TestDrive 'noguards'
+        New-GuardRun -Root $root -Details @(@{ name = 'routes-through-rpi-lifecycle'; passed = $true; kind = 'code' })
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames @()
+        $r.HasSignal | Should -BeFalse
+    }
+
+    It 'Counts a failing declared guard' {
+        $root = Join-Path $TestDrive 'failing'
+        New-GuardRun -Root $root -Details @(
+            @{ name = 'routes-through-rpi-lifecycle'; passed = $true; kind = 'code' },
+            @{ name = 'scope-language'; passed = $false; kind = 'code' }
+        )
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames
+        $r.HasSignal | Should -BeTrue
+        $r.Evaluated | Should -Be 2
+        $r.Failed | Should -Be 1
+        $r.FailedGuards | Should -Contain 'customization-boundary-write-tmp/scope-language'
+    }
+
+    It 'Reports zero failures when every declared guard passes' {
+        $root = Join-Path $TestDrive 'passing'
+        New-GuardRun -Root $root -Details @(
+            @{ name = 'routes-through-rpi-lifecycle'; passed = $true; kind = 'code' },
+            @{ name = 'scope-language'; passed = $true; kind = 'code' }
+        )
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames
+        $r.HasSignal | Should -BeTrue
+        $r.Failed | Should -Be 0
+        $r.Evaluated | Should -Be 2
+    }
+
+    It 'Ignores graders that are not declared guards' {
+        # A failing response-quality judge must not reach the divergence gate, for the
+        # same reason it was removed from the invariant tally.
+        $root = Join-Path $TestDrive 'unrelated'
+        New-GuardRun -Root $root -Details @(
+            @{ name = 'scope-language'; passed = $true; kind = 'code' },
+            @{ name = 'response-quality'; passed = $false; kind = 'prompt' }
+        )
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames
+        $r.Failed | Should -Be 0
+        $r.Evaluated | Should -Be 1
+    }
+
+    It 'Reports no signal when the run produced no declared guard results' {
+        $root = Join-Path $TestDrive 'nosignal'
+        New-GuardRun -Root $root -Details @(@{ name = 'response-quality'; passed = $true; kind = 'prompt' })
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames
+        $r.HasSignal | Should -BeFalse
     }
 }

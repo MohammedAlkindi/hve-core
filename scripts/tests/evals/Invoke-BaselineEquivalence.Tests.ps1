@@ -75,10 +75,23 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         It 'Reports zeroed run/aggregate counters' {
             $script:Summary.runs | Should -Be 0
             $script:Summary.ties | Should -Be 0
-            $script:Summary.aWins | Should -Be 0
-            $script:Summary.bWins | Should -Be 0
+            $script:Summary.baselineWins | Should -Be 0
+            $script:Summary.treatmentWins | Should -Be 0
             $script:Summary.invariantFailures | Should -Be 0
-            $script:Summary.divergenceFailures | Should -Be 0
+            $script:Summary.runHealthFailures | Should -Be 0
+            $script:Summary.divergenceGuardFailures | Should -Be 0
+        }
+
+        It 'Declares the reporting contract version' {
+            # Consumers reject an unsupported major version rather than reading absent
+            # fields as zeros, so the dry-run summary must carry it too.
+            $script:Summary.schemaVersion | Should -Be '2.0.0'
+        }
+
+        It 'Carries no legacy A/B keys' {
+            $script:Summary.PSObject.Properties.Name | Should -Not -Contain 'aWins'
+            $script:Summary.PSObject.Properties.Name | Should -Not -Contain 'bWins'
+            $script:Summary.PSObject.Properties.Name | Should -Not -Contain 'divergenceFailures'
         }
 
         It 'Sets verdict to dry-run' {
@@ -325,7 +338,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
             -OutputPath $script:StubOutputPath *> $null
 
         $summary = Get-Content -LiteralPath $script:StubOutputPath -Raw | ConvertFrom-Json
-        $summary.divergenceFailures | Should -Be 3
+        $summary.runHealthFailures | Should -Be 3
         $summary.runs | Should -Be 0
         $summary.verdict | Should -Be 'fail'
         $LASTEXITCODE | Should -Be 1

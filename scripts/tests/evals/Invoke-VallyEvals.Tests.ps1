@@ -1114,6 +1114,129 @@ exit 9
         $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
         @($summary.equivalence).Count | Should -Be 0
     }
+
+    It 'Reads the 2.0.0 equivalence contract and reports both gates' {
+        $spec = @'
+name: agent-spec
+stimuli:
+  - name: s1
+    prompt: hi
+    tags:
+        agent: sample-agent
+'@
+        $artifacts = @(
+            @{ kind = 'agent'; artifactId = 'sample-agent'; path = '.github/agents/hve-core/sample-agent.agent.md'; status = 'M' }
+        )
+        $fx = New-EvalFixture -Artifacts $artifacts -Specs @(@{ Name = 'agent.yaml'; Yaml = $spec })
+
+        $driverPath = Join-Path $fx.Root 'v2-equivalence.ps1'
+        $driver = @'
+[CmdletBinding()]
+param([string]$Agent, [string]$Tier, [string]$Model, [string]$RepoRoot, [string]$OutputPath)
+
+$summary = [ordered]@{
+    schemaVersion            = '2.0.0'
+    runs                     = 12
+    invariantFailures        = 0
+    runHealthFailures        = 0
+    divergenceGuardFailures  = 2
+    equivalenceGate          = 'pass'
+    documentedDivergenceGate = 'fail'
+    verdict                  = 'fail'
+}
+$dir = Split-Path -Parent $OutputPath
+if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+exit 0
+'@
+        Set-Content -LiteralPath $driverPath -Value $driver -Encoding utf8
+
+        $env:STUB_VALLY_MODE = 'pass'
+        try {
+            & pwsh -NoProfile -File $script:ScriptPath `
+                -ManifestPath $fx.ManifestPath `
+                -EvalRoot $fx.EvalRoot `
+                -LogsDir $fx.LogsDir `
+                -RepoRoot $fx.Root `
+                -VallyCommand $script:StubPath `
+                -EquivalenceDriverPath $driverPath `
+                -EnableBaselineEquivalence `
+                -SkipInputModeration `
+                -SkipOutputModeration *> $null
+        }
+        finally {
+            Remove-Item Env:\STUB_VALLY_MODE -ErrorAction SilentlyContinue
+        }
+
+        $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
+        $entry = @($summary.equivalence)[0]
+        $entry.trials | Should -Be 12
+        $entry.verdict | Should -Be 'fail'
+        $entry.equivalenceGate | Should -Be 'pass'
+        $entry.documentedDivergenceGate | Should -Be 'fail'
+        $entry.divergenceGuardFailures | Should -Be 2
+    }
+
+    It 'Fails loudly on an unsupported equivalence contract version' {
+        # The previous reader guarded every field against null over zero defaults, so a
+        # renamed field silently produced runs=0 and verdict=unknown: a successful run
+        # reported as an empty one. A version mismatch must be visible, not absorbed.
+        $spec = @'
+name: agent-spec
+stimuli:
+  - name: s1
+    prompt: hi
+    tags:
+        agent: sample-agent
+'@
+        $artifacts = @(
+            @{ kind = 'agent'; artifactId = 'sample-agent'; path = '.github/agents/hve-core/sample-agent.agent.md'; status = 'M' }
+        )
+        $fx = New-EvalFixture -Artifacts $artifacts -Specs @(@{ Name = 'agent.yaml'; Yaml = $spec })
+
+        $driverPath = Join-Path $fx.Root 'v1-equivalence.ps1'
+        $driver = @'
+[CmdletBinding()]
+param([string]$Agent, [string]$Tier, [string]$Model, [string]$RepoRoot, [string]$OutputPath)
+
+$summary = [ordered]@{
+    runs               = 40
+    aWins              = 1
+    bWins              = 2
+    invariantFailures  = 0
+    divergenceFailures = 0
+    verdict            = 'pass'
+}
+$dir = Split-Path -Parent $OutputPath
+if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+exit 0
+'@
+        Set-Content -LiteralPath $driverPath -Value $driver -Encoding utf8
+
+        $env:STUB_VALLY_MODE = 'pass'
+        try {
+            & pwsh -NoProfile -File $script:ScriptPath `
+                -ManifestPath $fx.ManifestPath `
+                -EvalRoot $fx.EvalRoot `
+                -LogsDir $fx.LogsDir `
+                -RepoRoot $fx.Root `
+                -VallyCommand $script:StubPath `
+                -EquivalenceDriverPath $driverPath `
+                -EnableBaselineEquivalence `
+                -SkipInputModeration `
+                -SkipOutputModeration *> $null
+        }
+        finally {
+            Remove-Item Env:\STUB_VALLY_MODE -ErrorAction SilentlyContinue
+        }
+
+        $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
+        $entry = @($summary.equivalence)[0]
+        # A legacy summary must not read as a healthy run.
+        $entry.verdict | Should -Be 'fail'
+        $entry.trials | Should -Be 0
+    }
 }
 
 Describe 'Invoke-VallyEvals.ps1 moderation.threshold override' -Tag 'Integration' {
