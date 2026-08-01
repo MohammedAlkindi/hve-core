@@ -503,6 +503,25 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
         $r.Verdict | Should -Be 'warn'
     }
 
+    It 'Fails the equivalence gate when the run reports run-health failures' {
+        # RunHealthFailures was renamed from divergenceFailures and measures whether
+        # the run itself completed cleanly. A run with unparseable compare output
+        # cannot evidence equivalence regardless of what the surviving records say.
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -RunHealthFailures 2 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+    }
+
+    It 'Downgrades a run-health failure to warn on the advisory tier' {
+        # Run health is a statistical-population concern, not a structural one, so it
+        # follows the same advisory downgrade as invariants rather than failing closed.
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -RunHealthFailures 2 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+    }
+
+    It 'Passes the equivalence gate when run-health failures are zero' {
+        # Pins the boundary: the preceding two cases must be caused by the count
+        # being non-zero, not by the parameter being present at all.
+        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -RunHealthFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'pass'
+    }
+
     It 'Reports the two gates independently' {
         $r = Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'ci' @script:Healthy
         $r.EquivalenceGate | Should -Be 'fail'
@@ -534,6 +553,21 @@ Describe 'ConvertFrom-EquivalenceResults' -Tag 'Unit' {
         $trial = '{"type":"trial-result","stimulus":"kept","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"kept"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
         $other = '{"type":"future-record-kind","stimulus":"dropped","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"dropped"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
         Set-Content -LiteralPath (Join-Path $runDir 'results.jsonl') -Value "$trial`n$other" -Encoding utf8NoBOM
+
+        $records = ConvertFrom-EquivalenceResults -RunDir $runDir -WarningAction SilentlyContinue
+        $records.Count | Should -Be 1
+        $records[0].stimulusName | Should -Be 'kept'
+    }
+
+    It 'Skips a trial-result record that carries no trajectory' {
+        # A trial can be declared but produce no trajectory, for example when the
+        # executor errored. There is no output to hash or compare, so admitting it
+        # would add a phantom trial to the population.
+        $runDir = Join-Path $TestDrive ("notraj-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+        $withTraj = '{"type":"trial-result","stimulus":"kept","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"kept"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
+        $noTraj = '{"type":"trial-result","stimulus":"dropped","status":"error","gradeResult":{"passed":false,"score":0.0,"details":[]}}'
+        Set-Content -LiteralPath (Join-Path $runDir 'results.jsonl') -Value "$withTraj`n$noTraj" -Encoding utf8NoBOM
 
         $records = ConvertFrom-EquivalenceResults -RunDir $runDir -WarningAction SilentlyContinue
         $records.Count | Should -Be 1
