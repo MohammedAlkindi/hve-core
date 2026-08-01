@@ -217,6 +217,19 @@ jobs:
                     -ExpectedEvidencePath logs/plugin-release-evidence.json \
                     -OutputPath logs/plugin-snapshot-verification.json
 
+            - name: Archive verified snapshot
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  snapshot_dir="${RUNNER_TEMP}/plugin-snapshot"
+                  tar --sort=name \
+                    --mtime='UTC 1970-01-01' \
+                    --owner=0 \
+                    --group=0 \
+                    --numeric-owner \
+                    -czf logs/plugin-snapshot.tar.gz \
+                    -C "${snapshot_dir}" .
+
             - name: Assert production catalog is unchanged
               shell: bash
               run: |
@@ -279,4 +292,5 @@ jobs:
                       logs/plugin-release-evidence.json
                       logs/plugin-snapshot-verification.json
                       logs/marketplace-snapshot.json
+                      logs/plugin-snapshot.tar.gz
                   if-no-files-found: warn
