@@ -339,6 +339,30 @@ def collect_mapping_failures(
     return [message for _, message in sorted(failures)]
 
 
+def _authored_display_value(value: ET.Element, display_name: str) -> str:
+    """Return a named display-attribute value from an authored element."""
+    for attribute in value.findall("{*}Properties/{*}anyType"):
+        if _node_text(attribute.find("{*}DisplayName")) == display_name:
+            return _node_text(attribute.find("{*}Value"))
+    return ""
+
+
+def _authored_identity(value: ET.Element) -> str:
+    """Return the stable identity of an authored element or connector.
+
+    ``SemanticId`` carries the spec identifier and is preferred. ``Name`` is the
+    human-facing label and only serves as a fallback for authored content that
+    predates semantic identifiers.
+    """
+    semantic_id = _authored_display_value(value, "SemanticId")
+    if semantic_id:
+        return semantic_id
+    named = _authored_display_value(value, "Name")
+    if named:
+        return named
+    return _node_text(value.find("{*}Properties/{*}anyType/{*}Value"))
+
+
 def _coerce_authored_base_index(authored_base: Any) -> dict[str, Any]:
     if authored_base is None:
         return {"connectors": {}, "elements": {}, "surfaces": []}
@@ -363,9 +387,7 @@ def _coerce_authored_base_index(authored_base: Any) -> dict[str, Any]:
                 if value is None:
                     continue
                 element_guid = _node_text(value.find("{*}Guid"))
-                element_name = _node_text(
-                    value.find("{*}Properties/{*}anyType/{*}Value")
-                )
+                element_name = _authored_identity(value)
                 if element_name and element_guid:
                     surface_elements[element_name] = element_guid
             surfaces.append(
@@ -379,7 +401,7 @@ def _coerce_authored_base_index(authored_base: Any) -> dict[str, Any]:
                 value = child.find("{*}Value")
                 if value is None:
                     continue
-                flow_name = _node_text(value.find("{*}Properties/{*}anyType/{*}Value"))
+                flow_name = _authored_identity(value)
                 if not flow_name:
                     continue
                 connector = {

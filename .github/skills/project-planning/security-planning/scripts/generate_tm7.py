@@ -4882,181 +4882,6 @@ def _parse_geometry_value(value: Any, *, default: int = 0) -> int:
         return default
 
 
-def _serialize_shape(
-    element: dict[str, Any],
-    surface_id: str,
-    *,
-    kind: str,
-    z_id_allocator: _ZIdAllocator,
-) -> ET.Element:
-    node = ET.Element(
-        "a:Value",
-        {
-            "xmlns:a": ARRAYS_NS,
-            "z:Id": z_id_allocator.next_id(),
-            "i:type": kind,
-        },
-    )
-    node.attrib["xmlns:z"] = SER_NS
-    _add_child(node, "Id", str(element.get("id", "")), {"xmlns": ABSTRACT_NS})
-    _add_child(
-        node, "GenericTypeId", element.get("type_id", "GE.P"), {"xmlns": ABSTRACT_NS}
-    )
-    _add_child(
-        node,
-        "Guid",
-        str(element.get("guid", _make_guid(f"{surface_id}:{element.get('id', '')}"))),
-        {"xmlns": ABSTRACT_NS},
-    )
-    properties = _add_child(node, "Properties", None, {"xmlns": ABSTRACT_NS})
-    _add_display_attribute(
-        properties,
-        "Name",
-        str(element.get("name", "")),
-        attr_type="b:StringDisplayAttribute",
-    )
-    _add_display_attribute(
-        properties, "Diagram", None, attr_type="b:HeaderDisplayAttribute"
-    )
-    _add_child(
-        node, "TypeId", str(element.get("type_id", "GE.P")), {"xmlns": ABSTRACT_NS}
-    )
-    position = element.get("position", {})
-    _add_child(
-        node,
-        "Height",
-        _serialize_integral_value(position.get("height", 100)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "Left",
-        _serialize_integral_value(position.get("left", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(node, "StrokeDashArray", None, {"xmlns": ABSTRACT_NS, "i:nil": "true"})
-    _add_child(
-        node,
-        "StrokeThickness",
-        _serialize_integral_value(0),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "Top",
-        _serialize_integral_value(position.get("top", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "Width",
-        _serialize_integral_value(position.get("width", 100)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    return node
-
-
-def _serialize_connector(
-    flow: dict[str, Any],
-    surface_id: str,
-    *,
-    z_id_allocator: _ZIdAllocator,
-) -> ET.Element:
-    node = ET.Element(
-        "a:Value",
-        {
-            "xmlns:a": ARRAYS_NS,
-            "z:Id": z_id_allocator.next_id(),
-            "i:type": "Connector",
-        },
-    )
-    node.attrib["xmlns:z"] = SER_NS
-    _add_child(node, "Id", str(flow.get("id", "")), {"xmlns": ABSTRACT_NS})
-    _add_child(node, "GenericTypeId", "GE.DF", {"xmlns": ABSTRACT_NS})
-    _add_child(
-        node,
-        "Guid",
-        str(flow.get("guid", _make_guid(f"{surface_id}:{flow.get('id', '')}"))),
-        {"xmlns": ABSTRACT_NS},
-    )
-    properties = _add_child(node, "Properties", None, {"xmlns": ABSTRACT_NS})
-    _add_display_attribute(
-        properties,
-        "Name",
-        str(flow.get("display_label") or flow.get("id", "")),
-        attr_type="b:StringDisplayAttribute",
-    )
-    _add_display_attribute(
-        properties,
-        "SemanticId",
-        str(flow.get("id", "")),
-        attr_type="b:StringDisplayAttribute",
-    )
-    _add_display_attribute(
-        properties, "Diagram", None, attr_type="b:HeaderDisplayAttribute"
-    )
-    _add_child(node, "TypeId", "GE.DF", {"xmlns": ABSTRACT_NS})
-    position = flow.get("position", {})
-    _add_child(
-        node,
-        "HandleX",
-        _serialize_integral_value(position.get("handle_x", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "HandleY",
-        _serialize_integral_value(position.get("handle_y", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(node, "PortSource", "None", {"xmlns": ABSTRACT_NS})
-    _add_child(node, "PortTarget", "None", {"xmlns": ABSTRACT_NS})
-    _add_child(
-        node,
-        "SourceGuid",
-        str(flow.get("source_guid") or "00000000-0000-0000-0000-000000000000"),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "SourceX",
-        _serialize_integral_value(position.get("source_x", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "SourceY",
-        _serialize_integral_value(position.get("source_y", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(node, "StrokeDashArray", None, {"xmlns": ABSTRACT_NS})
-    _add_child(
-        node,
-        "StrokeThickness",
-        _serialize_integral_value(1),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "TargetGuid",
-        str(flow.get("target_guid") or "00000000-0000-0000-0000-000000000000"),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "TargetX",
-        _serialize_integral_value(position.get("target_x", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    _add_child(
-        node,
-        "TargetY",
-        _serialize_integral_value(position.get("target_y", 0)),
-        {"xmlns": ABSTRACT_NS},
-    )
-    return node
-
-
 def _load_knowledge_base(
     template_dir: Path, profile_name: str
 ) -> tuple[str, dict[str, Any]]:
@@ -5704,11 +5529,14 @@ def parse_hardened_xml(path: Path) -> dict[str, Any]:
                 if value is None:
                     continue
                 element_node = value
+                element_guid = _find_child_text(element_node, "Guid")
                 parsed_model["elements"].append(
                     {
-                        "id": _find_child_text(element_node, "Id"),
-                        "kind": _find_child_text(element_node, "Kind"),
-                        "name": _find_child_text(element_node, "Name"),
+                        "id": _resolve_element_identity(element_node, element_guid),
+                        "kind": _find_child_text(element_node, "Kind")
+                        or _find_instance_type(element_node),
+                        "name": _find_child_text(element_node, "Name")
+                        or _find_display_attribute_value(element_node, "Name"),
                         "position": {
                             "left": _parse_geometry_value(
                                 _find_child_text(element_node, "Left")
@@ -5725,7 +5553,7 @@ def parse_hardened_xml(path: Path) -> dict[str, Any]:
                         },
                         "notes": _find_child_text(element_node, "Notes"),
                         "surface_id": surface_id,
-                        "guid": _find_child_text(element_node, "Guid"),
+                        "guid": element_guid,
                         "type_id": _find_child_text(element_node, "TypeId"),
                     }
                 )
@@ -5823,11 +5651,47 @@ def parse_hardened_xml(path: Path) -> dict[str, Any]:
     return parsed_model
 
 
+def _local_name(tag: str) -> str:
+    """Return the namespace-local part of an XML tag."""
+    return tag.rpartition("}")[2]
+
+
 def _find_child_text(parent: ET.Element, child_name: str) -> str | None:
+    """Return the text of the first child whose local name matches exactly.
+
+    Matching is exact rather than by suffix because TM7 element members include
+    overlapping names such as ``Id``, ``TypeId``, and ``GenericTypeId``. Suffix
+    matching resolves the earliest-serialized overlapping member instead of the
+    requested one.
+    """
     for child in parent:
-        if child.tag.endswith(child_name):
+        if _local_name(child.tag) == child_name:
             return child.text
     return None
+
+
+def _find_instance_type(element: ET.Element) -> str | None:
+    """Return the serializer instance type that carries an authored element kind."""
+    for key, value in element.attrib.items():
+        if _local_name(key) == "type":
+            return value
+    return None
+
+
+def _resolve_element_identity(element: ET.Element, guid: str | None) -> str | None:
+    """Return a stable merge identity for a parsed element.
+
+    Generated models carry an explicit ``Id`` member. Authored models omit it, so
+    the element GUID becomes the stable identity; without this fallback every
+    authored element collapses onto a single merge key.
+    """
+    explicit_id = _find_child_text(element, "Id")
+    if explicit_id and explicit_id.strip():
+        return explicit_id
+    semantic_id = _find_display_attribute_value(element, "SemanticId")
+    if semantic_id and semantic_id.strip():
+        return semantic_id
+    return guid
 
 
 def _find_display_attribute_value(

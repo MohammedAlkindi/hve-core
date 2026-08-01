@@ -3439,6 +3439,36 @@ class TestGenerateTm7:
         assert root.findtext("{*}ThreatGenerationEnabled") == expected_flag
         assert iter_threats(root) == []
 
+    def test_given_authored_model_when_parsed_then_identity_and_fields_persist(
+        self,
+    ) -> None:
+        """Authored TM7 elements must recover their own identity, type, and name.
+
+        A TMT-authored element omits a direct ``Id`` child and orders
+        ``GenericTypeId`` ahead of ``TypeId``. Suffix matching therefore resolves
+        both ``Id`` and ``TypeId`` to the generic stencil, collapsing every element
+        onto one merge key and discarding the specific type and the authored name.
+        """
+        # Arrange
+        parsed_model = generate_tm7.parse_hardened_xml(REFERENCE_FIXTURE_PATH)
+        elements = parsed_model["elements"]
+
+        # Act
+        identifiers = [element.get("id") for element in elements]
+        specific_type_ids = {
+            str(element.get("type_id"))
+            for element in elements
+            if str(element.get("type_id", "")).startswith("SE.")
+        }
+        named = [element for element in elements if element.get("name")]
+
+        # Assert
+        assert len(elements) > 1
+        assert len(set(identifiers)) == len(identifiers)
+        assert all(identifier for identifier in identifiers)
+        assert specific_type_ids
+        assert len(named) == len(elements)
+
     def test_given_generated_tm7_when_deserialized_then_model_is_loadable(
         self,
         tmp_path: Path,

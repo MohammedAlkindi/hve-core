@@ -447,6 +447,87 @@ def test_given_reordered_sources_when_prepared_then_numeric_ids_are_stable() -> 
     ]
 
 
+def test_given_authored_labels_when_reconciled_then_semantic_ids_resolve() -> None:
+    """Authored-base lookup must key on the stable identifier, not the label.
+
+    A connector's first display attribute is its human-facing ``Name``, which the
+    generator sets from ``display_label``. Keying the authored-base index on that
+    value makes every relabelled flow unresolvable, because reconciliation looks
+    the connector up by ``interaction_ref``.
+    """
+    # Arrange
+    spec = _mapping_spec()
+    spec["data_flows"][0]["display_label"] = "Authenticated read path"
+    authored_base = ET.fromstring(
+        """
+        <ThreatModel>
+          <DrawingSurfaceList>
+            <DrawingSurfaceModel>
+              <Guid>surface-01</Guid>
+              <Borders>
+                <KeyValueOfguidanyType>
+                  <Value>
+                    <Guid>source-guid</Guid>
+                    <Properties>
+                      <anyType>
+                        <DisplayName>Name</DisplayName>
+                        <Value>Source Node</Value>
+                      </anyType>
+                      <anyType>
+                        <DisplayName>SemanticId</DisplayName>
+                        <Value>source-01</Value>
+                      </anyType>
+                    </Properties>
+                  </Value>
+                </KeyValueOfguidanyType>
+                <KeyValueOfguidanyType>
+                  <Value>
+                    <Guid>target-guid</Guid>
+                    <Properties>
+                      <anyType>
+                        <DisplayName>Name</DisplayName>
+                        <Value>Target Node</Value>
+                      </anyType>
+                      <anyType>
+                        <DisplayName>SemanticId</DisplayName>
+                        <Value>target-01</Value>
+                      </anyType>
+                    </Properties>
+                  </Value>
+                </KeyValueOfguidanyType>
+              </Borders>
+              <Lines>
+                <KeyValueOfguidanyType>
+                  <Value>
+                    <Guid>flow-guid</Guid>
+                    <Properties>
+                      <anyType>
+                        <DisplayName>Name</DisplayName>
+                        <Value>Authenticated read path</Value>
+                      </anyType>
+                      <anyType>
+                        <DisplayName>SemanticId</DisplayName>
+                        <Value>flow-01</Value>
+                      </anyType>
+                    </Properties>
+                    <SourceGuid>source-guid</SourceGuid>
+                    <TargetGuid>target-guid</TargetGuid>
+                  </Value>
+                </KeyValueOfguidanyType>
+              </Lines>
+            </DrawingSurfaceModel>
+          </DrawingSurfaceList>
+        </ThreatModel>
+        """.strip()
+    )
+
+    # Act
+    failures = tm7_threat_contract.reconcile_authored_base(spec, authored_base)
+
+    # Assert
+    assert failures == []
+
+
 def _mapping_spec() -> dict[str, object]:
     return {
         "representations": {
