@@ -1,0 +1,32 @@
+{
+  "name": "github",
+  "description": "GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts",
+  "version": "3.3.106",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "github",
+    "issues",
+    "backlog",
+    "triage",
+    "sprint"
+  ],
+  "agents": [
+    "agents/github/"
+  ],
+  "commands": [
+    "commands/github/"
+  ],
+  "rules": [
+    "rules/github/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/github/gh-code-scanning/"
+  ]
+}

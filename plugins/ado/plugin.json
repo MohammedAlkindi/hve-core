@@ -1,0 +1,36 @@
+{
+  "name": "ado",
+  "description": "Azure DevOps work item management, build monitoring, and pull request creation",
+  "version": "3.3.106",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "azure-devops",
+    "ado",
+    "work-items",
+    "builds",
+    "pull-requests"
+  ],
+  "agents": [
+    "agents/ado/",
+    "agents/hve-core/subagents/"
+  ],
+  "commands": [
+    "commands/ado/"
+  ],
+  "rules": [
+    "rules/ado/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/rpi/rpi-plan-critique/",
+    "skills/rpi/rpi-plan/",
+    "skills/rpi/rpi-research/",
+    "skills/shared/pr-reference/"
+  ]
+}

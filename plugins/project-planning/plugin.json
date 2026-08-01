@@ -1,0 +1,73 @@
+{
+  "name": "project-planning",
+  "description": "PRDs, BRDs, ADRs, and architecture diagrams",
+  "version": "3.3.106",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "documentation",
+    "architecture",
+    "adr",
+    "brd",
+    "prd",
+    "diagrams",
+    "planning",
+    "rai",
+    "responsible-ai",
+    "security",
+    "privacy"
+  ],
+  "agents": [
+    "agents/accessibility/",
+    "agents/hve-core/",
+    "agents/hve-core/subagents/",
+    "agents/privacy/",
+    "agents/project-planning/",
+    "agents/project-planning/subagents/",
+    "agents/rai-planning/",
+    "agents/rai-planning/subagents/",
+    "agents/security/"
+  ],
+  "commands": [
+    "commands/accessibility/",
+    "commands/hve-core/",
+    "commands/rai-planning/",
+    "commands/security/"
+  ],
+  "rules": [
+    "rules/accessibility/",
+    "rules/experimental/mural/",
+    "rules/hve-core/",
+    "rules/privacy/",
+    "rules/project-planning/",
+    "rules/rai-planning/",
+    "rules/security/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/accessibility/accessibility/",
+    "skills/experimental/mural/",
+    "skills/hve-core/architecture-diagrams/",
+    "skills/project-planning/adr-author/",
+    "skills/project-planning/performance-slo-planner/",
+    "skills/project-planning/privacy-standards/",
+    "skills/project-planning/rai-planner/",
+    "skills/project-planning/requirements-author/",
+    "skills/project-planning/security-planning/",
+    "skills/rai/rai-standards/",
+    "skills/rpi/rpi-implement/",
+    "skills/rpi/rpi-plan-critique/",
+    "skills/rpi/rpi-plan/",
+    "skills/rpi/rpi-quick/",
+    "skills/rpi/rpi-research/",
+    "skills/rpi/rpi-review/",
+    "skills/security/supply-chain-security/",
+    "skills/shared/backlog-templates/",
+    "skills/shared/telemetry-foundations/"
+  ]
+}

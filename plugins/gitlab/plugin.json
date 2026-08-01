@@ -1,0 +1,24 @@
+{
+  "name": "gitlab",
+  "description": "GitLab merge request and pipeline workflows through a Python skill",
+  "version": "3.3.106",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "gitlab",
+    "merge-requests",
+    "pipelines",
+    "ci"
+  ],
+  "rules": [
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/gitlab/gitlab/"
+  ]
+}
