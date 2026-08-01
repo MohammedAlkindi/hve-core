@@ -1,0 +1,31 @@
+{
+  "name": "jira",
+  "description": "Jira backlog management, PRD issue planning, and issue operations through agents, prompts, instructions, and a Python skill",
+  "version": "3.3.103",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "jira",
+    "issue-tracking",
+    "workflow",
+    "rest-api"
+  ],
+  "agents": [
+    "agents/jira/"
+  ],
+  "commands": [
+    "commands/jira/"
+  ],
+  "rules": [
+    "rules/jira/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/jira/jira/"
+  ]
+}
