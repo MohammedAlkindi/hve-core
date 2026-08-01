@@ -2,7 +2,8 @@
 title: GitHub Backlog Management
 description: GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts
 sidebar_position: 6
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -48,3 +49,10 @@ Manage GitHub issue backlogs with agents for discovery, triage, sprint planning,
 | **gh-code-scanning** | Retrieves and groups GitHub code scanning alerts by rule and severity using the gh CLI |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

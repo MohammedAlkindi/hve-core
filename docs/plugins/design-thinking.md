@@ -2,7 +2,8 @@
 title: Design Thinking
 description: Design Thinking coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods
 sidebar_position: 4
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -68,3 +69,10 @@ Coaching identity, quality constraints, and methodology skills for AI-enhanced d
 | **telemetry-foundations**  | Declarative OpenTelemetry-aligned telemetry vocabulary and instrumentation conventions for traces, metrics, logs, and PII handling                                                                                                                                                                                    |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

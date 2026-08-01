@@ -2,7 +2,8 @@
 title: Project Planning
 description: PRDs, BRDs, ADRs, and architecture diagrams
 sidebar_position: 12
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -125,3 +126,10 @@ The standalone `brd-author` skill and helper skills were consolidated into the `
 | `.github/skills/project-planning/brd-author/`                      | `.github/skills/project-planning/requirements-author/`                          |
 | `.github/skills/project-planning/brd-author/templates/brd-full.md` | `.github/skills/project-planning/requirements-author/templates/brd/brd-full.md` |
 | `docs/templates/brd-template.md` (deleted)                         | `.github/skills/project-planning/requirements-author/templates/brd/brd-full.md` |
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

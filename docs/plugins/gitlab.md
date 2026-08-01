@@ -2,7 +2,8 @@
 title: GitLab Integration
 description: GitLab merge request and pipeline workflows through a Python skill
 sidebar_position: 7
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -25,3 +26,10 @@ Use GitLab merge request and pipeline workflows from VS Code through a focused P
 | **gitlab** | Manage GitLab merge requests and pipelines with a Python CLI |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

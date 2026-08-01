@@ -2,7 +2,8 @@
 title: HVE Core Workflow
 description: Opinionated, rapidly evolving agentic SDLC patterns for RPI workflows, HVE Builder, and Git operations
 sidebar_position: 8
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -103,3 +104,10 @@ HVE Core provides the flagship RPI (Research, Plan, Implement, Review, Follow-up
 | **telemetry** | Records Copilot session lifecycle events to local telemetry for reporting. |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

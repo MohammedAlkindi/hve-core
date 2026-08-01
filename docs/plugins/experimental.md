@@ -2,7 +2,8 @@
 title: Experimental
 description: Experimental and preview artifacts not yet promoted to stable collections
 sidebar_position: 5
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -59,3 +60,10 @@ Experimental and preview artifacts not yet promoted to stable collections. Items
 | **vscode-playwright**    | VS Code screenshot capture using Playwright MCP with serve-web for slide decks and documentation                                                                                                                                        |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

@@ -2,6 +2,7 @@
 title: HVE Core All
 description: Full bundle of opinionated, rapidly evolving HVE Core agentic SDLC patterns and tools
 sidebar_position: 9
+author: Microsoft
 ms.date: 2026-07-31
 ms.topic: reference
 ---
@@ -311,3 +312,10 @@ Use this edition when you want access to everything without choosing a focused c
 | **telemetry** | Records Copilot session lifecycle events to local telemetry for reporting. |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

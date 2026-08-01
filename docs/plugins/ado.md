@@ -2,7 +2,8 @@
 title: Azure DevOps Integration
 description: Azure DevOps work item management, build monitoring, and pull request creation
 sidebar_position: 1
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -59,3 +60,10 @@ Manage Azure DevOps work items, monitor builds, create pull requests, and conver
 | **rpi-research**      | Research-only RPI playbook that gathers task evidence, writes dated research artifacts under .copilot-tracking/research/, and hands off planning-ready findings. Use when the user needs evidence, alternatives, or task framing first.                                                          |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

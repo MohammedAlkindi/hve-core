@@ -2,6 +2,7 @@
 title: Security
 description: Security review, planning, incident response, risk assessment, and vulnerability analysis
 sidebar_position: 14
+author: Microsoft
 ms.date: 2026-07-31
 ms.topic: reference
 ---
@@ -105,3 +106,10 @@ Security review, planning, incident response, risk assessment, vulnerability ana
 | **vex**                       | OpenVEX v0.2.0 specification reference plus VEX management playbooks - Brought to you by microsoft/hve-core.                                                                                                                                                                                     |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

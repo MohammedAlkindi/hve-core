@@ -2,7 +2,8 @@
 title: Data Science
 description: Evaluation dataset creation, data specification generation, Jupyter notebooks, and Streamlit dashboards
 sidebar_position: 3
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -65,3 +66,10 @@ Generate data specifications, Jupyter notebooks, and Streamlit dashboards from n
 | **rpi-research**  | Research-only RPI playbook that gathers task evidence, writes dated research artifacts under .copilot-tracking/research/, and hands off planning-ready findings. Use when the user needs evidence, alternatives, or task framing first. |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

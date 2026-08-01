@@ -2,7 +2,8 @@
 title: Jira Integration
 description: Jira backlog management, PRD issue planning, and issue operations through agents, prompts, instructions, and a Python skill
 sidebar_position: 11
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -47,3 +48,10 @@ Manage Jira backlog workflows and PRD-driven issue planning from VS Code. This c
 | **jira** | Jira issue workflows for search, issue updates, transitions, comments, and field discovery via the Jira REST API. Use when you need to search with JQL, inspect an issue, create or update work items, move an issue between statuses, post comments, or discover required fields for issue creation. |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

@@ -2,7 +2,8 @@
 title: RPI Skills
 description: Skill-forward Research, Plan, Implement, Review, and Follow-up entry points with bounded planning and critique support.
 sidebar_position: 13
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -31,3 +32,10 @@ Prompt overlap is handled at directory scope. `chat.promptFilesLocations` only s
 * rely on host prompt precedence while testing skill commands.
 
 The collection keeps planning and review parent-owned. `RPI Planner` is available only for a single bounded phase, while independent critique and review fan-out use generic bounded workers when warranted.
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->

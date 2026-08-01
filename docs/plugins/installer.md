@@ -2,7 +2,8 @@
 title: HVE Core Installer
 description: Decision-driven installer skill for deploying HVE Core artifacts across workspace configurations
 sidebar_position: 10
-ms.date: 2026-07-30
+author: Microsoft
+ms.date: 2026-07-31
 ms.topic: reference
 ---
 
@@ -25,3 +26,10 @@ Deploy HVE Core artifacts across workspace configurations with the hve-core-inst
 | **hve-core-installer** | Decision-driven HVE-Core installer with multiple clone-based and extension install methods, environment detection, and agent customization |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
+
+---
+
+<!-- markdownlint-disable MD036 -->
+*🤖 Crafted with precision by ✨Copilot following brilliant human instruction,
+then carefully refined by our team of discerning human reviewers.*
+<!-- markdownlint-enable MD036 -->
