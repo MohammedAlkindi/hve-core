@@ -752,10 +752,13 @@ function ConvertTo-EquivalenceHtml {
 
     $generatedAt = (Get-Date).ToUniversalTime().ToString('o')
     $totalStimuli = $Stimuli.Count
-    $totalTrials = ($Stimuli | Measure-Object -Property identicalTotal -Sum).Sum
-    if (-not $totalTrials) { $totalTrials = 0 }
-    $totalIdentical = ($Stimuli | Measure-Object -Property identicalCount -Sum).Sum
-    if (-not $totalIdentical) { $totalIdentical = 0 }
+    # Measure-Object emits nothing for an empty collection and raises an error
+    # when no input object carries the property, so neither the result nor Sum
+    # can be read directly. Both degenerate cases render as a zero total.
+    $trialsMeasure = $Stimuli | Measure-Object -Property identicalTotal -Sum -ErrorAction SilentlyContinue
+    $totalTrials = if ($trialsMeasure) { [int]$trialsMeasure.Sum } else { 0 }
+    $identicalMeasure = $Stimuli | Measure-Object -Property identicalCount -Sum -ErrorAction SilentlyContinue
+    $totalIdentical = if ($identicalMeasure) { [int]$identicalMeasure.Sum } else { 0 }
     $identicalPct = if ($totalTrials -gt 0) { [math]::Round(100 * $totalIdentical / [double]$totalTrials, 1) } else { 0 }
 
     $defaultVariantA = @{ kind = 'baseline'; name = 'baseline';   label = 'Baseline (A)';   description = ''; applied = @() }

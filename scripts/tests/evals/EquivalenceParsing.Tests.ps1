@@ -693,6 +693,19 @@ Describe 'ConvertTo-EquivalenceHtml' -Tag 'Unit' {
         $html | Should -Not -Match 'Agent: <strong><x>'
     }
 
+    It 'Renders an empty dashboard when no stimuli merged' {
+        # Measure-Object emits nothing for an empty collection, so reading .Sum
+        # directly threw under strict mode and crashed the whole render.
+        $html = ConvertTo-EquivalenceHtml -Stimuli @() -Model 'm' -RunId 'r' -Agent 'agent-x'
+        $html | Should -Match '<!doctype html>'
+        $html | Should -Match 'Stimuli: <strong>0</strong>'
+    }
+
+    It 'Renders when stimuli lack the identical-trial properties' {
+        $html = ConvertTo-EquivalenceHtml -Stimuli @([pscustomobject]@{ name = 'only-name' }) -Model 'm' -RunId 'r' -Agent 'agent-x'
+        $html | Should -Match '<!doctype html>'
+    }
+
     It 'Embeds the run data inside a script tag' {
         $script:Html | Should -Match '<script id="data"'
     }
