@@ -785,7 +785,9 @@ Describe 'Write-MarketplaceManifest - catalog projection' {
         Write-MarketplaceManifest -RepoRoot $script:repoRoot -Catalog $script:catalog `
             -ReleaseLocator (New-PluginReleaseLocator -Version '1.2.3') -OutputPath $outputPath
 
-        $manifest = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $content = Get-Content -Path $outputPath -Raw
+        $content.EndsWith("`n", [System.StringComparison]::Ordinal) | Should -BeTrue
+        $manifest = $content | ConvertFrom-Json
         $manifest.plugins[0].source.repo | Should -Be 'microsoft/hve-core'
         $manifest.plugins[0].source.ref | Should -Be 'plugins-v1.2.3'
         $manifest.plugins[0].source.path | Should -Be 'plugins/rpi'

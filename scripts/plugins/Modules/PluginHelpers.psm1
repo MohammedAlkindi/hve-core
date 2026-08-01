@@ -1435,7 +1435,7 @@ function Write-MarketplaceManifest {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     }
 
-    $manifestJson = $manifest | ConvertTo-Json -Depth 12
+    $manifestJson = ($manifest | ConvertTo-Json -Depth 12) + "`n"
     Set-ContentIfChanged -Path $resolvedOutputPath -Value $manifestJson | Out-Null
     Write-Host "  Marketplace snapshot: $resolvedOutputPath" -ForegroundColor Green
 }
