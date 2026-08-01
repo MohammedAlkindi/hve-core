@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import platform
 import re
@@ -3438,6 +3439,115 @@ class TestGenerateTm7:
         # Assert
         assert root.findtext("{*}ThreatGenerationEnabled") == expected_flag
         assert iter_threats(root) == []
+
+    def test_given_unmapped_targets_when_mapped_then_generation_fails(
+        self,
+    ) -> None:
+        """Every spec threat must reach the model or generation must fail.
+
+        ``_map_phase2_threats`` skips a threat whose ``target_ref`` names no
+        element or flow, and the mapping contract only runs when at least one
+        instance survives. A spec whose targets are all unresolvable therefore
+        produces a threat-free model and a success exit code.
+        """
+        # Arrange
+        spec = copy.deepcopy(generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH))
+        for threat in spec["threats"]:
+            threat["target_ref"] = "no-such-target"
+        profile = generate_tm7.resolve_profile(spec, None, ROOT)
+        model = generate_tm7.build_model_from_spec(
+            spec, profile, "pre-populated-comprehensive"
+        )
+
+        # Act / Assert
+        with pytest.raises(generate_tm7.GenerationError, match="no-such-target"):
+            generate_tm7._map_phase2_threats(spec, model, profile)
+
+    def test_given_connected_suppression_when_flattened_then_rejected(
+        self,
+    ) -> None:
+        """Suppressing a node that still carries connectors must be rejected.
+
+        The element loop drops suppressed shapes while the flow loop keeps every
+        connector, so the emitted model references a ``SourceGuid`` that has no
+        entry in ``Borders``. The user contract rejects this input rather than
+        cascading connector deletion.
+        """
+        # Arrange
+        model = {
+            "surfaces": [
+                {
+                    "id": "surface-01",
+                    "elements": [
+                        {"id": "node-a", "layout_role": "suppressed"},
+                        {"id": "node-b"},
+                    ],
+                    "flows": [
+                        {
+                            "id": "flow-01",
+                            "source_ref": "node-a",
+                            "target_ref": "node-b",
+                        }
+                    ],
+                }
+            ]
+        }
+
+        # Act / Assert
+        with pytest.raises(generate_tm7.GenerationError, match="node-a"):
+            generate_tm7._flatten_laid_out_model(model)
+
+    def test_given_isolated_suppression_when_flattened_then_accepted(
+        self,
+    ) -> None:
+        """Suppressing a node with no attached flow remains valid input."""
+        # Arrange
+        model = {
+            "surfaces": [
+                {
+                    "id": "surface-01",
+                    "elements": [
+                        {"id": "node-a", "layout_role": "suppressed"},
+                        {"id": "node-b"},
+                        {"id": "node-c"},
+                    ],
+                    "flows": [
+                        {
+                            "id": "flow-01",
+                            "source_ref": "node-b",
+                            "target_ref": "node-c",
+                        }
+                    ],
+                }
+            ]
+        }
+
+        # Act
+        generate_tm7._flatten_laid_out_model(model)
+
+        # Assert
+        assert [element["id"] for element in model["elements"]] == ["node-b", "node-c"]
+        assert [flow["id"] for flow in model["flows"]] == ["flow-01"]
+
+    def test_given_missing_placeholder_when_rendered_then_generation_fails(
+        self,
+    ) -> None:
+        """A KnowledgeBase that never replaces its placeholder must fail closed.
+
+        The injection is a literal string replace with no verification, so a
+        renamed placeholder silently yields a model with no KnowledgeBase and a
+        success exit code.
+        """
+        # Arrange
+        payload = {"KnowledgeBase": "<KnowledgeBase />"}
+
+        # Act / Assert
+        with pytest.raises(generate_tm7.GenerationError, match="KnowledgeBase"):
+            generate_tm7._inject_knowledge_base(
+                "<ThreatModel><NoPlaceholderHere /></ThreatModel>",
+                "<KnowledgeBase />",
+                payload,
+            )
 
     def test_given_authored_model_when_parsed_then_identity_and_fields_persist(
         self,

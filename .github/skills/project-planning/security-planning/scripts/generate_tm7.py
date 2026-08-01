@@ -41,6 +41,11 @@ EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_ERROR = 2
 
+# The KnowledgeBase is pre-rendered XML, so it is substituted into the
+# serialized model as literal text. The tag and its self-closing serialization
+# must stay in step with the placeholder element added during rendering.
+KNOWLEDGE_BASE_PLACEHOLDER = "<KnowledgeBasePlaceholder />"
+
 MIN_NODE_SIZE = 100.0
 MAX_NODE_WIDTH = 260.0
 MAX_NODE_HEIGHT = 200.0
@@ -909,7 +914,12 @@ def _map_phase2_threats(
         target_ref = str(spec_threat.get("target_ref", ""))
         target = target_index.get(target_ref)
         if not target:
-            continue
+            raise GenerationError(
+                f"{spec_threat.get('id', 'spec-threat')}: target_ref "
+                f"{target_ref or '(empty)'} resolves to no element or flow in "
+                "the model",
+                exit_code=EXIT_ERROR,
+            )
 
         citations = spec_threat.get("citations") or {}
         stride_codes = _coerce_list(citations.get("stride"))
@@ -4703,6 +4713,23 @@ def _flatten_laid_out_model(model: dict[str, Any]) -> None:
     flows: list[dict[str, Any]] = []
     for surface in model.get("surfaces", []):
         surface_id = surface.get("id")
+        suppressed_ids = {
+            str(element.get("id", ""))
+            for element in surface.get("elements", [])
+            if str(element.get("layout_role") or "").lower() == "suppressed"
+        }
+        for flow in surface.get("flows", []):
+            attached = suppressed_ids.intersection(
+                {str(flow.get("source_ref", "")), str(flow.get("target_ref", ""))}
+            )
+            if attached:
+                raise GenerationError(
+                    f"suppressed element {sorted(attached)[0]} still carries "
+                    f"connector {flow.get('id', 'unknown')} on surface "
+                    f"{surface_id}; suppress the connector explicitly or leave "
+                    "the element visible",
+                    exit_code=EXIT_ERROR,
+                )
         for element in surface.get("elements", []):
             if str(element.get("layout_role") or "").lower() == "suppressed":
                 continue
@@ -5485,10 +5512,37 @@ def render_tm7_xml(
     knowledge_base_text = _renumber_kb_root_zid(
         knowledge_base_text, z_id_allocator.current
     )
-    xml_text = xml_text.replace("<KnowledgeBasePlaceholder />", knowledge_base_text, 1)
+    xml_text = _inject_knowledge_base(xml_text, knowledge_base_text, payload)
     if not xml_text.startswith("<?xml"):
         xml_text = '<?xml version="1.0" encoding="utf-8"?>\n' + xml_text
     return xml_text
+
+
+def _inject_knowledge_base(
+    xml_text: str,
+    knowledge_base_text: str,
+    payload: dict[str, Any],
+) -> str:
+    """Replace the KnowledgeBase placeholder, failing closed when it is absent.
+
+    The placeholder is emitted as an empty element and substituted by literal
+    text because the KnowledgeBase is pre-rendered XML. An unmatched replace
+    would otherwise yield a model with no KnowledgeBase and a success exit code.
+    """
+    if KNOWLEDGE_BASE_PLACEHOLDER not in xml_text:
+        raise GenerationError(
+            f"KnowledgeBase placeholder {KNOWLEDGE_BASE_PLACEHOLDER} is absent "
+            "from the serialized model; refusing to emit a model without a "
+            "KnowledgeBase",
+            exit_code=EXIT_ERROR,
+        )
+    if not knowledge_base_text.strip():
+        raise GenerationError(
+            "KnowledgeBase content is empty; refusing to emit a model without a "
+            "KnowledgeBase",
+            exit_code=EXIT_ERROR,
+        )
+    return xml_text.replace(KNOWLEDGE_BASE_PLACEHOLDER, knowledge_base_text, 1)
 
 
 def parse_hardened_xml(path: Path) -> dict[str, Any]:
