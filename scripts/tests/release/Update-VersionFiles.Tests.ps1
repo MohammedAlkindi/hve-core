@@ -63,6 +63,24 @@ Describe 'Update-JsonVersion' -Tag 'Unit' {
         $result = Get-Content -Raw $filePath | ConvertFrom-Json
         $result.version | Should -Be '2.0.0'
         $result.name | Should -Be 'test'
+        (Get-Content -Raw $filePath).EndsWith("`n", [System.StringComparison]::Ordinal) | Should -BeTrue
+    }
+
+    It 'Preserves a missing final newline' {
+        $filePath = Join-Path $script:TempDir 'no-final-newline.json'
+        [System.IO.File]::WriteAllText(
+            $filePath,
+            '{"version":"1.0.0"}',
+            [System.Text.UTF8Encoding]::new($false)
+        )
+
+        Update-JsonVersion -FilePath $filePath -Description 'no-final-newline.json' -Transform {
+            param($j) $j.version = '2.0.0'; $j
+        }
+
+        $content = Get-Content -Raw $filePath
+        ($content | ConvertFrom-Json).version | Should -Be '2.0.0'
+        $content.EndsWith("`n", [System.StringComparison]::Ordinal) | Should -BeFalse
     }
 
     It 'Skips without error when file does not exist' {
@@ -250,6 +268,19 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         $lock = Get-Content -Raw (Join-Path $script:FakeRoot 'package-lock.json') | ConvertFrom-Json -Depth 10 -AsHashtable
         $lock['version'] | Should -Be '2.5.0'
         $lock['packages']['']['version'] | Should -Be '2.5.0'
+
+        foreach ($relativePath in @(
+                'package.json',
+                'package-lock.json',
+                'extension/templates/package.template.json',
+                '.github/plugin/marketplace.json',
+                '.release-please-manifest.json'
+            )) {
+            (Get-Content -Raw (Join-Path $script:FakeRoot $relativePath)).EndsWith(
+                "`n",
+                [System.StringComparison]::Ordinal
+            ) | Should -BeTrue
+        }
     }
 
     It 'Succeeds when optional files are missing' {

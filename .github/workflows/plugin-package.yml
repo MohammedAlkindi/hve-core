@@ -41,8 +41,7 @@ jobs:
                   catalog=.github/plugin/marketplace.json
 
                   # The catalog is the sole package-definition input, so every
-                  # publishable package is discovered here, including the derived
-                  # skills package that declares no membership of its own.
+                  # publishable package is discovered here.
                   names=$(jq -r '
                     [ .plugins[]
                       | select((."x-hve".maturity // "stable") as $m | $m != "deprecated" and $m != "removed")

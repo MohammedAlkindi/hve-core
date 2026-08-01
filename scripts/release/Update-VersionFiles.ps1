@@ -100,9 +100,14 @@ function Update-JsonVersion {
     if ([string]::IsNullOrWhiteSpace($raw)) {
         throw "File is empty or whitespace-only: $FilePath"
     }
+    $hadFinalNewline = $raw.EndsWith("`n", [System.StringComparison]::Ordinal)
     $json = $raw | ConvertFrom-Json @convertParams
     $json = & $Transform $json
-    $json | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8 -NoNewline
+    $content = $json | ConvertTo-Json -Depth 20
+    if ($hadFinalNewline) {
+        $content += "`n"
+    }
+    $content | Set-Content -Path $FilePath -Encoding UTF8 -NoNewline
     Write-Host "  ✅ Updated $Description" -ForegroundColor Green
 }
 
