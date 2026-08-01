@@ -259,16 +259,35 @@ Describe 'Resolve-ModelList' -Tag 'Unit' {
     }
 }
 
-Describe 'Resolve-AgentSurfaceSignaturePath' -Tag 'Unit' {
+Describe 'Comparison judge pin' -Tag 'Unit' {
     BeforeAll {
         . $script:ScriptPath
     }
 
-    It 'Resolves the retained rpi-agent signature by default target slug' {
-        $path = Resolve-AgentSurfaceSignaturePath -RepoRoot $script:RepoRoot -Agent 'rpi-agent'
+    It 'Defaults to the reviewed low-cost judge' {
+        # The pin previously lived only inside compare.eval.yml. That file is retired, so
+        # this default is the sole carrier and a silent change to it would alter what the
+        # comparison measures without any recorded decision.
+        $param = (Get-Command $script:ScriptPath).Parameters['ComparisonJudgeModel']
+        $param | Should -Not -BeNullOrEmpty
 
-        $path | Should -Be (Join-Path $script:RepoRoot 'evals/baseline-equivalence/surface-signatures/rpi-agent.yml')
-        Test-Path -LiteralPath $path | Should -BeTrue
+        $driverText = Get-Content -LiteralPath $script:ScriptPath -Raw
+        $driverText | Should -Match "ComparisonJudgeModel\s*=\s*'claude-haiku-4\.5'"
+    }
+
+    It 'Passes the judge model on the compare invocation' {
+        $driverText = Get-Content -LiteralPath $script:ScriptPath -Raw
+        $driverText | Should -Match "'--judge-model',\s*\`$ComparisonJudgeModel"
+    }
+
+    It 'No longer renders or reads a compare eval spec' {
+        # Asserts on executable surface, not prose. The driver retains comments
+        # explaining why the judge pin moved, and those must not fail this check.
+        $driverText = Get-Content -LiteralPath $script:ScriptPath -Raw
+        $driverText | Should -Not -Match 'New-RenderedCompareSpec'
+        $driverText | Should -Not -Match 'Resolve-AgentSurfaceSignaturePath'
+        $driverText | Should -Not -Match 'surface_signatures'
+        $driverText | Should -Not -Match "'--eval-spec',\s*\`$renderedSpecRelative"
     }
 }
 
@@ -276,9 +295,8 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
     BeforeEach {
         $script:StubRepoRoot = Join-Path $TestDrive 'repo'
         $baselineRoot = Join-Path $script:StubRepoRoot 'evals/baseline-equivalence'
-        $signatureRoot = Join-Path $baselineRoot 'surface-signatures'
         $workspaceRoot = Join-Path $baselineRoot 'customized/workspace'
-        New-Item -ItemType Directory -Path $signatureRoot, $workspaceRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path $workspaceRoot -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:StubRepoRoot '.github/skills') -Force | Out-Null
         # The driver materializes a per-agent customized environment, so the stub repo
         # needs the agent file it will look for. Without it the run records a
@@ -287,8 +305,6 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         $stubAgentsDir = Join-Path $script:StubRepoRoot '.github/agents/hve-core'
         New-Item -ItemType Directory -Path $stubAgentsDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $stubAgentsDir 'rpi-agent.agent.md') -Encoding UTF8 -Value "---`nname: RPI Agent`n---`n`nStub agent for driver tests."
-        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'evals/baseline-equivalence/compare.eval.yml') -Destination $baselineRoot
-        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'evals/baseline-equivalence/surface-signatures/rpi-agent.yml') -Destination $signatureRoot
 
         $script:StubOutputPath = Join-Path $script:StubRepoRoot 'logs/summary.json'
         $stubVally = Join-Path $PSScriptRoot 'fixtures/stub-vally.ps1'

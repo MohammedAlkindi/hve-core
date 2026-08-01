@@ -84,6 +84,13 @@ param(
     [Parameter(Mandatory = $false)]
     [string]$OutputPath,
 
+    # The comparison judge was previously pinned inside compare.eval.yml. That file is
+    # retired, so the pin lives here where it is visible to any operator reading the
+    # invocation rather than buried in a spec the driver rendered at run time.
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
+    [string]$ComparisonJudgeModel = 'claude-haiku-4.5',
+
     [Parameter(Mandatory = $false)]
     [switch]$NoBaselineCache
 )
@@ -110,69 +117,6 @@ function Resolve-RepoRoot {
     }
 
     return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
-}
-
-function Resolve-AgentSurfaceSignaturePath {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory)]
-        [string]$RepoRoot,
-        [Parameter(Mandatory)]
-        [string]$Agent
-    )
-
-    $path = Join-Path $RepoRoot "evals/baseline-equivalence/surface-signatures/$Agent.yml"
-    if (-not (Test-Path -LiteralPath $path)) {
-        throw "Surface signature not found for agent '$Agent' at $path. Run scripts/evals/New-AgentSurfaceSignatures.ps1 -Agent $Agent to generate."
-    }
-    return $path
-}
-
-function New-RenderedCompareSpec {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory)]
-        [string]$RepoRoot,
-        [Parameter(Mandatory)]
-        [string]$Agent,
-        [Parameter(Mandatory)]
-        [string]$OutputPath
-    )
-
-    $sourceSpec = Join-Path $RepoRoot 'evals/baseline-equivalence/compare.eval.yml'
-    if (-not (Test-Path -LiteralPath $sourceSpec)) {
-        throw "Compare spec not found at $sourceSpec."
-    }
-    $signaturePath = Resolve-AgentSurfaceSignaturePath -RepoRoot $RepoRoot -Agent $Agent
-
-    $specText = [System.IO.File]::ReadAllText($sourceSpec)
-    $signatureText = [System.IO.File]::ReadAllText($signaturePath)
-
-    $indentedLines = $signatureText -split "`r?`n" | ForEach-Object {
-        if ([string]::IsNullOrEmpty($_)) { '' } else { '    ' + $_ }
-    }
-    $indented = $indentedLines -join "`n"
-
-    $replacement = "surface_signatures:`n  ${Agent}:`n$indented"
-
-    if ($specText -notmatch '(?m)^surface_signatures:\s*\{\}\s*$') {
-        throw "compare.eval.yml does not contain the 'surface_signatures: {}' marker. Update the spec per Phase 2 Step 2.5 before running the equivalence driver."
-    }
-
-    $renderedText = [regex]::Replace($specText, '(?m)^surface_signatures:\s*\{\}\s*$', { param($m) $replacement }, 1)
-
-    if ($renderedText -eq $specText) {
-        throw "Render produced an unchanged compare spec for agent '$Agent'. Ensure the 'surface_signatures: {}' marker is present in compare.eval.yml."
-    }
-
-    $outDir = Split-Path -Parent $OutputPath
-    if ($outDir -and -not (Test-Path -LiteralPath $outDir)) {
-        New-Item -ItemType Directory -Path $outDir -Force -WhatIf:$false -Confirm:$false | Out-Null
-    }
-    [System.IO.File]::WriteAllText($OutputPath, $renderedText)
-    return $OutputPath
 }
 
 function Get-AgentModelHint {
@@ -388,7 +332,7 @@ function Get-PlannedCommands {
         [Parameter(Mandatory)]
         [string]$RunId,
         [Parameter(Mandatory)]
-        [string]$CompareSpecPath,
+        [string]$JudgeModel,
         [string]$BaselineWorkspacePath,
         [string]$BaselineSkillDirPath,
         [string]$CustomizedWorkspacePath,
@@ -406,7 +350,7 @@ function Get-PlannedCommands {
         $customizedSkillArg = if ([string]::IsNullOrEmpty($CustomizedSkillDirPath)) { '""' } else { '"' + $CustomizedSkillDirPath + '"' }
         $plan.Add("vally eval --eval-spec evals/baseline-equivalence/baseline/eval.yaml --model $model --output-dir $aDir --workspace $baselineWorkspaceArg --skill-dir $baselineSkillArg$filterTag")
         $plan.Add("vally eval --eval-spec evals/baseline-equivalence/customized/eval.yaml --model $model --output-dir $bDir --workspace $customizedWorkspaceArg --skill-dir $customizedSkillArg$filterTag")
-        $plan.Add("vally compare --eval-spec $CompareSpecPath --baseline <resolved baseline run> --treatment <resolved customized run> --output <compare jsonl path>")
+        $plan.Add("vally compare --judge-model $JudgeModel --baseline <resolved baseline run> --treatment <resolved customized run> --output <compare jsonl path>")
     }
     return $plan.ToArray()
 }
@@ -453,6 +397,15 @@ if ($MyInvocation.InvocationName -ne '.') {
         $resolvedRoot = Resolve-RepoRoot -Hint $RepoRoot
         if (-not $OutputPath) {
             $OutputPath = Join-Path $resolvedRoot 'logs/baseline-equivalence-summary.json'
+        }
+
+        # Compare output, compare logs, and the summary all land under logs/. Create it
+        # up front rather than relying on some earlier step to have made it as a side
+        # effect, which is how a missing directory previously surfaced as a late and
+        # confusing WriteAllText failure partway through a run.
+        $logsRoot = Join-Path $resolvedRoot 'logs'
+        if (-not (Test-Path -LiteralPath $logsRoot -PathType Container)) {
+            New-Item -ItemType Directory -Path $logsRoot -Force -WhatIf:$false -Confirm:$false | Out-Null
         }
 
         $modelHint = Get-AgentModelHint -RepoRoot $resolvedRoot -Agent $Agent
@@ -511,14 +464,9 @@ if ($MyInvocation.InvocationName -ne '.') {
             }
         }
 
-        $renderedCompareSpec = Join-Path $resolvedRoot "logs/baseline-equivalence-compare-$Agent.eval.yml"
-        New-RenderedCompareSpec -RepoRoot $resolvedRoot -Agent $Agent -OutputPath $renderedCompareSpec | Out-Null
-        $renderedSpecRelative = [System.IO.Path]::GetRelativePath($resolvedRoot, $renderedCompareSpec).Replace('\', '/')
-        Write-Host "   Compare spec:    $renderedSpecRelative" -ForegroundColor DarkGray
-
         $customizedWorkspacePath = $workspaceRoot
         $customizedSkillDirPath = Join-Path $outputRoot "$($models[0])/$runId/customized-skill-dir"
-        $plannedCommands = Get-PlannedCommands -Models $models -StimulusFilter $StimulusFilter -OutputRoot $outputRoot -RunId $runId -CompareSpecPath $renderedSpecRelative -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath -CustomizedSkillDirPath $customizedSkillDirPath
+        $plannedCommands = Get-PlannedCommands -Models $models -StimulusFilter $StimulusFilter -OutputRoot $outputRoot -RunId $runId -JudgeModel $ComparisonJudgeModel -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath -CustomizedSkillDirPath $customizedSkillDirPath
 
         if ($WhatIfPreference) {
             Write-Host "Dry-run mode: skipping live SDK calls." -ForegroundColor Yellow
@@ -626,6 +574,19 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
             }
 
+            # The scope-language guard asserts the customized run names its own tracking
+            # directory. Both eval specs are shared across every agent, so the guard is
+            # always present and the per-agent value arrives through --param. An agent
+            # that writes no tracking artifacts is exempt and reports as such, because a
+            # vacuous guard that passed silently would repeat the defect this replaced.
+            $scopeResolution = Resolve-AgentScopePattern -RepoRoot $resolvedRoot -Agent $Agent
+            if ($scopeResolution.Exempt) {
+                Write-Host "   Scope guard: exempt (agent '$Agent' declares no tracking scope)" -ForegroundColor DarkGray
+            }
+            else {
+                Write-Host "   Scope guard: .copilot-tracking/$($scopeResolution.Scope)" -ForegroundColor DarkGray
+            }
+
             $evalBaseline = @(
                 'eval',
                 '--eval-spec', 'evals/baseline-equivalence/baseline/eval.yaml',
@@ -640,7 +601,8 @@ if ($MyInvocation.InvocationName -ne '.') {
                 '--model', $model,
                 '--output-dir', $bDir,
                 '--workspace', $workspaceRoot,
-                '--skill-dir', $customizedSkillDirPath
+                '--skill-dir', $customizedSkillDirPath,
+                '--param', "SCOPE_PATTERN=$($scopeResolution.Pattern)"
             )
 
             if ($baselineReused) {
@@ -697,9 +659,13 @@ if ($MyInvocation.InvocationName -ne '.') {
             }
             else {
                 $compareJsonlPath = Join-Path $resolvedRoot "logs/vally-compare-$model-$runId.jsonl"
+                # The judge is pinned explicitly. It was previously carried only by
+                # compare.eval.yml, so deleting that file without naming a judge here
+                # would silently fall back to a Vally default and change what the
+                # comparison measures without any recorded decision.
                 $compareArgs = @(
                     'compare',
-                    '--eval-spec', $renderedSpecRelative,
+                    '--judge-model', $ComparisonJudgeModel,
                     '--baseline', $aRunDir,
                     '--treatment', $bRunDir,
                     '--output', $compareJsonlPath

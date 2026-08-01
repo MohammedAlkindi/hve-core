@@ -86,6 +86,62 @@ function Get-AgentSkillReference {
     return @($resolved) | Sort-Object
 }
 
+function Resolve-AgentScopePattern {
+    <#
+    .SYNOPSIS
+        Resolves the customized-run scope-language grader pattern for an agent.
+    .DESCRIPTION
+        The retired surface-signature generator derived a per-agent rule from the first
+        `.copilot-tracking/<scope>` directive in the agent body, then wrote it into a
+        top-level key that Vally never read. The rule is reinstated here as a real
+        grader pattern supplied through `vally eval --param`.
+
+        Agents that write tracking artifacts get an anchored pattern asserting the
+        customized run names its own tracking directory. Agents that write none are
+        exempt: advisory agents such as agile-coach and dependency-reviewer reference
+        no tracking directory at all, so there is no scope to assert. Because params
+        substitute values and cannot remove a grader from a spec shared by every agent,
+        an exempt agent receives a pattern that matches anything.
+
+        A vacuous pattern that passes silently would recreate the defect this work
+        exists to remove, so `Exempt` is returned alongside the pattern for the caller
+        to surface in run output.
+    .OUTPUTS
+        [hashtable] Keys: Scope (string or $null), Pattern (string), Exempt (bool).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Agent
+    )
+
+    $exempt = @{ Scope = $null; Pattern = '.*'; Exempt = $true }
+
+    $agentsRoot = Join-Path $RepoRoot '.github/agents'
+    if (-not (Test-Path -LiteralPath $agentsRoot -PathType Container)) { return $exempt }
+
+    $agentFile = Get-ChildItem -LiteralPath $agentsRoot -Recurse -File -Filter "$Agent.agent.md" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $agentFile) { return $exempt }
+
+    $body = Get-Content -LiteralPath $agentFile.FullName -Raw
+    $match = [regex]::Match($body, '\.copilot-tracking/([a-z0-9][a-z0-9-]*)')
+    if (-not $match.Success) { return $exempt }
+
+    $scope = $match.Groups[1].Value
+    return @{
+        Scope   = $scope
+        Pattern = "(?i)\.copilot-tracking/$([regex]::Escape($scope))"
+        Exempt  = $false
+    }
+}
+
 function New-CustomizedEnvironment {
     <#
     .SYNOPSIS
@@ -375,6 +431,7 @@ function Save-BaselineCacheEntry {
 
 Export-ModuleMember -Function `
     Get-AgentSkillReference, `
+    Resolve-AgentScopePattern, `
     New-CustomizedEnvironment, `
     Get-BaselineCacheKey, `
     Get-StimulusContentHash, `

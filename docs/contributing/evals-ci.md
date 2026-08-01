@@ -209,15 +209,14 @@ False-positive lexical matches (e.g., `penetration test`, `attack surface`, `tok
 
 ### Baseline-equivalence specs
 
-`ci:eval:lint:vally` runs `vally lint --eval evals/`, which validates the eval YAML files immediately under `evals/` but does not recurse into nested subdirectories. The baseline-equivalence suite under [evals/baseline-equivalence/](https://github.com/microsoft/hve-core/blob/main/evals/baseline-equivalence/README.md) ships nested specs (`baseline/eval.yaml`, `customized/eval.yaml`, and `compare.eval.yml`) that need explicit per-file lint invocations:
+`ci:eval:lint:vally` runs `vally lint --eval evals/`, which validates the eval YAML files immediately under `evals/` but does not recurse into nested subdirectories. The baseline-equivalence suite under [evals/baseline-equivalence/](https://github.com/microsoft/hve-core/blob/main/evals/baseline-equivalence/README.md) ships nested specs (`baseline/eval.yaml` and `customized/eval.yaml`) that need explicit per-file lint invocations:
 
 ```pwsh
 vally lint --eval evals/baseline-equivalence/baseline/eval.yaml
 vally lint --eval evals/baseline-equivalence/customized/eval.yaml
-vally lint --eval evals/baseline-equivalence/compare.eval.yml
 ```
 
-[scripts/evals/Invoke-BaselineEquivalence.ps1](../../scripts/evals/Invoke-BaselineEquivalence.ps1) runs all three implicitly during `npm run ci:eval:run:equivalence`. See [evals/baseline-equivalence/README.md](https://github.com/microsoft/hve-core/blob/main/evals/baseline-equivalence/README.md) for the suite operator guide and driver-output contract.
+[scripts/evals/Invoke-BaselineEquivalence.ps1](../../scripts/evals/Invoke-BaselineEquivalence.ps1) runs both implicitly during `npm run ci:eval:run:equivalence`. See [evals/baseline-equivalence/README.md](https://github.com/microsoft/hve-core/blob/main/evals/baseline-equivalence/README.md) for the suite operator guide and driver-output contract.
 
 ## Running Pester Tests Locally
 
