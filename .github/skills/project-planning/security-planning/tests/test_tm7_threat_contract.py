@@ -16,6 +16,8 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import generate_tm7  # noqa: E402
+import populate_tm7_threats  # noqa: E402
 import tm7_threat_contract  # noqa: E402
 
 TYPE_ID = "TH-test"
@@ -445,6 +447,57 @@ def test_given_reordered_sources_when_prepared_then_numeric_ids_are_stable() -> 
     assert [(item["source_id"], item["id"]) for item in original] == [
         (item["source_id"], item["id"]) for item in reordered
     ]
+
+
+def test_given_equivalent_threats_when_both_producers_run_then_contracts_agree(
+) -> None:
+    """Both TM7 producers must agree on type identity and threat properties.
+
+    ``generate_tm7`` and ``populate_tm7_threats`` emit the same ThreatInstance
+    DataContract. Divergent slug derivation makes custom type identifiers differ
+    for punctuation-bearing ids, and an unresolved mitigation leaves
+    ``PossibleMitigations`` empty on one path only.
+    """
+    # Arrange
+    spec = {
+        "mitigations": [
+            {"id": "M-1", "description": "Pin every dependency by digest."},
+        ],
+        "threats": [
+            {
+                "id": "S--1",
+                "title": "Punctuated identifier",
+                "description": "Adjacent punctuation in the identifier.",
+                "mitigation_ids": ["M-1"],
+            }
+        ],
+    }
+    threat = spec["threats"][0]
+
+    # Act
+    generated_type_id = generate_tm7._stable_custom_threat_type_id("S--1", threat)
+    populated_type_id = populate_tm7_threats._resolve_type_id(threat, {}, {})
+    mitigation_text = populate_tm7_threats._mitigation_text(spec, threat)
+    generated_properties = dict(
+        tm7_threat_contract.build_threat_instance_properties(
+            {
+                **threat,
+                "mitigations": generate_tm7._resolve_mitigation_text(spec, threat),
+            }
+        )
+    )
+    populated_properties = dict(
+        tm7_threat_contract.build_threat_instance_properties(
+            {**threat, "mitigations": mitigation_text}
+        )
+    )
+
+    # Assert
+    assert generated_type_id == populated_type_id
+    assert generated_properties == populated_properties
+    assert generated_properties["PossibleMitigations"] == (
+        "Pin every dependency by digest."
+    )
 
 
 def test_given_authored_labels_when_reconciled_then_semantic_ids_resolve() -> None:

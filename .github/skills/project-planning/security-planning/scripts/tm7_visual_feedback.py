@@ -198,6 +198,12 @@ class ConvergenceResult:
 
 
 def _normalize_for_fingerprint(value: Any) -> Any:
+    """Recursively normalize values so overlay fingerprints stay deterministic.
+
+    Handles both filesystem paths and temporal values because the overlay
+    invalidation contract is shared with the generator, and a value normalized
+    by only one side would produce two fingerprints for one logical input.
+    """
     if isinstance(value, dict):
         return {
             str(key): _normalize_for_fingerprint(item)
@@ -207,12 +213,15 @@ def _normalize_for_fingerprint(value: Any) -> Any:
         return [_normalize_for_fingerprint(item) for item in value]
     if isinstance(value, tuple):
         return [_normalize_for_fingerprint(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     return value
 
 
 def _canonical_bytes(value: Any) -> bytes:
+    """Encode a normalized value as canonical JSON bytes for hashing."""
     return json.dumps(
         _normalize_for_fingerprint(value),
         sort_keys=True,
@@ -221,6 +230,7 @@ def _canonical_bytes(value: Any) -> bytes:
 
 
 def _fingerprint(value: Any) -> str:
+    """Return the SHA-256 fingerprint of a value's canonical encoding."""
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from collections import Counter
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -170,6 +172,39 @@ def build_threat_instance_properties(
         ("Priority", _normalize_text(supplied.get("Priority")) or "High"),
         ("SDLPhase", _normalize_text(supplied.get("SDLPhase")) or "Design"),
     ]
+
+
+def build_custom_threat_type_id(source_id: str) -> str:
+    """Build the deterministic ThreatType identifier for a custom spec threat.
+
+    Both TM7 producers emit the same DataContract, so slug derivation must be
+    identical. Runs of characters outside ``a-z0-9`` collapse to a single
+    hyphen, which keeps identifiers stable when punctuation abuts a hyphen.
+    """
+    normalized = _normalize_text(source_id) or "spec-threat"
+    slug = (re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-") or "spec-threat")[
+        :24
+    ]
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+    return f"THC-{slug}-{digest}"
+
+
+def build_mitigation_text(spec: dict[str, Any], threat: dict[str, Any]) -> str:
+    """Resolve a threat's declared mitigation identifiers into display text."""
+    mitigations = {
+        _normalize_text(item.get("id")): item
+        for item in _coerce_list(spec.get("mitigations"))
+        if isinstance(item, dict) and item.get("id")
+    }
+    values: list[str] = []
+    for mitigation_id in _coerce_list(threat.get("mitigation_ids")):
+        mitigation = mitigations.get(_normalize_text(mitigation_id))
+        if not isinstance(mitigation, dict):
+            continue
+        value = _normalize_text(mitigation.get("description") or mitigation.get("name"))
+        if value:
+            values.append(value)
+    return "; ".join(dict.fromkeys(values))
 
 
 def _surface_metadata(spec: dict[str, Any]) -> list[dict[str, Any]]:

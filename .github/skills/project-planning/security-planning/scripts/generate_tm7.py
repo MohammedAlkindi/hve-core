@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import re
@@ -14,6 +13,7 @@ import sys
 import textwrap
 import uuid
 from collections import deque
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -29,8 +29,10 @@ except (
     DefusedET = None
 
 from tm7_threat_contract import (
+    build_custom_threat_type_id,
     build_entry_key,
     build_interaction_key,
+    build_mitigation_text,
     collect_mapping_failures,
     serialize_threat_instances,
 )
@@ -159,7 +161,13 @@ def load_layout_overlay(path: Path) -> dict[str, Any]:
 
 
 def _normalize_for_fingerprint(value: Any) -> Any:
-    """Recursively normalize values so overlay fingerprints stay deterministic."""
+    """Recursively normalize values so overlay fingerprints stay deterministic.
+
+    Handles both filesystem paths and temporal values because the overlay
+    invalidation contract is shared with the feedback loop, and a value
+    normalized by only one side would produce two fingerprints for one logical
+    input.
+    """
     if isinstance(value, dict):
         return {
             str(key): _normalize_for_fingerprint(item)
@@ -171,6 +179,8 @@ def _normalize_for_fingerprint(value: Any) -> Any:
         return [_normalize_for_fingerprint(item) for item in value]
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
     return value
 
 
@@ -861,12 +871,12 @@ def build_model_from_spec(
 def _stable_custom_threat_type_id(threat_id: str, spec_threat: dict[str, Any]) -> str:
     """Create a deterministic ThreatType identifier for a custom spec threat."""
     source_id = str(spec_threat.get("id") or threat_id or "spec-threat").strip()
-    if not source_id:
-        source_id = "spec-threat"
-    slug = re.sub(r"[^a-z0-9-]+", "-", source_id.lower()).strip("-")
-    slug = (slug or "spec-threat")[:24]
-    digest = hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:16].upper()
-    return f"THC-{slug}-{digest}"
+    return build_custom_threat_type_id(source_id)
+
+
+def _resolve_mitigation_text(spec: dict[str, Any], threat: dict[str, Any]) -> str:
+    """Resolve declared mitigation identifiers through the canonical contract."""
+    return build_mitigation_text(spec, threat)
 
 
 def _build_spec_threat_type_id(threat_id: str, spec_threat: dict[str, Any]) -> str:
@@ -965,6 +975,7 @@ def _map_phase2_threats(
                 },
                 "notes": "; ".join(notes_parts),
                 "properties": properties,
+                "mitigations": _resolve_mitigation_text(spec, spec_threat),
                 "source": "spec",
                 "type_id": threat_type_id,
             }

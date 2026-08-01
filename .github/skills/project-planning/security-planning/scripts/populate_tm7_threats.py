@@ -9,7 +9,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import sys
 import tempfile
 import uuid
@@ -26,8 +25,10 @@ except ImportError:  # pragma: no cover - project environment installs defusedxm
 
 from tm7_threat_contract import (
     ThreatContractError,
+    build_custom_threat_type_id,
     build_entry_key,
     build_interaction_key,
+    build_mitigation_text,
     collect_mapping_failures,
     prepare_threat_instances,
     reconcile_authored_base,
@@ -353,28 +354,11 @@ def _resolve_type_id(
     title_match = type_ids_by_title.get(_normalize_text(spec_threat.get("title")))
     if title_match:
         return title_match
-    slug = re.sub(r"[^a-z0-9]+", "-", source_id.lower()).strip("-") or "spec-threat"
-    slug = slug[:24]
-    digest = hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:16].upper()
-    return f"THC-{slug}-{digest}"
+    return build_custom_threat_type_id(source_id)
 
 
 def _mitigation_text(spec: dict[str, Any], threat: dict[str, Any]) -> str:
-    mitigations = {
-        _normalize_text(item.get("id")): item
-        for item in spec.get("mitigations") or []
-        if isinstance(item, dict) and item.get("id")
-    }
-    values: list[str] = []
-    for mitigation_id in threat.get("mitigation_ids") or []:
-        mitigation = mitigations.get(_normalize_text(mitigation_id))
-        if mitigation:
-            value = _normalize_text(
-                mitigation.get("description") or mitigation.get("name")
-            )
-            if value:
-                values.append(value)
-    return "; ".join(values)
+    return build_mitigation_text(spec, threat)
 
 
 def _canonical_surface(
