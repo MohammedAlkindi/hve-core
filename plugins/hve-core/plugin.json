@@ -1,0 +1,60 @@
+{
+  "name": "hve-core",
+  "description": "Opinionated, rapidly evolving agentic SDLC patterns for RPI workflows, HVE Builder, and Git operations",
+  "version": "3.3.105",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "hve-core",
+    "rpi",
+    "planning",
+    "research",
+    "implementation",
+    "review",
+    "git",
+    "commits",
+    "merge",
+    "pull-request"
+  ],
+  "agents": [
+    "agents/coding-standards/",
+    "agents/coding-standards/subagents/",
+    "agents/hve-core/",
+    "agents/hve-core/subagents/"
+  ],
+  "commands": [
+    "commands/hve-core/"
+  ],
+  "rules": [
+    "rules/coding-standards/code-review/",
+    "rules/experimental/mural/",
+    "rules/hve-core/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/coding-standards/code-review/",
+    "skills/experimental/mural/",
+    "skills/hve-core/documentation/",
+    "skills/hve-core/hve-builder-tester/",
+    "skills/hve-core/hve-builder/",
+    "skills/hve-core/prompt-analyze/",
+    "skills/hve-core/prompt-builder/",
+    "skills/hve-core/prompt-refactor/",
+    "skills/rpi/rpi-challenger/",
+    "skills/rpi/rpi-implement/",
+    "skills/rpi/rpi-plan-critique/",
+    "skills/rpi/rpi-plan/",
+    "skills/rpi/rpi-quick/",
+    "skills/rpi/rpi-research/",
+    "skills/rpi/rpi-review/",
+    "skills/shared/pr-reference/",
+    "skills/shared/telemetry-foundations/"
+  ],
+  "hooks": "hooks/shared/telemetry.json"
+}

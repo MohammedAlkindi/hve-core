@@ -1,0 +1,51 @@
+{
+  "name": "coding-standards",
+  "description": "Language-specific coding instructions and pre-PR code review agents for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform projects",
+  "version": "3.3.105",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "coding-standards",
+    "code-review",
+    "pull-request",
+    "quality",
+    "bash",
+    "bicep",
+    "csharp",
+    "powershell",
+    "python",
+    "rust",
+    "terraform",
+    "uv"
+  ],
+  "agents": [
+    "agents/accessibility/",
+    "agents/accessibility/subagents/",
+    "agents/coding-standards/",
+    "agents/coding-standards/subagents/",
+    "agents/hve-core/subagents/"
+  ],
+  "rules": [
+    "rules/coding-standards/",
+    "rules/coding-standards/bash/",
+    "rules/coding-standards/bicep/",
+    "rules/coding-standards/code-review/",
+    "rules/coding-standards/csharp/",
+    "rules/coding-standards/powershell/",
+    "rules/coding-standards/rust/",
+    "rules/coding-standards/terraform/",
+    "rules/shared/"
+  ],
+  "skills": [
+    "skills/coding-standards/code-review/",
+    "skills/coding-standards/python-foundational/",
+    "skills/rpi/rpi-research/",
+    "skills/shared/pr-reference/",
+    "skills/shared/telemetry-foundations/"
+  ]
+}
