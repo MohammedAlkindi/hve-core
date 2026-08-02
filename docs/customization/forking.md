@@ -2,7 +2,7 @@
 title: Forking and Extending HVE Core
 description: Fork HVE Core to create a fully customized prompt engineering framework with upstream sync and Copilot-assisted adaptation
 author: Microsoft
-ms.date: 2026-07-28
+ms.date: 2026-08-01
 ms.topic: tutorial
 keywords:
   - forking
@@ -99,7 +99,7 @@ README, and marketplace presentation. See the
 
 Agent and prompt files live under `.github/agents/` and `.github/prompts/`. Restructure
 these directories to match your organization's team topology or domain boundaries. Update
-collection manifests to reflect new paths.
+marketplace package recipes to reflect new paths.
 
 ### 3. MCP Servers
 
@@ -155,7 +155,7 @@ Conflicts typically occur in files you have customized. Common conflict points:
 
 * `package.json` (script modifications)
 * `.markdownlint.json` (rule adjustments)
-* Collection YAML files (added or removed artifacts)
+* Marketplace package recipes (added or removed artifacts)
 * Workflow files (permission or job changes)
 
 For each conflict, evaluate whether to keep your change, accept the upstream change, or
@@ -174,7 +174,7 @@ npm run plugin:generate
 | Schema files in `scripts/linting/schemas/` | `README.md` (your branding)           |
 | Agent and prompt templates                 | `.github/workflows/` (your CI config) |
 | Shared instructions                        | `CONTRIBUTING.md` (your guidelines)   |
-| Documentation in `docs/`                   | Custom collection manifests           |
+| Documentation in `docs/`                   | Custom marketplace package recipes    |
 
 ## Copilot-Assisted Adaptation
 

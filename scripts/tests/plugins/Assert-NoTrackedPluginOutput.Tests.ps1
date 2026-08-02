@@ -4,43 +4,90 @@
 
 BeforeAll {
     . (Join-Path $PSScriptRoot '../../plugins/Assert-NoTrackedPluginOutput.ps1')
+    Import-Module (Join-Path $PSScriptRoot 'PluginTestFixtures.psm1') -Force
 }
 
 Describe 'Assert-NoTrackedPluginOutput' -Tag 'Unit' {
     BeforeEach {
-        $script:repoRoot = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
-        New-Item -ItemType Directory -Path $script:repoRoot -Force | Out-Null
-        Set-Content -Path (Join-Path $script:repoRoot 'source.txt') -Value 'source' -NoNewline
-
-        & git -C $script:repoRoot init --quiet
-        & git -C $script:repoRoot config user.email 'test@example.com'
-        & git -C $script:repoRoot config user.name 'Test User'
-        & git -C $script:repoRoot add source.txt
-        & git -C $script:repoRoot commit --quiet -m 'baseline'
+        $script:guardRepo = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+        New-PluginFixtureRepository -Path $script:guardRepo -Version '9.9.9' -SkipSharedResources | Out-Null
+        Add-PluginFixtureFile -RepoRoot $script:guardRepo -RelativePath 'docs/plugins/rpi.md' -Content "# rpi`n" | Out-Null
+        Add-PluginFixtureFile -RepoRoot $script:guardRepo -RelativePath '.github/agents/rpi/rpi-planner.agent.md' -Content "# agent`n" | Out-Null
     }
 
-    It 'Accepts an index with regular source files' {
-        $result = Assert-NoTrackedPluginOutput -RepoRoot $script:repoRoot
+    Context 'when the index carries no generated output and no link' {
+        BeforeEach {
+            $script:cleanResult = Assert-NoTrackedPluginOutput -RepoRoot $script:guardRepo
+        }
 
-        $result.EntryCount | Should -Be 1
-        $result.TrackedPluginPathCount | Should -Be 0
-        $result.SymbolicLinkPathCount | Should -Be 0
+        It 'Inspects every staged entry' {
+            $script:cleanResult.EntryCount | Should -Be 3
+        }
+
+        It 'Reports no violation' {
+            $script:cleanResult.TrackedPluginPathCount | Should -Be 0
+            $script:cleanResult.SymbolicLinkPathCount | Should -Be 0
+        }
+
+        It 'Returns only the inspection counters' {
+            @($script:cleanResult.Keys | Sort-Object) | Should -Be @('EntryCount', 'SymbolicLinkPathCount', 'TrackedPluginPathCount')
+        }
+
+        It 'Ignores untracked generated output' {
+            Add-PluginFixtureFile -RepoRoot $script:guardRepo -RelativePath 'plugins/rpi/plugin.json' -Content '{}' -Untracked | Out-Null
+            { Assert-NoTrackedPluginOutput -RepoRoot $script:guardRepo } | Should -Not -Throw
+        }
     }
 
-    It 'Rejects a tracked plugin output path and names it' {
-        New-Item -ItemType Directory -Path (Join-Path $script:repoRoot 'plugins/alpha') -Force | Out-Null
-        Set-Content -Path (Join-Path $script:repoRoot 'plugins/alpha/plugin.json') -Value '{}' -NoNewline
-        & git -C $script:repoRoot add plugins/alpha/plugin.json
-
-        { Assert-NoTrackedPluginOutput -RepoRoot $script:repoRoot } |
-            Should -Throw '*Tracked plugin output is forbidden: plugins/alpha/plugin.json*'
+    Context 'when generated output is staged' {
+        It 'Fails for the tracked path <Path>' -ForEach @(
+            @{ Path = 'plugins/rpi/plugin.json'; Content = '{}' }
+            @{ Path = 'plugins/rpi/README.md'; Content = "# rpi`n" }
+            @{ Path = 'plugins'; Content = "not a directory`n" }
+        ) {
+            Add-PluginFixtureFile -RepoRoot $script:guardRepo -RelativePath $Path -Content $Content | Out-Null
+            { Assert-NoTrackedPluginOutput -RepoRoot $script:guardRepo } |
+                Should -Throw -ExpectedMessage "*Tracked plugin output is forbidden: *$Path*"
+        }
     }
 
-    It 'Rejects symbolic-link mode and names the path' {
-        $blob = (& git -C $script:repoRoot rev-parse HEAD:source.txt).Trim()
-        & git -C $script:repoRoot update-index --cacheinfo "120000,$blob,source.txt"
+    Context 'when a symbolic link is staged anywhere in the repository' {
+        BeforeEach {
+            New-Item -ItemType SymbolicLink -Force `
+                -Path (Join-Path $script:guardRepo 'docs/plugins/linked.md') `
+                -Target (Join-Path $script:guardRepo 'docs/plugins/rpi.md') | Out-Null
+            Invoke-PluginFixtureGit -RepoRoot $script:guardRepo -Arguments @('add', '--force', '--', 'docs/plugins/linked.md') | Out-Null
+        }
 
-        { Assert-NoTrackedPluginOutput -RepoRoot $script:repoRoot } |
-            Should -Throw '*Symbolic-link mode 120000 is forbidden: source.txt*'
+        It 'Fails on symbolic-link index mode' {
+            { Assert-NoTrackedPluginOutput -RepoRoot $script:guardRepo } |
+                Should -Throw -ExpectedMessage '*Symbolic-link mode 120000 is forbidden: docs/plugins/linked.md*'
+        }
+
+        It 'Reports both violations when generated output is also staged' {
+            Add-PluginFixtureFile -RepoRoot $script:guardRepo -RelativePath 'plugins/rpi/plugin.json' -Content '{}' | Out-Null
+            $thrownMessage = ''
+            try {
+                Assert-NoTrackedPluginOutput -RepoRoot $script:guardRepo
+            }
+            catch {
+                $thrownMessage = $_.Exception.Message
+            }
+            $thrownMessage | Should -Match 'Tracked plugin output is forbidden'
+            $thrownMessage | Should -Match 'Symbolic-link mode 120000 is forbidden'
+        }
     }
+
+    Context 'when the directory is not a git working tree' {
+        It 'Refuses to report a clean index' {
+            $plainDirectory = Join-Path $TestDrive 'guard-not-a-repo'
+            New-Item -ItemType Directory -Path $plainDirectory -Force | Out-Null
+            { Assert-NoTrackedPluginOutput -RepoRoot $plainDirectory } |
+                Should -Throw -ExpectedMessage '*Unable to inspect the Git index*'
+        }
+    }
+}
+
+AfterAll {
+    Remove-Module PluginTestFixtures -Force -ErrorAction SilentlyContinue
 }

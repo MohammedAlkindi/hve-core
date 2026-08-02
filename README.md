@@ -52,7 +52,7 @@ Use HVE Core when you want AI-assisted work to be repeatable, standards-aligned,
 3. Select **RPI Agent** from the agent picker or run `/rpi`, then describe the task you want to complete.
 
 > [!TIP]
-> Use [HVE Core All Extension](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core-all) when you want the full collection deployment. See [Collections Overview](docs/getting-started/collections.md).
+> Use [HVE Core All Extension](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core-all) when you want the aggregate package. See [Marketplace Packages](docs/getting-started/packages.md).
 
 <!-- Keep these tips separate because they describe different installation paths. -->
 
@@ -92,7 +92,7 @@ Full documentation is available at **<https://microsoft.github.io/hve-core/>**.
 | Guide                                                            | Description                                      |
 |------------------------------------------------------------------|--------------------------------------------------|
 | [Getting Started](docs/getting-started/README.md)                | Setup and first workflow tutorial                |
-| [Collections](docs/getting-started/collections.md)               | Available bundles and selection guide            |
+| [Marketplace Packages](docs/getting-started/packages.md)         | Available packages and selection guide           |
 | [RPI Workflow](docs/rpi/README.md)                               | Deep dive into Research, Plan, Implement, Review |
 | [Contributing](docs/contributing/README.md)                      | Create custom agents, instructions, and prompts  |
 | [Agents Reference](.github/CUSTOM-AGENTS.md)                     | All available agents                             |

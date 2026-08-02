@@ -6,7 +6,7 @@ license: MIT
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-07-15"
+  last_updated: "2026-08-01"
 ---
 
 # HVE-Core Installer Skill
@@ -198,7 +198,7 @@ The HVE Core extension has been installed from the VS Code Marketplace.
 
 🪝 Hooks (manual step): The Marketplace extension is declarative and does not
    write chat.hookFilesLocations. To enable bundled hooks (e.g. telemetry), add
-   each collection's hook folder to that setting yourself, or use a clone-based
+   each package's hook folder to that setting yourself, or use a clone-based
    or CLI-plugin install which documents this configuration.
 
 📋 Configuring optional settings...
@@ -386,9 +386,9 @@ For Bash: Use `set -euo pipefail`, `test -d` for existence checks, and `echo` fo
 
 ### Settings Configuration
 
-After cloning, update `.vscode/settings.json` with entries for each collection subdirectory. Replace `<PREFIX>` with the settings path prefix from the method table. Do not use `**` glob patterns in paths because `chat.*Locations` settings do not support them.
+After cloning, update `.vscode/settings.json` with entries for each package subdirectory. Replace `<PREFIX>` with the settings path prefix from the method table. Do not use `**` glob patterns in paths because `chat.*Locations` settings do not support them.
 
-Enumerate each collection subdirectory under `.github/agents/`, `.github/prompts/`, `.github/instructions/`, and `.github/hooks/` from the cloned HVE-Core directory. Create one entry per subdirectory. For `.github/agents/`, also check each collection folder for a `subagents/` subfolder and include it when present (e.g., `hve-core/subagents`). For `.github/skills/`, list only the collection-level folders directly under `.github/skills/` (e.g., `shared`); do not enumerate deeper subfolders (individual skill directories like `shared/pr-reference/` are not listed). For `.github/hooks/`, list only the collection-level folders directly under `.github/hooks/` (e.g., `shared`); the default `chat.hookFilesLocations` value only covers the workspace `.github/hooks`, so clone-based installs must add each collection's hook folder explicitly. Exclude the `installer` collection from `chat.agentSkillsLocations` because it is the installer skill itself and not intended for end-user settings.
+Enumerate each package subdirectory under `.github/agents/`, `.github/prompts/`, `.github/instructions/`, and `.github/hooks/` from the cloned HVE-Core directory. Create one entry per subdirectory. For `.github/agents/`, also check each package folder for a `subagents/` subfolder and include it when present (e.g., `hve-core/subagents`). For `.github/skills/`, list only the package-level folders directly under `.github/skills/` (e.g., `shared`); do not enumerate deeper subfolders (individual skill directories like `shared/pr-reference/` are not listed). For `.github/hooks/`, list only the package-level folders directly under `.github/hooks/` (e.g., `shared`); the default `chat.hookFilesLocations` value only covers the workspace `.github/hooks`, so clone-based installs must add each package's hook folder explicitly. Exclude the `installer` package from `chat.agentSkillsLocations` because it is the installer skill itself and not intended for end-user settings.
 
 Any folder named `experimental` under any artifact type (agents, prompts, instructions, or skills) must not be included without first asking the user whether they want experimental features. If the user opts in, add the `experimental` entries (and `experimental/subagents` for agents when that subfolder exists).
 
@@ -753,13 +753,13 @@ If user chooses to configure MCP, present:
 ```text
 Which MCP servers would you like to configure?
 
-| Server         | Purpose                   | Recommended For                  |
-|----------------|---------------------------|----------------------------------|
-| github         | GitHub issues and repos   | GitHub-hosted repositories       |
-| ado            | Azure DevOps work items   | Azure DevOps repositories        |
-| context7       | SDK/library documentation | All users (optional)             |
-| microsoft-docs | Microsoft Learn docs      | All users (optional)             |
-| figma          | FigJam & Figma design     | Design Thinking collection users |
+| Server         | Purpose                   | Recommended For               |
+|----------------|---------------------------|-------------------------------|
+| github         | GitHub issues and repos   | GitHub-hosted repositories    |
+| ado            | Azure DevOps work items   | Azure DevOps repositories     |
+| context7       | SDK/library documentation | All users (optional)          |
+| microsoft-docs | Microsoft Learn docs      | All users (optional)          |
+| figma          | FigJam & Figma design     | Design Thinking package users |
 
 ⚠️ Suggest EITHER github OR ado based on where your repo is hosted, not both.
 
@@ -955,7 +955,7 @@ Copying agents enables local customization and offline use.
 
 Options:
   [1] Install HVE Core starter agents (recommended)
-  [2] Install by collection
+  [2] Install by marketplace package
   [3] Skip agent installation
 
 Your choice? (1/2/3)
@@ -965,56 +965,57 @@ Your choice? (1/2/3)
 User input handling:
 
 * "1", "rpi", "starter", "core" → Copy the HVE Core starter bundle
-* "2", "collection", "by collection" → Proceed to Collection Selection sub-flow
+* "2", "package", "by package" → Proceed to Package Selection sub-flow
 * "3", "skip", "none", "no" → Skip to success report
 * Unclear response → Ask for clarification
 
-### Collection Selection Sub-Flow
+### Package Selection Sub-Flow
 
-When the user selects option 2, read collection manifests to present available collections.
+When the user selects option 2, read the marketplace catalog and present eligible packages.
 
-#### Step 1: Read collections and build collection agent counts
+#### Step 1: Read packages and build stable agent counts
 
-Read `collections/*.collection.yml` from the HVE-Core source (at `$hveCoreBasePath`). Derive collection options from collection `id` and `name`. For each selected collection, count agent items where `kind` equals `agent` and effective item maturity is `stable` (item `maturity` omitted defaults to `stable`; exclude `experimental` and `deprecated`).
+Read `.github/plugin/marketplace.json` from the HVE-Core source at `$hveCoreBasePath`. Import `scripts/lib/Modules/MarketplaceHelpers.psm1`, build the catalog agent index, and derive each Stable package through `Get-MarketplaceResolvedPackageRecipe`. Present the package `name`, `x-hve.displayName`, and resolved stable-agent count. Exclude packages that `Test-MarketplaceEntryEligible` rejects for Stable.
 
-#### Step 2: Present collection options
+#### Step 2: Present package options
 
-<!-- <collection-selection-prompt> -->
+<!-- <package-selection-prompt> -->
 ```text
-🎭 Collection Selection
+🎭 Package Selection
 
-Choose one or more collections to install agents tailored to your role, more to come in the future.
+Choose one or more packages to install agents tailored to your role.
 
-| # | Collection | Agents | Description                     |
-|---|------------|--------|---------------------------------|
-| 1 | Developer  | [N]    | Software engineers writing code |
+| # | Package          | Agents | Description                     |
+|---|------------------|--------|---------------------------------|
+| 1 | Project Planning | [N]    | Planning and architecture tools |
 
-Enter collection number(s) separated by commas (e.g., "1"):
+Enter package number(s) separated by commas (e.g., "1"):
 ```
-<!-- </collection-selection-prompt> -->
+<!-- </package-selection-prompt> -->
 
-Agent counts `[N]` include agents matching the collection with `stable` maturity.
+Agent counts `[N]` come from the Stable handoff-resolved marketplace recipe.
 
 User input handling:
 
-* Single number (e.g., "1") → Select that collection
-* Multiple numbers (e.g., "1, 3") → Combine agent sets from selected collections
-* Collection name (e.g., "developer") → Match by identifier
+* Single number (e.g., "1") → Select that package
+* Multiple numbers (e.g., "1, 3") → Combine agent sets from selected packages
+* Package name (for example, `project-planning`) → Match by package ID
 * Unclear response → Ask for clarification
 
 #### Step 3: Build filtered agent list
 
-For each selected collection identifier:
+For each selected package ID:
 
-1. Iterate through `items` in the collection manifest
-2. Include items where `kind` is `agent` AND `maturity` is `stable`
-3. Deduplicate across multiple selected collections
+1. Resolve the entry through `Get-MarketplaceResolvedPackageRecipe -Channel Stable`
+2. Include recipe items where `Kind` is `agent`
+3. Remove the `.github/agents/` prefix from each `SourcePath`
+4. Deduplicate paths across selected packages
 
 #### Step 4: Present filtered agents for confirmation
 
-<!-- <collection-confirmation-prompt> -->
+<!-- <package-confirmation-prompt> -->
 ```text
-📋 Agents for [Collection Name(s)]
+📋 Agents for [Package Name(s)]
 
 The following [N] agents will be copied:
 
@@ -1024,7 +1025,7 @@ The following [N] agents will be copied:
 
 Proceed with installation? (yes/no)
 ```
-<!-- </collection-confirmation-prompt> -->
+<!-- </package-confirmation-prompt> -->
 
 User input handling:
 
@@ -1033,20 +1034,20 @@ User input handling:
 * Unclear response → Ask for clarification
 
 > [!NOTE]
-> Collection filtering applies to agents only. Copying of related prompts, instructions, and skills based on collection is planned for a future release.
+> Package selection installs projected agents only. Prompts, instructions, and skills remain available through the plugin and VSIX package channels.
 
 ### Agent Bundle Definitions
 
 | Bundle            | Agents                            |
 |-------------------|-----------------------------------|
 | `hve-core`        | rpi-agent, documentation          |
-| `collection:<id>` | Stable agents matching collection |
+| `package:<id>` | Stable agents from the resolved marketplace package |
 
 ### Collision Detection
 
 Before copying, check for existing agent files with matching names.
 
-**PowerShell:** Run [scripts/collision-detection.ps1](scripts/collision-detection.ps1) with the `hveCoreBasePath`, `selection`, and optional `collectionAgents` variables set.
+**PowerShell:** Run [scripts/collision-detection.ps1](scripts/collision-detection.ps1) with the `selection` and optional `PackageAgents` values set to the projected agent paths.
 
 **Bash:** Run [scripts/collision-detection.sh](scripts/collision-detection.sh) with the HVE-Core base path and file list as arguments.
 
@@ -1088,7 +1089,7 @@ After selection and collision resolution, execute the copy operation.
 
 **PowerShell:** Run [scripts/agent-copy.ps1](scripts/agent-copy.ps1) with the required variables set.
 
-**Bash:** Run [scripts/agent-copy.sh](scripts/agent-copy.sh) with the HVE-Core base path, collection ID, and file list as arguments.
+**Bash:** Run [scripts/agent-copy.sh](scripts/agent-copy.sh) with the HVE-Core base path, marketplace package ID, and file list as arguments.
 
 ### Agent Copy Success Report
 

@@ -12,11 +12,16 @@ manifest_path=".hve-tracking.json"
 if [ -f "$manifest_path" ]; then
     if command -v jq >/dev/null 2>&1; then
         installed_version=$(jq -r '.version' "$manifest_path")
-        installed_collection=$(jq -r '.collection // "hve-core"' "$manifest_path")
+        installed_package=$(jq -r '.package // "hve-core"' "$manifest_path")
         source_version=$(jq -r '.version' "$hve_core_base_path/package.json")
     else
         installed_version=$(grep -o '"version": *"[^"]*"' "$manifest_path" | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-        installed_collection="hve-core"
+        # Read the recorded package without jq so an explicit package is not
+        # silently reported as the default.
+        installed_package=$(grep -o '"package": *"[^"]*"' "$manifest_path" | head -1 | sed 's/.*"\([^"]*\)"/\1/' || true)
+        if [ -z "$installed_package" ]; then
+            installed_package="hve-core"
+        fi
         source_version=$(grep -o '"version": *"[^"]*"' "$hve_core_base_path/package.json" | head -1 | sed 's/.*"\([^"]*\)"/\1/')
     fi
 
@@ -27,7 +32,7 @@ if [ -f "$manifest_path" ]; then
     echo "INSTALLED_VERSION=$installed_version"
     echo "SOURCE_VERSION=$source_version"
     echo "VERSION_CHANGED=$version_changed"
-    echo "INSTALLED_COLLECTION=$installed_collection"
+    echo "INSTALLED_PACKAGE=$installed_package"
 else
     echo "UPGRADE_MODE=false"
 fi

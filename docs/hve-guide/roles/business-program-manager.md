@@ -3,7 +3,7 @@ title: Business Program Manager Guide
 description: HVE Core support for business program managers driving stakeholder alignment, business outcomes, and program coordination
 sidebar_position: 6
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-08-01
 ms.topic: how-to
 keywords:
   - BPM
@@ -186,7 +186,7 @@ Prompts complement the agents for cross-cutting workflows:
 ## Next Steps
 
 > [!TIP]
-> Explore project planning tools: [Project Planning Collection](https://github.com/microsoft/hve-core/blob/main/collections/project-planning.collection.md)
+> Explore project planning tools: [Project Planning Package](https://github.com/microsoft/hve-core/blob/main/docs/plugins/project-planning.md)
 > Understand the TPM workflow for technical handoff: [TPM Guide](tpm.md)
 > See how program management fits the project lifecycle: [AI-Assisted Project Lifecycle](../lifecycle/)
 

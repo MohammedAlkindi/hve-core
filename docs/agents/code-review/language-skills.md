@@ -16,7 +16,7 @@ tags:
   - skills
   - coding-standards
 author: Microsoft
-ms.date: 2026-06-19
+ms.date: 2026-08-01
 ms.topic: how-to
 estimated_reading_time: 8
 ---
@@ -140,7 +140,7 @@ flowchart TD
 
 ### Directory Structure
 
-Place custom skills under `.github/skills/coding-standards/{your-collection}/{skill-name}/`
+Place custom skills under `.github/skills/coding-standards/{your-package}/{skill-name}/`
 
 ```text
 .github/skills/coding-standards/
@@ -226,7 +226,7 @@ A frontend team authors `.github/skills/coding-standards/northwind/react-standar
 | Engineering fundamentals    | `docs/templates/engineering-fundamentals.md`             |
 | Skill authoring guide       | [Authoring Custom Skills](../../customization/skills.md) |
 | Contributing skills         | [Contributing: Skills](../../contributing/skills.md)     |
-| coding-standards collection | `collections/coding-standards.collection.yml`            |
+| coding-standards package | `.github/plugin/marketplace.json` (`coding-standards`)      |
 
 <!-- markdownlint-disable MD036 -->
 *🤖 Crafted with precision by ✨Copilot following brilliant human instruction,

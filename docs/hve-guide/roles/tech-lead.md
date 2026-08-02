@@ -3,7 +3,7 @@ title: Tech Lead Guide
 description: HVE Core support for tech leads and architects driving architecture, code quality, and prompt engineering standards
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-08-01
 ms.topic: how-to
 keywords:
   - tech lead
@@ -134,7 +134,7 @@ Auto-activated instructions apply coding standards based on file type: C# (`*.cs
 > [!TIP]
 > See the full project lifecycle: [AI-Assisted Project Lifecycle](../lifecycle/)
 > Explore prompt engineering practices: [Prompt Engineering Contribution Guide](../../contributing/prompts.md)
-> Review coding standards: [Coding Standards Collection](https://github.com/microsoft/hve-core/blob/main/collections/coding-standards.collection.md)
+> Review coding standards: [Coding Standards Package](https://github.com/microsoft/hve-core/blob/main/docs/plugins/coding-standards.md)
 
 ---
 

@@ -1,19 +1,19 @@
 ---
 title: Plugin Generation Scripts
-description: PowerShell tooling for generating Copilot CLI plugins from collection manifests
+description: PowerShell tooling for generating Copilot CLI plugins from marketplace package recipes
 ---
 
-PowerShell tooling for generating Copilot CLI plugins from collection
-manifests.
+PowerShell tooling for generating Copilot CLI plugins from the marketplace
+catalog and shared resolved package projection.
 
 ## Scripts
 
-| Script                           | npm Command                | Description                                     |
-|----------------------------------|----------------------------|-------------------------------------------------|
-| Generate-Plugins.ps1             | `npm run plugin:generate`  | Generate plugin directories from collections    |
-| Validate-Marketplace.ps1         | `npm run lint:marketplace` | Validate marketplace.json plugin manifest       |
-| Assert-PluginReleaseEvidence.ps1 | `npm run plugin:evidence`  | Record or verify deterministic release evidence |
-| Modules/PluginHelpers.psm1       | (library)                  | Plugin materialization, manifest, and packaging |
+| Script                           | npm Command                | Description                                          |
+|----------------------------------|----------------------------|------------------------------------------------------|
+| Generate-Plugins.ps1             | `npm run plugin:generate`  | Generate plugin directories from marketplace recipes |
+| Validate-Marketplace.ps1         | `npm run lint:marketplace` | Validate marketplace.json plugin manifest            |
+| Assert-PluginReleaseEvidence.ps1 | `npm run plugin:evidence`  | Record or verify deterministic release evidence      |
+| Modules/PluginHelpers.psm1       | (library)                  | Plugin materialization, manifest, and packaging      |
 
 ## Prerequisites
 
@@ -21,12 +21,12 @@ manifests.
 * PowerShell-Yaml module (`Install-Module -Name PowerShell-Yaml -RequiredVersion 0.4.7`)
 * Git, because generation copies only git-tracked source paths
 
-## Collection to Plugin Pipeline
+## Marketplace to Plugin Pipeline
 
-1. Author artifacts in `.github/` (agents, prompts, skills)
-2. Define collections in `collections/*.collection.yml`
+1. Author artifacts in `.github/` (agents, prompts, instructions, skills, hooks)
+2. Declare package membership and metadata in `.github/plugin/marketplace.json`
 3. Run `npm run plugin:generate` to produce `plugins/`
-4. Commit generated `plugins/` to the repository
+4. Validate deterministic evidence without staging generated `plugins/`
 
 ## Generated Output
 
@@ -34,7 +34,7 @@ Plugin trees contain only regular files and real directories. No symbolic links
 are created, so generation needs no elevated privileges and no OS-specific
 configuration.
 
-Each declared collection source is materialized from the paths git currently
+Each declared package source is materialized from the paths git currently
 tracks beneath it. Working-tree bytes are copied, so locally modified tracked
 files are included, while untracked content such as `.venv/`, `node_modules/`,
 and Python bytecode cache directories is never ingested. Generation fails when
@@ -50,7 +50,7 @@ new artifacts before generating.
 npm run plugin:generate
 ```
 
-This regenerates all plugins from their collection manifests.
+This regenerates all plugins from marketplace package recipes.
 
 ## Marketplace Validation
 
@@ -81,7 +81,7 @@ Every entry uses an immutable GitHub object locator:
     "source": "github",
     "repo": "microsoft/hve-core",
     "path": "plugins/rpi",
-    "ref": "plugins-v3.3.101"
+    "ref": "plugins-v<version>"
   }
 }
 ```
@@ -99,7 +99,7 @@ sources in a separate catalog projection:
 
 ```bash
 pwsh -File scripts/plugins/Generate-Plugins.ps1 \
-  -ReleaseTag plugins-v3.3.101 \
+  -ReleaseTag plugins-v<version> \
   -MarketplaceOutputPath logs/marketplace-snapshot.json
 ```
 

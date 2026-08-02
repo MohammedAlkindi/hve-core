@@ -7,7 +7,7 @@ ms.date: 2026-07-31
 ms.topic: reference
 ---
 
-This collection packages skill-forward RPI entry points for research, planning, implementation, review, follow-up, guided walkthroughs, and self-contained challenge sessions.
+This package provides skill-forward RPI entry points for research, planning, implementation, review, follow-up, guided walkthroughs, and self-contained challenge sessions.
 
 `rpi-research` includes its default `RPI Researcher` delegated worker, while `rpi-challenger` conducts adaptive challenge questioning without a worker dependency. `rpi-plan` can use `RPI Planner` for bounded authoring of one assigned phase, and `rpi-plan-critique` provides an independent read-only plan assessment.
 
@@ -31,7 +31,7 @@ Prompt overlap is handled at directory scope. `chat.promptFilesLocations` only s
 * disable the whole `.github/prompts/hve-core` directory, or
 * rely on host prompt precedence while testing skill commands.
 
-The collection keeps planning and review parent-owned. `RPI Planner` is available only for a single bounded phase, while independent critique and review fan-out use generic bounded workers when warranted.
+The package keeps planning and review parent-owned. `RPI Planner` is available only for a single bounded phase, while independent critique and review fan-out use generic bounded workers when warranted.
 
 ---
 

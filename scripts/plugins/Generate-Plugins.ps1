@@ -110,36 +110,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'Modules/PluginHelpers.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot '../collections/Modules/CollectionHelpers.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../lib/Modules/MarketplaceHelpers.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../lib/Modules/ArtifactHelpers.psm1') -Force
 
 #region Orchestration
-
-function Get-AllowedCollectionMaturities {
-    <#
-    .SYNOPSIS
-        Returns allowed component maturities for a channel.
-
-    .PARAMETER Channel
-        Release channel ('Stable' or 'PreRelease').
-
-    .OUTPUTS
-        [string[]] Allowed maturity values for declared components.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('Stable', 'PreRelease')]
-        [string]$Channel
-    )
-
-    if ($Channel -eq 'Stable') {
-        return @('stable')
-    }
-
-    return @('stable', 'preview', 'experimental')
-}
 
 function New-PluginDocumentationBlock {
     <#
@@ -184,7 +159,7 @@ function New-PluginDocumentationBlock {
             $byKind[$item.Kind] = [System.Collections.Generic.List[hashtable]]::new()
         }
         $byKind[$item.Kind].Add(@{
-                Name        = Get-CollectionArtifactKey -Kind $item.Kind -Path $item.SourcePath
+                Name        = Get-ArtifactKey -Kind $item.Kind -Path $item.SourcePath
                 Description = Get-ArtifactDescription -FilePath $resolvedPath
             })
     }
@@ -256,7 +231,13 @@ function Update-PluginDocumentationSource {
     }
 
     $content = Get-Content -LiteralPath $DocumentPath -Raw -Encoding utf8
-    $parsed = Split-CollectionMdByMarkers -Content $content
+    # An empty document carries no markers and no prose to preserve, so it is a
+    # no-op rather than a parse failure that aborts the whole generation run.
+    if ([string]::IsNullOrEmpty($content)) {
+        return $false
+    }
+
+    $parsed = Split-PackageDocByMarkers -Content $content
     if (-not $parsed.HasMarkers) {
         return $false
     }
@@ -267,7 +248,7 @@ function Update-PluginDocumentationSource {
     }
 
     $block = New-PluginDocumentationBlock -Items $Items -RepoRoot $RepoRoot
-    $updated = "$intro`n`n$($CollectionMdBeginMarker)`n`n$block`n`n$($CollectionMdEndMarker)"
+    $updated = "$intro`n`n$($PackageDocBeginMarker)`n`n$block`n`n$($PackageDocEndMarker)"
     if (-not [string]::IsNullOrWhiteSpace($parsed.Footer)) {
         $updated += "`n`n$($parsed.Footer.TrimEnd())"
     }
@@ -419,6 +400,9 @@ function Invoke-PluginGeneration {
     $releaseLocator = $null
     if (-not [string]::IsNullOrWhiteSpace($ReleaseTag)) {
         $releaseLocator = New-PluginReleaseLocator -Tag $ReleaseTag
+        if ([string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
+            throw "ReleaseTag '$ReleaseTag' requires -MarketplaceOutputPath. Generation projects a snapshot to an explicit destination and never rewrites the production catalog."
+        }
     }
 
     $pluginsDir = Join-Path -Path $RepoRoot -ChildPath 'plugins'
@@ -436,10 +420,6 @@ function Invoke-PluginGeneration {
     # Read repo version from package.json for plugin manifests
     $packageJsonPath = Join-Path -Path $RepoRoot -ChildPath 'package.json'
     $repoVersion = (Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json).version
-
-    # Retiring YAML inputs are frozen: generation reads the catalog only and
-    # proves it wrote nothing back to collections/ before returning.
-    $freezeSnapshot = Get-CollectionFreezeSnapshot -RepoRoot $RepoRoot
 
     $catalog = Get-MarketplaceCatalog -Path $resolvedCatalogPath
     $allEntries = @($catalog['plugins'])
@@ -493,24 +473,7 @@ function Invoke-PluginGeneration {
             continue
         }
 
-        $items = @(Get-MarketplacePackageRecipe -Entry $entry -Channel $Channel)
-
-        # Close transitive agent handoffs over catalog-declared agents so an
-        # installed package can satisfy every handoff it advertises.
-        $seedAgents = @($items | Where-Object { $_.Kind -eq 'agent' } | ForEach-Object { $_.PackagePath })
-        $closedAgents = @(Expand-MarketplaceAgentDependency -Index $agentIndex -SeedPackagePaths $seedAgents -PackageName $id)
-        foreach ($agentPath in $closedAgents) {
-            if ($seedAgents -contains $agentPath) { continue }
-            $component = Resolve-MarketplaceComponentSource -PackagePath $agentPath -Field 'agents'
-            $items += @{
-                Kind        = $component.Kind
-                Field       = 'agents'
-                PackagePath = $component.PackagePath
-                SourcePath  = $component.SourcePath
-                Maturity    = 'stable'
-            }
-        }
-        $items = @($items | Sort-Object { $_.Field }, { $_.PackagePath })
+        $items = @(Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel $Channel -AgentIndex $agentIndex)
 
         # Refresh the durable package document before generating the README so
         # the embedded Overview block uses current artifact descriptions.
@@ -602,7 +565,6 @@ function Invoke-PluginGeneration {
         Write-MarketplaceManifest @marketplaceArgs
     }
 
-    Assert-CollectionFreeze -RepoRoot $RepoRoot -Snapshot $freezeSnapshot
 
     if (-not $DryRun) {
         $sizeReport = Assert-PluginOutputSize -PluginsDir $pluginsDir -MaxTotalSizeMB $MaxTotalSizeMB
@@ -735,7 +697,7 @@ function Start-PluginGeneration {
     }
     catch {
         $message = $_.Exception.Message
-        Write-Error "Plugin generation failed: $message"
+        Write-Error -ErrorAction Continue "Plugin generation failed: $message"
 
         if (Get-Command -Name Write-CIAnnotation -ErrorAction SilentlyContinue) {
             Write-CIAnnotation -Message $message -Level Error

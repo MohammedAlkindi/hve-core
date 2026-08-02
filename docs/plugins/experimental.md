@@ -1,13 +1,13 @@
 ---
 title: Experimental
-description: Experimental and preview artifacts not yet promoted to stable collections
+description: Experimental and preview artifacts not yet promoted to stable packages
 sidebar_position: 5
 author: Microsoft
-ms.date: 2026-07-31
+ms.date: 2026-08-01
 ms.topic: reference
 ---
 
-Experimental and preview artifacts not yet promoted to stable collections. Items in this collection may change or be removed without notice.
+Experimental and preview artifacts not yet promoted to stable packages. Items in this package may change or be removed without notice.
 
 ## Included Artifacts
 

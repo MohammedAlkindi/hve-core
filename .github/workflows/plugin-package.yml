@@ -3,138 +3,114 @@
 name: Package Plugins
 
 on:
-    workflow_call:
-        inputs:
-            version:
-                description: "Release version (for artifact metadata)"
-                required: false
-                type: string
-                default: ""
-        outputs:
-            collections-matrix:
-                description: "JSON matrix of plugin packages that were packaged"
-                value: ${{ jobs.discover-collections.outputs.matrix }}
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version (for artifact metadata)"
+        required: false
+        type: string
+        default: ""
+    outputs:
+      packages-matrix:
+        description: "JSON matrix of plugin packages that were packaged"
+        value: ${{ jobs.discover-packages.outputs.matrix }}
 
 permissions:
-    contents: read
+  contents: read
 
 jobs:
-    discover-collections:
-        name: Discover Plugin Packages
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-        outputs:
-            matrix: ${{ steps.discover.outputs.matrix }}
-            names: ${{ steps.discover.outputs.names }}
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  persist-credentials: false
+  discover-packages:
+    name: Discover Plugin Packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+      names: ${{ steps.discover.outputs.names }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-            - name: Discover marketplace packages
-              id: discover
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  catalog=.github/plugin/marketplace.json
+      - name: Setup PowerShell modules
+        uses: ./.github/actions/setup-ps-modules
 
-                  # The catalog is the sole package-definition input, so every
-                  # publishable package is discovered here.
-                  names=$(jq -r '
-                    [ .plugins[]
-                      | select((."x-hve".maturity // "stable") as $m | $m != "deprecated" and $m != "removed")
-                      | .name ]
-                    | sort
-                    | .[]' "$catalog")
+      # Plugin packages ship every non-deprecated, non-removed catalog
+      # entry, which is the PreRelease eligibility policy. Discovery runs
+      # through the same script the extension lanes use so the two lanes
+      # cannot drift apart.
+      - name: Discover marketplace packages
+        id: discover
+        shell: pwsh
+        run: |
+          & ./scripts/extension/Get-MarketplacePackageMatrix.ps1 -Channel 'PreRelease'
 
-                  total=$(printf '%s\n' "$names" | grep -c . || true)
-                  unique=$(printf '%s\n' "$names" | sort -u | grep -c . || true)
-                  if [ "$total" -eq 0 ]; then
-                    echo "::error::No publishable packages found in $catalog"
-                    exit 1
-                  fi
-                  if [ "$total" -ne "$unique" ]; then
-                    echo "::error::Duplicate package names in $catalog"
-                    exit 1
-                  fi
+  package:
+    name: Package Plugin ${{ matrix.id }}
+    needs: discover-packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-packages.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-                  matrix_json=$(printf '%s\n' "$names" | jq -R '{id: .}' | jq -sc '{include: .}')
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: "npm"
 
-                  {
-                    echo "matrix=$matrix_json"
-                    echo "names=$(printf '%s\n' "$names" | jq -Rsc 'split("\n") | map(select(length > 0))')"
-                  } >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        run: npm ci
 
-                  echo "Discovered $total plugin packages:"
-                  printf '%s\n' "$names"
+      - name: Setup PowerShell modules
+        uses: ./.github/actions/setup-ps-modules
 
-    package:
-        name: Package Plugin ${{ matrix.id }}
-        needs: discover-collections
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-        strategy:
-            fail-fast: false
-            matrix: ${{ fromJson(needs.discover-collections.outputs.matrix) }}
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  persist-credentials: false
+      - name: Generate plugins
+        run: |
+          mkdir -p logs
+          npm run plugin:generate
 
-            - name: Setup Node.js
-              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-              with:
-                  node-version: "24"
-                  cache: "npm"
+      - name: Verify generated roots match discovered packages
+        shell: bash
+        env:
+          DISCOVERED_NAMES: ${{ needs.discover-packages.outputs.names }}
+        run: |
+          set -euo pipefail
+          expected=$(printf '%s' "$DISCOVERED_NAMES" | jq -r '.[]' | sort)
+          actual=$(find plugins -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::Generated package roots do not match the discovered package set"
+            diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+            exit 1
+          fi
+          echo "Verified $(printf '%s\n' "$actual" | grep -c .) generated package roots"
 
-            - name: Install dependencies
-              run: npm ci
+      - name: Package plugin directory
+        shell: bash
+        env:
+          PACKAGE_ID: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          plugin_dir="plugins/${PACKAGE_ID}"
+          if [ ! -d "$plugin_dir" ]; then
+            echo "::error::Expected plugin directory not found: $plugin_dir"
+            exit 1
+          fi
 
-            - name: Setup PowerShell modules
-              uses: ./.github/actions/setup-ps-modules
+          mkdir -p dist/plugins
+          zip -r "dist/plugins/${PACKAGE_ID}.zip" "$plugin_dir"
 
-            - name: Generate plugins
-              run: |
-                  mkdir -p logs
-                  npm run plugin:generate
-
-            - name: Verify generated roots match discovered packages
-              shell: bash
-              env:
-                  DISCOVERED_NAMES: ${{ needs.discover-collections.outputs.names }}
-              run: |
-                  set -euo pipefail
-                  expected=$(printf '%s' "$DISCOVERED_NAMES" | jq -r '.[]' | sort)
-                  actual=$(find plugins -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
-                  if [ "$expected" != "$actual" ]; then
-                    echo "::error::Generated package roots do not match the discovered package set"
-                    diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
-                    exit 1
-                  fi
-                  echo "Verified $(printf '%s\n' "$actual" | grep -c .) generated package roots"
-
-            - name: Package plugin directory
-              shell: bash
-              env:
-                  PACKAGE_ID: ${{ matrix.id }}
-              run: |
-                  set -euo pipefail
-                  plugin_dir="plugins/${PACKAGE_ID}"
-                  if [ ! -d "$plugin_dir" ]; then
-                    echo "::error::Expected plugin directory not found: $plugin_dir"
-                    exit 1
-                  fi
-
-                  mkdir -p dist/plugins
-                  zip -r "dist/plugins/${PACKAGE_ID}.zip" "$plugin_dir"
-
-            - name: Upload plugin artifact
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-              with:
-                  name: plugin-package-${{ matrix.id }}
-                  path: dist/plugins/${{ matrix.id }}.zip
-                  retention-days: 30
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-package-${{ matrix.id }}
+          path: dist/plugins/${{ matrix.id }}.zip
+          retention-days: 30

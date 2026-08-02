@@ -34,14 +34,14 @@ Get up and running with installation, configuration, and your first AI-assisted 
 
 * [Install HVE Core](getting-started/install.md) covers three setup paths from marketplace extension to developer clone
 * [Run your first workflow](getting-started/first-workflow.md) walks through an end-to-end RPI example
-* [Browse available collections](getting-started/collections.md) to see what each bundle includes
+* [Browse marketplace packages](getting-started/packages.md) to see what each package includes
 
 ### Leading a Team?
 
 Set up HVE Core for your team with governance, collections, and customization options.
 
 * [Team adoption guide](customization/team-adoption.md) covers governance, naming conventions, and onboarding
-* [Collections overview](getting-started/collections.md) explains how to bundle and distribute artifacts
+* [Marketplace packages](getting-started/packages.md) explains how artifacts are bundled and distributed
 * [Customization guide](customization/README.md) covers the full spectrum from lightweight instructions to fork-and-extend
 
 ### Contributing to HVE Core?

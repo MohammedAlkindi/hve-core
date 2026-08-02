@@ -2,7 +2,7 @@
 title: Linting Scripts
 description: PowerShell scripts for code quality validation and documentation checks
 author: HVE Core Team
-ms.date: 2026-07-08
+ms.date: 2026-08-01
 ms.topic: reference
 keywords:
   - powershell
@@ -525,7 +525,7 @@ The linting directory also contains these scripts that are not yet covered in th
 | Script                             | Purpose                                                                                              |
 |------------------------------------|------------------------------------------------------------------------------------------------------|
 | `Invoke-JsonLint.ps1`              | Validate strict JSON syntax using System.Text.Json                                                   |
-| `Validate-HookManifests.ps1`       | Validate collection-scoped hook manifests under `.github/hooks/`                                     |
+| `Validate-HookManifests.ps1`       | Validate package-scoped hook manifests under `.github/hooks/`                                        |
 | `Validate-PlannerArtifacts.ps1`    | Validate AI artifact footer and disclaimer presence in instruction templates                         |
 | `Test-ModelReferences.ps1`         | Validate model references in agent and prompt files against the model catalog                        |
 | `Test-ExtensionArtifactNaming.ps1` | Validate extension-vsix artifact producer and consumer naming across the extension release workflows |
@@ -723,7 +723,6 @@ The directory includes the following 20 JSON schema files:
 * `ai-artifact-config.schema.json`
 * `base-frontmatter.schema.json`
 * `chatmode-frontmatter.schema.json`
-* `collection-manifest.schema.json`
 * `docs-frontmatter.schema.json`
 * `hook-manifest.schema.json`
 * `instruction-frontmatter.schema.json`

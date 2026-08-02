@@ -107,7 +107,7 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
   discover:
-    name: Discover Collections
+    name: Discover Marketplace Packages
     needs: [normalize-version]
     runs-on: ubuntu-latest
     permissions:
@@ -133,11 +133,11 @@ jobs:
           version="$INPUT_VERSION"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Discover collection manifests
+      - name: Discover marketplace packages
         id: discover
         shell: pwsh
         run: |
-          & ./scripts/extension/Find-CollectionManifests.ps1 -Channel 'Stable'
+          & ./scripts/extension/Get-MarketplacePackageMatrix.ps1 -Channel 'Stable'
 
   publish:
     name: Publish Extensions
@@ -145,7 +145,7 @@ jobs:
     if: ${{ !inputs.dry-run }}
     uses: ./.github/workflows/extension-marketplace-publish.yml
     with:
-      collections-matrix: ${{ needs.discover.outputs.matrix }}
+      packages-matrix: ${{ needs.discover.outputs.matrix }}
       tag: ${{ needs.normalize-version.outputs.tag }}
       pre-release: false
       verify-attestation: true

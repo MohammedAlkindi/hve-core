@@ -43,10 +43,6 @@ jobs:
 
       - name: Guard tracked plugin output and symbolic links
         run: npm run lint:plugin-output
-
-      - name: Validate collection metadata
-        run: npm run lint:collections-metadata
-
       - name: Validate marketplace manifest
         run: npm run lint:marketplace
 

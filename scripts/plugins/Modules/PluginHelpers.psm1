@@ -8,7 +8,8 @@
 
 #Requires -Version 7.4
 
-Import-Module (Join-Path $PSScriptRoot '../../collections/Modules/CollectionHelpers.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../../lib/Modules/ArtifactHelpers.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../../lib/Modules/MarketplaceHelpers.psm1') -Force
 
 # Marker pair delimiting the optional package notice inside a durable package
 # document. The notice renders in the generated README immediately after the
@@ -19,767 +20,6 @@ $script:PluginNoticeEndMarker = '<!-- END PACKAGE NOTICE -->'
 # ---------------------------------------------------------------------------
 # Pure Functions (no file system side effects)
 # ---------------------------------------------------------------------------
-
-function Get-PluginItemName {
-    <#
-    .SYNOPSIS
-    Returns an artifact filename, stripping kind suffixes for CLI display.
-
-    .DESCRIPTION
-    Validated entry point for filename handling in the plugin pipeline.
-    Agent and prompt files have their kind suffix (.agent.md, .prompt.md)
-    replaced with .md so the CLI title is clean. Instruction files keep
-    their suffix because VS Code discovery filters on *.instructions.md.
-
-    .PARAMETER FileName
-    The original filename (e.g. rpi-agent.agent.md).
-
-    .PARAMETER Kind
-    The artifact kind: agent, prompt, instruction, or skill.
-
-    .OUTPUTS
-    [string] The processed filename.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$FileName,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agent', 'prompt', 'instruction', 'skill', 'hook')]
-        [string]$Kind
-    )
-
-    switch ($Kind) {
-        'agent'       { return $FileName -replace '\.agent\.md$', '.md' }
-        'prompt'      { return $FileName -replace '\.prompt\.md$', '.md' }
-        'instruction' { return $FileName }
-        'skill'       { return $FileName }
-        'hook'        { return $FileName }
-    }
-}
-
-function Get-PluginItemSubpath {
-    <#
-    .SYNOPSIS
-    Extracts the subdirectory path between the kind root prefix and the leaf.
-
-    .DESCRIPTION
-    Given a repo-relative item path and its kind, strips the known prefix
-    (e.g. .github/agents/) and returns the intermediate directory segments.
-    Returns empty string when the item is directly under the kind root.
-
-    .PARAMETER Path
-    Repo-relative item path (e.g. .github/agents/hve-core/rpi-agent.agent.md).
-
-    .PARAMETER Kind
-    The artifact kind: agent, prompt, instruction, or skill.
-
-    .OUTPUTS
-    [string] Intermediate subdirectory path, or empty string.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agent', 'prompt', 'instruction', 'skill', 'hook')]
-        [string]$Kind
-    )
-
-    $prefixMap = @{
-        'agent'       = '.github/agents/'
-        'prompt'      = '.github/prompts/'
-        'instruction' = '.github/instructions/'
-        'skill'       = '.github/skills/'
-        'hook'        = '.github/hooks/'
-    }
-
-    $prefix = $prefixMap[$Kind]
-    $normalized = $Path -replace '\\', '/'
-
-    if (-not $normalized.StartsWith($prefix)) {
-        return ''
-    }
-
-    $relative = $normalized.Substring($prefix.Length)
-    $parts = $relative -split '/'
-
-    if ($parts.Count -gt 1) {
-        return ($parts[0..($parts.Count - 2)] -join '/')
-    }
-
-    return ''
-}
-
-function Get-PluginSubdirectory {
-    <#
-    .SYNOPSIS
-    Returns the plugin subdirectory name for an artifact kind.
-
-    .DESCRIPTION
-    Maps a collection item kind to the corresponding subdirectory name
-    within the plugin directory structure.
-
-    .PARAMETER Kind
-    The artifact kind: agent, prompt, instruction, or skill.
-
-    .OUTPUTS
-    [string] The standard component directory name (agents, commands, rules, skills, or hooks).
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agent', 'prompt', 'instruction', 'skill', 'hook')]
-        [string]$Kind
-    )
-
-    switch ($Kind) {
-        'agent' { return 'agents' }
-        'prompt' { return 'commands' }
-        'instruction' { return 'rules' }
-        'skill' { return 'skills' }
-        'hook' { return 'hooks' }
-    }
-}
-
-function Get-MarketplaceComponentFieldMap {
-    <#
-    .SYNOPSIS
-    Returns the standard marketplace component fields and their artifact kinds.
-
-    .DESCRIPTION
-    Standard component membership fields are the sole authority for what a
-    package contains. The map is the single source of truth for the accepted
-    field names and the artifact kind each one carries, so validation,
-    generation, and root-manifest emission cannot disagree.
-
-    .OUTPUTS
-    [System.Collections.Specialized.OrderedDictionary] Field name to artifact kind.
-    #>
-    [CmdletBinding()]
-    [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param()
-
-    return [ordered]@{
-        agents   = 'agent'
-        commands = 'prompt'
-        rules    = 'instruction'
-        skills   = 'skill'
-        hooks    = 'hook'
-    }
-}
-
-function Get-MarketplaceMetadataKey {
-    <#
-    .SYNOPSIS
-    Returns the closed key set permitted inside a marketplace entry x-hve overlay.
-
-    .DESCRIPTION
-    The x-hve extension carries entry-level metadata only. It never owns
-    component membership, so any key outside this set is a contract violation.
-
-    .OUTPUTS
-    [string[]] Permitted x-hve keys.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param()
-
-    return , @('maturity', 'componentMaturity', 'documentation', 'aggregate')
-}
-
-function Get-MarketplaceComponentSourceRoot {
-    <#
-    .SYNOPSIS
-    Returns the canonical repository root and suffix for each component field.
-
-    .DESCRIPTION
-    Standard component paths are both public manifest data and the build
-    recipe, so the mapping between a package-relative path and its canonical
-    repository source must be deterministic in both directions. This map is the
-    single place that records the repository root and the filename suffix each
-    field uses on either side of that mapping.
-
-    .OUTPUTS
-    [System.Collections.Specialized.OrderedDictionary] Field name to root/suffix descriptor.
-    #>
-    [CmdletBinding()]
-    [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param()
-
-    return [ordered]@{
-        agents   = @{ Kind = 'agent'; SourceRoot = '.github/agents'; SourceSuffix = '.agent.md'; PackageSuffix = '.md' }
-        commands = @{ Kind = 'prompt'; SourceRoot = '.github/prompts'; SourceSuffix = '.prompt.md'; PackageSuffix = '.md' }
-        rules    = @{ Kind = 'instruction'; SourceRoot = '.github/instructions'; SourceSuffix = '.instructions.md'; PackageSuffix = '.instructions.md' }
-        skills   = @{ Kind = 'skill'; SourceRoot = '.github/skills'; SourceSuffix = ''; PackageSuffix = '' }
-        hooks    = @{ Kind = 'hook'; SourceRoot = '.github/hooks'; SourceSuffix = '.json'; PackageSuffix = '.json' }
-    }
-}
-
-function Get-MarketplaceComponentField {
-    <#
-    .SYNOPSIS
-    Returns the standard component field name that carries an artifact kind.
-
-    .PARAMETER Kind
-    The artifact kind: agent, prompt, instruction, skill, or hook.
-
-    .OUTPUTS
-    [string] Standard component field name.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agent', 'prompt', 'instruction', 'skill', 'hook')]
-        [string]$Kind
-    )
-
-    return Get-PluginSubdirectory -Kind $Kind
-}
-
-function Get-MarketplacePackagePath {
-    <#
-    .SYNOPSIS
-    Projects a canonical repository source path to its standard component path.
-
-    .DESCRIPTION
-    Produces the package-relative path a catalog entry declares for a source
-    artifact. The projection reuses the plugin subdirectory, subpath, and
-    filename primitives so the catalog recipe and the materialized package
-    layout cannot disagree.
-
-    .PARAMETER SourcePath
-    Repository-relative source path (for example .github/agents/ado/x.agent.md).
-
-    .PARAMETER Kind
-    The artifact kind carried by the source path.
-
-    .OUTPUTS
-    [string] Package-relative component path.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$SourcePath,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agent', 'prompt', 'instruction', 'skill', 'hook')]
-        [string]$Kind
-    )
-
-    $normalized = ($SourcePath -replace '\\', '/').TrimEnd('/')
-    $field = Get-PluginSubdirectory -Kind $Kind
-    $roots = Get-MarketplaceComponentSourceRoot
-    $expectedRoot = "$($roots[$field].SourceRoot)/"
-
-    if (-not $normalized.StartsWith($expectedRoot, [System.StringComparison]::Ordinal)) {
-        throw "Source path '$SourcePath' is not under the canonical '$($roots[$field].SourceRoot)' root for kind '$Kind'."
-    }
-
-    $leaf = Get-PluginItemName -FileName (Split-Path -Leaf $normalized) -Kind $Kind
-    $subpath = Get-PluginItemSubpath -Path $normalized -Kind $Kind
-
-    if ($subpath) {
-        return "$field/$subpath/$leaf"
-    }
-
-    return "$field/$leaf"
-}
-
-function Resolve-MarketplaceComponentSource {
-    <#
-    .SYNOPSIS
-    Resolves a standard component path back to its canonical repository source.
-
-    .DESCRIPTION
-    Inverse of Get-MarketplacePackagePath. The catalog declares package-relative
-    membership, and generation materializes those declarations from canonical
-    repository sources, so this mapping is the only permitted way to locate the
-    source content for a declared component. Nothing is discovered by scanning
-    the filesystem for undeclared artifacts.
-
-    .PARAMETER PackagePath
-    Package-relative component path (for example agents/ado/x.md).
-
-    .PARAMETER Field
-    Standard component field the path was declared under.
-
-    .OUTPUTS
-    [hashtable] Kind, PackagePath, and SourcePath for the declared component.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$PackagePath,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agents', 'commands', 'rules', 'skills', 'hooks')]
-        [string]$Field
-    )
-
-    $resolved = Resolve-MarketplaceComponentPath -Path $PackagePath
-    if ($resolved.Error) {
-        throw "Component field '$Field': $($resolved.Error)"
-    }
-
-    $normalized = $resolved.Path
-    $prefix = "$Field/"
-    if (-not $normalized.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-        throw "Component path '$PackagePath' must start with the '$Field/' package directory."
-    }
-
-    $descriptor = (Get-MarketplaceComponentSourceRoot)[$Field]
-    $relative = $normalized.Substring($prefix.Length)
-
-    if ($descriptor.PackageSuffix) {
-        if (-not $relative.EndsWith($descriptor.PackageSuffix, [System.StringComparison]::Ordinal)) {
-            throw "Component path '$PackagePath' must end with '$($descriptor.PackageSuffix)'."
-        }
-        $stem = $relative.Substring(0, $relative.Length - $descriptor.PackageSuffix.Length)
-        $relative = "$stem$($descriptor.SourceSuffix)"
-    }
-
-    return @{
-        Kind        = $descriptor.Kind
-        PackagePath = $normalized
-        SourcePath  = "$($descriptor.SourceRoot)/$relative"
-    }
-}
-
-function Get-MarketplaceCatalog {
-    <#
-    .SYNOPSIS
-    Loads the marketplace catalog as the sole package-definition input.
-
-    .PARAMETER Path
-    Absolute path to a marketplace.json catalog.
-
-    .OUTPUTS
-    [hashtable] Parsed catalog.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Path
-    )
-
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "Marketplace catalog not found: $Path"
-    }
-
-    $catalog = Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-    if ($null -eq $catalog -or -not $catalog.Contains('plugins')) {
-        throw "Marketplace catalog '$Path' does not declare a plugins array."
-    }
-
-    return $catalog
-}
-
-function Get-MarketplacePackageRecipe {
-    <#
-    .SYNOPSIS
-    Projects one catalog entry into a channel-filtered, ordered build recipe.
-
-    .DESCRIPTION
-    Standard component fields own membership and x-hve.componentMaturity
-    carries the per-component maturity overlay, so the recipe applies the
-    channel maturity policy to declared paths only. Removed components are
-    tombstones: they stay available to the catalog for maturity policy but are
-    never eligible for materialization. Output is ordered by field then path so
-    generation is deterministic without display configuration.
-
-    .PARAMETER Entry
-    One marketplace plugin entry.
-
-    .PARAMETER Channel
-    Release channel controlling eligible component maturities.
-
-    .OUTPUTS
-    [hashtable[]] Items with Kind, Field, PackagePath, SourcePath, and Maturity.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable[]])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Collections.IDictionary]$Entry,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('Stable', 'PreRelease')]
-        [string]$Channel
-    )
-
-    $allowed = if ($Channel -eq 'Stable') { @('stable') } else { @('stable', 'preview', 'experimental') }
-    $componentMaturity = @{}
-    if ($Entry.Contains('x-hve') -and $Entry['x-hve'] -is [System.Collections.IDictionary]) {
-        $overlay = $Entry['x-hve']
-        if ($overlay.Contains('componentMaturity') -and $overlay['componentMaturity'] -is [System.Collections.IDictionary]) {
-            foreach ($key in $overlay['componentMaturity'].Keys) {
-                $componentMaturity[[string]$key] = [string]$overlay['componentMaturity'][$key]
-            }
-        }
-    }
-
-    $items = [System.Collections.Generic.List[hashtable]]::new()
-
-    foreach ($field in (Get-MarketplaceComponentFieldMap).Keys) {
-        if (-not $Entry.Contains($field) -or $null -eq $Entry[$field]) {
-            continue
-        }
-
-        $declared = @($Entry[$field]) | Sort-Object -Unique
-        foreach ($packagePath in $declared) {
-            $component = Resolve-MarketplaceComponentSource -PackagePath ([string]$packagePath) -Field $field
-            $maturity = if ($componentMaturity.ContainsKey($component.PackagePath)) {
-                Resolve-StrictSafeMaturity -Maturity $componentMaturity[$component.PackagePath] -Source "marketplace entry '$($Entry['name'])' component '$($component.PackagePath)'"
-            }
-            else {
-                'stable'
-            }
-
-            if ($allowed -notcontains $maturity) {
-                Write-Verbose "Skipping '$($component.PackagePath)' with maturity '$maturity' for channel '$Channel'."
-                continue
-            }
-
-            $items.Add(@{
-                    Kind        = $component.Kind
-                    Field       = $field
-                    PackagePath = $component.PackagePath
-                    SourcePath  = $component.SourcePath
-                    Maturity    = $maturity
-                })
-        }
-    }
-
-    return [hashtable[]]$items.ToArray()
-}
-
-function Get-MarketplaceEntryMaturity {
-    <#
-    .SYNOPSIS
-    Returns the package-level maturity declared by an entry overlay.
-
-    .PARAMETER Entry
-    One marketplace plugin entry.
-
-    .OUTPUTS
-    [string] Package maturity, defaulting to stable.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Collections.IDictionary]$Entry
-    )
-
-    if ($Entry.Contains('x-hve') -and $Entry['x-hve'] -is [System.Collections.IDictionary]) {
-        $overlay = $Entry['x-hve']
-        if ($overlay.Contains('maturity') -and -not [string]::IsNullOrWhiteSpace([string]$overlay['maturity'])) {
-            return [string]$overlay['maturity']
-        }
-    }
-
-    return 'stable'
-}
-
-function Get-MarketplaceEntryOverlayValue {
-    <#
-    .SYNOPSIS
-    Reads one x-hve overlay value from an entry.
-
-    .PARAMETER Entry
-    One marketplace plugin entry.
-
-    .PARAMETER Key
-    Overlay key to read.
-
-    .OUTPUTS
-    [object] Overlay value, or $null when absent.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Collections.IDictionary]$Entry,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Key
-    )
-
-    if (-not $Entry.Contains('x-hve') -or $Entry['x-hve'] -isnot [System.Collections.IDictionary]) {
-        return $null
-    }
-
-    $overlay = $Entry['x-hve']
-    if (-not $overlay.Contains($Key)) {
-        return $null
-    }
-
-    return $overlay[$Key]
-}
-
-function Resolve-MarketplaceComponentPath {
-    <#
-    .SYNOPSIS
-    Normalizes and validates a package-relative component path.
-
-    .DESCRIPTION
-    Component paths are both public manifest data and the internal build
-    recipe, so they must be portable relative paths that stay inside the
-    package. Absolute paths, backslashes, escaping or relative segments,
-    empty segments, and control characters are rejected. A single trailing
-    slash is normalized away so directory and file forms compare equal.
-
-    .PARAMETER Path
-    The candidate component path.
-
-    .OUTPUTS
-    [hashtable] Path with the normalized value and Error with the failure reason.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyString()]
-        [AllowNull()]
-        [string]$Path
-    )
-
-    $candidate = if ($null -eq $Path) { '' } else { $Path.Trim() }
-
-    if ([string]::IsNullOrWhiteSpace($candidate)) {
-        return @{ Path = ''; Error = 'component path must be a non-empty string' }
-    }
-
-    if ($candidate -match '\p{C}') {
-        return @{ Path = ''; Error = "component path '$candidate' must not contain control characters" }
-    }
-
-    if ($candidate -match '\\') {
-        return @{ Path = ''; Error = "component path '$candidate' must use forward slashes" }
-    }
-
-    if ($candidate -match '^/' -or $candidate -match '^[A-Za-z]:') {
-        return @{ Path = ''; Error = "component path '$candidate' must be relative to the package root" }
-    }
-
-    $normalized = $candidate.TrimEnd('/')
-    if ([string]::IsNullOrWhiteSpace($normalized)) {
-        return @{ Path = ''; Error = 'component path must be a non-empty string' }
-    }
-
-    foreach ($segment in ($normalized -split '/')) {
-        if ([string]::IsNullOrEmpty($segment)) {
-            return @{ Path = ''; Error = "component path '$candidate' must not contain empty path segments" }
-        }
-
-        if ($segment -eq '..') {
-            return @{ Path = ''; Error = "component path '$candidate' must not escape the package root" }
-        }
-
-        if ($segment -eq '.') {
-            return @{ Path = ''; Error = "component path '$candidate' must not contain relative path segments" }
-        }
-    }
-
-    return @{ Path = $normalized; Error = '' }
-}
-
-function Test-MarketplaceEntryContract {
-    <#
-    .SYNOPSIS
-    Validates the standard component membership and x-hve overlay of one entry.
-
-    .DESCRIPTION
-    Enforces the marketplace-centered data contract: standard fields own all
-    component membership, and x-hve carries entry-level metadata only. Each
-    declared component path is normalized and checked for portability,
-    duplicate membership within a field, and duplicate membership across
-    kinds. The x-hve overlay is closed to its documented keys, maturity
-    values follow repository policy, and componentMaturity keys are normalized
-    component paths.
-
-    .PARAMETER Entry
-    One marketplace plugin entry.
-
-    .OUTPUTS
-    [string[]] Error messages, empty when the entry satisfies the contract.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Collections.IDictionary]$Entry
-    )
-
-    $entryErrors = @()
-    $fieldMap = Get-MarketplaceComponentFieldMap
-    $declaredPaths = @{}
-
-    foreach ($field in $fieldMap.Keys) {
-        if (-not $Entry.Contains($field)) {
-            continue
-        }
-
-        $value = $Entry[$field]
-        if ($null -eq $value) {
-            $entryErrors += "component field '$field' must be a path string or an array of path strings"
-            continue
-        }
-
-        if ($field -eq 'hooks' -and $value -isnot [string]) {
-            $entryErrors += "component field 'hooks' must be a single path string"
-            continue
-        }
-
-        $values = if ($value -is [string]) { @($value) } else { @($value) }
-        if ($value -isnot [string] -and $value -isnot [System.Collections.IEnumerable]) {
-            $entryErrors += "component field '$field' must be a path string or an array of path strings"
-            continue
-        }
-
-        if ($values.Count -eq 0) {
-            $entryErrors += "component field '$field' must declare at least one path"
-            continue
-        }
-
-        $seenInField = @{}
-        foreach ($item in $values) {
-            if ($item -isnot [string]) {
-                $entryErrors += "component field '$field' must contain only path strings"
-                continue
-            }
-
-            $resolved = Resolve-MarketplaceComponentPath -Path $item
-            if ($resolved.Error) {
-                $entryErrors += "component field '$field': $($resolved.Error)"
-                continue
-            }
-
-            $normalized = $resolved.Path
-            if ($seenInField.ContainsKey($normalized)) {
-                $entryErrors += "component field '$field' declares duplicate path '$normalized'"
-                continue
-            }
-
-            $seenInField[$normalized] = $true
-
-            if ($declaredPaths.ContainsKey($normalized)) {
-                $entryErrors += "component path '$normalized' is declared in both '$($declaredPaths[$normalized])' and '$field'"
-                continue
-            }
-
-            $declaredPaths[$normalized] = $field
-        }
-    }
-
-    if ($Entry.Contains('author')) {
-        $author = $Entry['author']
-        if ($author -isnot [System.Collections.IDictionary]) {
-            $entryErrors += 'author must be an object containing name and optional email or url'
-        }
-        else {
-            if (-not $author.Contains('name') -or [string]::IsNullOrWhiteSpace([string]$author['name'])) {
-                $entryErrors += 'author.name must be a non-empty string'
-            }
-            if ($author.Contains('email') -and [string]::IsNullOrWhiteSpace([string]$author['email'])) {
-                $entryErrors += 'author.email must be a non-empty string when provided'
-            }
-            if ($author.Contains('url') -and ([string]$author['url'] -notmatch '^https://\S+$')) {
-                $entryErrors += 'author.url must be an absolute https URL when provided'
-            }
-        }
-    }
-
-    if (-not $Entry.Contains('x-hve')) {
-        return [string[]]$entryErrors
-    }
-
-    $overlay = $Entry['x-hve']
-    if ($overlay -isnot [System.Collections.IDictionary]) {
-        $entryErrors += 'x-hve must be an object'
-        return [string[]]$entryErrors
-    }
-
-    $permittedKeys = Get-MarketplaceMetadataKey
-    foreach ($key in $overlay.Keys) {
-        if ($permittedKeys -notcontains $key) {
-            $entryErrors += "x-hve contains unsupported key '$key'"
-        }
-    }
-
-    $vocabulary = Get-CollectionMaturityVocabulary
-
-    if ($overlay.Contains('maturity')) {
-        $maturity = $overlay['maturity']
-        if ($maturity -isnot [string] -or $vocabulary -notcontains $maturity) {
-            $entryErrors += "x-hve.maturity '$maturity' must be one of: $($vocabulary -join ', ')"
-        }
-    }
-
-    if ($overlay.Contains('componentMaturity')) {
-        $componentMaturity = $overlay['componentMaturity']
-        if ($componentMaturity -isnot [System.Collections.IDictionary]) {
-            $entryErrors += 'x-hve.componentMaturity must be an object keyed by component path'
-        }
-        else {
-            foreach ($key in $componentMaturity.Keys) {
-                $resolved = Resolve-MarketplaceComponentPath -Path ([string]$key)
-                if ($resolved.Error) {
-                    $entryErrors += "x-hve.componentMaturity: $($resolved.Error)"
-                    continue
-                }
-
-                if ($resolved.Path -ne [string]$key) {
-                    $entryErrors += "x-hve.componentMaturity key '$key' must be a normalized component path"
-                    continue
-                }
-
-                $itemMaturity = $componentMaturity[$key]
-                if ($itemMaturity -isnot [string] -or $vocabulary -notcontains $itemMaturity) {
-                    $entryErrors += "x-hve.componentMaturity['$key'] value '$itemMaturity' must be one of: $($vocabulary -join ', ')"
-                }
-            }
-        }
-    }
-
-    if ($overlay.Contains('documentation')) {
-        $documentation = $overlay['documentation']
-        if ($documentation -isnot [string]) {
-            $entryErrors += 'x-hve.documentation must be a repository-relative path string'
-        }
-        else {
-            $resolved = Resolve-MarketplaceComponentPath -Path $documentation
-            if ($resolved.Error) {
-                $entryErrors += "x-hve.documentation: $($resolved.Error)"
-            }
-            elseif ($resolved.Path -ne $documentation) {
-                $entryErrors += "x-hve.documentation '$documentation' must be a normalized repository-relative path"
-            }
-        }
-    }
-
-    if ($overlay.Contains('aggregate')) {
-        $aggregate = $overlay['aggregate']
-        if ($aggregate -isnot [bool]) {
-            $entryErrors += 'x-hve.aggregate must be a boolean'
-        }
-    }
-
-    return [string[]]$entryErrors
-}
 
 function New-PluginManifestContent {
     <#
@@ -1018,7 +258,7 @@ function New-PluginReadmeContent {
     title, description, install command, and tables for each artifact kind
     that has items. Only sections with items are included.
 
-    .PARAMETER Collection
+    .PARAMETER PackageMetadata
     Hashtable with id, name, and description keys for the package.
     An optional 'notice' key injects a custom blockquote after the description.
 
@@ -1031,7 +271,7 @@ function New-PluginReadmeContent {
         experimental notice is injected after the description. When 'preview',
         a preview notice is injected.
 
-    .PARAMETER CollectionContent
+    .PARAMETER PackageDocumentation
         Optional markdown content from the durable package document. Injected as
         an Overview section between the description and the Install section.
 
@@ -1042,7 +282,7 @@ function New-PluginReadmeContent {
     [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$Collection,
+        [hashtable]$PackageMetadata,
 
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
@@ -1056,37 +296,37 @@ function New-PluginReadmeContent {
         [Parameter(Mandatory = $false)]
         [AllowNull()]
         [AllowEmptyString()]
-        [string]$CollectionContent
+        [string]$PackageDocumentation
     )
 
-    $parsedDocument = Split-PluginDocumentationSource -Content $CollectionContent
+    $parsedDocument = Split-PluginDocumentationSource -Content $PackageDocumentation
     $title = if (-not [string]::IsNullOrWhiteSpace($parsedDocument.Title)) {
         $parsedDocument.Title
     }
     else {
-        [string]$Collection.name
+        [string]$PackageMetadata.name
     }
 
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.AppendLine('<!-- markdownlint-disable-file -->')
     [void]$sb.AppendLine("# $title")
     [void]$sb.AppendLine()
-    [void]$sb.AppendLine($Collection.description)
+    [void]$sb.AppendLine($PackageMetadata.description)
 
     # Inject maturity notice when the package is not stable
     $effectiveMaturity = if ([string]::IsNullOrWhiteSpace($Maturity)) { 'stable' } else { $Maturity }
     if ($effectiveMaturity -eq 'experimental') {
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine("> **`u{26A0}`u{FE0F} Experimental** `u{2014} This collection is experimental. Contents and behavior may change or be removed without notice.")
+        [void]$sb.AppendLine("> **`u{26A0}`u{FE0F} Experimental** `u{2014} This package is experimental. Contents and behavior may change or be removed without notice.")
     }
     elseif ($effectiveMaturity -eq 'preview') {
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine("> **`u{1F50D} Preview** `u{2014} This collection is in preview. Core features are complete and functional but refinements may follow.")
+        [void]$sb.AppendLine("> **`u{1F50D} Preview** `u{2014} This package is in preview. Core features are complete and functional but refinements may follow.")
     }
 
     # Inject the package notice declared by the durable package document
-    $notice = if ($Collection.ContainsKey('notice') -and -not [string]::IsNullOrWhiteSpace($Collection.notice)) {
-        [string]$Collection.notice
+    $notice = if ($PackageMetadata.ContainsKey('notice') -and -not [string]::IsNullOrWhiteSpace($PackageMetadata.notice)) {
+        [string]$PackageMetadata.notice
     }
     else {
         $parsedDocument.Notice
@@ -1112,7 +352,7 @@ function New-PluginReadmeContent {
     [void]$sb.AppendLine('## Install')
     [void]$sb.AppendLine()
     [void]$sb.AppendLine('```bash')
-    [void]$sb.AppendLine("copilot plugin install $($Collection.id)@hve-core")
+    [void]$sb.AppendLine("copilot plugin install $($PackageMetadata.id)@hve-core")
     [void]$sb.AppendLine('```')
 
     $sectionMap = [ordered]@{
@@ -1123,15 +363,15 @@ function New-PluginReadmeContent {
         hook        = @{ Title = 'Hooks'; Header = 'Hook' }
     }
 
-    $hasCollectionArtifactContent = -not [string]::IsNullOrWhiteSpace($CollectionContent) -and (
-        $CollectionContent -match '(?m)^##\s+Included Artifacts\s*$' -or
+    $hasPackageArtifactContent = -not [string]::IsNullOrWhiteSpace($PackageDocumentation) -and (
+        $PackageDocumentation -match '(?m)^##\s+Included Artifacts\s*$' -or
         (
-            $CollectionContent -match '<!-- BEGIN AUTO-GENERATED ARTIFACTS -->' -and
-            $CollectionContent -match '<!-- END AUTO-GENERATED ARTIFACTS -->'
+            $PackageDocumentation -match '<!-- BEGIN AUTO-GENERATED ARTIFACTS -->' -and
+            $PackageDocumentation -match '<!-- END AUTO-GENERATED ARTIFACTS -->'
         )
     )
 
-    if (-not $hasCollectionArtifactContent) {
+    if (-not $hasPackageArtifactContent) {
         foreach ($entry in $sectionMap.GetEnumerator()) {
             $kind = $entry.Key
             $meta = $entry.Value
@@ -1894,235 +1134,6 @@ function Write-PluginHookArtifact {
     }
 }
 
-function ConvertTo-MarketplaceAgentKey {
-    <#
-    .SYNOPSIS
-    Normalizes an agent handoff target to a comparable lookup key.
-
-    .DESCRIPTION
-    Handoff targets are authored as display names ("ADR Creation") while
-    declared component paths carry file stems ("adr-creation"). Lowercasing and
-    collapsing every non-alphanumeric run to a single hyphen makes both forms
-    comparable without inventing aliases.
-
-    .PARAMETER Name
-    Display name or file stem to normalize.
-
-    .OUTPUTS
-    [string] Normalized lookup key.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyString()]
-        [string]$Name
-    )
-
-    $key = ($Name -replace '[^A-Za-z0-9]+', '-').Trim('-')
-    return $key.ToLowerInvariant()
-}
-
-function Get-MarketplaceAgentIndex {
-    <#
-    .SYNOPSIS
-    Builds the handoff resolution index from catalog-declared agent paths.
-
-    .DESCRIPTION
-    Only agent components declared by a catalog entry enter the index, so
-    dependency closure can never pull in an artifact the catalog does not
-    publish. Each declared agent contributes its file stem and, when present,
-    its frontmatter display name. A key that resolves to two different source
-    paths is recorded as ambiguous and fails only when a handoff requests it.
-
-    .PARAMETER Catalog
-    Parsed marketplace catalog.
-
-    .PARAMETER RepoRoot
-    Absolute path to the repository root.
-
-    .OUTPUTS
-    [hashtable] Lookup (key to descriptor), Ambiguous (key to source paths).
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Collections.IDictionary]$Catalog,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$RepoRoot
-    )
-
-    $lookup = @{}
-    $ambiguous = @{}
-    $seenSources = @{}
-
-    $addKey = {
-        param([string]$Key, [hashtable]$Descriptor)
-
-        if ([string]::IsNullOrWhiteSpace($Key)) {
-            return
-        }
-
-        if (-not $lookup.ContainsKey($Key)) {
-            $lookup[$Key] = $Descriptor
-            return
-        }
-
-        if ($lookup[$Key].SourcePath -eq $Descriptor.SourcePath) {
-            return
-        }
-
-        if (-not $ambiguous.ContainsKey($Key)) {
-            $ambiguous[$Key] = @($lookup[$Key].SourcePath)
-        }
-        $ambiguous[$Key] = @($ambiguous[$Key] + $Descriptor.SourcePath | Sort-Object -Unique)
-    }
-
-    foreach ($entry in @($Catalog['plugins'])) {
-        if (-not $entry.Contains('agents') -or $null -eq $entry['agents']) {
-            continue
-        }
-
-        foreach ($packagePath in @($entry['agents'])) {
-            $component = Resolve-MarketplaceComponentSource -PackagePath ([string]$packagePath) -Field 'agents'
-            if ($seenSources.ContainsKey($component.SourcePath)) {
-                continue
-            }
-
-            $absolute = Join-Path -Path $RepoRoot -ChildPath $component.SourcePath
-            $handoffs = @()
-            $displayName = ''
-
-            if (Test-Path -LiteralPath $absolute -PathType Leaf) {
-                $content = Get-Content -LiteralPath $absolute -Raw -Encoding utf8
-                if ($content -match '(?s)^---\s*\r?\n(.*?)\r?\n---') {
-                    $yaml = $Matches[1] -replace '\r\n', "`n" -replace '\r', "`n"
-                    try {
-                        $frontmatter = ConvertFrom-Yaml -Yaml $yaml
-                        if ($frontmatter -is [System.Collections.IDictionary]) {
-                            if ($frontmatter.Contains('name') -and $frontmatter['name'] -is [string]) {
-                                $displayName = [string]$frontmatter['name']
-                            }
-                            if ($frontmatter.Contains('handoffs') -and $frontmatter['handoffs'] -is [System.Collections.IEnumerable] -and $frontmatter['handoffs'] -isnot [string]) {
-                                foreach ($handoff in $frontmatter['handoffs']) {
-                                    if ($handoff -is [string]) {
-                                        $handoffs += $handoff
-                                    }
-                                    elseif ($handoff -is [System.Collections.IDictionary] -and $handoff.Contains('agent')) {
-                                        $handoffs += [string]$handoff['agent']
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch {
-                        Write-Warning "Failed to parse frontmatter from $($component.SourcePath): $_"
-                    }
-                }
-            }
-            else {
-                Write-Warning "Declared agent source not found: $($component.SourcePath)"
-            }
-
-            $stem = (Split-Path -Leaf $component.SourcePath) -replace '\.agent\.md$', ''
-            $descriptor = @{
-                PackagePath = $component.PackagePath
-                SourcePath  = $component.SourcePath
-                Handoffs    = @($handoffs)
-            }
-            $seenSources[$component.SourcePath] = $descriptor
-
-            & $addKey (ConvertTo-MarketplaceAgentKey -Name $stem) $descriptor
-            if ($displayName) {
-                & $addKey (ConvertTo-MarketplaceAgentKey -Name $displayName) $descriptor
-            }
-        }
-    }
-
-    return @{
-        Lookup    = $lookup
-        Ambiguous = $ambiguous
-    }
-}
-
-function Expand-MarketplaceAgentDependency {
-    <#
-    .SYNOPSIS
-    Closes transitive agent handoff dependencies over declared components.
-
-    .DESCRIPTION
-    Performs breadth-first traversal from the agents a package declares,
-    following frontmatter handoff targets until the set is closed. Duplicates
-    collapse on the canonical source path. An unresolved or ambiguous target
-    fails, because publishing a package whose handoff cannot be satisfied is a
-    silent runtime break.
-
-    .PARAMETER Index
-    Index from Get-MarketplaceAgentIndex.
-
-    .PARAMETER SeedPackagePaths
-    Agent component paths declared by the package.
-
-    .PARAMETER PackageName
-    Package name used in failure messages.
-
-    .OUTPUTS
-    [string[]] Sorted agent component paths including transitive dependencies.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [hashtable]$Index,
-
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyCollection()]
-        [string[]]$SeedPackagePaths,
-
-        [Parameter(Mandatory = $false)]
-        [string]$PackageName = 'unknown'
-    )
-
-    $resolved = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    $queue = [System.Collections.Generic.Queue[hashtable]]::new()
-
-    foreach ($seed in $SeedPackagePaths) {
-        $component = Resolve-MarketplaceComponentSource -PackagePath $seed -Field 'agents'
-        $key = ConvertTo-MarketplaceAgentKey -Name ((Split-Path -Leaf $component.SourcePath) -replace '\.agent\.md$', '')
-        $descriptor = $Index.Lookup[$key]
-        if (-not $descriptor) {
-            throw "Package '$PackageName' declares agent '$seed', which is absent from the catalog agent index."
-        }
-        if ($resolved.Add($descriptor.PackagePath)) {
-            $queue.Enqueue($descriptor)
-        }
-    }
-
-    while ($queue.Count -gt 0) {
-        $current = $queue.Dequeue()
-        foreach ($target in $current.Handoffs) {
-            $key = ConvertTo-MarketplaceAgentKey -Name $target
-            if ($Index.Ambiguous.ContainsKey($key)) {
-                throw "Package '$PackageName': handoff target '$target' in '$($current.SourcePath)' is ambiguous across $($Index.Ambiguous[$key] -join ', ')."
-            }
-
-            $descriptor = $Index.Lookup[$key]
-            if (-not $descriptor) {
-                throw "Package '$PackageName': handoff target '$target' in '$($current.SourcePath)' does not resolve to a catalog-declared agent."
-            }
-
-            if ($resolved.Add($descriptor.PackagePath)) {
-                $queue.Enqueue($descriptor)
-            }
-        }
-    }
-
-    return [string[]]@($resolved | Sort-Object)
-}
-
 function Write-PluginDirectory {
     <#
     .SYNOPSIS
@@ -2396,12 +1407,12 @@ function Write-PluginDirectory {
     $documentContent = if (-not [string]::IsNullOrWhiteSpace($DocumentPath) -and (Test-Path -LiteralPath $DocumentPath -PathType Leaf)) {
         Get-Content -LiteralPath $DocumentPath -Raw -Encoding utf8
     } else { $null }
-    $readmeCollection = @{
+    $readmePackage = @{
         id          = $packageName
         name        = $packageName
         description = [string]$Entry['description']
     }
-    $readmeContent = New-PluginReadmeContent -Collection $readmeCollection -Items $readmeItems -Maturity $Maturity -CollectionContent $documentContent
+    $readmeContent = New-PluginReadmeContent -PackageMetadata $readmePackage -Items $readmeItems -Maturity $Maturity -PackageDocumentation $documentContent
     [void]$generatedFiles.Add($readmePath)
 
     if ($DryRun) {
@@ -2424,32 +1435,14 @@ function Write-PluginDirectory {
 
 Export-ModuleMember -Function @(
     'Assert-PluginSnapshotTarget',
-    'ConvertTo-MarketplaceAgentKey',
     'Copy-PluginSource',
-    'Expand-MarketplaceAgentDependency',
-    'Get-MarketplaceAgentIndex',
-    'Get-MarketplaceCatalog',
-    'Get-MarketplaceComponentField',
-    'Get-MarketplaceComponentFieldMap',
-    'Get-MarketplaceComponentSourceRoot',
-    'Get-MarketplaceEntryMaturity',
-    'Get-MarketplaceEntryOverlayValue',
-    'Get-MarketplaceMetadataKey',
-    'Get-MarketplacePackagePath',
-    'Get-MarketplacePackageRecipe',
-    'Get-PluginItemName',
-    'Get-PluginItemSubpath',
-    'Get-PluginSubdirectory',
     'Get-PluginTrackedPathIndex',
     'New-GenerateResult',
     'New-MarketplaceManifestContent',
     'New-PluginManifestContent',
     'New-PluginReadmeContent',
     'New-PluginReleaseLocator',
-    'Resolve-MarketplaceComponentPath',
-    'Resolve-MarketplaceComponentSource',
     'Split-PluginDocumentationSource',
-    'Test-MarketplaceEntryContract',
     'Write-MarketplaceManifest',
     'Write-PluginDirectory'
 )

@@ -1,4 +1,4 @@
-.collectionCard {
+.packageCard {
   display: flex;
   flex-direction: column;
   position: relative;
@@ -16,18 +16,18 @@
   box-sizing: border-box;
 }
 
-.collectionCard:hover .collectionName {
+.packageCard:hover .packageName {
   text-decoration: underline;
 }
 
-.collectionHeader {
+.packageHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.5rem;
 }
 
-.collectionName {
+.packageName {
   display: block;
   font-size: 16px;
   font-weight: 600;
@@ -37,17 +37,17 @@
   margin: 0;
 }
 
-.collectionName::after {
+.packageName::after {
   content: "";
   position: absolute;
   inset: 0;
 }
 
-.collectionName:hover {
+.packageName:hover {
   text-decoration: underline;
 }
 
-.collectionName:visited {
+.packageName:visited {
   color: var(--ms-learn-visited-link);
 }
 
@@ -79,7 +79,7 @@
   color: #005f73;
 }
 
-.collectionDescription {
+.packageDescription {
   margin: 0 0 0.75rem;
   font-size: 0.875rem;
   color: var(--ms-learn-text-subtle);

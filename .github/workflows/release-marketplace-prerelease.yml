@@ -105,7 +105,7 @@ jobs:
     if: ${{ !inputs.dry-run }}
     uses: ./.github/workflows/extension-marketplace-publish.yml
     with:
-      collections-matrix: ${{ needs.package.outputs.collections-matrix }}
+      packages-matrix: ${{ needs.package.outputs.packages-matrix }}
       pre-release: true
     permissions:
       contents: read

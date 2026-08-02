@@ -1,336 +1,411 @@
 #Requires -Modules Pester
-# Copyright (c) Microsoft Corporation.
+# Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 # SPDX-License-Identifier: MIT
 
 BeforeAll {
-    . $PSScriptRoot/../../plugins/Assert-PluginReleaseEvidence.ps1
+    . (Join-Path $PSScriptRoot '../../plugins/Assert-PluginReleaseEvidence.ps1')
+    Import-Module (Join-Path $PSScriptRoot 'PluginTestFixtures.psm1') -Force
+    Mock Write-Host {}
 
-    function New-EvidenceFixtureRepo {
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$Path,
+    $script:SourceCommit = '0123456789abcdef0123456789abcdef01234567'
 
-            [Parameter(Mandatory = $false)]
-            [string]$Version = '1.2.3'
-        )
+    function New-EvidenceTree {
+        <#
+        .SYNOPSIS
+        Builds a two-package snapshot tree with known content.
+        #>
+        param([Parameter(Mandatory)][string]$Root)
 
-        New-Item -ItemType Directory -Path $Path -Force | Out-Null
-        Set-Content -Path (Join-Path $Path 'package.json') -Value "{`"version`":`"$Version`"}"
+        foreach ($file in @(
+                @{ Path = 'alpha/plugin.json'; Content = '{"name":"alpha"}' }
+                @{ Path = 'alpha/README.md'; Content = "# alpha`n" }
+                @{ Path = 'bravo/plugin.json'; Content = '{"name":"bravo"}' }
+                @{ Path = 'bravo/nested/notes.md'; Content = "# notes`n" }
+            )) {
+            $fullPath = Join-Path $Root $file.Path
+            New-Item -ItemType Directory -Path (Split-Path -Parent $fullPath) -Force | Out-Null
+            Set-Content -LiteralPath $fullPath -Value $file.Content -Encoding utf8NoBOM -NoNewline
+        }
+        return $Root
+    }
+}
 
-        foreach ($package in @('alpha', 'beta')) {
-            $packageDir = Join-Path $Path "plugins/$package"
-            New-Item -ItemType Directory -Path (Join-Path $packageDir 'agents') -Force | Out-Null
-            Set-Content -Path (Join-Path $packageDir 'plugin.json') -Value "{`"name`":`"$package`"}" -NoNewline
-            Set-Content -Path (Join-Path $packageDir 'agents/sample.md') -Value "# $package agent" -NoNewline
+Describe 'Get-PluginContentDigest' -Tag 'Unit' {
+    BeforeEach {
+        $script:digestRoot = New-EvidenceTree -Root (Join-Path $TestDrive ([System.Guid]::NewGuid().ToString()))
+    }
+
+    Context 'when digesting a populated tree' {
+        BeforeEach {
+            $script:digestReport = Get-PluginContentDigest -Path $script:digestRoot
         }
 
-        return $Path
-    }
-
-    $script:knownCommit = '0123456789abcdef0123456789abcdef01234567'
-    $script:otherCommit = 'fedcba9876543210fedcba9876543210fedcba98'
-}
-
-Describe 'Get-PluginContentDigest' {
-    BeforeAll {
-        $script:treeA = Join-Path $TestDrive 'digest/a'
-        $script:treeB = Join-Path $TestDrive 'digest/b'
-        foreach ($tree in @($script:treeA, $script:treeB)) {
-            New-Item -ItemType Directory -Path (Join-Path $tree 'nested') -Force | Out-Null
-            Set-Content -Path (Join-Path $tree 'root.txt') -Value 'root' -NoNewline
-            Set-Content -Path (Join-Path $tree 'nested/leaf.txt') -Value 'leaf' -NoNewline
+        It 'Matches an independently computed path and content digest' {
+            $script:digestReport.Digest | Should -BeExactly (Get-PluginFixtureTreeDigest -Path $script:digestRoot)
         }
-    }
 
-    It 'Produces a lowercase hexadecimal SHA-256 digest' {
-        (Get-PluginContentDigest -Path $script:treeA).Digest | Should -Match '^[0-9a-f]{64}$'
-    }
+        It 'Counts every file in the tree' {
+            $script:digestReport.FileCount | Should -Be 4
+        }
 
-    It 'Produces the same digest for identical trees at different paths' {
-        (Get-PluginContentDigest -Path $script:treeA).Digest |
-            Should -Be (Get-PluginContentDigest -Path $script:treeB).Digest
-    }
-
-    It 'Is stable across repeated computation' {
-        (Get-PluginContentDigest -Path $script:treeA).Digest |
-            Should -Be (Get-PluginContentDigest -Path $script:treeA).Digest
-    }
-
-    It 'Ignores file timestamps' {
-        $baseline = (Get-PluginContentDigest -Path $script:treeA).Digest
-        (Get-Item (Join-Path $script:treeA 'root.txt')).LastWriteTimeUtc = [datetime]'2001-02-03T04:05:06Z'
-        (Get-PluginContentDigest -Path $script:treeA).Digest | Should -Be $baseline
-    }
-
-    It 'Changes when file content changes' {
-        $baseline = (Get-PluginContentDigest -Path $script:treeB).Digest
-        Set-Content -Path (Join-Path $script:treeB 'root.txt') -Value 'root-modified' -NoNewline
-        (Get-PluginContentDigest -Path $script:treeB).Digest | Should -Not -Be $baseline
-    }
-
-    It 'Changes when a file is renamed without content change' {
-        $tree = Join-Path $TestDrive 'digest/rename'
-        New-Item -ItemType Directory -Path $tree -Force | Out-Null
-        Set-Content -Path (Join-Path $tree 'one.txt') -Value 'same' -NoNewline
-        $baseline = (Get-PluginContentDigest -Path $tree).Digest
-
-        Rename-Item -Path (Join-Path $tree 'one.txt') -NewName 'two.txt'
-        (Get-PluginContentDigest -Path $tree).Digest | Should -Not -Be $baseline
-    }
-
-    It 'Reports file count and total bytes' {
-        $report = Get-PluginContentDigest -Path $script:treeA
-        $report.FileCount | Should -Be 2
-        $report.TotalBytes | Should -Be 8
-    }
-}
-
-Describe 'Get-PluginTreeEvidence' {
-    BeforeAll {
-        $script:repoRoot = New-EvidenceFixtureRepo -Path (Join-Path $TestDrive 'tree-repo')
-        $script:pluginsDir = Join-Path $script:repoRoot 'plugins'
-    }
-
-    It 'Reports every package in ordinal order' {
-        $evidence = Get-PluginTreeEvidence -PluginsDir $script:pluginsDir
-        @($evidence.Packages).Count | Should -Be 2
-        @($evidence.Packages)[0].name | Should -Be 'alpha'
-        @($evidence.Packages)[1].name | Should -Be 'beta'
-    }
-
-    It 'Gives each package its own digest' {
-        $evidence = Get-PluginTreeEvidence -PluginsDir $script:pluginsDir
-        @($evidence.Packages)[0].digest | Should -Match '^[0-9a-f]{64}$'
-        @($evidence.Packages)[0].digest | Should -Not -Be @($evidence.Packages)[1].digest
-    }
-
-    It 'Throws when the package tree is absent' {
-        { Get-PluginTreeEvidence -PluginsDir (Join-Path $TestDrive 'missing-tree') } |
-            Should -Throw '*Generated package tree not found*'
-    }
-}
-
-Describe 'New-PluginReleaseEvidenceDocument' {
-    BeforeAll {
-        $script:treeEvidence = @{
-            Digest     = 'a' * 64
-            FileCount  = 4
-            TotalBytes = 128
-            Packages   = @([ordered]@{ name = 'alpha'; digest = 'b' * 64; fileCount = 2 })
+        It 'Sums the byte length of every file' {
+            $expectedBytes = @(Get-ChildItem -LiteralPath $script:digestRoot -File -Recurse -Force |
+                    Measure-Object -Property Length -Sum).Sum
+            $script:digestReport.TotalBytes | Should -Be $expectedBytes
         }
     }
 
-    It 'Binds source commit, version, locator, and digest' {
-        $document = New-PluginReleaseEvidenceDocument -SourceCommit $script:knownCommit -Version '1.2.3' `
-            -Locator (New-PluginReleaseLocator -Version '1.2.3') -TreeEvidence $script:treeEvidence
+    Context 'when incidental file metadata changes' {
+        It 'Produces the same digest after a timestamp change' {
+            $before = (Get-PluginContentDigest -Path $script:digestRoot).Digest
+            foreach ($file in Get-ChildItem -LiteralPath $script:digestRoot -File -Recurse -Force) {
+                $file.LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-30)
+            }
+            (Get-PluginContentDigest -Path $script:digestRoot).Digest | Should -BeExactly $before
+        }
 
-        $document.schema | Should -Be 'hve-core/plugin-release-evidence/v1'
-        $document.sourceCommit | Should -Be $script:knownCommit
-        $document.version | Should -Be '1.2.3'
-        $document.locator.repo | Should -Be 'microsoft/hve-core'
-        $document.locator.ref | Should -Be 'plugins-v1.2.3'
-        $document.digest | Should -Be ('a' * 64)
-        $document.packageCount | Should -Be 1
+        It 'Produces the same digest for a tree written in a different order' {
+            $reordered = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+            New-Item -ItemType Directory -Path (Join-Path $reordered 'bravo/nested') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $reordered 'bravo/nested/notes.md') -Value "# notes`n" -Encoding utf8NoBOM -NoNewline
+            Set-Content -LiteralPath (Join-Path $reordered 'bravo/plugin.json') -Value '{"name":"bravo"}' -Encoding utf8NoBOM -NoNewline
+            New-Item -ItemType Directory -Path (Join-Path $reordered 'alpha') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $reordered 'alpha/README.md') -Value "# alpha`n" -Encoding utf8NoBOM -NoNewline
+            Set-Content -LiteralPath (Join-Path $reordered 'alpha/plugin.json') -Value '{"name":"alpha"}' -Encoding utf8NoBOM -NoNewline
+
+            (Get-PluginContentDigest -Path $reordered).Digest |
+                Should -BeExactly (Get-PluginContentDigest -Path $script:digestRoot).Digest
+        }
     }
 
-    It 'Rejects an abbreviated source commit' {
-        { New-PluginReleaseEvidenceDocument -SourceCommit '0123456' -Version '1.2.3' `
-                -Locator (New-PluginReleaseLocator -Version '1.2.3') -TreeEvidence $script:treeEvidence } |
-            Should -Throw '*must be a full 40-character lowercase commit id*'
+    Context 'when a path changes without a content change' {
+        It 'Produces a different digest' {
+            $before = (Get-PluginContentDigest -Path $script:digestRoot).Digest
+            Rename-Item -LiteralPath (Join-Path $script:digestRoot 'alpha/README.md') -NewName 'OVERVIEW.md'
+            (Get-PluginContentDigest -Path $script:digestRoot).Digest | Should -Not -BeExactly $before
+        }
     }
 
-    It 'Rejects a locator that disagrees with the version' {
-        { New-PluginReleaseEvidenceDocument -SourceCommit $script:knownCommit -Version '1.2.3' `
-                -Locator (New-PluginReleaseLocator -Version '9.9.9') -TreeEvidence $script:treeEvidence } |
-            Should -Throw "*does not match package version '1.2.3'*"
+    Context 'when the tree is absent' {
+        It 'Reports an empty digest report' {
+            $absentReport = Get-PluginContentDigest -Path (Join-Path $TestDrive 'absent-tree')
+            $absentReport.FileCount | Should -Be 0
+            $absentReport.TotalBytes | Should -Be 0
+            $absentReport.Digest | Should -BeExactly (
+                [System.Convert]::ToHexString(
+                    [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes(''))
+                ).ToLowerInvariant()
+            )
+        }
     }
 }
 
-Describe 'Compare-PluginReleaseEvidence' {
-    BeforeAll {
-        $script:actual = New-PluginReleaseEvidenceDocument -SourceCommit $script:knownCommit -Version '1.2.3' `
-            -Locator (New-PluginReleaseLocator -Version '1.2.3') `
-            -TreeEvidence @{
-            Digest     = 'a' * 64
-            FileCount  = 4
-            TotalBytes = 128
-            Packages   = @(
-                [ordered]@{ name = 'alpha'; digest = 'b' * 64; fileCount = 2 }
-                [ordered]@{ name = 'beta'; digest = 'c' * 64; fileCount = 2 }
+Describe 'Get-PluginTreeEvidence' -Tag 'Unit' {
+    BeforeEach {
+        $script:treeRoot = New-EvidenceTree -Root (Join-Path $TestDrive ([System.Guid]::NewGuid().ToString()))
+        $script:treeEvidence = Get-PluginTreeEvidence -PluginsDir $script:treeRoot
+    }
+
+    Context 'when digesting a snapshot tree' {
+        It 'Records every package in ordinal order' {
+            @($script:treeEvidence.Packages | ForEach-Object { $_['name'] }) | Should -Be @('alpha', 'bravo')
+        }
+
+        It 'Records an independently computed digest per package' {
+            foreach ($package in $script:treeEvidence.Packages) {
+                $package['digest'] | Should -BeExactly (
+                    Get-PluginFixtureTreeDigest -Path (Join-Path $script:treeRoot $package['name'])
+                )
+            }
+        }
+
+        It 'Records the file count per package' {
+            @($script:treeEvidence.Packages | ForEach-Object { $_['fileCount'] }) | Should -Be @(2, 2)
+        }
+
+        It 'Records the tree digest over the whole snapshot' {
+            $script:treeEvidence.Digest | Should -BeExactly (Get-PluginFixtureTreeDigest -Path $script:treeRoot)
+            $script:treeEvidence.FileCount | Should -Be 4
+        }
+
+        It 'Contains no symbolic link' {
+            @(Get-PluginFixtureReparsePoint -Path $script:treeRoot) | Should -HaveCount 0
+        }
+    }
+
+    Context 'when the snapshot tree is absent' {
+        It 'Refuses to record evidence' {
+            { Get-PluginTreeEvidence -PluginsDir (Join-Path $TestDrive 'absent-snapshot') } |
+                Should -Throw -ExpectedMessage '*Generated package tree not found*'
+        }
+    }
+}
+
+Describe 'New-PluginReleaseEvidenceDocument' -Tag 'Unit' {
+    BeforeEach {
+        $script:documentRoot = New-EvidenceTree -Root (Join-Path $TestDrive ([System.Guid]::NewGuid().ToString()))
+        $script:documentTree = Get-PluginTreeEvidence -PluginsDir $script:documentRoot
+        $script:documentLocator = New-PluginReleaseLocator -Version '9.9.9' -Repo 'contoso/contoso-hve'
+        $script:evidenceDocument = New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit `
+            -Version '9.9.9' -Locator $script:documentLocator -TreeEvidence $script:documentTree
+    }
+
+    Context 'when the source, version, locator, and digest agree' {
+        It 'Emits document keys in a fixed order' {
+            @($script:evidenceDocument.Keys) | Should -Be @(
+                'schema', 'sourceCommit', 'version', 'locator', 'packageCount',
+                'packages', 'fileCount', 'totalBytes', 'digest', 'generatedAt'
             )
         }
 
-        function Copy-Evidence {
-            param([System.Collections.IDictionary]$Source)
-            return ($Source | ConvertTo-Json -Depth 10 | ConvertFrom-Json -AsHashtable)
+        It 'Binds the source commit and version' {
+            $script:evidenceDocument['sourceCommit'] | Should -BeExactly $script:SourceCommit
+            $script:evidenceDocument['version'] | Should -BeExactly '9.9.9'
+        }
+
+        It 'Binds the immutable locator without a sha field' {
+            @($script:evidenceDocument['locator'].Keys) | Should -Be @('source', 'repo', 'path', 'ref')
+            $script:evidenceDocument['locator']['ref'] | Should -BeExactly 'plugins-v9.9.9'
+            $script:evidenceDocument['locator']['repo'] | Should -BeExactly 'contoso/contoso-hve'
+            ($script:evidenceDocument | ConvertTo-Json -Depth 10) | Should -Not -Match '"sha"'
+        }
+
+        It 'Binds the package count, file count, byte total, and digest' {
+            $expectedPackageCount = @(Get-ChildItem -LiteralPath $script:documentRoot -Directory).Count
+            $script:evidenceDocument['packageCount'] | Should -Be $expectedPackageCount
+            $script:evidenceDocument['fileCount'] | Should -Be 4
+            $script:evidenceDocument['totalBytes'] | Should -Be (
+                @(Get-ChildItem -LiteralPath $script:documentRoot -File -Recurse -Force | Measure-Object -Property Length -Sum).Sum
+            )
+            $script:evidenceDocument['digest'] | Should -BeExactly (Get-PluginFixtureTreeDigest -Path $script:documentRoot)
         }
     }
 
-    It 'Reports no differences for matching evidence' {
-        Compare-PluginReleaseEvidence -Expected (Copy-Evidence $script:actual) -Actual $script:actual |
-            Should -BeNullOrEmpty
-    }
+    Context 'when the binding inputs disagree' {
+        It 'Refuses the source commit <Label>' -ForEach @(
+            @{ Label = 'in uppercase'; Commit = '0123456789ABCDEF0123456789ABCDEF01234567' }
+            @{ Label = 'that is abbreviated'; Commit = '0123456' }
+            @{ Label = 'that is not hexadecimal'; Commit = 'z123456789abcdef0123456789abcdef01234567' }
+        ) {
+            { New-PluginReleaseEvidenceDocument -SourceCommit $Commit -Version '9.9.9' `
+                    -Locator $script:documentLocator -TreeEvidence $script:documentTree } |
+                Should -Throw -ExpectedMessage '*must be a full 40-character lowercase commit id*'
+        }
 
-    It 'Ignores the generation timestamp' {
-        $expected = Copy-Evidence $script:actual
-        $expected['generatedAt'] = '1999-01-01T00:00:00.0000000Z'
-        Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual | Should -BeNullOrEmpty
-    }
-
-    It 'Fails on induced source commit disagreement' {
-        $expected = Copy-Evidence $script:actual
-        $expected['sourceCommit'] = $script:otherCommit
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual)[0] |
-            Should -BeLike 'sourceCommit disagreement*'
-    }
-
-    It 'Fails on induced version disagreement' {
-        $expected = Copy-Evidence $script:actual
-        $expected['version'] = '9.9.9'
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual)[0] |
-            Should -BeLike 'version disagreement*'
-    }
-
-    It 'Fails on induced locator disagreement' {
-        $expected = Copy-Evidence $script:actual
-        $expected['locator']['ref'] = 'plugins-v9.9.9'
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual)[0] |
-            Should -BeLike 'locator.ref disagreement*'
-    }
-
-    It 'Fails on induced digest disagreement' {
-        $expected = Copy-Evidence $script:actual
-        $expected['digest'] = 'd' * 64
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual)[0] |
-            Should -BeLike 'digest disagreement*'
-    }
-
-    It 'Fails on induced package digest disagreement' {
-        $expected = Copy-Evidence $script:actual
-        $expected['packages'][0]['digest'] = 'e' * 64
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual)[0] |
-            Should -BeLike "package 'alpha' digest disagreement*"
-    }
-
-    It 'Fails when a package is missing from recorded evidence' {
-        $expected = Copy-Evidence $script:actual
-        $expected['packages'] = @($expected['packages'][0])
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual) |
-            Should -Contain "package 'beta' is present in the snapshot but absent from recorded evidence"
-    }
-
-    It 'Fails when recorded evidence names an absent package' {
-        $expected = Copy-Evidence $script:actual
-        $expected['packages'] += [ordered]@{ name = 'gamma'; digest = 'f' * 64; fileCount = 1 }
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual) |
-            Should -Contain "package 'gamma' is recorded in evidence but absent from the snapshot"
-    }
-
-    It 'Fails when a required field is absent from recorded evidence' {
-        $expected = Copy-Evidence $script:actual
-        $expected.Remove('digest')
-        @(Compare-PluginReleaseEvidence -Expected $expected -Actual $script:actual) |
-            Should -Contain "recorded evidence is missing required field 'digest'"
+        It 'Refuses a locator that does not match the version' {
+            { New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit -Version '1.0.0' `
+                    -Locator $script:documentLocator -TreeEvidence $script:documentTree } |
+                Should -Throw -ExpectedMessage "*does not match package version '1.0.0'*"
+        }
     }
 }
 
-Describe 'Invoke-PluginReleaseEvidence' {
-    BeforeAll {
-        $script:repoRoot = New-EvidenceFixtureRepo -Path (Join-Path $TestDrive 'invoke-repo')
-        $script:evidencePath = Join-Path $TestDrive 'invoke-evidence.json'
-        Mock Write-Host {}
+Describe 'Compare-PluginReleaseEvidence' -Tag 'Unit' {
+    BeforeEach {
+        $script:compareRoot = New-EvidenceTree -Root (Join-Path $TestDrive ([System.Guid]::NewGuid().ToString()))
+        $script:actualEvidence = New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
+            -Locator (New-PluginReleaseLocator -Version '9.9.9') `
+            -TreeEvidence (Get-PluginTreeEvidence -PluginsDir $script:compareRoot)
+        $script:recordedEvidence = $script:actualEvidence | ConvertTo-Json -Depth 10 | ConvertFrom-Json -AsHashtable
     }
 
-    It 'Records evidence without comparing to committed output' {
-        $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-            -OutputPath $script:evidencePath
-
-        $result.Success | Should -BeTrue
-        $result.Evidence.digest | Should -Match '^[0-9a-f]{64}$'
-        Test-Path -LiteralPath $script:evidencePath | Should -BeTrue
-    }
-
-    It 'Verifies recorded evidence against an unchanged snapshot' {
-        $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-            -ExpectedEvidencePath $script:evidencePath
-
-        $result.Success | Should -BeTrue
-        $result.ErrorCount | Should -Be 0
-    }
-
-    It 'Fails when the snapshot content changes' {
-        Set-Content -Path (Join-Path $script:repoRoot 'plugins/alpha/agents/sample.md') -Value 'tampered' -NoNewline
-        try {
-            $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-                -ExpectedEvidencePath $script:evidencePath
-
-            $result.Success | Should -BeFalse
-            @($result.Errors) | Should -Not -BeNullOrEmpty
+    Context 'when the recorded evidence reproduces' {
+        It 'Reports no disagreement' {
+            @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence) |
+                Should -HaveCount 0
         }
-        finally {
-            Set-Content -Path (Join-Path $script:repoRoot 'plugins/alpha/agents/sample.md') -Value '# alpha agent' -NoNewline
+
+        It 'Ignores the incidental generation timestamp' {
+            $script:recordedEvidence['generatedAt'] = '1999-01-01T00:00:00.0000000Z'
+            @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence) |
+                Should -HaveCount 0
         }
     }
 
-    It 'Fails when the source commit changes' {
-        $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:otherCommit `
-            -ExpectedEvidencePath $script:evidencePath
-
-        $result.Success | Should -BeFalse
-        @($result.Errors)[0] | Should -BeLike 'sourceCommit disagreement*'
-    }
-
-    It 'Fails when the package version changes' {
-        Set-Content -Path (Join-Path $script:repoRoot 'package.json') -Value '{"version":"9.9.9"}'
-        try {
-            $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-                -ExpectedEvidencePath $script:evidencePath
-
-            $result.Success | Should -BeFalse
-            @($result.Errors) | Should -Not -BeNullOrEmpty
+    Context 'when a bound value disagrees' {
+        It 'Reports a <Field> disagreement' -ForEach @(
+            @{ Field = 'schema'; Value = 'hve-core/plugin-release-evidence/v0' }
+            @{ Field = 'sourceCommit'; Value = 'fedcba9876543210fedcba9876543210fedcba98' }
+            @{ Field = 'version'; Value = '1.0.0' }
+            @{ Field = 'digest'; Value = 'deadbeef' }
+        ) {
+            $script:recordedEvidence[$Field] = $Value
+            $differences = @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence)
+            ($differences -join ' ') | Should -Match "$Field disagreement: recorded '$([regex]::Escape($Value))'"
         }
-        finally {
-            Set-Content -Path (Join-Path $script:repoRoot 'package.json') -Value '{"version":"1.2.3"}'
+
+        It 'Reports a missing required field' {
+            $script:recordedEvidence.Remove('digest')
+            $differences = @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence)
+            ($differences -join ' ') | Should -Match "recorded evidence is missing required field 'digest'"
+        }
+
+        It 'Reports a locator disagreement' {
+            $script:recordedEvidence['locator']['ref'] = 'plugins-v1.0.0'
+            $differences = @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence)
+            ($differences -join ' ') | Should -Match "locator.ref disagreement: recorded 'plugins-v1\.0\.0'"
+        }
+
+        It 'Reports a missing locator' {
+            $script:recordedEvidence.Remove('locator')
+            $differences = @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence)
+            ($differences -join ' ') | Should -Match "recorded evidence is missing required field 'locator'"
         }
     }
 
-    It 'Fails on corrupt recorded evidence' {
-        $corruptPath = Join-Path $TestDrive 'corrupt-evidence.json'
-        Set-Content -Path $corruptPath -Value '{ not json'
+    Context 'when the package set disagrees' {
+        It 'Reports a package present only in the snapshot' {
+            $script:recordedEvidence['packages'] = @($script:recordedEvidence['packages'] | Where-Object { $_['name'] -ne 'bravo' })
+            $differences = @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence)
+            ($differences -join ' ') | Should -Match "package 'bravo' is present in the snapshot but absent from recorded evidence"
+        }
 
-        $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-            -ExpectedEvidencePath $corruptPath
+        It 'Reports a package present only in recorded evidence' {
+            $script:recordedEvidence['packages'] += @{ name = 'charlie'; digest = 'deadbeef'; fileCount = 1 }
+            $differences = @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence)
+            ($differences -join ' ') | Should -Match "package 'charlie' is recorded in evidence but absent from the snapshot"
+        }
 
-        $result.Success | Should -BeFalse
-        @($result.Errors)[0] | Should -BeLike '*not valid JSON*'
+        It 'Reports a per-package digest disagreement' {
+            $script:recordedEvidence['packages'][0]['digest'] = 'deadbeef'
+            $differences = @(Compare-PluginReleaseEvidence -Expected $script:recordedEvidence -Actual $script:actualEvidence)
+            ($differences -join ' ') | Should -Match "package 'alpha' digest disagreement: recorded 'deadbeef'"
+        }
+    }
+}
+
+Describe 'Invoke-PluginReleaseEvidence' -Tag 'Unit' {
+    BeforeEach {
+        $script:evidenceRepo = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+        New-PluginFixtureRepository -Path $script:evidenceRepo -Version '9.9.9' -SkipSharedResources | Out-Null
+        New-EvidenceTree -Root (Join-Path $script:evidenceRepo 'plugins') | Out-Null
+        $script:snapshotRoot = Join-Path $script:evidenceRepo 'plugins'
+        $script:recordedPath = Join-Path $script:evidenceRepo 'logs/plugin-release-evidence.json'
     }
 
-    It 'Fails when recorded evidence is absent' {
-        $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-            -ExpectedEvidencePath (Join-Path $TestDrive 'no-such-evidence.json')
+    Context 'when recording evidence for a snapshot' {
+        BeforeEach {
+            $script:recordRun = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo `
+                -SourceCommit $script:SourceCommit -OutputPath 'logs/plugin-release-evidence.json'
+        }
 
-        $result.Success | Should -BeFalse
-        @($result.Errors)[0] | Should -BeLike '*recorded evidence not found*'
+        It 'Succeeds with no finding' {
+            $script:recordRun.Success | Should -BeTrue
+            $script:recordRun.ErrorCount | Should -Be 0
+            @($script:recordRun.Errors) | Should -HaveCount 0
+        }
+
+        It 'Reads the version from package.json and derives the locator' {
+            $script:recordRun.Evidence['version'] | Should -BeExactly '9.9.9'
+            $script:recordRun.Evidence['locator']['ref'] | Should -BeExactly 'plugins-v9.9.9'
+        }
+
+        It 'Writes a parsable evidence document' {
+            $recorded = Get-Content -LiteralPath $script:recordedPath -Raw | ConvertFrom-Json -AsHashtable
+            $recorded['digest'] | Should -BeExactly (Get-PluginFixtureTreeDigest -Path $script:snapshotRoot)
+            $recorded['packageCount'] | Should -Be @(Get-ChildItem -LiteralPath $script:snapshotRoot -Directory).Count
+        }
+
+        It 'Records no symbolic-link evidence' {
+            @(Get-PluginFixtureReparsePoint -Path $script:snapshotRoot) | Should -HaveCount 0
+            $indexEntries = @(Invoke-PluginFixtureGit -RepoRoot $script:evidenceRepo -Arguments @('ls-files', '--cached', '--stage'))
+            @($indexEntries | Where-Object { $_ -match '^120000' }) | Should -HaveCount 0
+        }
     }
 
-    It 'Rejects a sha release locator' {
-        { Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-                -ReleaseTag $script:knownCommit } |
-            Should -Throw '*Sha-pinned catalog sources are not supported*'
+    Context 'when verifying against recorded evidence' {
+        BeforeEach {
+            Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath 'logs/plugin-release-evidence.json' | Out-Null
+        }
+
+        It 'Succeeds when the snapshot reproduces' {
+            $verifyRun = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
+            $verifyRun.Success | Should -BeTrue
+            $verifyRun.ErrorCount | Should -Be 0
+        }
+
+        It 'Refuses a snapshot whose content changed' {
+            Set-Content -LiteralPath (Join-Path $script:snapshotRoot 'alpha/README.md') -Value "# tampered`n" -Encoding utf8NoBOM -NoNewline
+            $verifyRun = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
+            $verifyRun.Success | Should -BeFalse
+            ($verifyRun.Errors -join ' ') | Should -Match 'digest disagreement'
+            ($verifyRun.Errors -join ' ') | Should -Match "package 'alpha' digest disagreement"
+        }
+
+        It 'Refuses a snapshot built from a different source commit' {
+            $verifyRun = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo `
+                -SourceCommit 'fedcba9876543210fedcba9876543210fedcba98' `
+                -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
+            $verifyRun.Success | Should -BeFalse
+            ($verifyRun.Errors -join ' ') | Should -Match 'sourceCommit disagreement'
+        }
     }
 
-    It 'Passes a satisfied package count precondition' {
-        $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-            -ExpectedPackageCount 2
+    Context 'when the recorded evidence cannot be read' {
+        It 'Reports a missing evidence document' {
+            $run = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath '' -ExpectedEvidencePath 'logs/absent-evidence.json'
+            $run.Success | Should -BeFalse
+            ($run.Errors -join ' ') | Should -Match 'recorded evidence not found: logs/absent-evidence.json'
+        }
 
-        $result.Success | Should -BeTrue
+        It 'Reports evidence that is not valid JSON' {
+            New-Item -ItemType Directory -Path (Join-Path $script:evidenceRepo 'logs') -Force | Out-Null
+            Set-Content -LiteralPath $script:recordedPath -Value '{ "digest": ' -Encoding utf8NoBOM -NoNewline
+            $run = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
+            $run.Success | Should -BeFalse
+            ($run.Errors -join ' ') | Should -Match 'recorded evidence is not valid JSON'
+        }
+
+        It 'Reports evidence that is not an evidence document' {
+            New-Item -ItemType Directory -Path (Join-Path $script:evidenceRepo 'logs') -Force | Out-Null
+            Set-Content -LiteralPath $script:recordedPath -Value '[]' -Encoding utf8NoBOM -NoNewline
+            $run = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
+            $run.Success | Should -BeFalse
+            ($run.Errors -join ' ') | Should -Match 'recorded evidence is not an evidence document'
+        }
     }
 
-    It 'Fails an unsatisfied package count precondition' {
-        $result = Invoke-PluginReleaseEvidence -RepoRoot $script:repoRoot -SourceCommit $script:knownCommit `
-            -ExpectedPackageCount 3
+    Context 'when a package count precondition is supplied' {
+        It 'Accepts the observed package count' {
+            $observedCount = @(Get-ChildItem -LiteralPath $script:snapshotRoot -Directory).Count
+            $run = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath '' -ExpectedPackageCount $observedCount
+            $run.Success | Should -BeTrue
+        }
 
-        $result.Success | Should -BeFalse
-        @($result.Errors)[0] | Should -BeLike '*package count precondition failed: expected 3, snapshot has 2*'
+        It 'Refuses a package count the snapshot does not meet' {
+            $observedCount = @(Get-ChildItem -LiteralPath $script:snapshotRoot -Directory).Count
+            $run = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                -OutputPath '' -ExpectedPackageCount ($observedCount + 1)
+            $run.Success | Should -BeFalse
+            ($run.Errors -join ' ') |
+                Should -Match "package count precondition failed: expected $($observedCount + 1), snapshot has $observedCount"
+        }
+
+        It 'Applies no precondition by default' {
+            $run = Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit -OutputPath ''
+            $run.Success | Should -BeTrue
+            ($run.Errors -join ' ') | Should -Not -Match 'package count precondition'
+        }
     }
+
+    Context 'when the snapshot tree is absent' {
+        It 'Refuses to record evidence' {
+            { Invoke-PluginReleaseEvidence -RepoRoot $script:evidenceRepo -SourceCommit $script:SourceCommit `
+                    -PluginsDir 'absent-plugins' -OutputPath '' } |
+                Should -Throw -ExpectedMessage '*Generated package tree not found*'
+        }
+    }
+}
+
+AfterAll {
+    Remove-Module PluginTestFixtures -Force -ErrorAction SilentlyContinue
+    Remove-Module PluginHelpers -Force -ErrorAction SilentlyContinue
+    Remove-Module CIHelpers -Force -ErrorAction SilentlyContinue
 }

@@ -68,6 +68,7 @@
         "skills/shared/pr-reference"
       ],
       "x-hve": {
+        "displayName": "HVE Core - Azure DevOps Integration",
         "documentation": "docs/plugins/ado.md"
       }
     },
@@ -161,6 +162,7 @@
           "skills/coding-standards/code-review": "experimental",
           "skills/coding-standards/python-foundational": "experimental"
         },
+        "displayName": "HVE Core - Coding Standards",
         "documentation": "docs/plugins/coding-standards.md"
       }
     },
@@ -231,6 +233,7 @@
           "skills/project-planning/rai-planner": "experimental",
           "skills/rai/rai-standards": "experimental"
         },
+        "displayName": "HVE Core - Data Science",
         "documentation": "docs/plugins/data-science.md"
       }
     },
@@ -323,6 +326,7 @@
           "skills/design-thinking/dt-methods": "preview",
           "skills/design-thinking/dt-rpi-integration": "preview"
         },
+        "displayName": "HVE Core - Design Thinking",
         "documentation": "docs/plugins/design-thinking.md"
       }
     },
@@ -334,7 +338,7 @@
         "path": "plugins/experimental",
         "ref": "plugins-v3.3.106"
       },
-      "description": "Experimental and preview artifacts not yet promoted to stable collections",
+      "description": "Experimental and preview artifacts not yet promoted to stable packages",
       "version": "3.3.106",
       "author": {
         "name": "Microsoft",
@@ -399,6 +403,7 @@
           "skills/experimental/mural": "experimental",
           "skills/experimental/tts-voiceover": "experimental"
         },
+        "displayName": "HVE Core - Experimental",
         "documentation": "docs/plugins/experimental.md"
       }
     },
@@ -453,6 +458,7 @@
         "componentMaturity": {
           "skills/github/gh-code-scanning": "experimental"
         },
+        "displayName": "HVE Core - GitHub Backlog Management",
         "documentation": "docs/plugins/github.md"
       }
     },
@@ -486,6 +492,7 @@
         "skills/gitlab/gitlab"
       ],
       "x-hve": {
+        "displayName": "HVE Core - GitLab Integration",
         "documentation": "docs/plugins/gitlab.md"
       }
     },
@@ -611,6 +618,7 @@
           "skills/coding-standards/code-review": "experimental",
           "skills/experimental/mural": "experimental"
         },
+        "displayName": "HVE Core",
         "documentation": "docs/plugins/hve-core.md"
       }
     },
@@ -1035,6 +1043,7 @@
           "skills/security/vex": "experimental",
           "skills/shared/backlog-templates": "experimental"
         },
+        "displayName": "HVE Core - All",
         "documentation": "docs/plugins/hve-core-all.md",
         "aggregate": true
       }
@@ -1068,6 +1077,7 @@
         "skills/installer/hve-core-installer"
       ],
       "x-hve": {
+        "displayName": "HVE Core - HVE Core Installer",
         "documentation": "docs/plugins/installer.md"
       }
     },
@@ -1117,6 +1127,7 @@
         "skills/jira/jira"
       ],
       "x-hve": {
+        "displayName": "HVE Core - Jira Integration",
         "documentation": "docs/plugins/jira.md"
       }
     },
@@ -1296,6 +1307,7 @@
           "skills/security/supply-chain-security": "experimental",
           "skills/shared/backlog-templates": "experimental"
         },
+        "displayName": "HVE Core - Project Planning",
         "documentation": "docs/plugins/project-planning.md"
       }
     },
@@ -1342,6 +1354,7 @@
         "skills/rpi/rpi-walkthrough"
       ],
       "x-hve": {
+        "displayName": "HVE Core - RPI Skills",
         "documentation": "docs/plugins/rpi.md"
       }
     },
@@ -1505,6 +1518,7 @@
           "skills/security/vex": "experimental",
           "skills/shared/backlog-templates": "experimental"
         },
+        "displayName": "HVE Core - Security",
         "documentation": "docs/plugins/security.md"
       }
     }

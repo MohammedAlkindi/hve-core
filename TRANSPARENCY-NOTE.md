@@ -2,7 +2,7 @@
 title: "Transparency Note: HVE Core (May 2026)"
 description: "Public Transparency Note for HVE Core, a prompt-engineering and agentic-customization framework distributed by microsoft/hve-core."
 author: HVE Core Maintainers
-ms.date: 2026-07-24
+ms.date: 2026-08-01
 ms.topic: overview
 keywords:
   - responsible-ai
@@ -39,7 +39,7 @@ The appendices at the end add detail for the agents that most influence downstre
 | Prompt               | A reusable user-message template (`*.prompt.md`) you load into a Copilot Chat or CLI session.                                                                            |
 | Instructions         | Guidance (`*.instructions.md`) that shapes how the model responds for a given file type, language, or workflow.                                                          |
 | Skill                | A self-contained capability package (`SKILL.md` plus optional scripts and references) that documents a reusable task.                                                    |
-| Collection           | A bundle of files (`*.collection.yml` plus a description) that you can install as one unit.                                                                              |
+| Marketplace package  | A self-contained bundle declared in `.github/plugin/marketplace.json` that you can install as one unit.                                                                              |
 | Subagent             | An agent that another agent calls for a focused task, such as a read-only researcher or a single implementation step.                                                    |
 | Distribution channel | One of the ways HVE Core files reach you: the VS Code extension, the GitHub plugin marketplace, a direct git clone, or a copy placed in a customer repository.           |
 | Host platform        | The Copilot surface that runs the model: GitHub Copilot Chat in Visual Studio Code, or the GitHub Copilot CLI. HVE Core does not include or replace it.                  |
@@ -134,7 +134,7 @@ For a set of files, "performance" is not a model-accuracy score. It is how well 
 Quality rests on a few things:
 
 * **CI checks on every pull request.** Markdown linting, frontmatter validation, model-reference checks, link checking, PowerShell and Python linting, YAML validation, collection-metadata and marketplace validation, dependency-pinning and action-version checks, copyright-header checks, and skill-structure validation all run on each pull request and block merge on failure.
-* **Plugin-generation gate.** Collection manifests are regenerated from source on every change; a mismatch with the generated `plugins/` outputs blocks merge.
+* **Plugin-generation gate.** Marketplace package recipes are regenerated from source on every change; a mismatch with the generated `plugins/` outputs blocks merge.
 * **Human review.** Every file change needs human review. Supply-chain and dependency checks surface to reviewers.
 * **Phase-gated releases.** Artifacts move through experimental, prerelease, and stable maturity stages, giving natural points for deeper human review before broad adoption. Releases follow `release-please` conventional-commit rules with a CHANGELOG, and the VS Code extension carries version metadata you can pin against.
 * **Feedback channel.** GitHub issues on `microsoft/hve-core` are the main place for bugs, requests, and concerns.
@@ -144,7 +144,7 @@ HVE Core does not measure performance against a specific model. If you need repr
 ### Getting the best results
 
 * **Pin to a release tag.** Treat the main branch as a moving target. For anything production-relevant, pin to a release tag and review changes before upgrading.
-* **Adopt one collection at a time.** HVE Core ships several collections (see the `collections/` manifests for the current set), and most teams do not need all of them. Start with the one closest to your work and grow from there.
+* **Adopt one collection at a time.** HVE Core ships several collections (see `.github/plugin/marketplace.json` for the current set), and most teams do not need all of them. Start with the one closest to your work and grow from there.
 * **Read an agent's description before loading it.** Each agent file documents its purpose, inputs, outputs, and limits. Skipping this is the most common cause of surprises.
 * **Treat decision-shaping output as a draft.** Planning agents, code-review agents that gate pull requests, and customer-handoff agents produce drafts. Do not turn a draft into a binding decision without qualified human review.
 * **Check saved memory before sharing a workspace.** Agents that write to the memory layer carry context across sessions. Inspect and clear it through the host's controls before sharing a workspace, screenshot, or recording.

@@ -2,7 +2,7 @@
 title: Scripts
 description: PowerShell scripts for linting, validation, and security automation
 author: HVE Core Team
-ms.date: 2026-07-16
+ms.date: 2026-08-01
 ms.topic: reference
 keywords:
   - powershell
@@ -19,7 +19,7 @@ This directory contains PowerShell scripts for automating linting, validation, a
 
 ```text
 scripts/
-├── collections/     Collection validation and shared helpers
+├── lib/             Shared artifact, marketplace, and CI helpers
 ├── agents/          Agent activation harness and baseline snapshots
 ├── evals/           Eval runner and moderation automation
 ├── release/         Release version-file update helper
@@ -160,18 +160,10 @@ The `security/` directory contains scripts for security scanning and dependency 
 
 Copilot CLI plugin generation and validation.
 
-| Script                     | Purpose                                   |
-|----------------------------|-------------------------------------------|
-| `Generate-Plugins.ps1`     | Generate plugin packages from collections |
-| `Validate-Marketplace.ps1` | Validate marketplace metadata             |
-
-## Collections
-
-Collection validation and shared helpers.
-
-| Script                     | Purpose                                    |
-|----------------------------|--------------------------------------------|
-| `Validate-Collections.ps1` | Validate collection metadata and structure |
+| Script                     | Purpose                                               |
+|----------------------------|-------------------------------------------------------|
+| `Generate-Plugins.ps1`     | Generate plugin packages from the marketplace catalog |
+| `Validate-Marketplace.ps1` | Validate marketplace metadata                         |
 
 ## Tests
 
@@ -179,13 +171,12 @@ Pester test organization matching the scripts structure.
 
 | Directory       | Tests For                     |
 |-----------------|-------------------------------|
-| `collections/`  | Collection helpers tests      |
+| `lib/`          | Shared helper tests           |
 | `devcontainer/` | Devcontainer validation tests |
 | `extension/`    | Extension packaging tests     |
-| `lib/`          | Library utility tests         |
+| `plugins/`      | Plugin generation tests       |
 | `linting/`      | Linting script tests          |
 | `security/`     | Security validation tests     |
-| `plugins/`      | Plugin generation tests       |
 | `Fixtures/`     | Shared test fixtures          |
 | `Mocks/`        | Shared mock data              |
 
@@ -267,7 +258,7 @@ Key rules:
 
 ## Related Documentation
 
-* [Collection Scripts Documentation](collections/README.md)
+* [Plugin Scripts Documentation](plugins/README.md)
 * [Extension Packaging Documentation](extension/README.md)
 * [Library Utilities Documentation](lib/README.md)
 * [Linting Scripts Documentation](linting/README.md)

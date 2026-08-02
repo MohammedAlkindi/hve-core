@@ -204,21 +204,6 @@
               "minLength": 1
             }
           },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "dependencies": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Other marketplace packages this package requires."
-          },
           "strict": {
             "type": "boolean"
           },
@@ -243,7 +228,14 @@
           "x-hve": {
             "type": "object",
             "description": "Entry-level metadata overlay. Never owns component membership and never appears in a generated root plugin.json.",
+            "required": [
+              "displayName"
+            ],
             "properties": {
+              "displayName": {
+                "type": "string",
+                "minLength": 1
+              },
               "maturity": {
                 "$ref": "#/definitions/maturity"
               },

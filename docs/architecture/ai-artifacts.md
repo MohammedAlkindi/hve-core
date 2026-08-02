@@ -3,7 +3,7 @@ title: AI Artifacts Architecture
 description: Prompt, agent, and instruction delegation model for Copilot customizations
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-07-31
+ms.date: 2026-08-01
 ms.topic: concept
 ---
 
@@ -85,10 +85,10 @@ Instructions answer the question "what standards apply to this context?" and ens
 
 #### Repo-Specific Instructions
 
-Instructions placed at the root of `.github/instructions/` (without a subdirectory) are scoped to the hve-core repository itself and MUST NOT be included in collection manifests. These files govern internal repository concerns (CI/CD workflows, repo-specific conventions) that are not applicable outside the repository. Root-level artifacts are intentionally excluded from artifact selection and package composition.
+Instructions placed at the root of `.github/instructions/` (without a subdirectory) are scoped to the hve-core repository itself and MUST NOT be included in marketplace package membership. These files govern internal repository concerns (CI/CD workflows, repo-specific conventions) that are not applicable outside the repository. Root-level artifacts are intentionally excluded from artifact selection and package composition.
 
 > [!IMPORTANT]
-> Root-level files under `.github/instructions/` (no subdirectory) are repo-specific and never distributed. Files in subdirectories like `hve-core/`, `ado/`, and `shared/` are collection-scoped and distributable.
+> Root-level files under `.github/instructions/` (no subdirectory) are repo-specific and never distributed. Files in subdirectories like `hve-core/`, `ado/`, and `shared/` are package-scoped and distributable.
 
 ### Skills
 
@@ -103,7 +103,7 @@ Skills (`.github/skills/<name>/SKILL.md`) provide executable utilities that agen
 #### Directory Structure (by Convention)
 
 ```text
-.github/skills/{collection-id}/<skill-name>/
+.github/skills/{package-id}/<skill-name>/
 ├── SKILL.md           # Required entry point with frontmatter
 ├── scripts/
 │   ├── convert.sh     # Bash implementation
@@ -128,7 +128,7 @@ description: 'Video-to-GIF conversion with FFmpeg optimization'
 | `name`        | Lowercase kebab-case identifier matching directory name |
 | `description` | Brief capability description                            |
 
-Maturity is tracked in `collections/*.collection.yml`, not in skill frontmatter. See [Collection Manifests](#collection-manifests) for details.
+Maturity is package metadata in `.github/plugin/marketplace.json`, not skill frontmatter. See [Marketplace Packages](#marketplace-packages).
 
 Skills answer the question "what specialized utility does this task require?" and provide executable capabilities beyond conversational guidance.
 
@@ -177,7 +177,7 @@ agent: 'pr-creator'
 ---
 ```
 
-The referenced agent file (`pr-creator.agent.md`) is typically organized under `.github/agents/{collection-id}/` by convention. When a user invokes the prompt, Copilot activates the specified agent with the prompt's context.
+The referenced agent file (`pr-creator.agent.md`) is typically organized under `.github/agents/{package-id}/` by convention. When a user invokes the prompt, Copilot activates the specified agent with the prompt's context.
 
 ### Instruction Glob Patterns
 
@@ -196,7 +196,7 @@ Multiple instructions can apply to the same file. When patterns overlap, all mat
 Skills provide self-contained utilities through the `SKILL.md` file:
 
 ```text
-.github/skills/{collection-id}/<skill-name>/
+.github/skills/{package-id}/<skill-name>/
 ├── SKILL.md                    # Entry point documentation
 ├── convert.sh                  # Bash implementation
 ├── convert.ps1                 # PowerShell implementation
@@ -204,148 +204,19 @@ Skills provide self-contained utilities through the `SKILL.md` file:
     └── README.md
 ```
 
-The `{collection-id}` path segment reflects the conventional organization; artifacts can reside in any subfolder.
+The `{package-id}` path segment reflects the conventional organization; artifacts can reside in any subfolder.
 
 Copilot discovers skills automatically when their description matches the current task context. Skills can also be referenced explicitly by name. The skill's `SKILL.md` documents prerequisites, parameters, and usage patterns. Cross-platform scripts ensure consistent behavior across operating systems.
 
-## Collection Manifests
+## Marketplace Packages
 
-Collection manifests in `collections/*.collection.yml` serve as the source of truth for artifact selection and maturity. They drive packaging for extension collections and contributor workflows without adding maturity metadata to artifact frontmatter.
+`.github/plugin/marketplace.json` is the sole package-definition authority. Standard `agents`, `commands`, `rules`, `skills`, and `hooks` fields declare membership. The `x-hve` overlay contains only display name, package and component maturity, documentation, and aggregate status.
 
-### Collection Architecture
+### Shared Projection
 
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                     Collection Manifests                             │
-│  collections/*.collection.yml                                        │
-│  ┌─────────────────────────────────────────────────────────────┐     │
-│  │ items[]                                                     │     │
-│  │ - path                                                      │     │
-│  │ - kind                                                      │     │
-│  │ - maturity (optional, defaults to stable)                  │     │
-│  └─────────────────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Build System                                 │
-│  ┌─────────────────┐    ┌─────────────────┐                         │
-│  │ Collection      │    │ Prepare-        │                         │
-│  │ Manifests       │───▶│ Extension.ps1   │                         │
-│  │ *.collection.yml     │ -Collection     │                         │
-│  └─────────────────┘    └─────────────────┘                         │
-└─────────────────────────────────────────────────────────────────────┘
-```
+`MarketplaceHelpers.psm1` maps package paths to canonical `.github` sources, applies channel maturity, and closes transitive agent handoffs. Plugin generation and VSIX preparation consume the same resolved source sets before destination mapping. Unresolved or ambiguous handoffs fail validation.
 
-### Collection Item Structure
-
-Each collection item defines inclusion metadata for artifact selection and release channel filtering:
-
-```yaml
-items:
-    - path: .github/agents/hve-core/rpi-agent.agent.md
-        kind: agent
-        maturity: stable
-    - path: .github/skills/rpi/rpi-plan/SKILL.md
-        kind: skill
-        maturity: preview
-```
-
-| Field      | Purpose                                                           |
-|------------|-------------------------------------------------------------------|
-| `path`     | Repository-relative path to the artifact source                   |
-| `kind`     | Artifact type (`agent`, `prompt`, `instruction`, `skill`, `hook`) |
-| `maturity` | Optional release channel gating value (`stable` default)          |
-
-### Collection Model
-
-Collections represent role-targeted artifact packages. Collection manifests select artifacts for those roles.
-
-| Collection           | Identifier         | Maturity     | Target Users                                     |
-|----------------------|--------------------|--------------|--------------------------------------------------|
-| **Full**             | `hve-core-all`     | Stable       | Universal inclusion                              |
-| **Core**             | `hve-core`         | Stable       | RPI workflow, code review, PR agents             |
-| **ADO**              | `ado`              | Stable       | Azure DevOps integration                         |
-| **GitHub**           | `github`           | Stable       | GitHub backlog and issue management              |
-| **Project Planning** | `project-planning` | Stable       | Architecture, requirements, agile coaching       |
-| **Coding Standards** | `coding-standards` | Stable       | Language-specific coding conventions             |
-| **Data Science**     | `data-science`     | Stable       | Notebooks, dashboards, data analysis             |
-| **Security**         | `security`         | Stable       | Security review, planning, and incident response |
-| **RAI Planning**     | `rai-planning`     | Experimental | Responsible AI assessment and impact analysis    |
-| **Design Thinking**  | `design-thinking`  | Preview      | 9-method DT coaching and learning                |
-| **Installer**        | `installer`        | Stable       | HVE-Core installation and setup                  |
-| **Experimental**     | `experimental`     | Experimental | Early-stage artifacts under active iteration     |
-
-The **Full** collection aggregates artifacts from all other stable and preview collections. Role-specific collections allow targeted installation for teams that need only a subset.
-
-### Collection Build System
-
-Collections define role-filtered artifact packages. Each collection manifest specifies which artifacts to include and controls release channel eligibility through a `maturity` field:
-
-```json
-{
-    "id": "data-science",
-    "name": "hve-data-science",
-    "displayName": "HVE Core - Data Science",
-    "description": "AI-powered agents for data analysis, notebooks, and dashboards",
-    "maturity": "stable",
-    "items": ["data-science"]
-}
-```
-
-The build system resolves collections by:
-
-1. Reading the collection manifest to identify target artifacts
-2. Checking collection-level maturity against the target release channel
-3. Filtering collection items by path/kind membership
-4. Including the `hve-core-all` collection artifacts as the base
-5. Adding collection-specific artifacts
-6. Resolving dependencies for included artifacts
-
-#### Collection Maturity
-
-Collections carry their own maturity level, independent of artifact-level maturity. This controls whether the entire collection is built for a given release channel:
-
-| Collection Maturity | PreRelease Channel | Stable Channel |
-|---------------------|--------------------|----------------|
-| `stable`            | Included           | Included       |
-| `preview`           | Included           | Included       |
-| `experimental`      | Included           | Excluded       |
-| `deprecated`        | Excluded           | Excluded       |
-| `removed`           | Excluded           | Excluded       |
-
-New collections should start as `experimental` until validated, then graduate through `preview` to `stable` by changing a single field. The `maturity` field is optional and defaults to `stable` when omitted.
-
-### Dependency Resolution
-
-Agents may declare dependencies on other artifacts through the `requires` field. The dependency resolver ensures complete artifact graphs are installed:
-
-```mermaid
-graph TD
-    A[RPI Agent] --> B[rpi-research skill]
-    A --> C[rpi-plan skill]
-    A --> D[rpi-implement skill]
-    A --> E[rpi-review skill]
-    G[rpi prompt] --> A
-```
-
-Collections that package RPI Agent must also package the entry prompt and phase
-skills required by its lifecycle contract.
-
-## Extension Integration
-
-The VS Code extension discovers and activates AI artifacts through contribution points.
-
-### Discovery Mechanism
-
-The extension scans these directories at startup:
-
-* `.github/prompts/{collection-id}/` for workflow entry points
-* `.github/agents/{collection-id}/` for specialized behaviors
-* `.github/instructions/{collection-id}/` for technology standards
-* `.github/skills/{collection-id}/` for utility packages
-
-These paths reflect the conventional directory structure. Artifact inclusion is controlled by `collections/*.collection.yml`, and collection manifests can reference artifacts from any subfolder. Root-level artifacts (files directly under `.github/{type}/` with no subdirectory) are repo-specific, excluded from discovery, and never packaged into extension builds.
+### Package Channels
 
 | Maturity       | Stable Channel | Pre-release Channel |
 |----------------|----------------|---------------------|
@@ -355,16 +226,45 @@ These paths reflect the conventional directory structure. Artifact inclusion is 
 | `deprecated`   | Excluded       | Excluded            |
 | `removed`      | Excluded       | Excluded            |
 
-The maturity table above applies to individual artifacts. Collections also carry a `maturity` field that gates the entire package at the channel level (see [Collection Maturity](#collection-maturity)).
+Component maturity defaults to `stable`. Removed component tombstones may remain in `x-hve.componentMaturity` after active membership is removed so policy checks retain the retirement record.
 
-### Collection Packages
+### Self-Contained Outputs
+
+Every plugin and VSIX package contains its complete resolved projection. The architecture does not use plugin dependencies, `extensionPack`, or `extensionDependencies` to compose advertised content. `hve-core-all` is the validated aggregate and must cover every eligible PreRelease component.
+
+## Extension Integration
+
+The VS Code extension discovers and activates AI artifacts through contribution points.
+
+### Discovery Mechanism
+
+The extension scans these directories at startup:
+
+* `.github/prompts/{package-id}/` for workflow entry points
+* `.github/agents/{package-id}/` for specialized behaviors
+* `.github/instructions/{package-id}/` for technology standards
+* `.github/skills/{package-id}/` for utility packages
+
+These paths reflect the conventional directory structure. Artifact inclusion is controlled by standard component paths in `.github/plugin/marketplace.json`. Root-level artifacts (files directly under `.github/{type}/` with no subdirectory) are repo-specific, excluded from discovery, and never packaged into extension builds.
+
+| Maturity       | Stable Channel | Pre-release Channel |
+|----------------|----------------|---------------------|
+| `stable`       | Included       | Included            |
+| `preview`      | Excluded       | Included            |
+| `experimental` | Excluded       | Included            |
+| `deprecated`   | Excluded       | Excluded            |
+| `removed`      | Excluded       | Excluded            |
+
+The maturity table above applies to component metadata; package-level maturity is also read from the marketplace overlay.
+
+### Extension Package Identities
 
 Each package produces two distributable outputs from the same codebase: a VS Code extension (`.vsix`) and a Copilot plugin published through the repository marketplace.
 
-| Collection       | Extension ID                              | Contents                                       |
+| Package          | Extension ID                              | Contents                                       |
 |------------------|-------------------------------------------|------------------------------------------------|
 | Core (flagship)  | `ise-hve-essentials.hve-core`             | RPI workflow and core artifacts                |
-| Full             | `ise-hve-essentials.hve-core-all`         | All stable and preview artifacts combined      |
+| Full             | `ise-hve-essentials.hve-core-all`         | All artifacts eligible for the selected channel |
 | ADO              | `ise-hve-essentials.hve-ado`              | Azure DevOps integration                       |
 | GitHub           | `ise-hve-essentials.hve-github`           | GitHub backlog and issue management            |
 | GitLab           | `ise-hve-essentials.hve-gitlab`           | GitLab merge request and pipeline management   |
@@ -380,9 +280,9 @@ Each package produces two distributable outputs from the same codebase: a VS Cod
 
 The VS Code extension is built with `Prepare-Extension.ps1` and `Package-Extension.ps1`. Copilot packages are generated with `npm run plugin:generate` from the standard component fields in `.github/plugin/marketplace.json`.
 
-Generation creates ignored, materialized regular-file packages under `plugins/<package-name>/`; those local files are validation and distribution output, not reviewed source. Frozen collection manifests remain a temporary VSIX packaging input while that channel moves to the marketplace projection.
+Generation creates ignored, materialized regular-file packages under `plugins/<package-name>/`; those local files are validation and distribution output, not reviewed source. VSIX preparation consumes the same marketplace projection as plugin generation.
 
-Users install the collection matching their role for a curated experience. The **Core** extension provides the RPI workflow essentials, while the **Full** extension aggregates artifacts from all stable and preview collections.
+Users install the package matching their role for a curated experience. The **Core** extension provides the RPI workflow essentials, while the **Full** extension aggregates artifacts from all eligible marketplace packages.
 
 ### Activation Context
 
@@ -414,12 +314,12 @@ The build system excludes `.github/deprecated/` contents from all downstream sur
 
 | Surface              | Exclusion Mechanism                         |
 |----------------------|---------------------------------------------|
-| Collection manifests | `Update-HveCoreAllCollection` path filter   |
+| Marketplace packages | Catalog membership and source containment |
 | Plugin generation    | `Get-ArtifactFiles` path filter             |
 | Extension packaging  | Discovery function `deprecated` path filter |
 | VS Code activation   | Not discovered at runtime                   |
 
-No manual removal from manifests is required when an artifact moves to `.github/deprecated/`. The path-based exclusion operates independently of `maturity` metadata, providing a reliable safety net against silent reintroduction.
+Remove deprecated paths from marketplace membership when an artifact moves to `.github/deprecated/`. The path-based exclusion operates independently of `maturity` metadata, providing a reliable safety net against silent reintroduction.
 
 ### Retention and Removal
 
@@ -435,62 +335,15 @@ Move an artifact to `.github/deprecated/{type}/` when:
 
 ## Removed Artifacts
 
-The `removed` maturity is a collection-manifest-only marker that retires an artifact from every generated distribution while leaving its source file in place. Unlike deprecation, no file move is required and no per-artifact frontmatter field is involved - the collection YAML is the single source of truth.
+The `removed` maturity is an `x-hve.componentMaturity` tombstone keyed by package-relative component path. It removes an artifact from every generated distribution while retaining policy history without adding maturity to artifact frontmatter.
 
-### Collection-YAML Marker
+To reactivate an artifact, restore its standard membership path, remove or change the tombstone, regenerate plugin and extension outputs, and run marketplace validation. The validator requires non-vacuous tombstone coverage and the aggregate package must continue to cover every active eligible component.
 
-Mark an item as removed by setting `maturity: removed` on the collection entry:
-
-```yaml
-items:
-  - path: .github/skills/security/owasp-docker/SKILL.md
-    kind: skill
-    maturity: removed
-```
-
-Every collection that references the artifact must carry the same marker. The artifact file itself stays under its original `.github/{type}/{collection-id}/` location, preserving git history, cross-references, and the option to reinstate it by changing a single field.
-
-### Reactivating a Removed Artifact
-
-To reactivate a previously removed artifact:
-
-1. Remove the `maturity: removed` field from the artifact's entry in the relevant `collections/*.collection.yml` file.
-
-2. If the underlying artifact file was deleted, restore it (for example, using `git checkout -- <path/to/file>`).
-
-3. Run `npm run plugin:generate` to regenerate plugin outputs and update the `hve-core-all` collection.
-
-4. Verify that the artifact reappears:
-
-   * In the relevant plugin manifests
-   * In `collections/hve-core-all.collection.yml`
-
-5. Run `npm run validate:local` and `npm run test:ps` to confirm the reactivation is clean.
-
-### Automatic Exclusion
-
-The collection-level `removed` marker is honored at every build stage:
-
-| Surface               | Exclusion Mechanism                                                                                      |
-|-----------------------|----------------------------------------------------------------------------------------------------------|
-| Collection manifests  | `Update-HveCoreAllCollection` and `Get-ArtifactFiles` skip items where `maturity` equals `removed`       |
-| Plugin generation     | `npm run plugin:generate` produces no plugin entry for removed items                                     |
-| Extension packaging   | `Get-AllowedMaturities` (in `Prepare-Extension.ps1`) excludes `removed` from PreRelease and Stable alike |
-| Collection validation | `Validate-Collections.ps1` accepts `removed` as a valid `maturity` value but never emits the artifact    |
-
-No runtime code reads a per-artifact `maturity` field; the schema for `SKILL.md` and other artifact frontmatter intentionally does not define one. This keeps the collection YAML as the unambiguous source of truth for distribution decisions.
-
-### Removed vs. Deprecated vs. `.github/deprecated/`
-
-Three distinct mechanisms govern artifact retirement, each chosen for a different intent:
-
-| Mechanism                           | What it signals                                          | Source file location | When to use                                                                                                          |
-|-------------------------------------|----------------------------------------------------------|----------------------|----------------------------------------------------------------------------------------------------------------------|
-| `maturity: deprecated` (collection) | Sunset in progress; transition time for downstream users | Original location    | A replacement exists or removal is planned; users need a release window to migrate                                   |
-| `maturity: removed` (collection)    | Withdrawn from distribution; source retained             | Original location    | Distribution must stop now, but the file should stay for history, cross-references, or possible future reinstatement |
-| `.github/deprecated/{type}/` (path) | Long-term archival; replacement documented in-file       | Moved subtree        | The artifact is fully superseded and should be visibly archived; path-based filter prevents silent reintroduction    |
-
-Use `maturity: removed` when the artifact should disappear from generated outputs without any source-tree disruption. Move to `.github/deprecated/` when archival visibility and a path-based safety net matter more than keeping the original location.
+| Mechanism | Signal | Distribution behavior |
+| ----------- | -------- | ----------------------- |
+| `deprecated` maturity | Sunset in progress | Excluded from both channels |
+| `removed` tombstone | Withdrawn from distribution | Excluded while policy history remains |
+| `.github/deprecated/` path | Archived source | Excluded by source containment rules |
 
 ## Related Documentation
 

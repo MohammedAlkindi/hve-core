@@ -4,12 +4,12 @@
 # Copies selected HVE-Core agents to the target repository.
 # Creates .github/agents/, copies agent files, computes SHA256 hashes,
 # and writes .hve-tracking.json manifest for upgrade tracking.
-# Usage: agent-copy.sh <hve_core_base_path> <collection_id> <file1> [file2...]
+# Usage: agent-copy.sh <hve_core_base_path> <package_id> <file1> [file2...]
 #   Files are paths relative to the agents/ directory.
 set -euo pipefail
 
-hve_core_base_path="${1:?Usage: $0 <hve_core_base_path> <collection_id> <file1> [file2...]}"
-collection_id="${2:?Usage: $0 <hve_core_base_path> <collection_id> <file1> [file2...]}"
+hve_core_base_path="${1:?Usage: $0 <hve_core_base_path> <package_id> <file1> [file2...]}"
+package_id="${2:?Usage: $0 <hve_core_base_path> <package_id> <file1> [file2...]}"
 shift 2
 
 source_base="$hve_core_base_path/.github/agents"
@@ -74,12 +74,12 @@ done
 # Write manifest
 if [ "$has_jq" = true ]; then
     jq -n --arg src "microsoft/hve-core" --arg ver "$version" --arg inst "$installed" \
-        --arg col "$collection_id" --argjson files "$files_json" \
-        '{source: $src, version: $ver, installed: $inst, collection: $col, files: $files}' \
+        --arg package "$package_id" --argjson files "$files_json" \
+        '{source: $src, version: $ver, installed: $inst, package: $package, files: $files}' \
         > "$manifest_path"
 else
     cat > "$manifest_path" <<EOF
-{"source": "microsoft/hve-core", "version": "$version", "installed": "$installed", "collection": "$collection_id", "files": $files_json}
+{"source": "microsoft/hve-core", "version": "$version", "installed": "$installed", "package": "$package_id", "files": $files_json}
 EOF
 fi
 echo "✅ Created $manifest_path"

@@ -28,17 +28,17 @@ on:
     outputs:
       version:
         description: "Version that was packaged"
-        value: ${{ jobs.discover-collections.outputs.version }}
-      collections-matrix:
-        description: "JSON matrix of collections that were actually packaged (filtered by channel and maturity)"
-        value: ${{ jobs.discover-collections.outputs.matrix }}
+        value: ${{ jobs.discover-packages.outputs.version }}
+      packages-matrix:
+        description: "JSON matrix of packages that were actually packaged (filtered by channel and maturity)"
+        value: ${{ jobs.discover-packages.outputs.matrix }}
 
 permissions:
   contents: read
 
 jobs:
-  discover-collections:
-    name: Discover Collection Manifests
+  discover-packages:
+    name: Discover Marketplace Packages
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,21 +71,21 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Discover collection manifests
+      - name: Discover marketplace packages
         id: discover
         shell: pwsh
         run: |
-          & ./scripts/extension/Find-CollectionManifests.ps1 -Channel '${{ inputs.channel }}'
+          & ./scripts/extension/Get-MarketplacePackageMatrix.ps1 -Channel '${{ inputs.channel }}'
 
   package:
     name: Package ${{ matrix.id }}
-    needs: discover-collections
+    needs: discover-packages
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.discover-collections.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.discover-packages.outputs.matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -122,10 +122,10 @@ jobs:
         run: |
           $channel = "$env:INPUT_CHANNEL".Trim()
           if (-not $channel) { $channel = 'Stable' }
-          $collection = "${{ matrix.manifest }}"
+          $packageId = "${{ matrix.id }}"
 
-          Write-Host "🔧 Preparing extension for $channel channel (collection: ${{ matrix.id }})..."
-          ./scripts/extension/Prepare-Extension.ps1 -Channel $channel -Collection $collection
+          Write-Host "🔧 Preparing extension for $channel channel (package: ${{ matrix.id }})..."
+          ./scripts/extension/Prepare-Extension.ps1 -Channel $channel -PackageId $packageId
 
       - name: Package extension
         id: package
@@ -139,12 +139,12 @@ jobs:
           $devPatch = "$env:INPUT_DEV_PATCH".Trim()
           $channel = "$env:INPUT_CHANNEL".Trim()
           if (-not $channel) { $channel = 'Stable' }
-          $collection = "${{ matrix.manifest }}"
+          $packageId = "${{ matrix.id }}"
 
-          Write-Host "📦 Packaging extension for $channel channel (collection: ${{ matrix.id }})..."
+          Write-Host "📦 Packaging extension for $channel channel (package: ${{ matrix.id }})..."
 
           $arguments = @{
-            Collection = $collection
+            PackageId = $packageId
           }
 
           if ($channel -ieq 'PreRelease') {

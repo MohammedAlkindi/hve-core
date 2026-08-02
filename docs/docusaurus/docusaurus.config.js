@@ -3,36 +3,20 @@
 // @ts-check
 import { themes as prismThemes } from 'prism-react-renderer';
 import remarkGithubAlert from 'remark-github-blockquote-alert';
-import * as fs from 'fs';
 import * as path from 'path';
 import { labelRegistry } from './src/data/labelRegistry';
+import { loadMarketplaceCounts } from './src/data/marketplaceCounts.mjs';
 
-const collectionsDir = path.resolve(__dirname, '../../collections');
-
-/**
- * @param {string} name
- */
-function countYamlPaths(name) {
-  const yamlPath = path.join(collectionsDir, `${name}.collection.yml`);
-  let content;
-  try {
-    content = fs.readFileSync(yamlPath, 'utf-8');
-  } catch {
-    throw new Error(
-      `[docusaurus.config.js] Cannot read collection manifest: ${yamlPath}\n` +
-      `Ensure "${name}" exists in the collections/ directory.`,
-    );
-  }
-  return (content.match(/^\s*- path:/gm) || []).length;
-}
-
-const collectionNames = [
+const packageNames = [
   'ado', 'coding-standards', 'data-science', 'design-thinking',
   'experimental', 'github', 'gitlab', 'hve-core', 'jira',
   'project-planning', 'security', 'hve-core-all',
 ];
-const collectionCounts = Object.fromEntries(
-  collectionNames.map((n) => [n, countYamlPaths(n)]),
+const packageCounts = Object.fromEntries(
+  Object.entries(loadMarketplaceCounts(
+    path.resolve(__dirname, '../../.github/plugin/marketplace.json'),
+    packageNames,
+  )),
 );
 
 const accessibleGithubPrismTheme = {
@@ -69,7 +53,7 @@ const config = {
   onBrokenLinks: 'throw',
 
   customFields: {
-    collectionCounts,
+    packageCounts,
   },
 
   markdown: {

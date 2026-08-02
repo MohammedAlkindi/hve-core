@@ -28,8 +28,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# ConvertFrom-Yaml is called directly below, so the parser is imported here
+# rather than inherited from whichever helper module happens to load it first.
+Import-Module -Name PowerShell-Yaml -RequiredVersion '0.4.7' -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'Modules/PluginHelpers.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../lib/Modules/MarketplaceHelpers.psm1') -Force
 
 #region Validation Helpers
 
@@ -212,6 +215,137 @@ function Test-PluginObjectSource {
     return [string[]]$sourceErrors
 }
 
+function Test-MarketplaceRepositoryContract {
+    <#
+    .SYNOPSIS
+    Validates the repository-specific marketplace completeness contract.
+    .PARAMETER Manifest
+    Parsed marketplace catalog.
+    .PARAMETER RepoRoot
+    Repository root containing canonical artifacts and package docs.
+    .OUTPUTS
+    [string[]] Repository contract errors.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Manifest,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    # A missing canonical root is reported rather than skipped: silently
+    # returning no errors would make every rule below vacuously satisfied.
+    $contractErrors = @()
+    $artifactRoot = Join-Path $RepoRoot '.github/agents'
+    $documentationRoot = Join-Path $RepoRoot 'docs/plugins'
+    if (-not (Test-Path -LiteralPath $artifactRoot -PathType Container)) {
+        $contractErrors += "canonical artifact root '.github/agents' is missing under $RepoRoot"
+    }
+    if (-not (Test-Path -LiteralPath $documentationRoot -PathType Container)) {
+        $contractErrors += "package documentation root 'docs/plugins' is missing under $RepoRoot"
+    }
+
+    $entries = @($Manifest['plugins'])
+    if ($entries.Count -eq 0) {
+        $contractErrors += 'repository marketplace must declare at least one package'
+    }
+
+    # The active package set is derived from the package documents on disk, so
+    # adding or retiring a package never requires editing a hard-coded count.
+    if (Test-Path -LiteralPath $documentationRoot -PathType Container) {
+        $documentedNames = @(Get-ChildItem -LiteralPath $documentationRoot -File -Filter '*.md' |
+                ForEach-Object { $_.BaseName } | Sort-Object)
+        $declaredNames = @($entries | ForEach-Object { [string]$_['name'] })
+        foreach ($undocumented in @($declaredNames | Where-Object { $documentedNames -notcontains $_ } | Sort-Object)) {
+            $contractErrors += "package '$undocumented' has no package document under docs/plugins"
+        }
+        foreach ($orphan in @($documentedNames | Where-Object { $declaredNames -notcontains $_ })) {
+            $contractErrors += "package document 'docs/plugins/$orphan.md' does not match any marketplace package"
+        }
+    }
+
+    $agentIndex = Get-MarketplaceAgentIndex -Catalog $Manifest -RepoRoot $RepoRoot
+    $tombstoneCount = 0
+    foreach ($entry in $entries) {
+        $name = [string]$entry['name']
+        $displayName = Get-MarketplaceEntryOverlayValue -Entry $entry -Key 'displayName'
+        if ([string]::IsNullOrWhiteSpace([string]$displayName)) {
+            $contractErrors += "package '$name' must declare non-empty x-hve.displayName"
+        }
+
+        $documentation = Get-MarketplaceEntryOverlayValue -Entry $entry -Key 'documentation'
+        if ([string]::IsNullOrWhiteSpace([string]$documentation)) {
+            $contractErrors += "package '$name' must declare x-hve.documentation"
+        }
+        else {
+            $documentPath = Join-Path $RepoRoot ([string]$documentation)
+            if (-not (Test-Path -LiteralPath $documentPath -PathType Leaf)) {
+                $contractErrors += "package '$name' documentation is missing: $documentation"
+            }
+            else {
+                $content = Get-Content -LiteralPath $documentPath -Raw -Encoding utf8
+                if ($content -match '(?s)^---\s*\r?\n(.*?)\r?\n---') {
+                    $frontmatter = ConvertFrom-Yaml -Yaml $Matches[1]
+                    if ([string]$frontmatter.description -ne [string]$entry['description']) {
+                        $contractErrors += "package '$name' description does not match $documentation"
+                    }
+                }
+                else {
+                    $contractErrors += "package '$name' documentation has no frontmatter: $documentation"
+                }
+            }
+        }
+
+        $componentMaturity = Get-MarketplaceEntryOverlayValue -Entry $entry -Key 'componentMaturity'
+        if ($componentMaturity -is [System.Collections.IDictionary]) {
+            $tombstoneCount += @($componentMaturity.Values | Where-Object { $_ -eq 'removed' }).Count
+        }
+
+        foreach ($item in Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel PreRelease -AgentIndex $agentIndex) {
+            $sourcePath = Join-Path $RepoRoot $item.SourcePath
+            if (-not (Test-Path -LiteralPath $sourcePath)) {
+                $contractErrors += "package '$name' source is missing: $($item.SourcePath)"
+            }
+        }
+
+        $pluginRoot = Join-Path $RepoRoot "plugins/$name/plugin.json"
+        if (Test-Path -LiteralPath $pluginRoot -PathType Leaf) {
+            $pluginManifest = Get-Content -LiteralPath $pluginRoot -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+            if ([string]$pluginManifest['name'] -ne $name -or [string]$pluginManifest['version'] -ne [string]$entry['version']) {
+                $contractErrors += "package '$name' root plugin.json identity does not mirror the catalog"
+            }
+            if ($pluginManifest.Contains('x-hve')) {
+                $contractErrors += "package '$name' root plugin.json must not contain x-hve"
+            }
+        }
+    }
+    if ($tombstoneCount -eq 0) {
+        $contractErrors += 'repository marketplace must declare at least one removed component tombstone'
+    }
+
+    $aggregates = @($entries | Where-Object { (Get-MarketplaceEntryOverlayValue -Entry $_ -Key 'aggregate') -eq $true })
+    if ($aggregates.Count -ne 1) {
+        $contractErrors += "repository marketplace must declare exactly one aggregate package, found $($aggregates.Count)"
+    }
+    else {
+        $aggregatePaths = @(Get-MarketplaceResolvedPackageRecipe -Entry $aggregates[0] -Channel PreRelease -AgentIndex $agentIndex |
+                ForEach-Object PackagePath | Sort-Object -Unique)
+        $unionPaths = @($entries | Where-Object {
+                $_['name'] -ne $aggregates[0]['name'] -and (Test-MarketplaceEntryEligible -Entry $_ -Channel PreRelease)
+            } | ForEach-Object {
+                Get-MarketplaceResolvedPackageRecipe -Entry $_ -Channel PreRelease -AgentIndex $agentIndex
+            } | ForEach-Object PackagePath | Sort-Object -Unique)
+        foreach ($missingPath in @($unionPaths | Where-Object { $_ -notin $aggregatePaths })) {
+            $contractErrors += "aggregate package is missing component '$missingPath'"
+        }
+    }
+
+    return [string[]]$contractErrors
+}
+
 #endregion Validation Helpers
 
 #region Orchestration
@@ -306,17 +440,21 @@ function Invoke-MarketplaceValidation {
         return @{ Success = $false; ErrorCount = $errors.Count }
     }
 
+    # Catalog-scope findings are collected separately so the report names them
+    # under a marketplace scope instead of only raising the error count.
+    $catalogErrors = @()
+
     # Metadata validation
     $metadataRequired = @('description', 'version', 'pluginRoot')
     foreach ($field in $metadataRequired) {
         if (-not $manifest.metadata.ContainsKey($field) -or [string]::IsNullOrWhiteSpace([string]$manifest.metadata[$field])) {
-            $errors += "missing required metadata field '$field'"
+            $catalogErrors += "missing required metadata field '$field'"
         }
     }
 
     # Owner validation
     if (-not $manifest.owner.ContainsKey('name') -or [string]::IsNullOrWhiteSpace([string]$manifest.owner.name)) {
-        $errors += "missing required owner field 'name'"
+        $catalogErrors += "missing required owner field 'name'"
     }
 
     # Version consistency with package.json
@@ -326,13 +464,13 @@ function Invoke-MarketplaceValidation {
         $packageJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
         $expectedVersion = $packageJson.version
         if ($manifest.metadata.version -ne $expectedVersion) {
-            $errors += "metadata.version '$($manifest.metadata.version)' does not match package.json version '$expectedVersion'"
+            $catalogErrors += "metadata.version '$($manifest.metadata.version)' does not match package.json version '$expectedVersion'"
         }
     }
 
     # Plugins validation
     if ($manifest.plugins -isnot [array] -or $manifest.plugins.Count -eq 0) {
-        $errors += 'plugins array is empty or missing'
+        $catalogErrors += 'plugins array is empty or missing'
     }
     else {
         $seenNames = @{}
@@ -403,6 +541,32 @@ function Invoke-MarketplaceValidation {
                 $errors += "plugin '$pluginName': $pluginError"
             }
         }
+    }
+
+    if ($catalogErrors.Count -gt 0) {
+        $results += @{
+            PluginName = 'marketplace'
+            IsValid    = $false
+            Errors     = @($catalogErrors)
+            Warnings   = @()
+        }
+        $errors += $catalogErrors
+    }
+
+    # Repository-contract findings get their own report scope; without it the
+    # report would raise ErrorCount without naming a single failing rule.
+    $repositoryErrors = @(
+        Test-MarketplaceRepositoryContract -Manifest $manifest -RepoRoot $RepoRoot |
+            ForEach-Object { "repository contract: $_" }
+    )
+    if ($repositoryErrors.Count -gt 0) {
+        $results += @{
+            PluginName = 'repository'
+            IsValid    = $false
+            Errors     = @($repositoryErrors)
+            Warnings   = @()
+        }
+        $errors += $repositoryErrors
     }
 
     if ($errors.Count -gt 0 -and $results.Count -eq 0) {

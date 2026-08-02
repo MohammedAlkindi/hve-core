@@ -7,7 +7,7 @@ ms.date: 2026-07-31
 ms.topic: reference
 ---
 
-Deploy HVE Core artifacts across workspace configurations with the hve-core-installer skill. This collection provides decision-driven setup for selecting and installing collections, agents, prompts, and instructions via the VS Code extension or clone-based methods.
+Deploy HVE Core artifacts across workspace configurations with the hve-core-installer skill. This package provides decision-driven setup for selecting and installing packages, agents, prompts, and instructions via the VS Code extension or clone-based methods.
 
 ## Included Artifacts
 

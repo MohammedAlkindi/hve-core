@@ -10,7 +10,7 @@ Use this reference during intake to decompose the request by responsibility, cho
 
 Choose every type whose responsibility is independently necessary. Prefer skills for reusable on-demand capability and subagents for isolated work, but do not force a path-scoped convention into a skill or a user entry point into a subagent merely because of ranking.
 
-The Choosing the Artifact Type by Responsibility section of `hve-builder.instructions.md` holds the canonical responsibility, form, and activation table. That surface is always loaded whenever a target artifact is edited, so it is the copy that has to exist; restating it here would only create drift. This reference therefore depends on that instruction file, and both ship in the same collection. Keep them together when redistributing the skill.
+The Choosing the Artifact Type by Responsibility section of `hve-builder.instructions.md` holds the canonical responsibility, form, and activation table. That surface is always loaded whenever a target artifact is edited, so it is the copy that has to exist; restating it here would only create drift. This reference therefore depends on that instruction file, and both ship in the same package. Keep them together when redistributing the skill.
 
 When a request spans responsibilities, split it deliberately: a skill may own the workflow, subagents may isolate execution and review, an instruction file may govern matching paths, and a prompt may provide a user entry point. Confirm only splits that widen the caller's write boundary or product surface.
 

@@ -7,9 +7,9 @@ ms.date: 2026-07-31
 ms.topic: reference
 ---
 
-HVE Core provides the complete collection of AI chat agents, prompts, instructions, and skills for VS Code with GitHub Copilot. This edition includes every artifact across all domains: development workflows, architecture, Azure DevOps, GitHub and Jira backlog workflows, data science, design thinking, security, and more.
+HVE Core provides the aggregate package of AI chat agents, prompts, instructions, and skills for VS Code with GitHub Copilot. This edition includes eligible artifacts across all domains: development workflows, architecture, Azure DevOps, GitHub and Jira backlog workflows, data science, design thinking, security, and more.
 
-Use this edition when you want access to everything without choosing a focused collection.
+Use this edition when you want broad access without choosing a focused package.
 
 > [!CAUTION]
 > HVE Core is a highly opinionated, rapidly evolving agentic SDLC framework. It is best treated as a source of patterns and learning rather than a stable platform, foundation, or production dependency.
@@ -20,7 +20,7 @@ Use this edition when you want access to everything without choosing a focused c
 <!-- Keep these cautions separate so each limitation renders independently. -->
 
 > [!CAUTION]
-> This collection includes security, responsible AI, and supply chain security agents and prompts that are **assistive tools only**.
+> This package includes security, responsible AI, and supply chain security agents and prompts that are **assistive tools only**.
 > They do not replace professional security tooling (SAST, DAST, SCA, penetration testing, compliance scanners) or qualified human review.
 > All AI-generated security and compliance artifacts **must** be reviewed and validated by qualified professionals before use.
 > AI outputs may contain inaccuracies, miss critical threats, or produce recommendations that are incomplete or inappropriate for your environment.

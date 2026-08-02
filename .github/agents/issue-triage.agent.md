@@ -34,7 +34,7 @@ Apply labels only from the canonical taxonomy below: exactly one type label, one
 | `scripts`         | PowerShell, Bash, or Python scripts                    |
 | `workflows`       | GitHub Actions workflows                               |
 | `extension`       | VS Code extension packaging and publishing             |
-| `packaging`       | Extension and plugin packaging or collection manifests |
+| `packaging`       | Extension, plugin, or marketplace package configuration |
 | `automation`      | CI/CD and automation improvements                      |
 | `ci`              | Continuous integration configuration                   |
 | `build`           | Build system and compilation                           |

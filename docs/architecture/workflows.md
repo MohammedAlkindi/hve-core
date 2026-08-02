@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-07-16
+ms.date: 2026-08-01
 ms.topic: overview
 ---
 
@@ -98,7 +98,7 @@ Individual validation workflows called by orchestration workflows:
 | `copyright-headers.yml`               | Copyright header validation                    | `npm run validate:copyright`             |
 | `gitleaks-scan.yml`                   | Secret detection scanning                      | N/A (gitleaks direct)                    |
 | `plugin-package.yml`                  | Plugin collection packaging                    | N/A                                      |
-| `plugin-validation.yml`               | Plugin and collection metadata                 | `npm run lint:collections-metadata`      |
+| `plugin-validation.yml`               | Marketplace package metadata and closure | `npm run lint:marketplace`                 |
 | `extension-marketplace-publish.yml`   | Extension marketplace publishing               | N/A                                      |
 | `python-lint.yml`                     | Python linting (ruff)                          | `npm run lint:py`                        |
 | `pytest-tests.yml`                    | Python unit tests                              | `npm run test:py`                        |
@@ -299,12 +299,12 @@ flowchart TD
 |-------------------|-------------------------------------------------------------|--------------------------------------|
 | normalize-version | Ensure version consistency                                  | `release-marketplace-stable.yml`     |
 | validate-version  | Enforce odd minor version for pre-release channel           | `release-marketplace-prerelease.yml` |
-| package (matrix)  | Build one VSIX per collection using `extension-package.yml` | Both                                 |
+| package (matrix)  | Build one VSIX per marketplace package using `extension-package.yml` | Both                                 |
 | publish (matrix)  | Upload each VSIX to VS Code Marketplace via OIDC + vsce     | Both                                 |
 
-### Collection-Based Packaging
+### Marketplace Package Builds
 
-Collection manifests in `collections/*.collection.yml` define collection-scoped subsets of the full artifact set. The `extension-package.yml` reusable workflow discovers these manifests, filters by maturity and channel, and packages each as an independent VSIX.
+Marketplace entries define self-contained package subsets. `Get-MarketplacePackageMatrix.ps1` emits sorted package IDs by channel, and `extension-package.yml` prepares and packages each ID as an independent VSIX from the shared resolved projection.
 
 | Collection         | Maturity     | Included In        |
 |--------------------|--------------|--------------------|
@@ -351,7 +351,6 @@ Workflows invoke validation through npm scripts defined in `package.json`:
 | `lint:links`                    | `Invoke-LinkLanguageCheck.ps1`                                                                        | link-lang-check.yml                         |
 | `lint:yaml`                     | `Invoke-YamlLint.ps1`                                                                                 | yaml-lint.yml                               |
 | `lint:ps`                       | `Invoke-PSScriptAnalyzer.ps1`                                                                         | ps-script-analyzer.yml                      |
-| `lint:collections-metadata`     | `Validate-Collections.ps1`                                                                            | plugin-validation.yml                       |
 | `lint:marketplace`              | `Validate-Marketplace.ps1`                                                                            | plugin-validation.yml                       |
 | `lint:version-consistency`      | `Test-ActionVersionConsistency.ps1`                                                                   | Local                                       |
 | `validate:local`                | Local-safe repository validation aggregate                                                            | Local-safe default                          |
@@ -364,12 +363,12 @@ Workflows invoke validation through npm scripts defined in `package.json`:
 | `validate:copyright`            | `Test-CopyrightHeaders.ps1`                                                                           | copyright-headers.yml                       |
 | `extension:prepare`             | `pwsh ./scripts/extension/Prepare-Extension.ps1 && npm run extension:postprocess`                     | extension-package.yml                       |
 | `extension:prepare:prerelease`  | `pwsh ./scripts/extension/Prepare-Extension.ps1 -Channel PreRelease && npm run extension:postprocess` | extension-package.yml                       |
-| `extension:postprocess`         | `markdownlint-cli2 + markdown-table-formatter (extension/**/*.md, collections/*.md)`                  | extension-package.yml                       |
+| `extension:postprocess`         | `markdownlint-cli2 + markdown-table-formatter (extension/**/*.md)`                                    | extension-package.yml                       |
 | `extension:package`             | `Package-Extension.ps1`                                                                               | extension-package.yml                       |
 | `package:extension`             | Alias for `extension:package`                                                                         | extension-package.yml                       |
 | `extension:package:prerelease`  | `Package-Extension.ps1 -PreRelease`                                                                   | extension-package.yml                       |
 | `plugin:generate`               | `Generate-Plugins.ps1` + post-process                                                                 | plugin-package.yml                          |
-| `plugin:validate`               | Alias for `lint:collections-metadata`                                                                 | plugin-validation.yml                       |
+| `plugin:validate`               | Marketplace package metadata and closure validation                                                   | plugin-validation.yml                       |
 | `lint:py`                       | `ruff check`                                                                                          | python-lint.yml                             |
 | `lint:models`                   | `Validate-ModelReferences.ps1`                                                                        | model-validation.yml                        |
 | `lint:ai-artifacts`             | `Validate-PlannerArtifacts.ps1 -FailOnMissing`                                                        | ai-artifact-validation.yml                  |

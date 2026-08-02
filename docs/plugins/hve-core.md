@@ -7,7 +7,7 @@ ms.date: 2026-07-31
 ms.topic: reference
 ---
 
-HVE Core provides the flagship RPI (Research, Plan, Implement, Review, Follow-up) workflow for completing complex tasks through an evidence-led lifecycle. The RPI workflow coordinates skills and bounded delegation to deliver researched, planned, implemented, reviewed, and routed outcomes. This collection also includes Git workflow prompts for commit messages, merge operations, repository setup, and pull request management.
+HVE Core provides the flagship RPI (Research, Plan, Implement, Review, Follow-up) workflow for completing complex tasks through an evidence-led lifecycle. The RPI workflow coordinates skills and bounded delegation to deliver researched, planned, implemented, reviewed, and routed outcomes. This package also includes Git workflow prompts for commit messages, merge operations, repository setup, and pull request management.
 
 > [!CAUTION]
 > HVE Core is a highly opinionated, rapidly evolving agentic SDLC framework. It is best treated as a source of patterns and learning rather than a stable platform, foundation, or production dependency.

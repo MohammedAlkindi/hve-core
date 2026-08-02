@@ -8,8 +8,8 @@
     and writes .hve-tracking.json manifest for upgrade tracking.
 .PARAMETER HveCoreBasePath
     Root path of the local HVE-Core clone used as the copy source.
-.PARAMETER CollectionId
-    Collection identifier recorded in the tracking manifest.
+.PARAMETER PackageId
+    Marketplace package identifier recorded in the tracking manifest.
 .PARAMETER FilesToCopy
     Array of agent file paths relative to the source agents directory.
 .PARAMETER KeepExisting
@@ -17,7 +17,7 @@
 .PARAMETER Collisions
     Array of target file paths that already exist and may conflict.
 .EXAMPLE
-    ./scripts/agent-copy.ps1 -HveCoreBasePath ../hve-core -CollectionId hve-core -FilesToCopy @('hve-core/rpi-agent.agent.md')
+    ./scripts/agent-copy.ps1 -HveCoreBasePath ../hve-core -PackageId hve-core -FilesToCopy @('hve-core/rpi-agent.agent.md')
 .OUTPUTS
     Per-file copy status and manifest creation confirmation.
 #>
@@ -29,7 +29,7 @@ param(
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
-    [string]$CollectionId,
+    [string]$PackageId,
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
@@ -59,15 +59,17 @@ $manifest = @{
     source = "microsoft/hve-core"
     version = (Get-Content "$hveCoreBasePath/package.json" | ConvertFrom-Json).version
     installed = (Get-Date -Format "o")
-    collection = $collectionId  # "hve-core" or collection id(s) e.g. "developer" or "developer,devops"
-    files = @{}; skip = @()
+    package = $PackageId
+    files = @{}
 }
 
-# Copy files (source paths are relative to agents/, target is flat)
+# Copy files (source paths are relative to agents/, target is flat). Target
+# paths stay forward-slashed so they match the COLLISION_FILES values produced
+# by collision-detection on every platform.
 foreach ($file in $filesToCopy) {
     $fileName = Split-Path $file -Leaf
     $sourcePath = Join-Path $sourceBase $file
-    $targetPath = Join-Path $targetDir $fileName
+    $targetPath = "$targetDir/$fileName"
     $relPath = ".github/agents/$fileName"
 
     if ($keepExisting -and $collisions -contains $targetPath) {

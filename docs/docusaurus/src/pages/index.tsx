@@ -5,21 +5,21 @@ import Layout from '@theme/Layout';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import HeroSection from '../components/HeroSection';
 import { IconCard, BoxCard, CardGrid } from '../components/Cards';
-import CollectionCard from '../components/CollectionCards';
+import PackageCard from '../components/PackageCards';
 import { iconCards, boxCards } from '../data/hubCards';
-import { resolveCollectionCards } from '../data/collectionCards';
+import { resolvePackageCards } from '../data/packageCards';
 import { labelRegistry } from '../data/labelRegistry';
 import styles from './styles.module.css';
 
 export default function Home(): React.ReactElement {
   const { siteConfig } = useDocusaurusContext();
-  const counts = (siteConfig.customFields?.collectionCounts ?? {}) as Record<
+  const counts = (siteConfig.customFields?.packageCounts ?? {}) as Record<
     string,
     number
   >;
 
-  const collectionCards = useMemo(
-    () => resolveCollectionCards(counts),
+  const packageCards = useMemo(
+    () => resolvePackageCards(counts),
     [counts],
   );
 
@@ -38,8 +38,8 @@ export default function Home(): React.ReactElement {
             primary: true,
           },
           {
-            label: "Browse Collections",
-            href: "/docs/getting-started/collections",
+            label: "Browse Marketplace Packages",
+            href: "/docs/getting-started/packages",
           },
         ]}
       />
@@ -88,16 +88,16 @@ export default function Home(): React.ReactElement {
           </CardGrid>
         </section>
 
-        <section className={styles.section} aria-labelledby="collections-title">
-          <h2 id="collections-title" className={styles.sectionTitle}>
-            {labelRegistry.collections}
+        <section className={styles.section} aria-labelledby="packages-title">
+          <h2 id="packages-title" className={styles.sectionTitle}>
+            {labelRegistry.packages}
           </h2>
           <p className={styles.sectionDescription}>
             Browse domain-specific artifact bundles.
           </p>
           <CardGrid>
-            {collectionCards.map((card) => (
-              <CollectionCard key={card.name} {...card} />
+            {packageCards.map((card) => (
+              <PackageCard key={card.name} {...card} />
             ))}
           </CardGrid>
         </section>

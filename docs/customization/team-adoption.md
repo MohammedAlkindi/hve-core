@@ -2,7 +2,7 @@
 title: Team Adoption and Governance
 description: Establish governance practices, naming conventions, onboarding patterns, and change management for team-wide HVE Core adoption
 author: Microsoft
-ms.date: 2026-07-16
+ms.date: 2026-08-01
 ms.topic: how-to
 keywords:
   - governance
@@ -38,10 +38,10 @@ repeatable workflows (code reviews, research tasks, implementation patterns)
 and prompts for one-shot operations (generating boilerplate, formatting
 outputs).
 
-### Phase 3: Skills and Collections
+### Phase 3: Skills and Packages
 
-Package domain knowledge into skills for complex, multi-step workflows. Bundle
-related artifacts into collections for distribution and reuse across teams.
+Package domain knowledge into skills for complex, multi-step workflows. Declare
+related artifacts in marketplace packages for distribution and reuse across teams.
 
 ### Measuring Adoption Progress
 
@@ -65,13 +65,13 @@ glance. Follow kebab-case patterns throughout.
 | Agents        | `{workflow}.agent.md`                                 | `code-review.agent.md`          |
 | Prompts       | `{action}.prompt.md`                                  | `generate-tests.prompt.md`      |
 | Skills        | `{skill-name}/SKILL.md`                               | `pr-reference/SKILL.md`         |
-| Collections   | `{collection-id}.collection.yml` and `.collection.md` | `ado.collection.yml`            |
+| Packages      | Marketplace entry and `docs/plugins/{id}.md`          | `ado` and `docs/plugins/ado.md` |
 
-### Collection IDs
+### Package IDs
 
-Collection IDs serve as directory names throughout `.github/` and must be
+Package IDs serve as conventional directory names throughout `.github/` and must be
 unique, lowercase, and kebab-cased. Choose IDs that reflect the domain or team
-the collection serves:
+the package serves:
 
 * `ado` for Azure DevOps integration
 * `coding-standards` for language-specific conventions
@@ -79,20 +79,20 @@ the collection serves:
 
 ### Directory Organization
 
-Place artifacts under their collection ID in the appropriate `.github/`
+Place artifacts under their package ID in the appropriate `.github/`
 subdirectory:
 
 ```text
 .github/
-  agents/{collection-id}/
-  instructions/{collection-id}/
-  prompts/{collection-id}/
-  skills/{collection-id}/
+  agents/{package-id}/
+  instructions/{package-id}/
+  prompts/{package-id}/
+  skills/{package-id}/
 ```
 
 Artifacts at the root of `.github/agents/`, `.github/instructions/`,
 `.github/prompts/`, or `.github/skills/` (without a subdirectory) are treated
-as repo-specific and excluded from collection manifests, plugin generation, and
+as repo-specific and excluded from marketplace membership, plugin generation, and
 extension packaging.
 
 ## Governance Model
@@ -101,7 +101,7 @@ extension packaging.
 
 Assign clear ownership for each artifact category:
 
-* A designated maintainer or team owns each collection
+* A designated maintainer or team owns each marketplace package
 * Individual instructions files can have separate owners when they span
   multiple domains
 * The `copilot-instructions.md` file at the repository root reflects
@@ -114,7 +114,7 @@ Treat Copilot customization files with the same rigor as production code:
 * Require pull request review for changes to instructions, agents, and skills
 * Use CODEOWNERS to route reviews to artifact owners
 * Validate changes with `npm run validate:local` before merging
-* Run `npm run plugin:generate` after modifying collection manifests
+* Run `npm run plugin:generate` after modifying marketplace recipes
 
 ### Handling Conflicting Instructions
 
@@ -143,7 +143,7 @@ follows priority order:
 Have new team members create their first instructions file as an onboarding
 exercise. A simple coding-style instruction works well:
 
-1. Create a file at `.github/instructions/{collection-id}/my-style.instructions.md`
+1. Create a file at `.github/instructions/{package-id}/my-style.instructions.md`
    with minimal frontmatter (`description` and `applyTo` fields)
 2. Run `hve-builder` in create mode and supply an existing team instruction as
   a known reference
@@ -170,7 +170,7 @@ Follow a structured process when adding new instructions, agents, or skills:
 2. Run `hve-builder` in create or improve mode with the relevant known references
 3. Resolve its static, behavior, and validation gates until the overall outcome passes
 4. Run `npm run validate:local` to validate local-safe checks, then reproduce any relevant CI-owned lane separately
-5. Update affected collection manifests in `collections/`
+5. Update affected marketplace package recipes and `docs/plugins/` pages
 6. Run `npm run plugin:generate` to regenerate plugin outputs
 7. Submit a pull request with clear description of what the artifact does and
    why
@@ -224,7 +224,7 @@ starting points and progression for each of the nine roles.
 
 1. Write instructions for architecture decision conventions
 2. Create a code review agent that enforces team standards
-3. Establish a collection that bundles your team's full workflow
+3. Establish a marketplace package that bundles your team's full workflow
 
 ### Security Architect
 
@@ -244,7 +244,7 @@ starting points and progression for each of the nine roles.
 
 1. Write instructions for runbook format and incident response
 2. Create an agent for infrastructure review workflows
-3. Build a collection integrating monitoring, alerting, and
+3. Build a package integrating monitoring, alerting, and
   deployment tools
 
 ### Business PM (Product Manager)
@@ -266,7 +266,7 @@ starting points and progression for each of the nine roles.
 
 1. Use existing prompts and agents without modification
 2. Customize instructions for your specific workflow context
-3. Contribute improvements to shared collections based on
+3. Contribute improvements to shared packages based on
   usage patterns
 
 ## Measuring Success
@@ -274,7 +274,7 @@ starting points and progression for each of the nine roles.
 ### Quantitative Indicators
 
 * Artifact count: track the number of instructions, agents, skills, and
-  collections over time
+  packages over time
 * Invocation frequency: monitor how often team members activate custom agents
   and prompts
 * Error reduction: measure before-and-after rates for common mistakes the

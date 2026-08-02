@@ -182,7 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.extension-package-prerelease.outputs.collections-matrix) }}
+      matrix: ${{ fromJson(needs.extension-package-prerelease.outputs.packages-matrix) }}
     permissions:
       contents: write
       id-token: write

@@ -25,10 +25,10 @@ Check for existing agent files before copying.
 ./scripts/collision-detection.ps1 -Selection hve-core
 ```
 
-Use a custom collection with explicit agent paths.
+Use a custom package with explicit agent paths.
 
 ```powershell
-./scripts/collision-detection.ps1 -Selection my-collection -CollectionAgents @('my-collection/custom.agent.md')
+./scripts/collision-detection.ps1 -Selection my-package -PackageAgents @('my-package/custom.agent.md')
 ```
 
 ### Agent Copy
@@ -36,13 +36,13 @@ Use a custom collection with explicit agent paths.
 Copy agents from the HVE-Core source into the target project.
 
 ```powershell
-./scripts/agent-copy.ps1 -HveCoreBasePath ./lib/hve-core -CollectionId hve-core -FilesToCopy @('hve-core/rpi-agent.agent.md', 'hve-core/documentation.agent.md')
+./scripts/agent-copy.ps1 -HveCoreBasePath ./lib/hve-core -PackageId hve-core -FilesToCopy @('hve-core/rpi-agent.agent.md', 'hve-core/documentation.agent.md')
 ```
 
 Preserve existing files during an upgrade.
 
 ```powershell
-./scripts/agent-copy.ps1 -HveCoreBasePath ./lib/hve-core -CollectionId hve-core -FilesToCopy @('hve-core/rpi-agent.agent.md') -KeepExisting -Collisions @('.github/agents/rpi-agent.agent.md')
+./scripts/agent-copy.ps1 -HveCoreBasePath ./lib/hve-core -PackageId hve-core -FilesToCopy @('hve-core/rpi-agent.agent.md') -KeepExisting -Collisions @('.github/agents/rpi-agent.agent.md')
 ```
 
 ### Upgrade Detection
