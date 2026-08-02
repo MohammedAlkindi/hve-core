@@ -567,8 +567,13 @@ function ConvertFrom-EquivalenceResults {
             # declared type rather than inferring trial-ness from the presence
             # of a trajectory, so a future record kind that carries one cannot
             # silently join the trial population and skew the tally. Records
-            # with no `type` at all predate the field and stay eligible.
-            if ($obj.PSObject.Properties['type'] -and [string]$obj.type -ne 'trial-result') { continue }
+            # with no `type`, or an empty one, predate the field and stay
+            # eligible. This matches the record selection in VallyRunner.psm1.
+            if ($obj.PSObject.Properties['type'] -and
+                -not [string]::IsNullOrWhiteSpace([string]$obj.type) -and
+                [string]$obj.type -ne 'trial-result') {
+                continue
+            }
 
             if (-not ($obj.PSObject.Properties['trajectory'])) { continue }
             $traj = $obj.trajectory

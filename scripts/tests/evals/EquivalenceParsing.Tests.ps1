@@ -585,6 +585,20 @@ Describe 'ConvertFrom-EquivalenceResults' -Tag 'Unit' {
         $records[0].stimulusName | Should -Be 'legacy'
     }
 
+    It 'Keeps records whose type field is present but empty' {
+        # VallyRunner.psm1 treats a blank type as a legacy record rather than an
+        # unknown kind. The two readers implement the same accepted decision, so
+        # they must agree on the boundary.
+        $runDir = Join-Path $TestDrive ("blanktype-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+        $blank = '{"type":"  ","gradeResult":{"passed":true,"score":1.0,"details":[]},"trajectory":{"output":"o","stimulus":{"name":"blank"},"metrics":{"wallTimeMs":1,"tokenUsage":{"totalTokens":1}}}}'
+        Set-Content -LiteralPath (Join-Path $runDir 'results.jsonl') -Value $blank -Encoding utf8NoBOM
+
+        $records = ConvertFrom-EquivalenceResults -RunDir $runDir -WarningAction SilentlyContinue
+        $records.Count | Should -Be 1
+        $records[0].stimulusName | Should -Be 'blank'
+    }
+
     It 'Reads the stimulus name from the trajectory, not the top-level field' {
         # vally writes both: a top-level string and the full Stimulus object on
         # the trajectory. Only the nested one is authoritative for this parser.
