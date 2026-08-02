@@ -8,8 +8,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
+import tempfile
 import textwrap
 import uuid
 from collections import deque
@@ -5942,9 +5944,34 @@ def _find_display_attribute_value(
 
 
 def write_tm7(output_path: Path, xml_text: str) -> None:
-    """Write the rendered XML to disk."""
+    """Write the rendered XML through a sibling temporary file.
+
+    A direct write truncates the destination before the new content lands, so
+    an interrupted or failing write destroys the previous model and can leave a
+    partial file that still parses as XML. Writing a sibling temporary file and
+    replacing the destination keeps the prior artifact intact until the
+    replacement is complete. The replacement also swaps a symlinked destination
+    rather than writing through it to whatever the link targets.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(xml_text, encoding="utf-8")
+    handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed in the with below
+        mode="w",
+        encoding="utf-8",
+        dir=output_path.parent,
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temporary_path = Path(handle.name)
+    try:
+        with handle:
+            handle.write(xml_text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def generate_tm7_candidate(

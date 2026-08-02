@@ -316,3 +316,68 @@ def test_generate_tb7_resolves_mitigations_and_citations_into_supported_values(
     assert any("Request integrity validation" in value for value in values)
     assert any("NIST: SC-8" in value for value in values)
     assert any("STRIDE: T" in value for value in values)
+
+
+def test_given_nested_output_when_generated_twice_then_ids_are_stable(
+    tmp_path: Path,
+) -> None:
+    """Nested output must be created, parseable, and byte-stable across runs."""
+    # Arrange
+    spec_path = tmp_path / "spec.yaml"
+    spec = {
+        "project_metadata": {"name": "Widget Service", "version": "1.2.3"},
+        "threats": [
+            {
+                "id": "threat-01",
+                "title": "Payload tampering",
+                "description": "desc",
+                "category": "tampering",
+            }
+        ],
+    }
+    _write_spec(spec_path, spec)
+    first_path = tmp_path / "out" / "nested" / "first.tb7"
+    second_path = tmp_path / "out" / "nested" / "second.tb7"
+
+    # Act
+    for output_path in (first_path, second_path):
+        subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                str(spec_path),
+                str(SOURCE_TEMPLATE_PATH),
+                "-o",
+                str(output_path),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+    # Assert
+    assert first_path.exists()
+    assert first_path.read_bytes() == second_path.read_bytes()
+
+    root = ET.parse(first_path).getroot()
+    appended = _iter_threat_types(root)[-1]
+    properties = appended.find("PropertiesMetaData")
+    assert properties is not None
+    metadata_ids = [
+        (child.findtext("Id") or "").strip()
+        for child in properties.findall("ThreatMetaDatum")
+    ]
+    assert all(metadata_ids)
+    assert len(metadata_ids) == len(set(metadata_ids))
+    expected = [
+        str(uuid.uuid5(uuid.NAMESPACE_URL, f"tb7:property-metadata:{name}"))
+        for name in (
+            "UserThreatDescription",
+            "PossibleMitigations",
+            "Priority",
+            "SDLPhase",
+        )
+    ]
+    assert metadata_ids == expected
+    assert not list(first_path.parent.glob("*.tmp"))

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -86,7 +88,11 @@ def _build_property_metadata() -> ET.Element:
         values = ET.SubElement(datum, "Values")
         ET.SubElement(values, "Value")
         id_el = ET.SubElement(datum, "Id")
-        id_el.text = str(uuid.uuid4())
+        # The metadatum identity is fixed by its property name, so it is
+        # derived from that name. A random identifier contradicted this
+        # module's deterministic contract and made two runs over identical
+        # input produce templates that never compared equal.
+        id_el.text = _make_guid(f"tb7:property-metadata:{name}")
         attribute_type = ET.SubElement(datum, "AttributeType")
         attribute_type.text = "0"
     return properties
@@ -257,8 +263,37 @@ def generate_tb7(
         else:
             root.append(copy_element(child))
     tree = ET.ElementTree(root)
-    tree.write(output_path, encoding="utf-8", xml_declaration=True)
+    _write_tb7_tree(tree, output_path)
     return output_path
+
+
+def _write_tb7_tree(tree: ET.ElementTree, output_path: Path) -> None:
+    """Write a TB7 tree through a sibling temporary file.
+
+    Writing directly required the destination directory to already exist, so a
+    nested output path raised an unhandled ``FileNotFoundError`` that escaped
+    the CLI as a traceback. The write is also staged through a sibling
+    temporary file so a failure part-way through leaves any prior template
+    intact instead of a truncated one.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed in the with below
+        mode="wb",
+        dir=output_path.parent,
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temporary_path = Path(handle.name)
+    try:
+        with handle:
+            tree.write(handle, encoding="utf-8", xml_declaration=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def copy_element(element: ET.Element) -> ET.Element:

@@ -1320,6 +1320,35 @@ def test_given_dense_zone_when_laid_out_then_nodes_never_escape_silently(
     )
 
 
+def test_given_failing_write_when_write_tm7_then_prior_destination_survives(
+    tmp_path: Path,
+) -> None:
+    """A failed write must leave the previous model intact and no temp residue.
+
+    The failure is injected with an unencodable lone surrogate rather than by
+    patching the write path, so the test describes the durability contract
+    instead of the implementation. A direct write truncates the destination
+    before the encoder rejects the payload, which is the defect.
+    """
+    # Arrange
+    destination = tmp_path / "nested" / "model.tm7"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("<PreviousModel />", encoding="utf-8")
+    original = destination.read_bytes()
+
+    # Act
+    with pytest.raises(UnicodeEncodeError):
+        generate_tm7.write_tm7(destination, "<Model>\ud800</Model>")
+
+    # Assert
+    assert destination.read_bytes() == original
+    assert not list(destination.parent.glob("*.tmp"))
+
+    generate_tm7.write_tm7(destination, "<NewModel />")
+    assert destination.read_text(encoding="utf-8") == "<NewModel />"
+    assert not list(destination.parent.glob("*.tmp"))
+
+
 @pytest.mark.parametrize("archetype_name", sorted(ARCHETYPES))
 def test_given_archetype_when_laid_out_then_rank_order_is_monotonic(
     archetype_name: str,
