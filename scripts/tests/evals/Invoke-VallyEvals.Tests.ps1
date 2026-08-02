@@ -1364,6 +1364,75 @@ exit 3
         @($summary.equivalence)[0].exitCode | Should -Be 3
         $summary.totals.failedSpecs | Should -Be 1
     }
+
+    It 'Forwards the devloop tier and keeps a failing verdict advisory' {
+        # This is the posture eval-validation.yml enables: the dispatch runs on every
+        # eligible PR but must not gate, so a failing verdict is reported without
+        # incrementing failedSpecs. The stub echoes its received tier so the
+        # workflow argument is proven to reach the driver rather than assumed.
+        $spec = @'
+name: agent-spec
+stimuli:
+  - name: s1
+    prompt: hi
+    tags:
+        agent: sample-agent
+'@
+        $artifacts = @(
+            @{ kind = 'agent'; artifactId = 'sample-agent'; path = '.github/agents/hve-core/sample-agent.agent.md'; status = 'M' }
+        )
+        $fx = New-EvalFixture -Artifacts $artifacts -Specs @(@{ Name = 'agent.yaml'; Yaml = $spec })
+
+        $driverPath = Join-Path $fx.Root 'devloop-equivalence.ps1'
+        $driver = @'
+[CmdletBinding()]
+param([string]$Agent, [string]$Tier, [string]$Model, [string]$RepoRoot, [string]$OutputPath)
+
+$summary = [ordered]@{
+    schemaVersion            = '2.0.0'
+    runs                     = 10
+    invariantFailures        = 2
+    runHealthFailures        = 0
+    divergenceGuardFailures  = 0
+    equivalenceGate          = 'warn'
+    documentedDivergenceGate = 'pass'
+    verdict                  = 'warn'
+    receivedTier             = $Tier
+}
+$dir = Split-Path -Parent $OutputPath
+if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+exit 0
+'@
+        Set-Content -LiteralPath $driverPath -Value $driver -Encoding utf8
+
+        $env:STUB_VALLY_MODE = 'pass'
+        try {
+            & pwsh -NoProfile -File $script:ScriptPath `
+                -ManifestPath $fx.ManifestPath `
+                -EvalRoot $fx.EvalRoot `
+                -LogsDir $fx.LogsDir `
+                -RepoRoot $fx.Root `
+                -VallyCommand $script:StubPath `
+                -EquivalenceDriverPath $driverPath `
+                -EnableBaselineEquivalence `
+                -EquivalenceTier devloop `
+                -SkipInputModeration `
+                -SkipOutputModeration *> $null
+        }
+        finally {
+            Remove-Item Env:\STUB_VALLY_MODE -ErrorAction SilentlyContinue
+        }
+
+        $equivPath = Join-Path $fx.LogsDir 'baseline-equivalence-sample-agent.json'
+        (Get-Content -LiteralPath $equivPath -Raw | ConvertFrom-Json).receivedTier | Should -Be 'devloop'
+
+        $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
+        $entry = @($summary.equivalence)[0]
+        $entry.tier | Should -Be 'devloop'
+        $entry.assertionsFailed | Should -Be 2
+        $summary.totals.failedSpecs | Should -Be 0
+    }
 }
 
 Describe 'Invoke-VallyEvals.ps1 moderation.threshold override' -Tag 'Integration' {
