@@ -36,20 +36,21 @@ Each item below is grouped into a validation workstream, names the WCAG success 
 
 Use the register below to connect each validated behavior to its WCAG success criterion, the workstream or workstreams that exercise it, the automation coverage status, and the manual result recorded for each workstream. Behaviors are named by what they verify so this guide stays readable without access to an issue tracker.
 
-| Behavior                        | WCAG SC | Workstream(s) | Automated lock status                                                                | Per-workstream manual result       |
-|---------------------------------|---------|---------------|--------------------------------------------------------------------------------------|------------------------------------|
-| Search keyboard reachability    | 2.1.1   | W1            | Automated: keyboard reachability lock                                                | Record per run                     |
-| Focus order                     | 2.4.3   | W4            | Automated: focus-order lock                                                          | Record per run                     |
-| Search placeholder at zoom      | 1.4.4   | W3            | Automated: zoom matrix at 100-250 percent; Edge remains manual-authoritative         | Record per run                     |
-| Narrow-viewport brand overlap   | 1.4.10  | W3            | Automated: reflow lock plus narrow-viewport brand overlap lock                       | Record per run                     |
-| Table and structure semantics   | 1.3.1   | W5, W7        | Automated: table and structure lock                                                  | Record per run for each workstream |
-| Search clear button name        | 4.1.2   | W1, W5        | Automated: clear-button accessible name lock; spoken output remains manual           | Record per run for each workstream |
-| Search result count announced   | 4.1.3   | W2            | Automated: status region presence and text; spoken announcement is a manual boundary | Record per run                     |
-| Heading outline                 | 1.3.1   | W6            | Automated: heading-outline lock                                                      | Record per run                     |
-| Header-cell association         | 1.3.1   | W5            | Automated: structure boundary; spoken association remains manual                     | Record per run                     |
-| Group label association         | 1.3.1   | W5            | Automated: structure boundary; spoken group label remains manual                     | Record per run                     |
-| Non-color link cue              | 1.4.1   | W6            | Automated: every prose link carries a non-color cue                                  | Record per run                     |
-| Focus indicator thickness       | 2.4.7   | W6            | Automated: focus indicator at least 2 CSS px on every focusable                      | Record per run                     |
+| Behavior                         | WCAG SC | Workstream(s) | Automated lock status                                                                | Per-workstream manual result       |
+|----------------------------------|---------|---------------|--------------------------------------------------------------------------------------|------------------------------------|
+| Search keyboard reachability     | 2.1.1   | W1            | Automated: keyboard reachability lock                                                | Record per run                     |
+| Search popup is not a focus trap | 2.1.2   | W1            | Automated: Tab and Shift+Tab leave the widget without navigating                     | Record per run                     |
+| Focus order                      | 2.4.3   | W4            | Automated: focus-order lock                                                          | Record per run                     |
+| Search placeholder at zoom       | 1.4.4   | W3            | Automated: zoom matrix at 100-250 percent; Edge remains manual-authoritative         | Record per run                     |
+| Narrow-viewport brand overlap    | 1.4.10  | W3            | Automated: reflow lock plus narrow-viewport brand overlap lock                       | Record per run                     |
+| Table and structure semantics    | 1.3.1   | W5, W7        | Automated: table and structure lock                                                  | Record per run for each workstream |
+| Search clear button name         | 4.1.2   | W1, W5        | Automated: clear-button accessible name lock; spoken output remains manual           | Record per run for each workstream |
+| Search result count announced    | 4.1.3   | W2            | Automated: status region presence and text; spoken announcement is a manual boundary | Record per run                     |
+| Heading outline                  | 1.3.1   | W6            | Automated: heading-outline lock                                                      | Record per run                     |
+| Header-cell association          | 1.3.1   | W5            | Automated: structure boundary; spoken association remains manual                     | Record per run                     |
+| Group label association          | 1.3.1   | W5            | Automated: structure boundary; spoken group label remains manual                     | Record per run                     |
+| Non-color link cue               | 1.4.1   | W6            | Automated: every prose link carries a non-color cue                                  | Record per run                     |
+| Focus indicator thickness        | 2.4.7   | W6            | Automated: focus indicator at least 2 CSS px on every focusable                      | Record per run                     |
 
 > [!NOTE]
 > An automated lock proves the deterministic part of a behavior, such as an accessible name being present or a control being reachable. It does not prove what a screen reader speaks. Every entry above still needs one human pass before closure.
@@ -106,14 +107,27 @@ Run the site locally and browse the served URL. Record every result using the ev
 
 ### Search results are reachable by keyboard
 
-* Automation covers: option traversal, the footer option being reachable, and focus staying within the combobox.
+* Automation covers: option traversal, the footer option being reachable, and DOM focus remaining on the input while arrow keys move the highlight through `aria-activedescendant`.
 * Manual gap: spoken position information and whether the reading order matches the visual order.
 * Steps:
   1. Open search and type a query returning several results.
   2. Press `ArrowDown` repeatedly and confirm the highlight advances one option at a time and reaches the final footer option.
   3. With NVDA, confirm each option and its position are announced and match what is visible.
-  4. Confirm `Enter` activates, `Esc` closes, and `Tab` does not navigate the page away.
-* Pass condition: every option is reachable, announced correctly, and focus never escapes unexpectedly.
+  4. Confirm `Enter` activates the highlighted option and `Esc` closes the popup.
+* Pass condition: every option is reachable and announced correctly, and arrow keys move the highlight without moving DOM focus off the input.
+
+### Search popup does not trap the keyboard
+
+* Automation covers: `Tab` from the open popup moves focus to a control outside the search widget, and the page does not navigate.
+* Manual gap: whether a screen reader follows the move and announces the destination, and whether the destination is a sensible next stop rather than a technically-focusable oddity.
+* Steps:
+  1. Open search and type a query so the popup is open.
+  2. Press `Tab` and confirm focus lands on a control outside the search widget, that the focus indicator is visible on it, and that the URL is unchanged.
+  3. Confirm focus is not left on the search input and has not been dropped to the page body. A focus indicator that disappears entirely is the trap symptom.
+  4. Reopen the popup and press `Shift+Tab`; confirm focus moves backward out of the widget under the same conditions.
+  5. With NVDA running, repeat both directions and confirm it announces the destination control rather than falling silent.
+* Pass condition: both `Tab` and `Shift+Tab` always leave the widget for a real control, focus is never stranded on the input or lost to the body, and the page never navigates.
+* Why this matters: a keyboard-only or screen-reader user who cannot leave the search field has no pointer fallback. This is a hard WCAG 2.1.2 failure, not a degraded experience.
 
 ### Link cues and focus indicators
 
@@ -128,13 +142,13 @@ Run the site locally and browse the served URL. Record every result using the ev
 
 ### Table and group semantics
 
-* Automation covers: header scope, accessible names, and structural associations.
+* Automation covers: header scope, accessible names, structural associations, and that scrollable table wrappers are groups rather than landmarks.
 * Manual gap: what is spoken when navigating cells and footer groups.
 * Steps:
-  1. With NVDA, navigate to a documentation table and confirm it announces its name.
+  1. With NVDA, navigate to a documentation table and confirm the scrollable wrapper announces its name as a grouping. Tables are deliberately not landmarks, so do not expect them in the landmark list; a page with several tables would otherwise fill that list with identical entries.
   2. Move between cells and confirm the correct row and column headers are spoken with each cell.
   3. Navigate the footer and confirm each column announces its group title before its list.
-* Pass condition: table names, header associations, and footer group labels are all spoken correctly.
+* Pass condition: table names, header associations, and footer group labels are all spoken correctly, and no table appears as a landmark.
 
 ### Focus order and heading outline
 
