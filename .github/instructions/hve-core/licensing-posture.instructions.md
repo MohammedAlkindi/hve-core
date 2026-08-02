@@ -22,6 +22,8 @@ Domain-specific overlays (for example, accessibility frameworks or RAI standards
 
 Map every upstream source to one of the classes below, then follow that class's rule.
 
+When more than one class could apply, the most specific class governs, and where specificity is equal the more restrictive rule governs. A source named as an example inside a class is governed by that class. Creative Commons sources follow the Creative Commons class, not the permissive open-source class, even though CC licenses also grant rights on attribution. A dual-licensed source follows the more restrictive of its applicable classes.
+
 ### Repository original content (CC BY 4.0)
 
 Original prose authored for this repository — review criteria, anchors, indicators, taxonomies, templates, and explanatory material — is Microsoft content licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Where original content names a standard's characteristics or categories, the accompanying criteria are original content and not reproductions of the standard's definitions; the authoritative definitions remain with the cited standard.
@@ -57,6 +59,23 @@ CC-licensed sources (for example, OWASP materials under CC BY, OpenTelemetry Sem
 * CC BY: prefer paraphrase and a source link; reproduce only the minimum text necessary for a specific technical point, with attribution.
 * CC0: verbatim reproduction is permitted; preserve attribution to the source for provenance even though CC0 does not require it.
 
+### Permissive open-source licenses (MIT, Apache-2.0, BSD, and similar)
+
+Permissively licensed sources (for example, the Microsoft Code With Engineering Playbook under MIT) grant rights to use, copy, modify, and redistribute without restriction, conditioned on preserving the copyright and permission notice in all copies or substantial portions. Verbatim reproduction is permitted when that notice requirement is met. This class covers any open-source license granting those rights on notice alone, including ISC and similar terms, not only the three named.
+
+Paraphrase remains preferred for stylistic consistency, so that a reference file reads as repository guidance rather than a mirror of upstream. Reproduce verbatim only when paraphrase would distort a named requirement, checklist item, or technical term, or when short factual statements have too little expressive range for paraphrase to be meaningful. Reproducing a whole upstream page or section is outside this allowance even when the license permits it.
+
+Requirements for any verbatim or lightly edited reproduction:
+
+* Preserve the upstream copyright and permission notice, which is the condition the license attaches to redistribution.
+* Record the source in `THIRD-PARTY-NOTICES` at the repository root with its license, source URLs, and usage scope.
+* Cite the specific upstream page in the reference file.
+* Describe the reproduction accurately. Do not claim prose is paraphrased when it is reproduced or lightly edited, and do not present reproduced content as repository-original.
+
+### Mixed-content packages
+
+A skill package that combines third-party-derived content with repository-original content declares a compound SPDX expression naming both, for example `MIT AND CC-BY-4.0`. Its attribution section states which files belong to which license. Declaring only one license misrepresents the other body of content.
+
 ### Open legal text (statutes and regulations)
 
 Open legal text published by governments and their institutions (for example, EU regulations on EUR-Lex) is paraphrase-first with explicit attribution to the official source. Use the official publication page as the source of truth for clause references, prefer paraphrased summaries, and keep any verbatim excerpt minimal and clearly attributed.
@@ -76,7 +95,9 @@ Verbatim restricted-standard text is a licensing violation and is reverted at re
 
 * Every `references/*.md` file cites the official upstream source URL for the standard or guidance it summarises.
 * Paraphrased prose is the default posture for all sources.
-* Verbatim text is permitted only for public-domain, W3C, and CC0 sources, each with the required attribution.
+* Verbatim text is permitted only for public-domain, W3C, CC0, and permissively licensed sources, each with the required attribution and notice.
+* Describe any reproduction accurately in every source class. Do not claim prose is paraphrased when it is reproduced or lightly edited, and do not present reproduced content as repository-original.
+* Do not reproduce an entire upstream page, section, or document regardless of license. Treat a long or substantial excerpt as a gating license-risk finding, not an advisory one.
 * Verbatim text is forbidden for restricted standards (ISO, IEC, ETSI) under any circumstance, including short partial quotes, table rows, and figure captions.
 * When the licensing posture for a specific snippet is ambiguous, paraphrase rather than quote.
 * Preserve standards identifiers verbatim (clause numbers, control IDs, criterion IDs); identifiers are facts, not licensed prose.

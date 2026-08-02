@@ -67,6 +67,7 @@ items:
   maturity: preview
 - path: .github/agents/experimental/experiment-designer.agent.md
   kind: agent
+  maturity: experimental
 - path: .github/agents/experimental/pptx.agent.md
   kind: agent
 - path: .github/agents/experimental/subagents/pptx-subagent.agent.md
@@ -387,6 +388,7 @@ items:
   kind: instruction
 - path: .github/instructions/experimental/experiment-designer.instructions.md
   kind: instruction
+  maturity: experimental
 - path: .github/instructions/experimental/graphify.instructions.md
   kind: instruction
   maturity: experimental
@@ -511,6 +513,12 @@ items:
   kind: skill
   maturity: experimental
 - path: .github/skills/coding-standards/python-foundational
+  kind: skill
+  maturity: experimental
+- path: .github/skills/data-science/ds-dataops
+  kind: skill
+  maturity: experimental
+- path: .github/skills/data-science/experiment-design
   kind: skill
   maturity: experimental
 - path: .github/skills/design-thinking/dt-coaching-foundation

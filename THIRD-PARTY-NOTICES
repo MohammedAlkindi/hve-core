@@ -44,6 +44,24 @@ Usage: Build track level definitions embedded in supply chain security instructi
 
 ---
 
+Microsoft Code With Engineering Playbook
+Copyright: © Microsoft Corporation
+License: MIT License
+License URI: https://github.com/microsoft/code-with-engineering-playbook/blob/main/LICENSE
+Source: https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/
+Source: https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/testing-data-science-and-mlops-code/
+Source: https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/ml-model-checklist/
+Source: https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/ml-fundamentals-checklist/
+Source: https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/model-experimentation/
+Source: https://microsoft.github.io/code-with-engineering-playbook/observability/ml-observability/
+Usage: Data-tiering, pipeline-invariant, DS/MLOps testing, validation-versus-drift,
+model-experimentation, and ML checklist guidance embedded in data-science skill files.
+Content is derived from the source pages and in many passages stays close to or matches
+upstream wording, with section headings, tier names, checklist item labels, and API names
+retained as identifiers.
+
+---
+
 OpenSSF Best Practices Badge (CII Best Practices)
 License: MIT License (criteria), Creative Commons Attribution 3.0+ (documentation)
 Source: https://www.bestpractices.dev/

@@ -37,6 +37,9 @@ items:
   - path: .github/skills/experimental/mural
     kind: skill
     maturity: experimental
+  - path: .github/skills/data-science/experiment-design
+    kind: skill
+    maturity: experimental
   - path: .github/skills/rpi/rpi-research
     kind: skill
     maturity: stable

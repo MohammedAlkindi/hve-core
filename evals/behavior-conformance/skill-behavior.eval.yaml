@@ -2,9 +2,10 @@
 name: behavior-conformance-skills
 description: >
   Advisory-tier behavior conformance evals for skills exercised through
-  knowledge, tool-trigger, and bleed-detection stimulus shapes. Total: 127
+  knowledge, tool-trigger, and bleed-detection stimulus shapes. Total: 135
   stimuli, including complete branch coverage for the RPI and prompt-builder
-  skill updates. Each tool-trigger stimulus uses two graders with AND logic,
+  skill updates and data-science reference-pack coverage for ds-dataops and
+  experiment-design. Each tool-trigger stimulus uses two graders with AND logic,
   and the suite-level scoring threshold gates the aggregate pass rate across
   stimuli.
 type: capability
@@ -2355,3 +2356,187 @@ stimuli:
         name: scope-language
         config:
           pattern: '(?i)(node|service|instrument|copilot|telemetry)'
+
+  - name: skill-ds-dataops-tiers-and-validation-knowledge
+    prompt: |
+      Using the `ds-dataops` skill, name the tiers in the upstream data quality
+      model and say how `malformed` and `sandbox` relate to them. Then state
+      where data validation assertions belong and why that placement is chosen.
+    environment:
+      skills:
+        - ../../.github/skills/data-science/ds-dataops
+    tags:
+      category: behavior-conformance
+      skill: ds-dataops
+      shape: knowledge
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: tier-and-storage-area-distinction
+        config:
+          pattern: '(?i)(bronze).*(silver).*(gold)'
+      - type: output-matches
+        name: validation-placement-and-replay-rationale
+        config:
+          pattern: '(?i)(bronze[-\s]to[-\s]silver|between\s+bronze\s+and\s+silver).*(replay|recover|faithful|copy)'
+
+  - name: skill-ds-dataops-testing-tool-trigger
+    prompt: |
+      I am writing pytest tests for a data loader, a transformation function,
+      and a model predict wrapper. Which skill under `.github/skills/**/SKILL.md`
+      applies, and for each of those three cases what should be mocked?
+    environment:
+      skills:
+        - ../../.github/skills/data-science/ds-dataops
+    tags:
+      category: behavior-conformance
+      skill: ds-dataops
+      shape: tool-trigger
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: skill-domain-attribution
+        config:
+          pattern: '(?i)(ds-dataops|dataops|test|pytest)'
+      - type: output-matches
+        name: mocking-boundary
+        config:
+          pattern: '(?i)(mock).*(isfile|read_csv|model|load|predict)'
+
+  - name: skill-ds-dataops-validation-drift-provenance
+    prompt: |
+      Using the `ds-dataops` skill, explain how data validation differs from
+      data drift detection, what each one should trigger, and which upstream
+      playbook page states that distinction.
+    environment:
+      skills:
+        - ../../.github/skills/data-science/ds-dataops
+    tags:
+      category: behavior-conformance
+      skill: ds-dataops
+      shape: knowledge
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: remediation-asymmetry
+        config:
+          pattern: '(?i)(re[-\s]?rout|rectif).*(adapt|retrain)'
+      - type: output-matches
+        name: source-attribution
+        config:
+          pattern: '(?i)(model\s+production\s+checklist|ml-model-checklist|production\s+checklist)'
+
+  - name: skill-ds-dataops-ownership-bleed-detection
+    prompt: |
+      I want the `ds-dataops` skill to pick the exact metric names, units, and
+      instrument types for my drift monitoring, and to decide which of my
+      columns count as sensitive personal data. Will it do that?
+    environment:
+      skills:
+        - ../../.github/skills/data-science/ds-dataops
+    tags:
+      category: behavior-conformance
+      skill: ds-dataops
+      shape: bleed-detection
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: refusal-or-redirect
+        config:
+          pattern: '(?i)(telemetry-foundations|privacy-standards|owns|not\s+own|does\s+not\s+decide|delegat|route)'
+      - type: output-matches
+        name: scope-language
+        config:
+          pattern: '(?i)(metric|naming|unit|cardinality|sensitiv|classif)'
+
+  - name: skill-experiment-design-mve-knowledge
+    prompt: |
+      Using the `experiment-design` skill, give the standard hypothesis format
+      for a Minimum Viable Experiment and name several red flags indicating a
+      proposed engagement is not really an experiment.
+    environment:
+      skills:
+        - ../../.github/skills/data-science/experiment-design
+    tags:
+      category: behavior-conformance
+      skill: experiment-design
+      shape: knowledge
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: hypothesis-format
+        config:
+          pattern: '(?i)(we\s+believe).*(we\s+will\s+test)'
+      - type: output-matches
+        name: red-flag-vocabulary
+        config:
+          pattern: '(?i)(demo|mini[-\s]?mvp|solved\s+problem|skipping\s+ahead|no\s+next\s+steps|red\s+flag)'
+
+  - name: skill-experiment-design-reproducibility
+    prompt: |
+      Using the `experiment-design` skill, list everything that must be tracked
+      for an experiment to be fully reproducible, and say what makes experiments
+      comparable to each other.
+    environment:
+      skills:
+        - ../../.github/skills/data-science/experiment-design
+    tags:
+      category: behavior-conformance
+      skill: experiment-design
+      shape: knowledge
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: dataset-names-and-versions
+        config:
+          pattern: '(?i)(dataset).*(version)'
+      - type: output-matches
+        name: full-reproducibility-set
+        config:
+          pattern: '(?i)(parameter).*(code).*(environment)'
+
+  - name: skill-experiment-design-tool-trigger
+    prompt: |
+      I am standing up experiment tracking and an evaluation flow for a new
+      hardware integration trial. Which skill under `.github/skills/**/SKILL.md`
+      applies, and what does it advise for tracking and evaluation?
+    environment:
+      skills:
+        - ../../.github/skills/data-science/experiment-design
+    tags:
+      category: behavior-conformance
+      skill: experiment-design
+      shape: tool-trigger
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: skill-domain-attribution
+        config:
+          pattern: '(?i)(experiment-design|experiment|mve|tracking|evaluation)'
+      - type: output-matches
+        name: general-purpose-scope
+        config:
+          pattern: '(?i)(track|evaluat|reproduc|abstraction|stakeholder)'
+
+  - name: skill-experiment-design-production-bleed-detection
+    prompt: |
+      My experiment is finished and validated. I now want to build and harden
+      the production service that ships it. Does the `experiment-design` skill
+      own that implementation work? Name what it does own.
+    environment:
+      skills:
+        - ../../.github/skills/data-science/experiment-design
+    tags:
+      category: behavior-conformance
+      skill: experiment-design
+      shape: bleed-detection
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: refusal-or-redirect
+        config:
+          pattern: '(?i)(not\s+own|does\s+not|beyond|outside|different|hand\s*off|disposable)'
+      - type: output-matches
+        name: scope-language
+        config:
+          pattern: '(?i)(experiment|production|implementation|hypothes)'

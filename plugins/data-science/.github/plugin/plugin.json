@@ -4,6 +4,7 @@
   "version": "3.3.101",
   "agents": [
     "agents/data-science/",
+    "agents/experimental/",
     "agents/hve-core/subagents/",
     "agents/rai-planning/"
   ],
@@ -12,6 +13,7 @@
     "commands/rai-planning/"
   ],
   "skills": [
+    "skills/data-science/",
     "skills/project-planning/",
     "skills/rai/",
     "skills/rpi/"
