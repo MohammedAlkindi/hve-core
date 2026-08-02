@@ -3595,7 +3595,12 @@ def _validate_feedback_candidate(
         "after_summary": after_summary,
         "surface_metrics": surface_metrics,
         "evidence_complete": evidence_complete,
-        "semantic_regression": False,
+        # This function validates one candidate in isolation and holds no
+        # baseline, so it cannot decide whether the model's semantic identity
+        # regressed. Returning None defers that decision to the caller, which
+        # owns the baseline. Returning False asserted "no regression" without
+        # evaluating anything and made the caller's evaluation unreachable.
+        "semantic_regression": None,
         "semantic_summary": before_summary,
     }
 

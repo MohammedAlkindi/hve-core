@@ -335,6 +335,122 @@ def test_given_cross_candidate_semantics_when_only_geometry_changes_then_does_no
     assert regression is False
 
 
+def test_given_production_feedback_path_when_identity_changes_then_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The production path must reach the semantic evaluator on its own.
+
+    `_validate_feedback_candidate` used to return a hardcoded
+    `semantic_regression: False`, and the caller only recomputed when the value
+    was None, so `_evaluate_semantic_regression` was never reached in
+    production. This test patches the inner `_validate_candidate` seam instead,
+    so the real feedback-candidate body and the real evaluator both run.
+    """
+    # Arrange
+    spec_path = tmp_path / "spec.yaml"
+    _write_feedback_spec(spec_path)
+    baseline_model = tmp_path / "baseline.tm7"
+    baseline_model.write_text("baseline", encoding="utf-8")
+    overlay_output = tmp_path / "overlay.yaml"
+
+    def _summary(threat_identity: str) -> dict:
+        return {
+            "instance_count": 1,
+            "threat_count": 1,
+            "threat_identities": [threat_identity],
+            "element_identities": ["context|node-a|store|TH-1|guid-a"],
+            "flow_identities": ["context|flow-1|source|target|src|dst"],
+            "instances": [{"id": "1"}],
+            "drawing_surface_hash": "surface",
+            "knowledge_base_hash": "kb",
+        }
+
+    calls: list[int] = []
+
+    def _fake_validate_candidate(**kwargs: object) -> dict:
+        calls.append(1)
+        # The second candidate declares a different threat identity, which is a
+        # semantic change rather than a geometry-only one.
+        identity = "threat|type|state" if len(calls) == 1 else "threat|type|REPLACED"
+        return {
+            "working_model": str(baseline_model),
+            "saved_model": str(baseline_model),
+            "before_summary": _summary(identity),
+            "after_summary": _summary(identity),
+            "surface_metrics": [
+                {
+                    "surface_id": "context",
+                    "node_id": "trust-zone-portal",
+                    "gate_failure_count": 1,
+                    "review_count": 1,
+                    "warn_count": 0,
+                    "max_severity_score": 3.0,
+                    "constraint_type": "relative_to",
+                    "capture_complete": True,
+                    # An unresolved review finding keeps convergence from
+                    # declaring readiness, so the loop runs a second candidate.
+                    "findings": [
+                        {
+                            "surface_id": "context",
+                            "metric_name": "node_spacing",
+                            "severity": "review",
+                            "category": "layout",
+                        }
+                    ],
+                }
+            ],
+            "evidence_complete": True,
+        }
+
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "discover_tmt_application",
+        lambda: validate_tm7_with_tmt.TmtDiscovery(
+            path=tmp_path / "ThreatModeling.exe",
+            version="7.3.51110.1",
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "_validate_candidate",
+        _fake_validate_candidate,
+    )
+    # Candidate regeneration is an unrelated collaborator here. Stubbing it
+    # keeps the test focused on the semantic gate while leaving both
+    # `_validate_feedback_candidate` and `_evaluate_semantic_regression` real.
+    monkeypatch.setattr(
+        validate_tm7_with_tmt.generate_tm7,
+        "generate_tm7_candidate",
+        lambda **kwargs: Path(str(kwargs["output_path"])).write_text(
+            "candidate", encoding="utf-8"
+        )
+        or Path(str(kwargs["output_path"])),
+    )
+    monkeypatch.setattr(validate_tm7_with_tmt, "sha256_file", lambda path: "sha")
+
+    # Act
+    result = validate_tm7_with_tmt.run_harness(
+        input_model=baseline_model,
+        evidence_dir=tmp_path / "evidence",
+        feedback_loop=True,
+        spec_path=spec_path,
+        overlay_output=overlay_output,
+        max_iterations=3,
+        require_feedback_evidence=False,
+    )
+
+    # Assert
+    assert len(calls) >= 2, (
+        f"the loop must reach a second candidate to compare; "
+        f"stopped with status={result.status} message={result.message}"
+    )
+    assert result.status == "semantic-regression"
+    assert result.exit_code == validate_tm7_with_tmt.EXIT_VALIDATION_FAILURE
+    assert result.status != "automated-ready-pending-human"
+
+
 def test_given_strict_feedback_evidence_when_capture_is_missing_then_marks_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
