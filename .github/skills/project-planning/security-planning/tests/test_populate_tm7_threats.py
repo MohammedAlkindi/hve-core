@@ -120,6 +120,59 @@ def test_given_comprehensive_spec_when_populated_then_has_expected_count(
     )
 
 
+def test_given_non_80_threat_spec_when_populated_then_count_is_caller_controlled(
+    tmp_path: Path,
+) -> None:
+    """A valid spec is accepted on its own terms, not against a fixed 80.
+
+    The count was hardcoded, so every internally consistent model that did not
+    happen to declare exactly 80 threats was rejected. It is now an optional
+    caller assertion that fails only when the caller's own number disagrees.
+    """
+    # Arrange
+    spec = generate_tm7.load_spec(COMPREHENSIVE_SPEC_PATH)
+    kept_ids = {
+        str(threat.get("id"))
+        for threat in (spec.get("threats") or [])[:3]
+        if isinstance(threat, dict)
+    }
+    spec["threats"] = [
+        threat
+        for threat in spec.get("threats") or []
+        if isinstance(threat, dict) and str(threat.get("id")) in kept_ids
+    ]
+    spec_path = tmp_path / "three-threat-spec.yaml"
+    spec_path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+    base_path = _render_base(spec, tmp_path, "three-threat-base.tm7")
+
+    # Act
+    result = populate_tm7_threats.populate_tm7_threats(
+        spec_path,
+        base_path,
+        generation_state=False,
+    )
+
+    # Assert
+    assert len(result["ThreatInstances"]) == 3
+
+    matching = populate_tm7_threats.populate_tm7_threats(
+        spec_path,
+        base_path,
+        generation_state=False,
+        expected_threat_count=3,
+    )
+    assert len(matching["ThreatInstances"]) == 3
+
+    with pytest.raises(populate_tm7_threats.GenerationError) as conflict:
+        populate_tm7_threats.populate_tm7_threats(
+            spec_path,
+            base_path,
+            generation_state=False,
+            expected_threat_count=80,
+        )
+    assert "expected 80 unique threat ids, found 3" in str(conflict.value)
+
+
 def test_given_comprehensive_spec_when_validated_then_all_mappings_resolve() -> None:
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}

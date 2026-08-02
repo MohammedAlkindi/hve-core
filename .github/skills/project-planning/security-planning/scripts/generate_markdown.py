@@ -208,11 +208,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         spec = load_spec(args.spec)
-        template_dir = (
-            args.spec.parent.parent
-            if args.spec.parent.name == "templates"
-            else args.spec.resolve().parent
-        )
+        # Profiles ship with the package, so they are resolved from the package
+        # root exactly as generate_tm7 resolves them. Deriving the directory
+        # from the spec location instead made an external spec resolve a
+        # different profile than the TM7 generator chose for the same input.
+        template_dir = Path(__file__).resolve().parent.parent
         profile = resolve_profile(spec, None, template_dir)
         profile["name"] = spec.get("template_profile") or "sdl_core_generic"
         mode = str(spec.get("mode") or "pre-populated-comprehensive")

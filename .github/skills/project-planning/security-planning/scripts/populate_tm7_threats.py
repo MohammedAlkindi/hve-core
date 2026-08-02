@@ -575,10 +575,19 @@ def populate_tm7_threats(
     output_path: str | Path | None = None,
     *,
     generation_state: bool | None = None,
+    expected_threat_count: int | None = None,
 ) -> dict[str, Any]:
-    """Resolve and optionally write explicit threats into an existing model."""
+    """Resolve and optionally write explicit threats into an existing model.
+
+    ``expected_threat_count`` is an optional caller assertion. It defaults to
+    ``None`` so any internally consistent spec is accepted; the previous
+    hardcoded 80 rejected every other valid model.
+    """
     spec = _load_yaml_or_json(Path(spec_path))
-    mapping_failures = collect_mapping_failures(spec, expected_count=80)
+    mapping_failures = collect_mapping_failures(
+        spec,
+        expected_count=expected_threat_count,
+    )
     if mapping_failures:
         raise GenerationError(
             "Threat mapping contract validation failed:\n"
@@ -706,6 +715,15 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Explicitly set ThreatGenerationEnabled in the output",
     )
+    parser.add_argument(
+        "--expected-threat-count",
+        type=int,
+        default=None,
+        help=(
+            "Assert the spec declares exactly this many unique threat ids. "
+            "Omit to accept any internally consistent count."
+        ),
+    )
     return parser
 
 
@@ -721,6 +739,7 @@ def main() -> int:
             args.model,
             args.output,
             generation_state=generation_state,
+            expected_threat_count=args.expected_threat_count,
         )
     except GenerationError as exc:
         print(str(exc), file=sys.stderr)

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import math
 import platform
 import re
@@ -1347,6 +1348,88 @@ def test_given_failing_write_when_write_tm7_then_prior_destination_survives(
     generate_tm7.write_tm7(destination, "<NewModel />")
     assert destination.read_text(encoding="utf-8") == "<NewModel />"
     assert not list(destination.parent.glob("*.tmp"))
+
+
+def test_given_contract_violation_when_cli_runs_then_message_is_concise(
+    tmp_path: Path,
+) -> None:
+    """An invalid threat state is an expected failure, not an unhandled crash.
+
+    The same run also proves completeness warnings still reach an operator on
+    stderr now that they are emitted through the module logger.
+    """
+    # Arrange
+    spec = copy.deepcopy(yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8")))
+    spec["threats"][0]["state"] = "not-a-real-state"
+    spec.pop("abuse_cases", None)
+    spec_path = tmp_path / "invalid-state.yaml"
+    spec_path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+
+    # Act
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            str(spec_path),
+            "-o",
+            str(tmp_path / "model.tm7"),
+        ],
+        check=False,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    # Assert
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    assert "not-a-real-state" in result.stderr
+    assert "CTM-8" in result.stderr
+    assert not (tmp_path / "model.tm7").exists()
+
+
+def test_given_external_spec_when_markdown_generated_then_profile_matches_tm7(
+    tmp_path: Path,
+) -> None:
+    """Markdown must resolve the same shipped profile the TM7 generator resolves.
+
+    Resolving from the spec's own directory made an external spec pick up a
+    different profile than generation used for the same input.
+    """
+    # Arrange
+    external_spec = tmp_path / "elsewhere" / "spec.yaml"
+    external_spec.parent.mkdir(parents=True)
+    external_spec.write_text(
+        SPEC_PATH.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    spec = generate_markdown.load_spec(external_spec)
+    expected = generate_tm7.resolve_profile(spec, None, ROOT)
+
+    # Act
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(MARKDOWN_SCRIPT_PATH),
+            str(external_spec),
+            "-o",
+            str(tmp_path / "report.md"),
+        ],
+        check=False,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    # Assert
+    assert result.returncode == 0, result.stderr
+    actual = generate_markdown.resolve_profile(
+        spec,
+        None,
+        Path(generate_markdown.__file__).resolve().parent.parent,
+    )
+    assert actual["type_ids"] == expected["type_ids"]
+    assert (tmp_path / "report.md").exists()
 
 
 @pytest.mark.parametrize("archetype_name", sorted(ARCHETYPES))
@@ -3705,7 +3788,7 @@ class TestGenerateTm7:
 
     def test_given_incomplete_spec_when_emit_then_ctm_warnings(
         self,
-        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         # Arrange
         incomplete_spec = {
@@ -3718,13 +3801,15 @@ class TestGenerateTm7:
         }
 
         # Act
-        generate_tm7.emit_warnings(incomplete_spec)
-        captured = capsys.readouterr()
+        with caplog.at_level(logging.WARNING, logger="generate_tm7"):
+            generate_tm7.emit_warnings(incomplete_spec)
+        emitted = "\n".join(record.getMessage() for record in caplog.records)
 
         # Assert
-        assert "CTM-1" in captured.err
-        assert "CTM-5" in captured.err
-        assert "CTM-8" in captured.err
+        assert "CTM-1" in emitted
+        assert "CTM-5" in emitted
+        assert "CTM-8" in emitted
+        assert all(record.levelno == logging.WARNING for record in caplog.records)
 
     def test_given_authoritative_topology_when_generate_then_instances_use(
         self,

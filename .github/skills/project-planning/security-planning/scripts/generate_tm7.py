@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 import os
 import re
@@ -31,6 +32,7 @@ except (
     DefusedET = None
 
 from tm7_threat_contract import (
+    ThreatContractError,
     build_custom_threat_type_id,
     build_entry_key,
     build_interaction_key,
@@ -38,6 +40,8 @@ from tm7_threat_contract import (
     collect_mapping_failures,
     serialize_threat_instances,
 )
+
+logger = logging.getLogger(__name__)
 
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
@@ -399,7 +403,12 @@ def parse_template_xml(path: Path) -> ET.Element:
 
 
 def emit_warnings(spec: dict[str, Any]) -> None:
-    """Emit non-fatal warnings for missing completeness dimensions."""
+    """Emit non-fatal warnings for missing completeness dimensions.
+
+    Warnings go through the module logger rather than ``print`` so an importing
+    caller can capture, route, or silence them. ``configure_logging`` at the CLI
+    boundary keeps the operator-visible stderr output unchanged.
+    """
     representations = spec.get("representations") or {}
     context_diagrams = representations.get("context_diagrams") or []
     functional_scenarios = representations.get("functional_scenarios") or []
@@ -411,30 +420,17 @@ def emit_warnings(spec: dict[str, Any]) -> None:
     security_test_cases = spec.get("security_test_cases") or []
 
     if not context_diagrams:
-        print(
-            "Warning: incomplete threat model: CTM-1 missing context diagrams",
-            file=sys.stderr,
-        )
+        logger.warning("incomplete threat model: CTM-1 missing context diagrams")
     if not functional_scenarios:
-        print(
-            "Warning: incomplete threat model: CTM-2 missing functional scenarios",
-            file=sys.stderr,
-        )
+        logger.warning("incomplete threat model: CTM-2 missing functional scenarios")
     if not operational_views:
-        print(
-            "Warning: incomplete threat model: CTM-3 missing operational views",
-            file=sys.stderr,
-        )
+        logger.warning("incomplete threat model: CTM-3 missing operational views")
     if not threats or not mitigations:
-        print(
-            "Warning: incomplete threat model: CTM-4 missing threats or mitigations",
-            file=sys.stderr,
+        logger.warning(
+            "incomplete threat model: CTM-4 missing threats or mitigations"
         )
     if not data_flows:
-        print(
-            "Warning: incomplete threat model: CTM-5 missing numbered data flows",
-            file=sys.stderr,
-        )
+        logger.warning("incomplete threat model: CTM-5 missing numbered data flows")
     else:
         missing_annotations = [
             flow.get("id")
@@ -451,26 +447,16 @@ def emit_warnings(spec: dict[str, Any]) -> None:
             )
         ]
         if missing_annotations:
-            print(
-                "Warning: incomplete threat model: CTM-6 missing flow annotations for "
-                f"{', '.join(str(item) for item in missing_annotations)}",
-                file=sys.stderr,
+            logger.warning(
+                "incomplete threat model: CTM-6 missing flow annotations for %s",
+                ", ".join(str(item) for item in missing_annotations),
             )
     if not any(isinstance(threat, dict) and threat.get("state") for threat in threats):
-        print(
-            "Warning: incomplete threat model: CTM-7 missing threat state",
-            file=sys.stderr,
-        )
+        logger.warning("incomplete threat model: CTM-7 missing threat state")
     if not abuse_cases:
-        print(
-            "Warning: incomplete threat model: CTM-8 missing abuse cases",
-            file=sys.stderr,
-        )
+        logger.warning("incomplete threat model: CTM-8 missing abuse cases")
     if not security_test_cases:
-        print(
-            "Warning: incomplete threat model: CTM-9 missing security test cases",
-            file=sys.stderr,
-        )
+        logger.warning("incomplete threat model: CTM-9 missing security test cases")
     if not all(
         [
             context_diagrams,
@@ -480,10 +466,8 @@ def emit_warnings(spec: dict[str, Any]) -> None:
             mitigations,
         ]
     ):
-        print(
-            "Warning: incomplete threat model: CTM-10 model is not complete "
-            "enough for review",
-            file=sys.stderr,
+        logger.warning(
+            "incomplete threat model: CTM-10 model is not complete enough for review"
         )
 
 
@@ -6031,8 +6015,23 @@ def generate_tm7_candidate(
     return output_path
 
 
+def configure_logging() -> None:
+    """Route module diagnostics to stderr with a concise prefix.
+
+    The ``Warning: `` prefix and stderr destination match what the previous
+    direct ``print`` calls produced, so operator-visible output is unchanged.
+    """
+    if logging.getLogger().handlers:
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().setLevel(logging.INFO)
+
+
 def main() -> int:
     """CLI entry point."""
+    configure_logging()
     parser = create_parser()
     args = parser.parse_args()
 
@@ -6053,6 +6052,12 @@ def main() -> int:
     except GenerationError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return exc.exit_code
+    except ThreatContractError as exc:
+        # A contract violation is an expected domain failure for invalid input,
+        # so it reports the same concise message and exit code as any other
+        # rejected spec instead of escaping as a traceback.
+        print(f"Error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
 
 
 if __name__ == "__main__":
