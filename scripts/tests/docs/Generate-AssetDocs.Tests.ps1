@@ -163,6 +163,103 @@ Describe 'Invoke-AssetDocsGeneration - CRLF source assets' -Tag 'Unit' {
     }
 }
 
+Describe 'Test-DocContentEqual' -Tag 'Unit' {
+    It 'Treats CRLF and LF forms of the same content as equal' {
+        Test-DocContentEqual -Left "a`nb`nc`n" -Right "a`r`nb`r`nc`r`n" | Should -BeTrue
+    }
+
+    It 'Reports genuinely different content as unequal' {
+        Test-DocContentEqual -Left "a`nb`n" -Right "a`r`nB`r`n" | Should -BeFalse
+    }
+
+    It 'Reports differing trailing whitespace as unequal' {
+        Test-DocContentEqual -Left "a`nb" -Right "a`r`nb`r`n" | Should -BeFalse
+    }
+
+    It 'Treats empty strings as equal' {
+        Test-DocContentEqual -Left '' -Right '' | Should -BeTrue
+    }
+}
+
+Describe 'Invoke-AssetDocsGeneration - CRLF pages on disk' -Tag 'Unit' {
+    BeforeAll {
+        function script:ConvertTo-CrlfPage {
+            param([string]$Path)
+            $content = Get-Content -LiteralPath $Path -Raw
+            $crlf = ($content -replace "`r`n", "`n") -replace "`n", "`r`n"
+            Set-Content -LiteralPath $Path -Value $crlf -Encoding utf8NoBOM -NoNewline
+        }
+
+        function script:ConvertTo-CrlfRepoPages {
+            param([string]$RepoRoot)
+            Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'docs/reference') -Recurse -Filter '*.md' -File |
+                ForEach-Object { ConvertTo-CrlfPage -Path $_.FullName }
+        }
+    }
+
+    It 'Reports CRLF-stored pages as unchanged instead of drifted' {
+        $repo = New-AssetFixtureRepo
+        $first = Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath
+        ConvertTo-CrlfRepoPages -RepoRoot $repo
+
+        $second = Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath
+
+        $second.Created.Count | Should -Be 0
+        $second.Updated.Count | Should -Be 0
+        $second.DriftCount | Should -Be 0
+        $second.Unchanged.Count | Should -Be $first.Created.Count
+    }
+
+    It 'Leaves CRLF-stored pages byte-identical' {
+        $repo = New-AssetFixtureRepo
+        Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath | Out-Null
+        ConvertTo-CrlfRepoPages -RepoRoot $repo
+
+        $page = Join-Path $repo 'docs/reference/agents/hve-core/alpha-agent.md'
+        $before = [System.IO.File]::ReadAllBytes($page)
+
+        Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath | Out-Null
+
+        [System.IO.File]::ReadAllBytes($page) | Should -Be $before
+    }
+
+    It 'Preserves ms.date on CRLF-stored pages' {
+        $repo = New-AssetFixtureRepo
+        Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath | Out-Null
+
+        $page = Join-Path $repo 'docs/reference/agents/hve-core/alpha-agent.md'
+        $content = Get-Content -LiteralPath $page -Raw
+        Set-Content -LiteralPath $page -Value ($content -replace '(?m)^ms\.date:.*$', 'ms.date: 2020-01-01') -Encoding utf8NoBOM -NoNewline
+        ConvertTo-CrlfRepoPages -RepoRoot $repo
+
+        Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath | Out-Null
+
+        (Get-Content -LiteralPath $page -Raw) | Should -Match '(?m)^ms\.date: 2020-01-01\s*$'
+    }
+
+    It 'Still detects a real content change on a CRLF-stored page' {
+        $repo = New-AssetFixtureRepo
+        Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath | Out-Null
+        ConvertTo-CrlfRepoPages -RepoRoot $repo
+
+        $source = Join-Path $repo '.github/agents/hve-core/alpha-agent.agent.md'
+        Set-Content -LiteralPath $source -Value (@(
+                '---'
+                'name: Alpha Agent'
+                'description: A changed description for the first demo agent.'
+                '---'
+                ''
+                '# Body'
+            ) -join "`n") -Encoding utf8NoBOM -NoNewline
+
+        $result = Invoke-AssetDocsGeneration -RepoRoot $repo -TemplatePath $script:TemplatePath
+
+        $result.Updated | Should -Contain 'docs/reference/agents/hve-core/alpha-agent.md'
+        (Get-Content -LiteralPath (Join-Path $repo 'docs/reference/agents/hve-core/alpha-agent.md') -Raw) |
+            Should -Match 'A changed description'
+    }
+}
+
 Describe 'Invoke-AssetDocsGeneration - ms.date last-modified semantics' -Tag 'Unit' {
     BeforeAll {
         function script:Get-PageMsDate {
@@ -278,6 +375,35 @@ Describe 'Invoke-AssetDocsGeneration - human section preservation' -Tag 'Unit' {
         $content = Get-Content -LiteralPath $script:page -Raw
         $content | Should -Match '<!-- BEGIN AUTO-GENERATED: metadata -->'
         $content | Should -Match 'MY CUSTOM HUMAN CONTENT\.'
+    }
+}
+
+Describe 'Test-AssetDocScaffoldOrphan - template line endings' -Tag 'Unit' {
+    BeforeAll {
+        $script:orphanRepo = New-AssetFixtureRepo
+        Invoke-AssetDocsGeneration -RepoRoot $script:orphanRepo -TemplatePath $script:TemplatePath | Out-Null
+
+        $script:orphanPage = Get-Content -LiteralPath (Join-Path $script:orphanRepo 'docs/reference/agents/hve-core/alpha-agent.md') -Raw
+        $script:lfInteractive = (Get-TemplateHumanTail -TemplatePath $script:TemplatePath -Interactive $true) -replace "`r`n", "`n"
+        $script:lfNonInteractive = (Get-TemplateHumanTail -TemplatePath $script:TemplatePath -Interactive $false) -replace "`r`n", "`n"
+        $script:crlfInteractive = $script:lfInteractive -replace "`n", "`r`n"
+        $script:crlfNonInteractive = $script:lfNonInteractive -replace "`n", "`r`n"
+    }
+
+    It 'Recognizes an untouched scaffold against an LF template tail' {
+        Test-AssetDocScaffoldOrphan -Content $script:orphanPage -InteractiveTail $script:lfInteractive -NonInteractiveTail $script:lfNonInteractive |
+            Should -BeTrue
+    }
+
+    It 'Recognizes an untouched scaffold against a CRLF template tail' {
+        Test-AssetDocScaffoldOrphan -Content $script:orphanPage -InteractiveTail $script:crlfInteractive -NonInteractiveTail $script:crlfNonInteractive |
+            Should -BeTrue -Because 'a CRLF checkout of the template must not make a generated scaffold look authored'
+    }
+
+    It 'Still rejects an authored page against a CRLF template tail' {
+        $authored = $script:orphanPage -replace 'Describe the situations[^\r\n]*', 'Use this authored guidance.'
+        Test-AssetDocScaffoldOrphan -Content $authored -InteractiveTail $script:crlfInteractive -NonInteractiveTail $script:crlfNonInteractive |
+            Should -BeFalse
     }
 }
 
