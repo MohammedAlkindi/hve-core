@@ -368,6 +368,21 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         $summary.verdict | Should -Be 'fail'
         $LASTEXITCODE | Should -Be 1
     }
+
+    It 'Exits 0 on the advisory tier despite the same failing verdict' {
+        # devloop is advisory: it reports the failure but must not gate. Without this
+        # case the tier check in the exit path could be deleted and the ci test above
+        # would still pass, so nothing would pin that local runs stay non-blocking.
+        & $script:ScriptPath `
+            -Agent 'rpi-agent' `
+            -Tier 'devloop' `
+            -RepoRoot $script:StubRepoRoot `
+            -OutputPath $script:StubOutputPath *> $null
+
+        $summary = Get-Content -LiteralPath $script:StubOutputPath -Raw | ConvertFrom-Json
+        $summary.verdict | Should -Be 'fail'
+        $LASTEXITCODE | Should -Be 0
+    }
 }
 
 Describe 'Get-InvariantFailureCount' -Tag 'Unit' {
