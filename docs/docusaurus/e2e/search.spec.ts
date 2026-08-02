@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { SITE_PAGES, visitInvariantPage, waitForHydration } from './_helpers/a11yInvariants';
+import { SITE_PAGES, openSearchWidget, visitInvariantPage, waitForHydration } from './_helpers/a11yInvariants';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -17,8 +17,16 @@ test.describe('Search', () => {
 
       const searchInput = page.locator('.navbar__search-input').first();
       await expect(searchInput).toBeVisible();
-      await expect(searchInput).toHaveAttribute('role', 'combobox');
-      await expect(searchInput).toHaveAttribute('aria-expanded', 'false');
+      // At rest the upstream widget has not attached, so the input owns no
+      // popup. It must therefore NOT advertise a combobox: announcing
+      // "combobox, collapsed" for a control with no aria-autocomplete,
+      // aria-controls, or aria-owns describes a widget that does not exist.
+      // Combobox-only attributes are equally not allowed without the role
+      // (axe aria-allowed-attr), so both are absent together.
+      await expect(searchInput).not.toHaveAttribute('role', 'combobox');
+      await expect(searchInput).not.toHaveAttribute('aria-expanded', /.*/);
+      await expect(searchInput).not.toHaveAttribute('aria-activedescendant', /.*/);
+      // The labelling wiring is present from first paint either way.
       await expect(searchInput).toHaveAttribute('aria-labelledby');
       const describedBy = await searchInput.getAttribute('aria-describedby');
       expect(describedBy).toBeTruthy();
@@ -52,14 +60,10 @@ test.describe('Search', () => {
     await page.goto('/hve-core/docs/getting-started/');
     await waitForHydration(page);
 
-    const searchInput = page.locator('.navbar__search-input').first();
-    await expect(searchInput).toBeVisible();
-    // The search plugin promotes the input to role="combobox" during its own
-    // client initialization, which completes after page hydration. Typing before
-    // that point produces no listbox.
-    await expect(searchInput).toHaveAttribute('role', 'combobox', { timeout: 30000 });
-
-    await searchInput.click();
+    // Gate on the upstream-only signal. role="combobox" is supplied by this
+    // repository's own swizzle at rest, so waiting for it proves nothing about
+    // whether the upstream widget has attached and can render a popup.
+    const searchInput = await openSearchWidget(page);
     await searchInput.fill('getting started');
 
     // The local search renders a listbox of results anchored to the input. Wait

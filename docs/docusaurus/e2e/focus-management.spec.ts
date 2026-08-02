@@ -5,9 +5,11 @@ import { SITE_PAGES, visitInvariantPage } from './_helpers/a11yInvariants';
 import { testFocusTrapEscape, validateRovingTabindex } from './_helpers/focus';
 
 // Behavioral keyboard/focus conformance against real Docusaurus hooks. These
-// assertions exercise runtime keyboard behavior (WCAG 2.1.1, 2.1.2, 2.4.3) that
-// the static axe-based specs cannot reach. Contrast and structural ARIA checks
-// stay in the existing axe specs to avoid redundant coverage.
+// assertions exercise runtime keyboard behavior that the static axe-based specs
+// cannot reach: keyboard operability and trap escape (WCAG 2.1.1, 2.1.2), focus
+// order (2.4.3), focus visibility (2.4.7), and focus indicator size (2.4.11).
+// Contrast and structural ARIA checks stay in the existing axe specs to avoid
+// redundant coverage.
 
 test.describe('Focus management', () => {
   for (const pageCase of SITE_PAGES.filter(({ path }) => path.includes('/docs/') || path === '/hve-core/')) {
@@ -23,12 +25,23 @@ test.describe('Focus management', () => {
         return {
           outline: computed.outline,
           outlineWidth: computed.outlineWidth,
+          outlineStyle: computed.outlineStyle,
           boxShadow: computed.boxShadow,
         };
       });
 
-      expect(styles.outline, `${pageCase.name} should expose a visible focus outline`).not.toMatch(/none|0px/i);
-      expect(styles.boxShadow, `${pageCase.name} should expose a visible box-shadow focus cue`).not.toMatch(/none/i);
+      // The stylesheet applies a focus box-shadow to every :focus-visible
+      // control site-wide, so asserting boxShadow !== 'none' cannot fail for any
+      // focusable element. Assert the outline actually renders instead, which is
+      // the four-sided indicator this test names.
+      expect(
+        styles.outlineStyle,
+        `${pageCase.name} should draw a focus outline style`,
+      ).not.toMatch(/none/i);
+      expect(
+        Number.parseFloat(styles.outlineWidth) || 0,
+        `${pageCase.name} should expose a focus outline at least 2 CSS px thick`,
+      ).toBeGreaterThanOrEqual(2);
     });
 
     // WCAG 2.2 SC 2.4.11 Focus Appearance states a quantitative minimum, so the

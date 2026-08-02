@@ -65,8 +65,7 @@ test('resolveCalibrationCases preserves the configured journeys and profile meta
     calibration: {
       journeys: [
         {
-          id: '14399',
-          bugId: '14399',
+          id: 'search-keyboard-reachability',
           route: '/',
           surfaceId: 'homepage',
           state: 'desktop',
@@ -77,8 +76,7 @@ test('resolveCalibrationCases preserves the configured journeys and profile meta
           profileFingerprint: { locale: 'en-US' },
         },
         {
-          id: '14410',
-          bugId: '14410',
+          id: 'search-status-announcement',
           route: '/search',
           surfaceId: 'search-results',
           state: 'desktop',
@@ -92,18 +90,17 @@ test('resolveCalibrationCases preserves the configured journeys and profile meta
   });
 
   assert.equal(cases.length, 2);
-  assert.equal(cases[0].journeyId, '14399');
+  assert.equal(cases[0].journeyId, 'search-keyboard-reachability');
   assert.equal(cases[0].profileFingerprint.locale, 'en-US');
   assert.equal(cases[0].triggerAfterDriverStart, true);
-  assert.equal(cases[1].bugId, '14410');
+  assert.equal(cases[1].journeyId, 'search-status-announcement');
 });
 
 test('defaultRunAtCase preserves trigger timing metadata for the AT executor', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'calibration-trigger-meta-'));
   try {
     const journey = {
-      journeyId: '14399',
-      bugId: '14399',
+      journeyId: 'search-keyboard-reachability',
       title: 'Search results announcement',
       route: '/',
       surfaceId: 'homepage',
@@ -150,8 +147,7 @@ test('defaultRunAtCase forwards a provided browser to the AT executor', async ()
   try {
     const sharedBrowser = { id: 'shared-browser' };
     const journey = {
-      journeyId: '14399',
-      bugId: '14399',
+      journeyId: 'search-keyboard-reachability',
       title: 'Search results announcement',
       route: '/',
       surfaceId: 'homepage',
@@ -198,8 +194,7 @@ test('defaultRunAtCase carries journey postCommandSettleMs onto matrixCase and l
   try {
     const journeys = [
       {
-        journeyId: '14399',
-        bugId: '14399',
+        journeyId: 'search-keyboard-reachability',
         title: 'Search results announcement',
         route: '/',
         surfaceId: 'homepage',
@@ -211,8 +206,7 @@ test('defaultRunAtCase carries journey postCommandSettleMs onto matrixCase and l
         profileFingerprint: { locale: 'en-US' },
       },
       {
-        journeyId: '14410',
-        bugId: '14410',
+        journeyId: 'search-status-announcement',
         title: 'Search status update',
         route: '/search',
         surfaceId: 'search-results',
@@ -268,8 +262,7 @@ test('resolveCalibrationCases preserves captureMode and defaultRunAtCase forward
       calibration: {
         journeys: [
           {
-            id: '14399',
-            bugId: '14399',
+            id: 'search-keyboard-reachability',
             title: 'Search results announcement',
             route: '/',
             surfaceId: 'homepage',
@@ -403,8 +396,7 @@ test('defaultRunAtCase handles circular evidence payloads without overflowing th
   const tempDir = mkdtempSync(join(tmpdir(), 'calibration-circular-'));
   try {
     const journey = {
-      journeyId: '14399',
-      bugId: '14399',
+      journeyId: 'search-keyboard-reachability',
       title: 'Search results announcement',
       route: '/',
       surfaceId: 'homepage',
@@ -447,8 +439,8 @@ test('defaultRunAtCase handles circular evidence payloads without overflowing th
 
     assert.equal(result.classification, 'pass');
     assert.equal(Object.keys(result.artifactHashes).length, 1);
-    const evidencePath = join(tempDir, 'journeys', '14399', '5', 'evidence.json');
-    assert.equal(readFileSync(evidencePath, 'utf8').includes('"journeyId": "14399"'), true);
+    const evidencePath = join(tempDir, 'journeys', 'search-keyboard-reachability', '5', 'evidence.json');
+    assert.equal(readFileSync(evidencePath, 'utf8').includes('"journeyId": "search-keyboard-reachability"'), true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -1036,7 +1028,6 @@ test('runDefaultVisualPreflight writes a 2x5 preflight summary and hashes the ca
 test('runRealCalibrationSession preserves injection callbacks while using defaults for the rest', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'calibration-session-'));
   try {
-    const checkpointPath = join(tempDir, 'checkpoint.json');
     const preflightArtifactPath = join(tempDir, 'artifacts', 'preflight.json');
     const caseArtifactPath = join(tempDir, 'artifacts', 'case.json');
     mkdirSync(dirname(preflightArtifactPath), { recursive: true });
@@ -1066,7 +1057,6 @@ test('runRealCalibrationSession preserves injection callbacks while using defaul
           ],
         },
       },
-      checkpointPath,
       runRoot: tempDir,
       probePrerequisites: async () => ({ nvdaAvailable: true, desktopUnlocked: true, reason: null }),
       launchBrowser: async () => stubBrowser(),

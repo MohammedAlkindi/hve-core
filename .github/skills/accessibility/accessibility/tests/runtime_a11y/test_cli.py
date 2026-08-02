@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -14,7 +13,6 @@ from types import SimpleNamespace
 import pytest
 import runtime_a11y.__main__ as cli
 from runtime_a11y._errors import EXIT_SUCCESS, EXIT_USAGE
-from runtime_a11y.visual_review import build_visual_review_manifest
 
 
 @pytest.fixture(autouse=True)
@@ -55,73 +53,6 @@ def _allowed_run_path(tmp_path: Path, name: str) -> Path:
     return run_root
 
 
-def _write_retained_preflight_bundle(
-    tmp_path: Path, *, manifest_count: int = 10
-) -> tuple[Path, Path, list[Path]]:
-    retained_run_root = (
-        tmp_path
-        / ".copilot-tracking"
-        / "accessibility"
-        / "local-runs"
-        / "2026-07-22"
-        / "retained-preflight"
-    )
-    retained_run_root.mkdir(parents=True, exist_ok=True)
-    manifest_paths: list[Path] = []
-    runs: list[dict[str, str]] = []
-    for index in range(manifest_count):
-        manifest_dir = (
-            retained_run_root
-            / "runs"
-            / f"surface-{index // 5 + 1}"
-            / f"state-{index % 5 + 1}"
-        )
-        manifest_dir.mkdir(parents=True, exist_ok=True)
-        artifact_dir = manifest_dir / "artifacts"
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        screenshot_path = artifact_dir / "screenshot.png"
-        screenshot_path.write_bytes(f"bundle-{index}".encode("utf-8"))
-        (artifact_dir / "trace.json").write_text("{}", encoding="utf-8")
-        (artifact_dir / "measurements.json").write_text("{}", encoding="utf-8")
-        manifest_payload = build_visual_review_manifest(
-            run_root=manifest_dir,
-            run_id=f"preflight-{index}",
-            route="/",
-            surface=f"surface-{index // 5 + 1}",
-            state=f"state-{index % 5 + 1}",
-            viewport={"width": 1440, "height": 900},
-            browser={"name": "chrome", "version": "126.0"},
-            platform={"os": "linux", "version": "local"},
-            screenshot_path="artifacts/screenshot.png",
-            trace_path="artifacts/trace.json",
-            measurement_path="artifacts/measurements.json",
-            deterministic_metrics={"score": 1},
-            probe_outcomes=[],
-            provenance={},
-        )
-        manifest_path = manifest_dir / "manifest.json"
-        manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
-        manifest_paths.append(manifest_path)
-        runs.append(
-            {"surface": f"surface-{index // 5 + 1}", "state": f"state-{index % 5 + 1}"}
-        )
-
-    output_path = retained_run_root / "visual-review-output.json"
-    output_path.write_text(
-        json.dumps(
-            {
-                "tool": "runtime_a11y",
-                "command": "capture-visual-review",
-                "manifestPaths": [str(path) for path in manifest_paths],
-                "runRoot": str(retained_run_root),
-                "runs": runs,
-            }
-        ),
-        encoding="utf-8",
-    )
-    return retained_run_root, output_path, manifest_paths
-
-
 def test_resolve_repo_path_rejects_required_empty_and_uri_inputs() -> None:
     with pytest.raises(cli.ScriptError, match="required"):
         cli._resolve_repo_path(None, kind="--config")
@@ -140,39 +71,35 @@ def test_resolve_within_root_rejects_invalid_inputs_and_directory(
     allowed_root.mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(cli.ScriptError, match="required"):
-        cli._resolve_within_root(
-            None, allowed_root=allowed_root, kind="--retained-preflight"
-        )
+        cli._resolve_within_root(None, allowed_root=allowed_root, kind="--out")
     with pytest.raises(cli.ScriptError, match="empty"):
-        cli._resolve_within_root(
-            " ", allowed_root=allowed_root, kind="--retained-preflight"
-        )
+        cli._resolve_within_root(" ", allowed_root=allowed_root, kind="--out")
     with pytest.raises(cli.ScriptError, match="URI"):
         cli._resolve_within_root(
             "https://example.com/file.json",
             allowed_root=allowed_root,
-            kind="--retained-preflight",
+            kind="--out",
         )
     with pytest.raises(cli.ScriptError, match="resolve inside"):
         cli._resolve_within_root(
             tmp_path / "outside.json",
             allowed_root=allowed_root,
-            kind="--retained-preflight",
+            kind="--out",
         )
     with pytest.raises(cli.ScriptError, match="traversal"):
         cli._resolve_within_root(
             "../escape.json",
             base_dir=allowed_root / "run",
             allowed_root=allowed_root,
-            kind="--retained-preflight",
+            kind="--out",
         )
-    retained_dir = allowed_root / "run"
-    retained_dir.mkdir()
+    nested_dir = allowed_root / "run"
+    nested_dir.mkdir()
     with pytest.raises(cli.ScriptError, match="file"):
         cli._resolve_within_root(
-            retained_dir,
+            nested_dir,
             allowed_root=allowed_root,
-            kind="--retained-preflight",
+            kind="--out",
         )
 
 
@@ -270,55 +197,6 @@ def test_resolve_repo_path_accepts_relative_allowed_root_and_rejects_traversal(
             kind="--out",
             allowed_root=allowed_root,
         )
-
-
-@pytest.mark.parametrize(
-    ("missing_key", "expected_message"),
-    [
-        ("surface", "surface metadata is missing"),
-        ("state", "state metadata is missing"),
-    ],
-)
-def test_import_retained_preflight_bundle_reports_missing_manifest_metadata(
-    tmp_path: Path,
-    missing_key: str,
-    expected_message: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _, output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    manifest_payload = json.loads(manifest_paths[0].read_text(encoding="utf-8"))
-    manifest_payload.pop(missing_key, None)
-    manifest_paths[0].write_text(json.dumps(manifest_payload), encoding="utf-8")
-
-    monkeypatch.setattr(
-        cli,
-        "validate_visual_review_manifest",
-        lambda manifest, *, run_root: manifest,
-    )
-
-    with pytest.raises(cli.ScriptError, match=expected_message):
-        cli._import_retained_preflight_bundle(
-            output_path,
-            run_root=tmp_path / "imported-run",
-        )
-
-
-def test_import_retained_preflight_bundle_falls_back_to_copying_artifacts(
-    tmp_path: Path,
-    mocker,
-) -> None:
-    _, output_path, _ = _write_retained_preflight_bundle(tmp_path, manifest_count=10)
-    mocker.patch.object(cli.os, "link", side_effect=OSError("link failed"))
-
-    imported_bundle = cli._import_retained_preflight_bundle(
-        output_path,
-        run_root=tmp_path / "imported-run",
-    )
-
-    assert imported_bundle["retainedBundleValidated"] is True
-    assert (tmp_path / "imported-run" / "retained-preflight").exists()
 
 
 def test_given_script_entrypoint_when_invoked_directly_then_module_imports_work(
@@ -628,6 +506,88 @@ def test_given_calibration_run_when_prerequisite_only_then_reports_readiness(
     assert document["aggregate"]["reason"] == "Calibration prerequisites are ready."
 
 
+@pytest.mark.parametrize(
+    "command",
+    ["run-calibration", "capture-visual-review"],
+)
+def test_given_non_loopback_base_url_override_when_running_then_rejects(
+    tmp_path: Path,
+    command: str,
+    capsys,
+) -> None:
+    # The config's own baseUrl is guarded at load time. A --base-url override
+    # replaces it afterwards, so the override must re-enter the guard or the
+    # single chokepoint is bypassed. Both commands exit with a usage code for
+    # unrelated environment reasons, so the assertion is on the reported cause.
+    config_path = tmp_path / "runtime.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "baseUrl": "http://127.0.0.1:3000",
+                "calibration": {"journeys": [{"id": "search-results"}]},
+                "visualReview": {"enabled": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            command,
+            "--config",
+            str(config_path),
+            "--base-url",
+            "http://evil.example.net",
+        ]
+    )
+
+    assert exit_code == EXIT_USAGE
+    stderr = capsys.readouterr().err
+    assert "Refusing to probe non-loopback host 'evil.example.net'" in stderr
+
+
+def test_given_no_out_flag_when_running_calibration_then_writes_into_run_root(
+    mocker,
+    tmp_path: Path,
+) -> None:
+    # Without --out the command must write the computed, containment-checked
+    # run-root output file rather than emitting nothing.
+    mocker.patch.object(
+        cli,
+        "_run_calibration_session",
+        return_value={"aggregate": {"status": "successful"}},
+    )
+    mocker.patch.object(cli, "_emit_live_test_start_notice")
+    mocker.patch.object(cli, "_emit_live_test_finish_notice")
+    run_root = _allowed_run_path(tmp_path, "default-out")
+    config_path = tmp_path / "runtime.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "baseUrl": "http://127.0.0.1:3000",
+                "calibration": {"journeys": [{"id": "search-results"}]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "run-calibration",
+            "--config",
+            str(config_path),
+            "--run-root",
+            str(run_root),
+        ]
+    )
+
+    assert exit_code == EXIT_SUCCESS
+    written = run_root / "calibration-output.json"
+    assert written.exists()
+    document = json.loads(written.read_text(encoding="utf-8"))
+    assert document["command"] == "run-calibration"
+
+
 def test_run_calibration_emits_start_and_finish_notices_for_live_execution(
     mocker,
     tmp_path: Path,
@@ -885,434 +845,14 @@ def test_given_calibration_session_when_subprocess_errors_then_reports_failure(
     assert "calibration exploded" in captured.err
 
 
-def test_nvda_only_checkpoint_resolves_run_root_and_mode(
-    mocker,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _allowed_run_path(tmp_path, "out")
-    captured: dict[str, object] = {}
-
-    def fake_run(command, capture_output, text, check, env, cwd):
-        captured["env"] = env
-        return SimpleNamespace(
-            stdout=json.dumps(
-                {
-                    "tool": "runtime_a11y",
-                    "command": "run-calibration",
-                    "aggregate": {"status": "successful"},
-                }
-            ),
-            stderr="",
-        )
-
-    mocker.patch("runtime_a11y.__main__.subprocess.run", side_effect=fake_run)
-    mocker.patch.object(cli, "_NODE_MODULES", tmp_path)
-    monkeypatch.chdir(tmp_path)
-    config_path = tmp_path / "runtime.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "baseUrl": "http://127.0.0.1:3000",
-                "calibration": {"journeys": [{"id": "14399", "bugId": "14399"}]},
-            }
-        ),
-        encoding="utf-8",
-    )
-    out_path = (
-        tmp_path
-        / ".copilot-tracking"
-        / "accessibility"
-        / "local-runs"
-        / "2026-07-22"
-        / "calibration.json"
-    )
-
-    exit_code = cli.main(
-        [
-            "run-calibration",
-            "--config",
-            str(config_path),
-            "--out",
-            str(out_path),
-            "--nvda-only",
-            "--checkpoint-path",
-            ".copilot-tracking/accessibility/local-runs/2026-07-22/out/checkpoint.json",
-        ]
-    )
-
-    assert exit_code == EXIT_SUCCESS
-    document = json.loads(out_path.read_text(encoding="utf-8"))
-    assert (
-        document["runRoot"]
-        == ".copilot-tracking/accessibility/local-runs/2026-07-22/out"
-    )
-    assert (
-        document["checkpointPath"]
-        == ".copilot-tracking/accessibility/local-runs/2026-07-22/out/checkpoint.json"
-    )
-    payload = json.loads(captured["env"]["RUNTIME_A11Y_CONFIG"])
-    assert payload["calibration"]["mode"] == "nvdaOnly"
-
-
-def test_import_retained_preflight_bundle_accepts_valid_two_by_five_bundle(
-    tmp_path: Path,
-) -> None:
-    _, output_path, _ = _write_retained_preflight_bundle(tmp_path, manifest_count=10)
-
-    imported_bundle = cli._import_retained_preflight_bundle(
-        output_path,
-        run_root=tmp_path / "imported-run",
-    )
-
-    assert imported_bundle["bundleId"] == "visual-preflight"
-    assert imported_bundle["retainedBundleValidated"] is True
-    assert len(imported_bundle["artifactHashes"]) == 30
-    assert (tmp_path / "imported-run" / "retained-preflight").exists()
-
-
 @pytest.mark.parametrize(
-    ("payload", "expected_message"),
-    [
-        ("[]", "JSON object"),
-        ({"command": "capture-visual-review"}, "manifestPaths"),
-        (
-            {
-                "command": "run-calibration",
-                "manifestPaths": ["/tmp/manifest.json"] * 10,
-            },
-            "capture-visual-review",
-        ),
-        (
-            {"command": "capture-visual-review", "manifestPaths": "not-a-list"},
-            "manifestPaths as a list",
-        ),
-        (
-            {
-                "command": "capture-visual-review",
-                "manifestPaths": ["/tmp/manifest.json"],
-            },
-            "exactly 10",
-        ),
-        (
-            {"command": "capture-visual-review", "manifestPaths": ["a"] * 9},
-            "exactly 10",
-        ),
-        (
-            {"command": "capture-visual-review", "manifestPaths": ["a"] * 11},
-            "exactly 10",
-        ),
-    ],
+    "removed_flag",
+    ["--nvda-only", "--retained-preflight", "--checkpoint-path"],
 )
-def test_import_retained_preflight_bundle_rejects_invalid_payload_contract(
+def test_run_calibration_rejects_removed_resume_flags(
     tmp_path: Path,
-    payload: object,
-    expected_message: str,
+    removed_flag: str,
 ) -> None:
-    retained_run_root = (
-        tmp_path
-        / ".copilot-tracking"
-        / "accessibility"
-        / "local-runs"
-        / "2026-07-22"
-        / "retained-preflight"
-    )
-    retained_run_root.mkdir(parents=True, exist_ok=True)
-    output_path = retained_run_root / "visual-review-output.json"
-    if isinstance(payload, str):
-        output_path.write_text(payload, encoding="utf-8")
-    else:
-        output_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(cli.ScriptError, match=expected_message):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-def test_import_retained_preflight_rejects_missing_directory_and_bad_json(
-    tmp_path: Path,
-) -> None:
-    allowed_root = (
-        tmp_path / ".copilot-tracking" / "accessibility" / "local-runs" / "2026-07-22"
-    )
-    allowed_root.mkdir(parents=True)
-    missing = allowed_root / "missing.json"
-    with pytest.raises(cli.ScriptError, match="does not exist"):
-        cli._import_retained_preflight_bundle(
-            missing, run_root=tmp_path / "imported-run"
-        )
-
-    directory = allowed_root / "directory"
-    directory.mkdir()
-    with pytest.raises(cli.ScriptError, match="file"):
-        cli._import_retained_preflight_bundle(
-            directory, run_root=tmp_path / "imported-run"
-        )
-
-    invalid_json = allowed_root / "invalid.json"
-    invalid_json.write_text("{", encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="Unable to read"):
-        cli._import_retained_preflight_bundle(
-            invalid_json, run_root=tmp_path / "imported-run"
-        )
-
-
-def test_import_retained_preflight_rejects_invalid_runs_contract(
-    tmp_path: Path,
-) -> None:
-    _, output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    payload = json.loads(output_path.read_text(encoding="utf-8"))
-
-    payload["runs"] = "invalid"
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="runs must be a list"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-    payload["runs"] = [{"surface": "one", "state": "state"}]
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="run count"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-    payload["manifestPaths"] = [str(path) for path in manifest_paths]
-    payload["runs"] = [None, *[{"surface": "one", "state": "state"}] * 9]
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="entries must be objects"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-@pytest.mark.parametrize(
-    ("run_entry", "expected_message"),
-    [
-        ({"surface": "", "state": "state-1"}, "surface values"),
-        ({"surface": "surface-1", "state": ""}, "state values"),
-    ],
-)
-def test_import_retained_preflight_rejects_incomplete_run_metadata(
-    tmp_path: Path,
-    run_entry: dict[str, str],
-    expected_message: str,
-) -> None:
-    _, output_path, _ = _write_retained_preflight_bundle(tmp_path, manifest_count=10)
-    payload = json.loads(output_path.read_text(encoding="utf-8"))
-    payload["runs"][0] = run_entry
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(cli.ScriptError, match=expected_message):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-def test_import_retained_preflight_rejects_empty_and_malformed_manifests(
-    tmp_path: Path,
-) -> None:
-    _, output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    payload = json.loads(output_path.read_text(encoding="utf-8"))
-    payload["manifestPaths"][0] = ""
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="non-empty strings"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-    payload["manifestPaths"][0] = str(manifest_paths[0])
-    manifest_paths[0].write_text("{", encoding="utf-8")
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="Unable to read retained preflight"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-def test_import_retained_preflight_bundle_rejects_missing_manifest_and_bad_schema(
-    tmp_path: Path,
-) -> None:
-    _, output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    payload = {
-        "tool": "runtime_a11y",
-        "command": "capture-visual-review",
-        "manifestPaths": [
-            str(manifest_paths[0]),
-            str(tmp_path / "missing.json"),
-            *[str(manifest_paths[index]) for index in range(2, 10)],
-        ],
-        "runRoot": str(
-            tmp_path
-            / ".copilot-tracking"
-            / "accessibility"
-            / "local-runs"
-            / "2026-07-22"
-            / "retained-preflight"
-        ),
-        "runs": [
-            {"surface": f"surface-{index // 5 + 1}", "state": f"state-{index % 5 + 1}"}
-            for index in range(10)
-        ],
-    }
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(cli.ScriptError, match="resolve inside"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-    broken_manifest = manifest_paths[0]
-    broken_manifest.write_text("{}", encoding="utf-8")
-    payload["manifestPaths"] = [str(broken_manifest)] * 10
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="relative path"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-def test_import_retained_preflight_bundle_rejects_invalid_hashes_and_artifacts(
-    tmp_path: Path,
-) -> None:
-    _, output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    manifest_payload = json.loads(manifest_paths[0].read_text(encoding="utf-8"))
-    manifest_payload["artifacts"]["screenshots"][0]["sha256"] = "short"
-    manifest_paths[0].write_text(json.dumps(manifest_payload), encoding="utf-8")
-    payload = {
-        "tool": "runtime_a11y",
-        "command": "capture-visual-review",
-        "manifestPaths": [str(manifest_paths[0])]
-        + [str(path) for path in manifest_paths[1:]],
-        "runRoot": str(
-            tmp_path
-            / ".copilot-tracking"
-            / "accessibility"
-            / "local-runs"
-            / "2026-07-22"
-            / "retained-preflight"
-        ),
-        "runs": [
-            {"surface": f"surface-{index // 5 + 1}", "state": f"state-{index % 5 + 1}"}
-            for index in range(10)
-        ],
-    }
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="64-character"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-    manifest_payload = json.loads(manifest_paths[0].read_text(encoding="utf-8"))
-    manifest_payload["artifacts"]["screenshots"][0]["sha256"] = hashlib.sha256(
-        b"ok"
-    ).hexdigest()
-    manifest_payload["artifacts"]["screenshots"][0]["path"] = "../escape.png"
-    manifest_paths[0].write_text(json.dumps(manifest_payload), encoding="utf-8")
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="containment"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-    manifest_payload = json.loads(manifest_paths[0].read_text(encoding="utf-8"))
-    manifest_payload["artifacts"]["screenshots"][0]["path"] = "artifacts/screenshot.png"
-    manifest_payload["artifacts"]["screenshots"][0]["sha256"] = hashlib.sha256(
-        b"wrong"
-    ).hexdigest()
-    manifest_paths[0].write_text(json.dumps(manifest_payload), encoding="utf-8")
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="hashes do not match"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-    manifest_payload = json.loads(manifest_paths[0].read_text(encoding="utf-8"))
-    manifest_payload["artifacts"]["screenshots"][0]["path"] = "artifacts/missing.png"
-    manifest_paths[0].write_text(json.dumps(manifest_payload), encoding="utf-8")
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(cli.ScriptError, match="artifact does not exist"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-def test_import_retained_preflight_bundle_rejects_surface_state_mismatch(
-    tmp_path: Path,
-) -> None:
-    _, output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    payload = {
-        "tool": "runtime_a11y",
-        "command": "capture-visual-review",
-        "manifestPaths": [str(path) for path in manifest_paths],
-        "runRoot": str(
-            tmp_path
-            / ".copilot-tracking"
-            / "accessibility"
-            / "local-runs"
-            / "2026-07-22"
-            / "retained-preflight"
-        ),
-        "runs": [{"surface": "surface-2", "state": "state-1"} for _ in manifest_paths],
-    }
-    output_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(cli.ScriptError, match="surface-state"):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-@pytest.mark.parametrize(
-    ("mutation", "expected_message"),
-    [
-        ("non-pass", "deterministic-pass"),
-        ("capture-failure", "capture failures"),
-        ("duplicate", "duplicate surface-state"),
-    ],
-)
-def test_import_retained_preflight_rejects_invalid_evidence_matrix(
-    tmp_path: Path,
-    mutation: str,
-    expected_message: str,
-) -> None:
-    _, output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    if mutation == "duplicate":
-        payload = json.loads(output_path.read_text(encoding="utf-8"))
-        payload["runs"][1] = payload["runs"][0]
-        manifest = json.loads(manifest_paths[1].read_text(encoding="utf-8"))
-        manifest["surface"] = payload["runs"][0]["surface"]
-        manifest["state"] = payload["runs"][0]["state"]
-        manifest_paths[1].write_text(json.dumps(manifest), encoding="utf-8")
-        output_path.write_text(json.dumps(payload), encoding="utf-8")
-    else:
-        manifest = json.loads(manifest_paths[0].read_text(encoding="utf-8"))
-        if mutation == "non-pass":
-            manifest["evidenceState"] = "ambiguous"
-        else:
-            manifest["probeOutcomes"] = [{"status": "capture-failure"}]
-        manifest_paths[0].write_text(json.dumps(manifest), encoding="utf-8")
-
-    with pytest.raises(cli.ScriptError, match=expected_message):
-        cli._import_retained_preflight_bundle(
-            output_path, run_root=tmp_path / "imported-run"
-        )
-
-
-def test_main_rejects_retained_preflight_flag_misuse(tmp_path: Path) -> None:
     config_path = tmp_path / "runtime.json"
     config_path.write_text(
         json.dumps(
@@ -1321,95 +861,21 @@ def test_main_rejects_retained_preflight_flag_misuse(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    exit_code = cli.main(
-        [
-            "run-calibration",
-            "--config",
-            str(config_path),
-            "--retained-preflight",
-            "bundle.json",
-        ]
-    )
-    assert exit_code == cli.EXIT_USAGE
-
     with pytest.raises(SystemExit):
-        cli.main(["unknown-command"])
-
-
-def test_given_retained_preflight_when_nvda_only_then_checkpoint_imports_bundle(
-    mocker,
-    tmp_path: Path,
-) -> None:
-    _, retained_output_path, manifest_paths = _write_retained_preflight_bundle(
-        tmp_path, manifest_count=10
-    )
-    payload = json.loads(retained_output_path.read_text(encoding="utf-8"))
-    payload["manifestPaths"] = [str(path) for path in manifest_paths]
-    payload["runs"] = [
-        {"surface": f"surface-{index // 5 + 1}", "state": f"state-{index % 5 + 1}"}
-        for index in range(10)
-    ]
-    retained_output_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    captured: dict[str, object] = {}
-
-    def fake_run(command, capture_output, text, check, env, cwd):
-        captured["env"] = env
-        return SimpleNamespace(
-            stdout=json.dumps(
-                {
-                    "tool": "runtime_a11y",
-                    "command": "run-calibration",
-                    "aggregate": {"status": "successful"},
-                }
-            ),
-            stderr="",
+        cli.main(
+            [
+                "run-calibration",
+                "--config",
+                str(config_path),
+                removed_flag,
+                "bundle.json",
+            ]
         )
 
-    mocker.patch("runtime_a11y.__main__.subprocess.run", side_effect=fake_run)
-    mocker.patch.object(cli, "_NODE_MODULES", tmp_path)
-    config_path = tmp_path / "runtime.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "baseUrl": "http://127.0.0.1:3000",
-                "calibration": {"journeys": [{"id": "14399", "bugId": "14399"}]},
-            }
-        ),
-        encoding="utf-8",
-    )
-    out_path = (
-        tmp_path
-        / ".copilot-tracking"
-        / "accessibility"
-        / "local-runs"
-        / "2026-07-22"
-        / "calibration.json"
-    )
 
-    exit_code = cli.main(
-        [
-            "run-calibration",
-            "--config",
-            str(config_path),
-            "--out",
-            str(out_path),
-            "--nvda-only",
-            "--retained-preflight",
-            str(retained_output_path),
-        ]
-    )
-
-    assert exit_code == EXIT_SUCCESS
-    checkpoint_path = Path(str(captured["env"]["RUNTIME_A11Y_CHECKPOINT_PATH"]))
-    assert checkpoint_path.exists()
-    checkpoint_payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-    assert (
-        checkpoint_payload["state"]["visualPreflightBundle"]["retainedBundleValidated"]
-        is True
-    )
-    assert checkpoint_payload["state"]["visualPreflightBundle"]["artifactHashes"]
-    assert captured["env"]["RUNTIME_A11Y_CHECKPOINT_PATH"] == str(checkpoint_path)
+def test_main_rejects_unknown_command() -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["unknown-command"])
 
 
 def test_given_calibration_run_when_subprocess_succeeds_then_document_contains_evidence(
@@ -1567,8 +1033,6 @@ def test_repo_relative_paths_dispatch_as_absolute(
             ".copilot-tracking/accessibility/local-runs/2026-07-22/report.json",
             "--run-root",
             ".copilot-tracking/accessibility/local-runs/2026-07-22/custom-run",
-            "--checkpoint-path",
-            ".copilot-tracking/accessibility/local-runs/2026-07-22/custom-run/checkpoint.json",
         ]
     )
 
@@ -1580,15 +1044,6 @@ def test_repo_relative_paths_dispatch_as_absolute(
         / "local-runs"
         / "2026-07-22"
         / "custom-run"
-    )
-    assert captured["env"]["RUNTIME_A11Y_CHECKPOINT_PATH"] == str(
-        tmp_path
-        / ".copilot-tracking"
-        / "accessibility"
-        / "local-runs"
-        / "2026-07-22"
-        / "custom-run"
-        / "checkpoint.json"
     )
     assert out_path.exists()
 
@@ -1617,7 +1072,7 @@ def test_given_calibration_run_when_run_root_is_outside_allowed_tree_then_reject
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink support required")
-def test_given_calibration_run_when_checkpoint_path_uses_symlink_escape_then_rejects(
+def test_given_calibration_run_when_run_root_uses_symlink_escape_then_rejects(
     mocker,
     tmp_path: Path,
 ) -> None:
@@ -1638,8 +1093,8 @@ def test_given_calibration_run_when_checkpoint_path_uses_symlink_escape_then_rej
             "run-calibration",
             "--config",
             str(config_path),
-            "--checkpoint-path",
-            str(link_path / "checkpoint.json"),
+            "--run-root",
+            str(link_path / "nested-run"),
         ]
     )
 
@@ -1847,6 +1302,10 @@ def test_given_visual_review_capture_when_subprocess_succeeds_then_manifest_is_w
     (run_root / "artifacts" / "trace.json").write_bytes(b"{}")
     mocker.patch.object(cli, "resolve_run_root", return_value=run_root)
     mocker.patch(
+        "runtime_a11y.__main__._probe_visual_review_server",
+        return_value=True,
+    )
+    mocker.patch(
         "runtime_a11y.__main__.subprocess.run",
         return_value=SimpleNamespace(stdout=json.dumps(payload), stderr=""),
     )
@@ -1881,6 +1340,22 @@ def test_given_visual_review_capture_when_subprocess_succeeds_then_manifest_is_w
     assert document["command"] == "capture-visual-review"
     assert document["manifestPaths"]
     assert document["runs"][0]["surface"] == "home"
+
+
+def test_given_server_startup_failure_when_ensuring_then_surfaces_cause(
+    mocker,
+    tmp_path: Path,
+) -> None:
+    # A startup failure must not be reported as an unowned lease, which is
+    # indistinguishable from reusing a healthy server.
+    mocker.patch.object(cli, "_REPO_ROOT", tmp_path)
+    mocker.patch(
+        "runtime_a11y.__main__._probe_visual_review_server",
+        return_value=False,
+    )
+
+    with pytest.raises(cli.ScriptError, match="docs/docusaurus"):
+        cli._ensure_visual_review_server("http://127.0.0.1:3000")
 
 
 def test_given_surface_and_state_filters_when_running_then_only_selected_runs_execute(

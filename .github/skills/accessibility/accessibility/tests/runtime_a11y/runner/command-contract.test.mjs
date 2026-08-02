@@ -45,3 +45,18 @@ test('config schema command kinds and contract validation stay in parity', () =>
     assert.ok(schemaKinds.has(kind), `Expected ${kind} to appear in the config-schema enum`);
   }
 });
+
+test('validateScreenReaderCommand restricts typed text to printable characters', () => {
+  // Typed text reaches OS-level keystroke synthesis, so a control character
+  // would be delivered as a command rather than as text.
+  assert.equal(validateScreenReaderCommand({ kind: 'type', value: 'accessibility' }), null);
+  assert.equal(validateScreenReaderCommand({ kind: 'type', value: 'search terms 42!' }), null);
+
+  for (const value of ['line\nbreak', 'tab\there', 'null\u0000byte', 'esc\u001b[A']) {
+    assert.match(
+      String(validateScreenReaderCommand({ kind: 'type', value })),
+      /printable characters/,
+      `Expected ${JSON.stringify(value)} to be rejected`,
+    );
+  }
+});

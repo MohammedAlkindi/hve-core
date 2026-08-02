@@ -54,6 +54,12 @@ export default function SearchBarWrapper(props) {
     // footer we borrow that class so the footer shows the same highlight; this
     // remembers the discovered token across state changes.
     let footerActiveClass = null;
+    // How long to defend a Tab destination against the widget restoring focus
+    // to its input while the popup tears down.
+    const FOCUS_GUARD_MS = 600;
+    // Active focus guards, so an unmount mid-guard cannot leave a listener
+    // attached to the document.
+    const focusGuardCleanups = [];
 
     const clearStatusMessage = () => {
       window.clearTimeout(announceTimer);
@@ -87,11 +93,181 @@ export default function SearchBarWrapper(props) {
       return { holder, cls: cls ?? footerActiveClass };
     };
 
+    // Returns focusable candidates in document order that sit outside the
+    // search widget, nearest first. Callers must confirm a candidate actually
+    // takes focus: matching the selector and having layout boxes does not make
+    // an element focusable. Docusaurus's back-to-top button is the concrete
+    // case here - it is the next control after the navbar search, it has layout
+    // boxes, and it is visibility:hidden until the page scrolls, so focus() on
+    // it is a silent no-op.
+    const collectFocusTargetsOutsideWidget = (input, backwards) => {
+      const focusableSelector = [
+        'a[href]',
+        'button:not([disabled])',
+        'input:not([disabled])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(',');
+      const all = Array.from(document.querySelectorAll(focusableSelector))
+        .filter((element) => element.getClientRects().length > 0)
+        .filter((element) => element.getAttribute('tabindex') !== '-1');
+      const index = all.indexOf(input);
+      if (index === -1) {
+        return [];
+      }
+      const step = backwards ? -1 : 1;
+      const candidates = [];
+      for (let cursor = index + step; cursor >= 0 && cursor < all.length; cursor += step) {
+        const candidate = all[cursor];
+        if (root && root.contains(candidate)) {
+          continue;
+        }
+        if (typeof candidate.focus === 'function') {
+          candidates.push(candidate);
+        }
+      }
+      return candidates;
+    };
+
+    // Moves focus to the nearest candidate that genuinely accepts it, and
+    // returns that element, or null when nothing outside the widget can take
+    // focus.
+    const focusOutsideWidget = (input, backwards) => {
+      for (const candidate of collectFocusTargetsOutsideWidget(input, backwards)) {
+        candidate.focus();
+        if (document.activeElement === candidate) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    const clearFooterHighlight = (footerLink) => {
+      if (footerLink) {
+        footerLink.classList.remove('search-footer-active');
+      }
+      // The borrowed upstream class can also be left on the footer, so clear any
+      // stray copy site-wide rather than only the class this repository adds.
+      if (footerActiveClass && footerLink) {
+        footerLink.classList.remove(footerActiveClass);
+      }
+    };
+
+    // Exactly one option may claim the active and selected state. APG requires
+    // aria-selected on the option the active descendant points at, and requires
+    // it to be false (or absent) everywhere else, so a screen reader announces
+    // one current choice rather than none or many.
+    const setActiveOption = (input, option, listboxNode) => {
+      const listbox = listboxNode ?? getListbox();
+      const candidates = [
+        ...getResultOptions(listbox),
+        ...(getFooterLink(listbox) ? [getFooterLink(listbox)] : []),
+      ];
+      for (const candidate of candidates) {
+        candidate.setAttribute('aria-selected', candidate === option ? 'true' : 'false');
+      }
+      if (option?.id) {
+        input.setAttribute('aria-activedescendant', option.id);
+      } else {
+        input.removeAttribute('aria-activedescendant');
+      }
+    };
+
+    const clearActiveOption = (input, listboxNode) => {
+      const listbox = listboxNode ?? getListbox();
+      for (const candidate of getResultOptions(listbox)) {
+        candidate.setAttribute('aria-selected', 'false');
+      }
+      const footerLink = getFooterLink(listbox);
+      if (footerLink) {
+        footerLink.setAttribute('aria-selected', 'false');
+      }
+      input.removeAttribute('aria-activedescendant');
+    };
+
     const handleInputKeyDown = (event) => {
       const input = getSearchInput();
       const listbox = getListbox();
       const footerLink = getFooterLink(listbox);
-      if (!input || !listbox || !footerLink) {
+      if (!input) {
+        return;
+      }
+
+      // Tab must escape unconditionally. Two mechanisms conspire to trap focus,
+      // and both are handled here.
+      //
+      // First, the upstream handler cancels Tab to keep focus inside the
+      // combobox, which is a WCAG 2.1.2 keyboard trap under a screen reader
+      // whose focus mode keeps the popup open. Gating this on a listbox or
+      // footer link would leave the trap intact in exactly the states where it
+      // bites, including the zero-results state where no footer link exists.
+      //
+      // Second, and confirmed by measurement: the next element in native focus
+      // order is the search clear button, which lives inside this widget. A
+      // native Tab therefore lands inside the widget, the widget then tears the
+      // popup down, and focus falls to <body>. Moving focus explicitly to the
+      // first candidate outside the widget avoids handing focus to an element
+      // that is about to be removed. The move is re-asserted asynchronously
+      // because the widget restores focus to the input while closing.
+      //
+      // The default move is cancelled only after a destination is confirmed.
+      // Cancelling first and then discovering no target leaves focus pinned on
+      // the input with the native move already suppressed, which is itself the
+      // keyboard trap this handler exists to prevent.
+      if (event.key === 'Tab') {
+        // Resolve against the element the user is actually on. Reading the
+        // input from the container can return a different (or stale) node than
+        // the focused one, which yields no index in the focus order and no
+        // target.
+        const focusedInput = document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : input;
+        const shift = event.shiftKey;
+
+        // Move focus first, then decide whether to cancel the native Tab. A
+        // handler that cancels Tab and then fails to place focus leaves the
+        // user pinned on the input with no way out by keyboard, which is the
+        // WCAG 2.1.2 trap this exists to prevent. Attempting the move first
+        // makes cancelling conditional on having actually succeeded.
+        const target = focusOutsideWidget(focusedInput, shift);
+        if (!target) {
+          // Nothing outside the widget can take focus: let the browser do
+          // whatever it would normally do rather than swallowing the key.
+          return;
+        }
+
+        event.stopImmediatePropagation();
+        event.preventDefault();
+        clearFooterHighlight(footerLink);
+        input.removeAttribute('aria-activedescendant');
+
+        // The widget tears its popup down asynchronously and restores focus to
+        // the input on the way, so the move above can be undone a few frames
+        // later. Guard the destination by re-claiming focus if it returns to
+        // the widget, rather than polling a fixed number of frames.
+        const guard = (guardEvent) => {
+          const landed = guardEvent.target;
+          if (landed === target) {
+            return;
+          }
+          // Only contest focus the widget itself reclaimed. A deliberate move
+          // elsewhere (the user tabbing onward) is left alone.
+          if (landed === input || (root && root.contains(landed))) {
+            target.focus();
+          }
+        };
+        const stopGuard = () => {
+          document.removeEventListener('focusin', guard, true);
+          window.clearTimeout(guardTimer);
+        };
+        const guardTimer = window.setTimeout(stopGuard, FOCUS_GUARD_MS);
+        document.addEventListener('focusin', guard, true);
+        focusGuardCleanups.push(stopGuard);
+        return;
+      }
+
+      if (!listbox || !footerLink) {
         return;
       }
 
@@ -100,18 +276,6 @@ export default function SearchBarWrapper(props) {
       const activeDescendantId = input.getAttribute('aria-activedescendant');
       const isOnFooter = activeDescendantId === footerLink.id;
       const isOnLastOption = Boolean(lastOption) && activeDescendantId === lastOption.id;
-
-      if (event.key === 'Tab') {
-        // Block the upstream widget's Tab handler, which cancels Tab to keep
-        // focus inside the combobox (a WCAG 2.1.2 keyboard trap, exposed under a
-        // screen reader whose focus mode keeps the popup open). Crucially do NOT
-        // call preventDefault: stopImmediatePropagation only suppresses the other
-        // keydown listeners, so the browser still performs its native Tab focus
-        // move out of the widget.
-        event.stopImmediatePropagation();
-        footerLink.classList.remove('search-footer-active');
-        return;
-      }
 
       // Last option -> footer. The upstream handler would wrap the selection back
       // to the first option, so stop it and move the active descendant onto the
@@ -126,7 +290,7 @@ export default function SearchBarWrapper(props) {
           holder.classList.remove(cls);
         }
         footerLink.classList.add('search-footer-active');
-        input.setAttribute('aria-activedescendant', footerLink.id);
+        setActiveOption(input, footerLink, listbox);
         footerLink.scrollIntoView({ block: 'nearest' });
         return;
       }
@@ -136,11 +300,11 @@ export default function SearchBarWrapper(props) {
       if (event.key === 'ArrowUp' && isOnFooter && lastOption) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        footerLink.classList.remove('search-footer-active');
+        clearFooterHighlight(footerLink);
         if (footerActiveClass) {
           lastOption.classList.add(footerActiveClass);
         }
-        input.setAttribute('aria-activedescendant', lastOption.id);
+        setActiveOption(input, lastOption, listbox);
         lastOption.scrollIntoView({ block: 'nearest' });
         return;
       }
@@ -148,7 +312,16 @@ export default function SearchBarWrapper(props) {
       // Footer -> first option (wrap). Let upstream advance from the last option
       // to the first; only clear the footer's highlight first.
       if (event.key === 'ArrowDown' && isOnFooter) {
-        footerLink.classList.remove('search-footer-active');
+        clearFooterHighlight(footerLink);
+        return;
+      }
+
+      // Escape collapses the popup. Clear the roving position and the borrowed
+      // highlight so a later re-open does not resume pointing at an option that
+      // is no longer rendered.
+      if (event.key === 'Escape') {
+        clearFooterHighlight(footerLink);
+        clearActiveOption(input, listbox);
         return;
       }
 
@@ -191,16 +364,34 @@ export default function SearchBarWrapper(props) {
       const isOpen = listboxVisible && query.length > 0;
 
       if (input) {
-        // Keep a stable combobox role on the input. Applying it consistently
-        // (rather than relying on the upstream widget, which only adds the role
-        // once the popup initialises) gives NVDA a stable, complete combobox to
-        // enter focus mode on. This matches the last screen-reader-working state.
-        if (input.getAttribute('role') !== 'combobox') {
-          input.setAttribute('role', 'combobox');
+        // Only claim the combobox role once the widget can actually behave as
+        // one. Upstream attaches lazily on first interaction and only then adds
+        // aria-autocomplete and the popup wiring; advertising role="combobox"
+        // before that point announces "combobox, collapsed" for a control that
+        // owns nothing, which is worse than the native searchbox semantics the
+        // input already has.
+        const upstreamAttached = input.hasAttribute('aria-autocomplete');
+        if (upstreamAttached) {
+          if (input.getAttribute('role') !== 'combobox') {
+            input.setAttribute('role', 'combobox');
+          }
+          const nextExpanded = isOpen ? 'true' : 'false';
+          if (input.getAttribute('aria-expanded') !== nextExpanded) {
+            input.setAttribute('aria-expanded', nextExpanded);
+          }
+        } else {
+          if (input.hasAttribute('role')) {
+            input.removeAttribute('role');
+          }
+          if (input.hasAttribute('aria-expanded')) {
+            input.removeAttribute('aria-expanded');
+          }
         }
-        const nextExpanded = isOpen ? 'true' : 'false';
-        if (input.getAttribute('aria-expanded') !== nextExpanded) {
-          input.setAttribute('aria-expanded', nextExpanded);
+
+        // A collapsed popup owns no options, so a retained active descendant
+        // points at an element that is gone or hidden.
+        if (!isOpen && input.hasAttribute('aria-activedescendant')) {
+          clearActiveOption(input, listbox);
         }
 
         if (footerLink) {
@@ -337,6 +528,9 @@ export default function SearchBarWrapper(props) {
     return () => {
       if (currentInput) {
         currentInput.removeEventListener('keydown', handleInputKeyDown, true);
+      }
+      for (const stopGuard of focusGuardCleanups.splice(0)) {
+        stopGuard();
       }
       observer.disconnect();
       clearStatusMessage();

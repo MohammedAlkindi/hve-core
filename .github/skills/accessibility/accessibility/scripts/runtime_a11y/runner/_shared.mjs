@@ -45,37 +45,160 @@ const FOREGROUND_WINDOW_TITLE_SCRIPT = [
   '[Console]::Out.Write($b.ToString())',
 ].join(' ');
 
-const ACTIVATE_WINDOW_BY_TITLE_SCRIPT = [
+// Reads the foreground window's owning process id alongside its title. The
+// process id is the binding authority because, unlike document.title, the page
+// under test cannot choose it.
+const FOREGROUND_WINDOW_IDENTITY_SCRIPT = [
+  'Add-Type -Namespace RuntimeA11yId -Name Win -MemberDefinition \'',
+  '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+  '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);',
+  '[DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);',
+  '\';',
+  '$h = [RuntimeA11yId.Win]::GetForegroundWindow();',
+  '$b = New-Object System.Text.StringBuilder 1024;',
+  '[void][RuntimeA11yId.Win]::GetWindowTextW($h, $b, $b.Capacity);',
+  '$pid2 = 0;',
+  '[void][RuntimeA11yId.Win]::GetWindowThreadProcessId($h, [ref]$pid2);',
+  '[Console]::Out.Write((ConvertTo-Json -Compress ([ordered]@{ title = $b.ToString(); processId = $pid2 })))',
+].join(' ');
+
+// Lists every process id with its parent, so the caller can decide whether the
+// foreground window belongs to the browser it launched or to one of its
+// children. Emitted as JSON with no interpolated input.
+const PROCESS_TREE_SCRIPT =
+  '[Console]::Out.Write((Get-CimInstance Win32_Process | '
+  + 'Select-Object -Property ProcessId, ParentProcessId | ConvertTo-Json -Compress))';
+
+// Lists screen reader process ids so cleanup can confirm the driver actually
+// exited. Guidepup's stop() issues `nvda --quit` and returns without checking,
+// so a hung screen reader is reported as stopped while it keeps speaking.
+const SCREEN_READER_PROCESS_SCRIPT =
+  '[Console]::Out.Write((@(Get-Process -Name nvda -ErrorAction SilentlyContinue '
+  + '| Select-Object -ExpandProperty Id) | ConvertTo-Json -Compress))';
+
+export async function readScreenReaderProcessIds() {
+  if (process.platform !== 'win32') {
+    return [];
+  }
+  try {
+    // Fixed script text with no interpolated input.
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', SCREEN_READER_PROCESS_SCRIPT],
+      { timeout: 20000, windowsHide: true },
+    );
+    const text = String(stdout || '').trim();
+    if (!text) {
+      return [];
+    }
+    const parsed = JSON.parse(text);
+    const entries = Array.isArray(parsed) ? parsed : [parsed];
+    return entries.map((entry) => Number(entry)).filter((id) => Number.isInteger(id) && id > 0);
+  } catch {
+    return null;
+  }
+}
+
+async function terminateProcessIds(processIds) {
+  if (process.platform !== 'win32' || !Array.isArray(processIds) || processIds.length === 0) {
+    return false;
+  }
+  try {
+    await execFileAsync(
+      'taskkill.exe',
+      ['/F', '/T', ...processIds.flatMap((id) => ['/PID', String(id)])],
+      { timeout: 20000, windowsHide: true },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Confirms the screen reader actually exited after the driver reported stopping.
+//
+// Only called when this process started the screen reader, so terminating a
+// remnant never disturbs a screen reader the operator was already relying on.
+// Leaving one alive hijacks the machine's speech and blocks the next run's
+// driver startup, so an unresponsive remnant is force-terminated rather than
+// reported as stopped.
+export async function ensureScreenReaderStopped({
+  timeoutMs = 10000,
+  pollIntervalMs = 500,
+  readProcessIds = readScreenReaderProcessIds,
+  terminate = terminateProcessIds,
+} = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let remaining = await readProcessIds();
+  while (Array.isArray(remaining) && remaining.length > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    remaining = await readProcessIds();
+  }
+  if (remaining === null) {
+    return { stopped: false, terminated: false, reason: 'screen-reader-state-unreadable' };
+  }
+  if (remaining.length === 0) {
+    return { stopped: true, terminated: false, reason: null };
+  }
+  const terminated = await terminate(remaining);
+  const after = await readProcessIds();
+  const stopped = Array.isArray(after) && after.length === 0;
+  return {
+    stopped,
+    terminated,
+    reason: stopped ? null : 'screen-reader-still-running',
+  };
+}
+
+// Activates the browser's own top-level window.
+//
+// The window is selected by owning process id, never by title, so remediation
+// cannot raise an unrelated window that merely shares the page title. The
+// process main window handle is used rather than an EnumWindows scan because a
+// browser owns several visible helper windows and only the main one is the
+// window a screen reader reads.
+//
+// Windows refuses SetForegroundWindow from a process that does not hold the
+// foreground or the most recent input, which silently degrades to a taskbar
+// flash. Attaching to the current foreground thread's input queue for the
+// duration of the call is the supported way to make the request take effect.
+const ACTIVATE_BROWSER_WINDOW_SCRIPT = [
   'Add-Type -Namespace RuntimeA11y -Name Win -MemberDefinition \'',
-  '[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);',
-  '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr hWnd, System.Text.StringBuilder s, int n);',
-  '[DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);',
   '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
   '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);',
-  'public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);',
+  '[DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);',
+  '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+  '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);',
+  '[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);',
+  '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();',
   '\';',
-  '$expected = [Environment]::GetEnvironmentVariable("RUNTIME_A11Y_EXPECTED_WINDOW_TITLE");',
-  'if ([string]::IsNullOrWhiteSpace($expected)) { return; }',
-  '$expected = $expected.Trim();',
-  '$match = [IntPtr]::Zero;',
-  '$callback = [RuntimeA11y.Win+EnumWindowsProc]{',
-  '  param([IntPtr]$hWnd, [IntPtr]$lParam)',
-  '  if (-not [RuntimeA11y.Win]::IsWindowVisible($hWnd)) { return $true; }',
-  '  $buffer = New-Object System.Text.StringBuilder 1024;',
-  '  [void][RuntimeA11y.Win]::GetWindowTextW($hWnd, $buffer, $buffer.Capacity);',
-  '  $title = $buffer.ToString();',
-  '  if ([string]::IsNullOrWhiteSpace($title)) { return $true; }',
-  '  if ($title.IndexOf($expected, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {',
-  '    $script:match = $hWnd;',
-  '    return $false;',
+  '$expected = [Environment]::GetEnvironmentVariable("RUNTIME_A11Y_BROWSER_PROCESS_ID");',
+  '$expectedPid = 0;',
+  'if (-not [int]::TryParse($expected, [ref]$expectedPid)) { return; }',
+  'if ($expectedPid -le 0) { return; }',
+  '$deadline = (Get-Date).AddSeconds(5);',
+  '$handle = [IntPtr]::Zero;',
+  'while ((Get-Date) -lt $deadline -and $handle -eq [IntPtr]::Zero) {',
+  '  $candidates = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -eq $expectedPid -or $_.Parent.Id -eq $expectedPid };',
+  '  foreach ($candidate in $candidates) {',
+  '    if ($candidate.MainWindowHandle -ne [IntPtr]::Zero) { $handle = $candidate.MainWindowHandle; break; }',
   '  }',
-  '  return $true;',
-  '};',
-  '[void][RuntimeA11y.Win]::EnumWindows($callback, [IntPtr]::Zero);',
-  'if ($match -ne [IntPtr]::Zero) {',
-  '  [void][RuntimeA11y.Win]::ShowWindowAsync($match, 9);',
-  '  [void][RuntimeA11y.Win]::SetForegroundWindow($match);',
+  '  if ($handle -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 200 }',
   '}',
+  'if ($handle -eq [IntPtr]::Zero) { return; }',
+  '[void][RuntimeA11y.Win]::ShowWindowAsync($handle, 9);',
+  '$foreground = [RuntimeA11y.Win]::GetForegroundWindow();',
+  '$foregroundThread = [RuntimeA11y.Win]::GetWindowThreadProcessId($foreground, [IntPtr]::Zero);',
+  '$currentThread = [RuntimeA11y.Win]::GetCurrentThreadId();',
+  '$attached = $false;',
+  'if ($foregroundThread -ne 0 -and $foregroundThread -ne $currentThread) {',
+  '  $attached = [RuntimeA11y.Win]::AttachThreadInput($currentThread, $foregroundThread, $true);',
+  '}',
+  'try {',
+  '  [void][RuntimeA11y.Win]::BringWindowToTop($handle);',
+  '  [void][RuntimeA11y.Win]::SetForegroundWindow($handle);',
+  '}',
+  'finally { if ($attached) { [void][RuntimeA11y.Win]::AttachThreadInput($currentThread, $foregroundThread, $false); } }',
 ].join(' ');
 
 export async function readForegroundWindowTitle() {
@@ -95,24 +218,97 @@ export async function readForegroundWindowTitle() {
   }
 }
 
-export async function activateWindowByTitle(expectedTitle) {
+export async function readForegroundWindowIdentity() {
+  if (process.platform !== 'win32') {
+    return null;
+  }
+  try {
+    // Fixed script text with no interpolated input. The timeout accommodates
+    // Add-Type compiling the interop shim on a machine already loaded by a
+    // running screen reader; a shorter budget reports a false read failure.
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', FOREGROUND_WINDOW_IDENTITY_SCRIPT],
+      { timeout: 20000, windowsHide: true },
+    );
+    const parsed = JSON.parse(String(stdout || '').trim());
+    const processId = Number(parsed?.processId);
+    return {
+      title: typeof parsed?.title === 'string' ? parsed.title.trim() : null,
+      processId: Number.isInteger(processId) && processId > 0 ? processId : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function readProcessTree() {
+  if (process.platform !== 'win32') {
+    return null;
+  }
+  try {
+    // Fixed script text with no interpolated input.
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', PROCESS_TREE_SCRIPT],
+      { timeout: 10000, windowsHide: true },
+    );
+    const parsed = JSON.parse(String(stdout || '').trim());
+    const entries = Array.isArray(parsed) ? parsed : [parsed];
+    const parents = new Map();
+    for (const entry of entries) {
+      const processId = Number(entry?.ProcessId);
+      const parentProcessId = Number(entry?.ParentProcessId);
+      if (Number.isInteger(processId) && processId > 0) {
+        parents.set(processId, Number.isInteger(parentProcessId) ? parentProcessId : null);
+      }
+    }
+    return parents;
+  } catch {
+    return null;
+  }
+}
+
+// True when candidatePid is ancestorPid or descends from it. Chrome owns its
+// top-level window in the browser process, but a launcher shim can place that
+// process one level below the pid Playwright reports, so ancestry is checked
+// rather than identity alone. The walk is depth-bounded so a cyclic or
+// malformed tree cannot spin.
+export function isSameOrDescendantProcess(candidatePid, ancestorPid, parents) {
+  if (!Number.isInteger(candidatePid) || !Number.isInteger(ancestorPid) || !parents) {
+    return false;
+  }
+  let current = candidatePid;
+  for (let depth = 0; depth < 64; depth += 1) {
+    if (current === ancestorPid) {
+      return true;
+    }
+    const next = parents.get(current);
+    if (!Number.isInteger(next) || next <= 0 || next === current) {
+      return false;
+    }
+    current = next;
+  }
+  return false;
+}
+
+export async function activateBrowserWindow(browserProcessId) {
   if (process.platform !== 'win32') {
     return false;
   }
-  const title = typeof expectedTitle === 'string' ? expectedTitle.trim() : '';
-  if (!title) {
+  if (!Number.isInteger(browserProcessId) || browserProcessId <= 0) {
     return false;
   }
   try {
     await execFileAsync(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', ACTIVATE_WINDOW_BY_TITLE_SCRIPT],
+      ['-NoProfile', '-NonInteractive', '-Command', ACTIVATE_BROWSER_WINDOW_SCRIPT],
       {
         timeout: 5000,
         windowsHide: true,
         env: {
           ...process.env,
-          RUNTIME_A11Y_EXPECTED_WINDOW_TITLE: title,
+          RUNTIME_A11Y_BROWSER_PROCESS_ID: String(browserProcessId),
         },
       },
     );
@@ -186,12 +382,52 @@ async function collectControlledWindowIdentity({ page, browser, context } = {}) 
   };
 }
 
+// Resolves the process id of the browser under automation.
+//
+// Playwright only exposes `browser.process()` for a browser this process
+// launched directly; it is absent when the Browser arrives over a connection or
+// is handed through as a shared instance, which is how the calibration executor
+// drives it. Falling back to the CDP SystemInfo domain reports the actual
+// browser process id in both cases.
+export async function resolveBrowserProcessId({ browser, context, page } = {}) {
+  const direct = typeof browser?.process === 'function' ? browser.process()?.pid : null;
+  if (Number.isInteger(direct) && direct > 0) {
+    return direct;
+  }
+  const targetContext = context || page?.context?.();
+  const factory = browser?.newBrowserCDPSession?.bind(browser)
+    || (targetContext?.newCDPSession ? () => targetContext.newCDPSession(page) : null);
+  if (!factory) {
+    return null;
+  }
+  let session = null;
+  try {
+    session = await factory();
+    const info = await session.send('SystemInfo.getProcessInfo');
+    const entries = Array.isArray(info?.processInfo) ? info.processInfo : [];
+    const browserEntry = entries.find((entry) => entry?.type === 'browser') ?? entries[0];
+    const pid = Number(browserEntry?.id);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  } finally {
+    if (session && typeof session.detach === 'function') {
+      await session.detach().catch(() => undefined);
+    }
+  }
+}
+
 // Binds the screen reader's reading context to the window under test.
 //
 // Playwright controls a specific window over CDP, but a screen reader narrates
 // whichever window the OS has focused. Without this check the harness can
 // synthesize keystrokes into an unrelated window and capture that window's
 // speech, which silently produces evidence about the wrong surface.
+//
+// The binding authority is the foreground window's owning process, not its
+// title. A title comparison is page-controllable: a page that sets a short
+// common title would satisfy a substring match from any window containing it.
+// Process ancestry cannot be chosen by page content.
 export async function ensureAutomationWindowFocused({
   page,
   browser,
@@ -199,8 +435,9 @@ export async function ensureAutomationWindowFocused({
   timeoutMs = 5000,
   pollIntervalMs = 250,
   platform = process.platform,
-  readForegroundTitle = readForegroundWindowTitle,
-  activateWindow = activateWindowByTitle,
+  readForegroundIdentity = readForegroundWindowIdentity,
+  readProcesses = readProcessTree,
+  activateWindow = activateBrowserWindow,
   activateTarget = activatePageTarget,
 } = {}) {
   if (String(platform).toLowerCase() !== 'win32' && String(platform).toLowerCase() !== 'windows') {
@@ -211,15 +448,26 @@ export async function ensureAutomationWindowFocused({
   }
 
   const documentTitle = await page.title().catch(() => null);
-  if (!documentTitle) {
-    return { status: 'unbound', reason: 'document-title-unavailable', attempts: 0 };
+  const browserProcessId = await resolveBrowserProcessId({ browser, context, page });
+  if (!Number.isInteger(browserProcessId)) {
+    // Without an authoritative process identity this check cannot tell the
+    // window under test from any other, so it fails closed rather than falling
+    // back to a page-controllable title comparison.
+    return {
+      status: 'unbound',
+      reason: 'browser-process-identity-unavailable',
+      expectedTitle: documentTitle,
+      attempts: 0,
+    };
   }
 
-  const expectedIdentity = await collectControlledWindowIdentity({ page, browser, context });
+  const expectedIdentity = {
+    ...(await collectControlledWindowIdentity({ page, browser, context })),
+    browserProcessId,
+  };
   const deadline = Date.now() + timeoutMs;
   let attempts = 0;
   let remediationAttempted = false;
-  let foregroundTitle = null;
   let foregroundIdentity = null;
 
   while (Date.now() < deadline && attempts < 2) {
@@ -229,22 +477,26 @@ export async function ensureAutomationWindowFocused({
     if (typeof page.focus === 'function') {
       await page.focus().catch(() => undefined);
     }
-    foregroundTitle = await readForegroundTitle();
-    foregroundIdentity = { windowTitle: foregroundTitle || null };
+    const foreground = await readForegroundIdentity();
+    foregroundIdentity = {
+      windowTitle: foreground?.title || null,
+      processId: Number.isInteger(foreground?.processId) ? foreground.processId : null,
+    };
 
-    // Chrome titles its window "<document title> - Google Chrome", so matching
-    // on the document title confirms the focused window is the page under test.
-    if (foregroundTitle && foregroundTitle.includes(documentTitle)) {
-      return {
-        status: 'bound',
-        expectedIdentity,
-        foregroundIdentity,
-        expectedTitle: documentTitle,
-        foregroundTitle,
-        attempts,
-        remediationAttempted,
-        reason: null,
-      };
+    if (foregroundIdentity.processId !== null) {
+      const parents = await readProcesses();
+      if (isSameOrDescendantProcess(foregroundIdentity.processId, browserProcessId, parents)) {
+        return {
+          status: 'bound',
+          expectedIdentity,
+          foregroundIdentity,
+          expectedTitle: documentTitle,
+          foregroundTitle: foregroundIdentity.windowTitle,
+          attempts,
+          remediationAttempted,
+          reason: null,
+        };
+      }
     }
 
     if (attempts === 1 && timeoutMs > 0) {
@@ -255,7 +507,7 @@ export async function ensureAutomationWindowFocused({
         browser,
         targetId: expectedIdentity?.pageTargetId,
       }).catch(() => undefined);
-      await activateWindow(documentTitle).catch(() => undefined);
+      await activateWindow(browserProcessId).catch(() => undefined);
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       continue;
     }
@@ -266,10 +518,14 @@ export async function ensureAutomationWindowFocused({
     expectedIdentity,
     foregroundIdentity,
     expectedTitle: documentTitle,
-    foregroundTitle,
+    foregroundTitle: foregroundIdentity?.windowTitle || null,
     attempts,
     remediationAttempted,
-    reason: 'foreground-window-does-not-match-page-under-test',
+    // An unreadable foreground is a distinct failure from a foreground owned by
+    // another process; reporting them alike sends diagnosis down the wrong path.
+    reason: foregroundIdentity?.processId == null
+      ? 'foreground-identity-unreadable'
+      : 'foreground-window-does-not-belong-to-the-browser-under-test',
   };
 }
 

@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import secrets
 import subprocess
 import tempfile
@@ -38,14 +39,26 @@ _SENSITIVE_KEY_TOKENS = (
     "session",
     "token",
 )
+_FAILING_PROBE_STATUSES = frozenset(
+    {"fail", "failed", "failure", "capture-failure", "error"}
+)
+_HIGH_ENTROPY_PATTERN = re.compile(r"^[A-Za-z0-9+/_-]{32,}={0,2}$")
+_HEX_DIGEST_PATTERN = re.compile(r"^[a-f0-9]+$", re.IGNORECASE)
 
 
 def compute_sha256(data: bytes | str | Path) -> str:
-    """Return a SHA-256 digest for bytes, text, or a file path."""
+    """Return a SHA-256 digest for bytes, text, or an existing file path.
+
+    A path that does not exist raises. Digesting the path string instead would
+    yield a schema-valid digest for an artifact that was never captured.
+    """
     if isinstance(data, Path):
-        payload = (
-            data.read_bytes() if data.exists() else data.as_posix().encode("utf-8")
-        )
+        if not data.exists():
+            raise ScriptError(
+                f"Cannot hash a visual review artifact that does not exist: {data}",
+                EXIT_USAGE,
+            )
+        payload = data.read_bytes()
     elif isinstance(data, str):
         payload = data.encode("utf-8")
     else:
@@ -143,7 +156,8 @@ def normalize_manifest_path(path_value: str | Path, *, run_root: str | Path) -> 
         raise ScriptError("Manifest artifact paths violate containment.", EXIT_USAGE)
 
     resolved_root = Path(run_root).resolve()
-    candidate_path = (resolved_root / normalized).resolve(strict=False)
+    unresolved_candidate = resolved_root / normalized
+    candidate_path = unresolved_candidate.resolve(strict=False)
     try:
         candidate_path.relative_to(resolved_root)
     except ValueError as exc:
@@ -151,8 +165,21 @@ def normalize_manifest_path(path_value: str | Path, *, run_root: str | Path) -> 
             "Manifest artifact paths violate containment.", EXIT_USAGE
         ) from exc
 
-    if candidate_path.is_symlink():
-        raise ScriptError("Manifest artifact paths violate containment.", EXIT_USAGE)
+    # Reject symlinks on the unresolved path. Path.resolve() already follows
+    # them, so an is_symlink() test on the resolved path can never be true.
+    # Containment itself is enforced above by relative_to; this additionally
+    # refuses a symlinked artifact whose target is inside the root, because an
+    # evidence path that can be retargeted after validation is not a durable
+    # integrity claim.
+    probe = unresolved_candidate
+    while True:
+        if probe.is_symlink():
+            raise ScriptError(
+                "Manifest artifact paths violate containment.", EXIT_USAGE
+            )
+        if probe == resolved_root or probe == probe.parent:
+            break
+        probe = probe.parent
     return normalized
 
 
@@ -188,10 +215,17 @@ def validate_visual_review_manifest(
                 "Visual review manifest entries must include a relative path.",
                 EXIT_USAGE,
             )
-        normalize_manifest_path(path_value, run_root=resolved_root)
-        size_bytes = entry.get("sizeBytes")
-        if size_bytes is not None:
-            total_bytes += int(size_bytes)
+        normalized = normalize_manifest_path(path_value, run_root=resolved_root)
+        # Measure the artifact's real bytes on disk. A declared sizeBytes is
+        # only trusted when the artifact is not yet written, as is the case for
+        # the manifest payload describing the file being produced.
+        artifact_path = (resolved_root / normalized).resolve(strict=False)
+        if artifact_path.exists() and artifact_path.is_file():
+            total_bytes += artifact_path.stat().st_size
+        else:
+            size_bytes = entry.get("sizeBytes")
+            if size_bytes is not None:
+                total_bytes += int(size_bytes)
         sha256_value = entry.get("sha256")
         if not isinstance(sha256_value, str) or len(sha256_value) != 64:
             raise ScriptError(
@@ -341,8 +375,19 @@ def collect_environment_provenance(cwd: str | Path) -> dict[str, Any]:
     return provenance
 
 
+def _resolve_evidence_state(probe_outcomes: list[dict[str, Any]]) -> str:
+    """Derive the manifest evidence state from the run's actual probe outcomes."""
+    for outcome in probe_outcomes or []:
+        if not isinstance(outcome, dict):
+            continue
+        status = str(outcome.get("status") or "").strip().lower()
+        if status in _FAILING_PROBE_STATUSES:
+            return "deterministic-fail"
+    return "deterministic-pass"
+
+
 def redact_sensitive_metadata(value: Any) -> Any:
-    """Recursively mask sensitive keys and values in structured metadata."""
+    """Recursively mask sensitive keys and high-entropy values in metadata."""
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for key, child in value.items():
@@ -360,6 +405,15 @@ def redact_sensitive_metadata(value: Any) -> Any:
         return [redact_sensitive_metadata(item) for item in value]
     if isinstance(value, tuple):
         return tuple(redact_sensitive_metadata(item) for item in value)
+    # A key-name allowlist cannot catch a secret stored under an innocuous key,
+    # so mask values whose shape matches an opaque token or key. Hex digests are
+    # excluded because artifact SHA-256 hashes are required manifest content.
+    if (
+        isinstance(value, str)
+        and _HIGH_ENTROPY_PATTERN.match(value)
+        and not _HEX_DIGEST_PATTERN.match(value)
+    ):
+        return "[REDACTED]"
     return value
 
 
@@ -453,10 +507,12 @@ def build_visual_review_manifest(
                 "sizeBytes": 0,
             },
         },
-        "deterministicMetrics": deterministic_metrics,
-        "probeOutcomes": probe_outcomes,
-        "provenance": provenance or collect_environment_provenance(resolved_root),
-        "evidenceState": "deterministic-pass",
+        "deterministicMetrics": redact_sensitive_metadata(deterministic_metrics),
+        "probeOutcomes": redact_sensitive_metadata(probe_outcomes),
+        "provenance": redact_sensitive_metadata(
+            provenance or collect_environment_provenance(resolved_root)
+        ),
+        "evidenceState": _resolve_evidence_state(probe_outcomes),
     }
 
     payload_bytes = json.dumps(manifest_payload, indent=2, sort_keys=True).encode(
@@ -465,19 +521,20 @@ def build_visual_review_manifest(
     manifest_payload_hash = compute_sha256(payload_bytes)
     manifest_payload["artifacts"]["manifestPayload"]["sha256"] = manifest_payload_hash
     manifest_payload["artifacts"]["manifestPayload"]["sizeBytes"] = len(payload_bytes)
-    manifest_payload["provenance"] = redact_sensitive_metadata(
-        manifest_payload["provenance"]
-    )
     return manifest_payload
 
 
 def _hash_source_bytes(path_value: str, run_root: Path) -> str:
+    """Digest an artifact's real bytes, failing closed when it does not exist."""
     candidate = Path(path_value)
     if not candidate.is_absolute():
         candidate = (run_root / candidate).resolve()
-    if candidate.exists():
-        return compute_sha256(candidate.read_bytes())
-    return compute_sha256(str(candidate).encode("utf-8"))
+    if not candidate.exists():
+        raise ScriptError(
+            f"Cannot hash a visual review artifact that does not exist: {candidate}",
+            EXIT_USAGE,
+        )
+    return compute_sha256(candidate.read_bytes())
 
 
 def write_json_atomic(path_value: str | Path, payload: dict[str, Any]) -> Path:

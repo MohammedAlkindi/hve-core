@@ -1,13 +1,13 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-import { createCalibrationCheckpoint } from './calibration-harness.mjs';
+import { createCalibrationCheckpoint, validateCalibrationCheckpoint } from './calibration-checkpoint.mjs';
 import { processAtPlanCase } from './at-plan-executor.mjs';
 import { launchChrome } from './_shared.mjs';
 import { captureVisualReviewEvidence } from './visual-review-executor.mjs';
@@ -159,12 +159,12 @@ function persistJsonArtifact(targetPath, payload) {
   const resolvedTargetPath = path.resolve(targetPath);
   mkdirSync(path.dirname(resolvedTargetPath), { recursive: true });
   const serialized = `${JSON.stringify(payload, null, 2)}\n`;
-  const tempPath = `${resolvedTargetPath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  writeFileSync(tempPath, serialized, 'utf8');
+  // Unpredictable temp name so a co-located process cannot pre-create or
+  // pre-empt the path, and rename directly over the target so there is never a
+  // window in which the artifact is absent.
+  const tempPath = `${resolvedTargetPath}.tmp-${randomBytes(16).toString('hex')}`;
   try {
-    if (existsSync(resolvedTargetPath)) {
-      unlinkSync(resolvedTargetPath);
-    }
+    writeFileSync(tempPath, serialized, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     renameSync(tempPath, resolvedTargetPath);
   } catch (error) {
     if (existsSync(tempPath)) {
@@ -366,11 +366,9 @@ function buildProfileFingerprint(config, journey = {}) {
 }
 
 function normalizeJourney(config, journey, index) {
-  const journeyId = String(journey?.journeyId || journey?.id || journey?.bugId || `journey-${index + 1}`);
-  const bugId = String(journey?.bugId || journey?.id || journeyId);
+  const journeyId = String(journey?.journeyId || journey?.id || `journey-${index + 1}`);
   return {
     journeyId,
-    bugId,
     title: journey?.title || `Calibration journey ${journeyId}`,
     route: journey?.route || '/',
     surfaceId: journey?.surfaceId || null,
@@ -396,39 +394,14 @@ function normalizeJourney(config, journey, index) {
   };
 }
 
+// Journeys are defined entirely by the runtime config. There is no built-in
+// default set: a harness that invents journeys the operator did not configure
+// would report evidence about surfaces nobody asked it to exercise.
 export function resolveCalibrationCases(config = {}) {
-  const journeys = Array.isArray(config?.calibration?.journeys) && config.calibration.journeys.length > 0
+  const journeys = Array.isArray(config?.calibration?.journeys)
     ? config.calibration.journeys
     : [];
-  if (journeys.length > 0) {
-    return journeys.map((journey, index) => normalizeJourney(config, journey, index));
-  }
-  return [
-    normalizeJourney(config, {
-      id: '14399',
-      bugId: '14399',
-      title: 'Search results announcement',
-      route: '/',
-      surfaceId: 'homepage',
-      state: 'desktop',
-      trigger: { action: 'focus', target: '#search' },
-      commands: [{ kind: 'keyboard', value: 'Tab' }],
-      assertions: [{ id: 'speech', type: 'contains', value: 'search' }],
-      profileFingerprint: { locale: 'en-US' },
-    }, 0),
-    normalizeJourney(config, {
-      id: '14410',
-      bugId: '14410',
-      title: 'Search status update',
-      route: '/search',
-      surfaceId: 'search-results',
-      state: 'desktop',
-      trigger: { action: 'click', target: '#search-results' },
-      commands: [{ kind: 'keyboard', value: 'Enter' }],
-      assertions: [{ id: 'speech', type: 'contains', value: 'results' }],
-      profileFingerprint: { locale: 'en-US' },
-    }, 1),
-  ];
+  return journeys.map((journey, index) => normalizeJourney(config, journey, index));
 }
 
 export async function defaultRunAtCase({
@@ -450,7 +423,7 @@ export async function defaultRunAtCase({
     trigger: journey?.trigger || null,
   };
   const matrixCase = {
-    caseId: journey?.bugId || journey?.journeyId,
+    caseId: journey?.journeyId,
     mappingId: journey?.journeyId,
     state: journey?.state || 'desktop',
     surface: surface.id,
@@ -474,7 +447,6 @@ export async function defaultRunAtCase({
     },
     sourceMatrixMetadata: {
       journeyId: journey?.journeyId,
-      bugId: journey?.bugId,
       title: journey?.title,
     },
     at: 'nvda',
@@ -1091,7 +1063,6 @@ export async function runDefaultVisualPreflight({ config = {}, runRoot = null, c
 
 export async function runRealCalibrationSession({
   config = {},
-  checkpointPath = null,
   runRoot = null,
   probePrerequisites: probePrerequisitesHandler = null,
   runVisualPreflight: runVisualPreflightHandler = null,
@@ -1157,7 +1128,6 @@ export async function runRealCalibrationSession({
         journeyId: journey.journeyId,
         journey,
         ordinal: 0,
-        checkpointPath,
         runRoot: resolvedRunRoot,
         config,
         browser: sharedBrowser,
@@ -1233,14 +1203,19 @@ export async function runRealCalibrationSession({
     }, resolvedRunRoot);
 
       if (classification === 'pass' && hasValidEvidence) {
-        checkpoints.push(createCalibrationCheckpoint({
-        journeyId: journey.journeyId,
-        ordinal: 0,
-        profileFingerprint: payload?.profileFingerprint || buildProfileFingerprint(config, journey),
-        provenance: payload?.provenance || { driver: 'guidepup' },
-        artifactHashes: materialized.artifactHashes,
-        classification,
-        }));
+        const checkpoint = createCalibrationCheckpoint({
+          journeyId: journey.journeyId,
+          ordinal: 0,
+          profileFingerprint: payload?.profileFingerprint || buildProfileFingerprint(config, journey),
+          provenance: payload?.provenance || { driver: 'guidepup' },
+          artifactHashes: materialized.artifactHashes,
+          classification,
+        });
+        // Accept a checkpoint only when its own hash verifies. A checkpoint that
+        // fails verification is discarded rather than counted as evidence.
+        if (validateCalibrationCheckpoint(checkpoint)) {
+          checkpoints.push(checkpoint);
+        }
       }
     }
   } finally {
@@ -1305,15 +1280,11 @@ export async function main() {
   if (!config || typeof config !== 'object') {
     throw new Error('No configuration payload received.');
   }
-  const checkpointPath = process.env.RUNTIME_A11Y_CHECKPOINT_PATH
-    ? path.resolve(process.env.RUNTIME_A11Y_CHECKPOINT_PATH)
-    : null;
   const runRoot = process.env.RUNTIME_A11Y_RUN_ROOT
     ? path.resolve(process.env.RUNTIME_A11Y_RUN_ROOT)
     : null;
   const session = await runRealCalibrationSession({
     config,
-    checkpointPath,
     runRoot,
   });
   const document = {
@@ -1323,7 +1294,6 @@ export async function main() {
     baseUrl: config?.baseUrl || '',
     journeys: session.journeys.map((journey) => journey.journeyId),
     visualStates: config?.calibration?.visualStates || [],
-    checkpointPath: checkpointPath || null,
     runRoot: runRoot || null,
     aggregate: session.aggregate,
     checkpoints: session.checkpoints,

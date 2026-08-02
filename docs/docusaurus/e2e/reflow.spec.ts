@@ -1,17 +1,13 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { test, expect, type Page } from '@playwright/test';
-import { SITE_PAGES, visitInvariantPage } from './_helpers/a11yInvariants';
+import { SITE_PAGES, openSearchWidget, visitInvariantPage } from './_helpers/a11yInvariants';
 
 async function expandNavbarSearch(page: Page) {
-  const input = page.locator('input.navbar__search-input').first();
-  await input.waitFor({ state: 'visible' });
-  // The search widget attaches its combobox behavior on hydration and only then
-  // renders a listbox in response to typing. Waiting for role="combobox" avoids
-  // filling the field before the handler exists, which otherwise leaves the
-  // popup unrendered and times out the listbox wait.
-  await expect(input).toHaveAttribute('role', 'combobox', { timeout: 30000 });
-  await input.click();
+  // Gate on upstream attachment, not on role="combobox": the swizzle applies
+  // that role itself, so waiting for it would fill the field before the
+  // upstream handler exists and leave the popup unrendered.
+  const input = await openSearchWidget(page);
   await input.fill('agent');
   await page.locator('[role="listbox"]').first().waitFor({ state: 'visible', timeout: 30000 });
   return input;

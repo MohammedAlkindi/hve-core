@@ -11,6 +11,31 @@ const DEFAULT_VISUAL_REVIEW_STATES = [
   'forced-colors',
 ];
 
+// Resolves a configured route against the validated base origin.
+//
+// A route path is a path, never a destination. Navigating a scheme-bearing or
+// protocol-relative value verbatim would leave the origin the loopback guard
+// approved, so those forms are rejected rather than followed.
+export function resolveRouteUrl(rawTarget, baseUrl) {
+  const target = typeof rawTarget === 'string' ? rawTarget.trim() : '';
+  if (!target) {
+    return new URL('/', baseUrl).toString();
+  }
+  if (target.startsWith('//') || /^[a-z][a-z\d+.-]*:/i.test(target)) {
+    throw new Error(
+      `Route paths must be relative to the configured base URL: ${target}`,
+    );
+  }
+  const base = new URL(baseUrl);
+  const resolved = new URL(target, base);
+  if (resolved.origin !== base.origin) {
+    throw new Error(
+      `Route paths must resolve inside the configured origin ${base.origin}: ${target}`,
+    );
+  }
+  return resolved.toString();
+}
+
 function buildRouteSlug(route) {
   const raw = route?.path || route?.route || 'route';
   const normalized = String(raw).replace(/^\//, '').replace(/[^a-zA-Z0-9._-]+/g, '-');
@@ -179,13 +204,7 @@ export async function captureVisualReviewEvidence(config = {}) {
         const measurementPath = path.join(artifactDir, 'measurements.json');
         const tracePath = path.join(artifactDir, 'trace.zip');
         const rawTarget = route.path || '/';
-        const pageUrl = rawTarget.startsWith('data:')
-          ? rawTarget
-          : rawTarget.startsWith('http://') || rawTarget.startsWith('https://')
-            ? rawTarget
-            : baseUrl.startsWith('data:') || baseUrl.startsWith('about:')
-              ? baseUrl
-              : new URL(rawTarget, baseUrl).toString();
+        const pageUrl = resolveRouteUrl(rawTarget, baseUrl);
 
         const viewport = getViewportForState(stateName);
         const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });

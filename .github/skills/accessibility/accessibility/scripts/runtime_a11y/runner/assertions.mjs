@@ -1,6 +1,36 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
 
+const MAX_ASSERTION_PATTERN_LENGTH = 512;
+const MAX_ASSERTION_PATTERN_QUANTIFIERS = 16;
+
+// Counts unescaped quantifiers, which are the operators that drive backtracking
+// cost. Character classes are skipped because a quantifier inside a class is a
+// literal.
+function countNestedQuantifiers(pattern) {
+  let count = 0;
+  let inClass = false;
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (character === '\\') {
+      index += 1;
+      continue;
+    }
+    if (character === '[') {
+      inClass = true;
+      continue;
+    }
+    if (character === ']') {
+      inClass = false;
+      continue;
+    }
+    if (!inClass && (character === '*' || character === '+' || character === '{')) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 function normalizeText(value, options = {}) {
   if (value === null || value === undefined) {
     return '';
@@ -129,6 +159,25 @@ export function evaluateAssertion(assertion, evidence = [], options = {}) {
   }
 
   if (assertion.type === 'matches') {
+    // Config-supplied patterns are bounded before compilation. An unbounded
+    // pattern with nested quantifiers can backtrack catastrophically against
+    // captured speech and hang the run.
+    if (normalizedValue.length > MAX_ASSERTION_PATTERN_LENGTH) {
+      return {
+        status: 'invalid-config',
+        detail: `matches pattern exceeds ${MAX_ASSERTION_PATTERN_LENGTH} characters`,
+        evidenceType,
+      };
+    }
+    if (countNestedQuantifiers(normalizedValue) > MAX_ASSERTION_PATTERN_QUANTIFIERS) {
+      return {
+        status: 'invalid-config',
+        detail:
+          `matches pattern exceeds ${MAX_ASSERTION_PATTERN_QUANTIFIERS} quantifiers, `
+          + 'which risks catastrophic backtracking',
+        evidenceType,
+      };
+    }
     try {
       const matcher = new RegExp(normalizedValue, 'i');
       return matcher.test(normalizedPhraseText)

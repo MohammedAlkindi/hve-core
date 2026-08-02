@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: MIT
 import { test, expect, type Page } from '@playwright/test';
 
-// WCAG 1.4.4 Resize Text: content must stay usable when text is scaled to 200%.
+// WCAG 1.4.10 Reflow: content must stay usable when the viewport is scaled.
+//
+// This spec emulates browser page zoom via deviceScaleFactor, which scales the
+// whole layout rather than text alone, so it verifies 1.4.10 Reflow at
+// intermediate zoom levels rather than 1.4.4 Resize Text. The reflow spec covers
+// the 320 CSS px endpoint; this one covers the zoom steps in between, where the
+// reported clipping occurred.
 //
 // Browser page zoom scales the CSS pixel against the device pixel, so a 1280
 // device-pixel window at 200% zoom lays out as a 640 CSS pixel viewport at a
@@ -25,6 +31,7 @@ interface PlaceholderFit {
   collapsed: boolean;
   requiredWidth: number;
   usableWidth: number;
+  badgeCount: number;
 }
 
 // Measures the space actually available for placeholder text against the width
@@ -68,11 +75,12 @@ async function measurePlaceholderFit(page: Page): Promise<PlaceholderFit> {
       collapsed: rect.width < 48,
       requiredWidth,
       usableWidth: rightBoundary - (rect.left + paddingLeft),
+      badgeCount: badgeEdges.length,
     };
   });
 }
 
-test.describe('Resize text to 200% browser zoom (WCAG 1.4.4)', () => {
+test.describe('Browser page zoom reflow (WCAG 1.4.10)', () => {
   for (const level of ZOOM_LEVELS) {
     test(`navbar search placeholder is not clipped at ${level.label} browser zoom`, async ({ browser }) => {
       const context = await browser.newContext({
@@ -92,12 +100,31 @@ test.describe('Resize text to 200% browser zoom (WCAG 1.4.4)', () => {
         const fit = await measurePlaceholderFit(page);
         expect(fit.present, 'the navbar search input should render').toBe(true);
         expect(fit.collapsed, `the search field should expand on focus at ${level.label}`).toBe(false);
+
+        // The reported defect was badges crowding the placeholder, and the fix
+        // removes them from layout below the theme's 996 px breakpoint. Every
+        // zoom level above 100% lays out below that breakpoint, so without this
+        // assertion the badge boundary is simply absent and the measurement no
+        // longer covers the condition the test names. Assert the badge state
+        // directly so a regression that restores them is detected.
+        if (level.width <= 996) {
+          expect(
+            fit.badgeCount,
+            `at ${level.label} the shortcut badges must be removed from layout so they cannot crowd the placeholder`,
+          ).toBe(0);
+        } else {
+          expect(
+            fit.badgeCount,
+            `at ${level.label} the shortcut badges should still be rendered`,
+          ).toBeGreaterThan(0);
+        }
+
         expect(
           Math.round(fit.usableWidth),
           `at ${level.label} the placeholder needs ${Math.round(fit.requiredWidth)} CSS px but only ${Math.round(fit.usableWidth)} CSS px is available`,
         ).toBeGreaterThanOrEqual(Math.round(fit.requiredWidth));
 
-        // SC 1.4.4 also forbids losing content to a second scroll axis.
+        // SC 1.4.10 also forbids losing content to a second scroll axis.
         const horizontalScroll = await page.evaluate(
           () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
         );

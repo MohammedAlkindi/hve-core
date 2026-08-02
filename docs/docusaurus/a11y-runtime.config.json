@@ -54,15 +54,14 @@
     "calibrationProfile": "guidepup-nvda-safe-isolated",
     "manualBoundary": [
       {
-        "bugId": "14402",
+        "id": "focus-indicator-visibility",
         "reason": "Four-sided focus indicator visibility and clipping require manual verification.",
         "reference": "docs/planning/runbooks/accessibility/manual-test-book.md"
       }
     ],
     "journeys": [
       {
-        "id": "14399",
-        "bugId": "14399",
+        "id": "search-keyboard-reachability",
         "title": "Search combobox keyboard reachability",
         "route": "/hve-core/",
         "surfaceId": "homepage",
@@ -105,8 +104,7 @@
         }
       },
       {
-        "id": "14410",
-        "bugId": "14410",
+        "id": "search-status-announcement",
         "title": "Search results status announcement",
         "route": "/hve-core/search/?q=agent",
         "surfaceId": "search-results",

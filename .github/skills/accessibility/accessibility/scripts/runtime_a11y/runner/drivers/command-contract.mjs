@@ -31,6 +31,9 @@ export const ALLOWLISTED_PERFORM_VALUES = new Set([
   'performDefaultActionForItem',
 ]);
 
+// Printable characters only: no C0 or C1 control characters, no line breaks.
+const TYPEABLE_TEXT_PATTERN = /^[^\p{Cc}\p{Cf}\p{Cs}]+$/u;
+
 export function validateScreenReaderCommand(command) {
   if (!command || typeof command !== 'object') {
     return 'Each command must be an object.';
@@ -60,6 +63,12 @@ export function validateScreenReaderCommand(command) {
     }
     if (command.value.length > 256) {
       return 'Type entries require a string value no longer than 256 characters.';
+    }
+    // Typed text reaches OS-level keystroke synthesis, so it is restricted to
+    // printable characters. Control characters and newlines would be delivered
+    // as command keystrokes rather than as text.
+    if (!TYPEABLE_TEXT_PATTERN.test(command.value)) {
+      return 'Type entries require printable characters without control characters or line breaks.';
     }
     return null;
   }

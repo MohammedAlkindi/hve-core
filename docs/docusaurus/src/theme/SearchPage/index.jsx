@@ -40,13 +40,16 @@ export default function SearchPageWrapper(props) {
     // pending announcement so it never fired.
     let syncTimer = null;
     let announceTimer = null;
+    let zeroConfirmTimer = null;
     let lastMessage = null;
 
     const getSearchInput = () => document.querySelector('input[name="q"]');
 
-    // Results render as <article> elements (searchResultItem); this component
-    // only mounts on /search/, so counting articles is unambiguous.
-    const getResultCount = () => document.querySelectorAll('article').length;
+    // Results render as <article> elements (searchResultItem). Scope the count
+    // to the main landmark so unrelated articles elsewhere on the page cannot
+    // inflate the announced result count.
+    const getResultsRoot = () => document.querySelector('main') ?? document.body;
+    const getResultCount = () => getResultsRoot().querySelectorAll('article').length;
 
     const announce = (message) => {
       if (message === lastMessage) {
@@ -64,14 +67,32 @@ export default function SearchPageWrapper(props) {
       const query = input?.value?.trim() ?? '';
       if (!query) {
         window.clearTimeout(announceTimer);
+        window.clearTimeout(zeroConfirmTimer);
         statusNode.textContent = '';
         lastMessage = null;
         return;
       }
       const count = getResultCount();
-      announce(count === 0
-        ? 'No documents found'
-        : `${count} document${count === 1 ? '' : 's'} found`);
+      if (count > 0) {
+        window.clearTimeout(zeroConfirmTimer);
+        announce(`${count} document${count === 1 ? '' : 's'} found`);
+        return;
+      }
+
+      // A zero count is ambiguous: the query may simply not have resolved yet.
+      // Search results render asynchronously, so announcing "No documents
+      // found" on the first pass tells a screen-reader user there are no
+      // results for a query that is still running, and the later correction
+      // does not undo what they already heard. Require a quiet period with the
+      // count still zero before making that claim.
+      window.clearTimeout(zeroConfirmTimer);
+      zeroConfirmTimer = window.setTimeout(() => {
+        const currentInput = getSearchInput();
+        const currentQuery = currentInput?.value?.trim() ?? '';
+        if (currentQuery === query && getResultCount() === 0) {
+          announce('No documents found');
+        }
+      }, 1500);
     };
 
     const scheduleSync = () => {
@@ -84,10 +105,19 @@ export default function SearchPageWrapper(props) {
       input.addEventListener('input', scheduleSync);
     }
 
-    // Watch for result additions/removals. There is no stable results wrapper,
-    // so observe the document body's childList/subtree (no attributes, to avoid
-    // starving the announcement with noise).
-    const observer = new MutationObserver(scheduleSync);
+    // Watch for result additions/removals. The observer must see the whole
+    // document because the results container is replaced during rendering, but
+    // it ignores this component's own status writes: a body-wide observer that
+    // reacts to them repeatedly reschedules the debounce and starves the
+    // announcement it exists to trigger.
+    const observer = new MutationObserver((records) => {
+      const relevant = records.some(
+        (record) => record.target !== statusNode && !statusNode.contains(record.target),
+      );
+      if (relevant) {
+        scheduleSync();
+      }
+    });
     observer.observe(document.body, { childList: true, subtree: true });
 
     scheduleSync();
@@ -99,6 +129,7 @@ export default function SearchPageWrapper(props) {
       observer.disconnect();
       window.clearTimeout(syncTimer);
       window.clearTimeout(announceTimer);
+      window.clearTimeout(zeroConfirmTimer);
       statusNode.remove();
     };
   }, []);

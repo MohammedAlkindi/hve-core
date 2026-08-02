@@ -511,12 +511,47 @@ html {
    and force a contrasting text color, since the footer link is muted gray by
    default. Keep the link underline in the active state (WCAG 1.4.1: underline is
    a non-color distinction and must not be removed on selection). */
+/* This repository owns the active-option cue rather than borrowing the upstream
+   hashed CSS-module "cursor" class, which changes on every package build and
+   silently stops matching. aria-selected is set by the SearchBar swizzle on
+   exactly one option at a time, so it is a stable, semantic hook. */
+[role='listbox'] [role='option'][aria-selected='true'],
 [class*='hitFooter'] a.search-footer-active {
   background-color: var(--search-local-highlight-color, var(--ifm-color-primary));
   color: #ffffff;
   border-radius: 4px;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* WCAG 1.4.11 / Windows High Contrast: in forced-colors mode the browser
+   replaces author colors with the user's system palette, so a selection cue
+   expressed only as background-color disappears and the active option becomes
+   indistinguishable. Re-express the cue with system color keywords, which are
+   the only values honoured in this mode, and add an outline so the cue does not
+   depend on background painting at all. */
+@media (forced-colors: active) {
+  [class*='hitFooter'] a.search-footer-active,
+  [role='option'][aria-selected='true'],
+  [role='option'][class*='cursor'] {
+    background-color: Highlight;
+    color: HighlightText;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+    forced-color-adjust: none;
+  }
+
+  /* The focus indicator is drawn with a box-shadow, which forced-colors mode
+     removes. Keep a system-colored outline so keyboard focus stays visible. */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
 }
 
 /* Dark mode: derived from MS Learn dark theme (extracted via Chrome DevTools) */

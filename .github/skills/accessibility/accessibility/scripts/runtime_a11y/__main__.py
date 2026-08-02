@@ -42,7 +42,11 @@ from urllib.request import urlopen
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from runtime_a11y._config import assert_target_allowed, load_validated_config
+from runtime_a11y._config import (
+    LOOPBACK_HOSTS,
+    assert_target_allowed,
+    load_validated_config,
+)
 from runtime_a11y._errors import EXIT_SUCCESS, EXIT_USAGE, ScriptError
 from runtime_a11y.matrix import compute_coverage, render_artifact_bundle
 from runtime_a11y.matrix._model import Matrix
@@ -146,7 +150,7 @@ def _resolve_repo_path(
 
     resolved = candidate.resolve(strict=False)
     if allowed_root is None:
-        if kind in {"--run-root", "--checkpoint-path"}:
+        if kind == "--run-root":
             root_candidate = _local_runs_root()
         else:
             root_candidate = None
@@ -227,270 +231,9 @@ def _resolve_within_root(
         raise ScriptError(f"{kind} must resolve inside {root}.", EXIT_USAGE)
     if any(part == ".." for part in candidate.parts):
         raise ScriptError(f"{kind} must not contain traversal segments.", EXIT_USAGE)
-    if resolved.exists() and resolved.is_dir() and kind == "--retained-preflight":
+    if resolved.exists() and resolved.is_dir():
         raise ScriptError(f"{kind} must resolve to a file.", EXIT_USAGE)
     return resolved
-
-
-def _import_retained_preflight_bundle(
-    retained_preflight_path: str | Path,
-    *,
-    run_root: Path,
-) -> dict[str, Any]:
-    output_path = _resolve_within_root(
-        retained_preflight_path,
-        allowed_root=_local_runs_root(),
-        kind="--retained-preflight",
-    )
-    if not output_path.exists():
-        raise ScriptError(
-            f"Retained preflight bundle does not exist: {output_path}",
-            EXIT_USAGE,
-        )
-    if not output_path.is_file():
-        raise ScriptError(
-            f"Retained preflight bundle must be a file: {output_path}",
-            EXIT_USAGE,
-        )
-
-    try:
-        payload = json.loads(output_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ScriptError(
-            f"Unable to read retained preflight bundle JSON from {output_path}: {exc}",
-            EXIT_USAGE,
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ScriptError(
-            "Retained preflight bundle must be a JSON object.",
-            EXIT_USAGE,
-        )
-
-    command = payload.get("command")
-    if command != "capture-visual-review":
-        raise ScriptError(
-            "Retained preflight bundle must be produced by capture-visual-review.",
-            EXIT_USAGE,
-        )
-
-    manifest_paths = payload.get("manifestPaths")
-    if not isinstance(manifest_paths, list):
-        raise ScriptError(
-            "Retained preflight bundle must include manifestPaths as a list.",
-            EXIT_USAGE,
-        )
-    if not manifest_paths:
-        raise ScriptError(
-            "Retained preflight bundle must include manifestPaths.",
-            EXIT_USAGE,
-        )
-    if len(manifest_paths) != 10:
-        raise ScriptError(
-            "Retained preflight bundle must include exactly 10 manifestPaths "
-            "for the 2x5 visual-review bundle.",
-            EXIT_USAGE,
-        )
-
-    runs = payload.get("runs")
-    if runs is not None and not isinstance(runs, list):
-        raise ScriptError(
-            "Retained preflight bundle runs must be a list when provided.",
-            EXIT_USAGE,
-        )
-    if isinstance(runs, list) and len(runs) != len(manifest_paths):
-        raise ScriptError(
-            "Retained preflight bundle run count must match the manifest count.",
-            EXIT_USAGE,
-        )
-
-    resolved_run_root = output_path.parent
-    run_root_value = payload.get("runRoot")
-    if run_root_value is not None:
-        resolved_run_root = _resolve_within_root(
-            run_root_value,
-            base_dir=output_path.parent,
-            allowed_root=_local_runs_root(),
-            kind="retained preflight runRoot",
-        )
-
-    artifact_hashes: dict[str, str] = {}
-    surface_states: set[tuple[str, str]] = set()
-    for index, manifest_path in enumerate(manifest_paths):
-        if not isinstance(manifest_path, str) or not manifest_path.strip():
-            raise ScriptError(
-                "Retained preflight manifestPaths entries must be non-empty strings.",
-                EXIT_USAGE,
-            )
-        resolved_manifest_path = _resolve_within_root(
-            manifest_path,
-            base_dir=resolved_run_root,
-            allowed_root=_local_runs_root(),
-            kind="retained preflight manifest",
-        )
-        if not resolved_manifest_path.exists() or not resolved_manifest_path.is_file():
-            raise ScriptError(
-                f"Retained preflight manifest does not exist: {resolved_manifest_path}",
-                EXIT_USAGE,
-            )
-
-        try:
-            manifest = json.loads(resolved_manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ScriptError(
-                "Unable to read retained preflight manifest "
-                f"{resolved_manifest_path}: {exc}",
-                EXIT_USAGE,
-            ) from exc
-        validate_visual_review_manifest(
-            manifest,
-            run_root=resolved_manifest_path.parent,
-        )
-        if manifest.get("evidenceState") != "deterministic-pass":
-            raise ScriptError(
-                "Retained preflight manifests must be deterministic-pass evidence.",
-                EXIT_USAGE,
-            )
-        if any(
-            outcome.get("status") == "capture-failure"
-            for outcome in manifest.get("probeOutcomes", [])
-            if isinstance(outcome, dict)
-        ):
-            raise ScriptError(
-                "Retained preflight manifests must not contain capture failures.",
-                EXIT_USAGE,
-            )
-
-        run_entry = runs[index] if isinstance(runs, list) else None
-        if isinstance(runs, list):
-            if not isinstance(run_entry, dict):
-                raise ScriptError(
-                    "Retained preflight bundle runs entries must be objects.",
-                    EXIT_USAGE,
-                )
-            surface = run_entry.get("surface")
-            state = run_entry.get("state")
-            if not isinstance(surface, str) or not surface.strip():
-                raise ScriptError(
-                    "Retained preflight bundle runs entries must include "
-                    "non-empty surface values.",
-                    EXIT_USAGE,
-                )
-            if not isinstance(state, str) or not state.strip():
-                raise ScriptError(
-                    "Retained preflight bundle runs entries must include "
-                    "non-empty state values.",
-                    EXIT_USAGE,
-                )
-            manifest_surface = manifest.get("surface")
-            manifest_state = manifest.get("state")
-            if not isinstance(manifest_surface, str) or not manifest_surface.strip():
-                raise ScriptError(
-                    "Retained preflight manifest surface metadata is missing.",
-                    EXIT_USAGE,
-                )
-            if not isinstance(manifest_state, str) or not manifest_state.strip():
-                raise ScriptError(
-                    "Retained preflight manifest state metadata is missing.",
-                    EXIT_USAGE,
-                )
-            if str(surface) != str(manifest_surface) or str(state) != str(
-                manifest_state
-            ):
-                raise ScriptError(
-                    "Retained preflight bundle run surface-state must match "
-                    "the manifest metadata.",
-                    EXIT_USAGE,
-                )
-            pair = (surface, state)
-            if pair in surface_states:
-                raise ScriptError(
-                    "Retained preflight bundle contains a duplicate surface-state.",
-                    EXIT_USAGE,
-                )
-            surface_states.add(pair)
-
-        artifacts = manifest.get("artifacts") or {}
-        for group_name in ("screenshots", "traces", "deterministicMeasurements"):
-            for entry in artifacts.get(group_name, []) or []:
-                if not isinstance(entry, dict):
-                    continue
-                artifact_path = entry.get("path")
-                if not isinstance(artifact_path, str) or not artifact_path.strip():
-                    continue
-                artifact_hash = entry.get("sha256")
-                if not isinstance(artifact_hash, str) or len(artifact_hash) != 64:
-                    raise ScriptError(
-                        "Retained preflight artifact hashes must be 64-character "
-                        "SHA-256 digests.",
-                        EXIT_USAGE,
-                    )
-                normalized_path = artifact_path.replace("\\", "/")
-                resolved_artifact_path = (
-                    resolved_manifest_path.parent / normalized_path
-                ).resolve(strict=False)
-                if (
-                    not resolved_artifact_path.exists()
-                    or not resolved_artifact_path.is_file()
-                ):
-                    raise ScriptError(
-                        "Retained preflight artifact does not exist: "
-                        f"{resolved_artifact_path}",
-                        EXIT_USAGE,
-                    )
-                if not _is_within(resolved_artifact_path, resolved_run_root):
-                    raise ScriptError(
-                        "Retained preflight artifacts must resolve within the "
-                        "retained run root.",
-                        EXIT_USAGE,
-                    )
-                try:
-                    actual_hash = hashlib.sha256(
-                        resolved_artifact_path.read_bytes()
-                    ).hexdigest()
-                except OSError as exc:
-                    raise ScriptError(
-                        "Unable to hash retained preflight artifact "
-                        f"{resolved_artifact_path}: {exc}",
-                        EXIT_USAGE,
-                    ) from exc
-                if actual_hash != artifact_hash:
-                    raise ScriptError(
-                        "Retained preflight artifact hashes do not match the "
-                        "files on disk.",
-                        EXIT_USAGE,
-                    )
-
-                asset_reference = (
-                    Path("retained-preflight")
-                    / resolved_artifact_path.relative_to(resolved_run_root).as_posix()
-                )
-                asset_target = run_root / asset_reference
-                asset_target.parent.mkdir(parents=True, exist_ok=True)
-                if not asset_target.exists():
-                    try:
-                        os.link(resolved_artifact_path, asset_target)
-                    except OSError:
-                        shutil.copy2(resolved_artifact_path, asset_target)
-                artifact_hashes[asset_reference.as_posix().replace("\\", "/")] = (
-                    artifact_hash
-                )
-
-    surfaces = {surface for surface, _ in surface_states}
-    states = {state for _, state in surface_states}
-    if len(surfaces) != 2 or len(states) != 5 or len(surface_states) != 10:
-        raise ScriptError(
-            "Retained preflight bundle must contain exactly two surfaces "
-            "by five states.",
-            EXIT_USAGE,
-        )
-
-    return {
-        "bundleId": "visual-preflight",
-        "artifactHashes": artifact_hashes,
-        "retainedBundleValidated": True,
-        "summary": {"classification": "pass"},
-        "source": output_path.as_posix(),
-    }
 
 
 def _all_probe_ids() -> list[str]:
@@ -671,7 +414,6 @@ def _run_calibration_session(
     config: dict[str, Any],
     base_url: str,
     run_root: str | None,
-    checkpoint_path: str | None,
     trace: bool = False,
 ) -> dict[str, Any]:
     """Invoke the Node calibration executor and parse its JSON payload."""
@@ -690,7 +432,6 @@ def _run_calibration_session(
         "RUNTIME_A11Y_BASE_URL": base_url,
         "RUNTIME_A11Y_TRACE": "1" if trace else "0",
         "RUNTIME_A11Y_RUN_ROOT": run_root or "",
-        "RUNTIME_A11Y_CHECKPOINT_PATH": checkpoint_path or "",
     }
     try:
         completed = subprocess.run(
@@ -952,6 +693,27 @@ def _select_visual_review_plan(
     return {"surfaces": selected_surfaces, "states": selected_states}
 
 
+def _resolve_guarded_base_url(
+    config: dict[str, Any],
+    override: str | None,
+    *,
+    allow_external: bool,
+) -> str:
+    """Return the effective base URL, re-entering the guard for an override.
+
+    ``load_validated_config`` guards the config's own base URL. A ``--base-url``
+    override replaces that value after the check, so the override is validated
+    here and every navigable target passes the guard exactly once.
+    """
+    base_url = override or config.get("baseUrl", "")
+    if override:
+        assert_target_allowed(
+            {"baseUrl": override, "allowlist": config.get("allowlist") or []},
+            allow_external=allow_external,
+        )
+    return base_url
+
+
 def _probe_visual_review_server(base_url: str) -> bool:
     """Return True when an already-running loopback server answers healthily."""
     try:
@@ -961,7 +723,9 @@ def _probe_visual_review_server(base_url: str) -> bool:
     if parsed.scheme not in {"http", "https"}:
         return False
     host = (parsed.hostname or "").lower()
-    if host not in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}:
+    # One definition of loopback, shared with the SSRF guard, so a host the
+    # guard refuses cannot be probed here.
+    if host not in LOOPBACK_HOSTS:
         return False
     probe_url = (
         base_url
@@ -1085,13 +849,15 @@ def _stop_visual_review_server(process: subprocess.Popen[str] | None) -> None:
 
 
 def _ensure_visual_review_server(base_url: str) -> _VisualReviewServerLease:
-    """Reuse a healthy server or start one owned by this invocation."""
+    """Reuse a healthy server or start one owned by this invocation.
+
+    A startup failure is raised with its cause. Returning an unowned lease would
+    be indistinguishable from reusing a healthy server, so capture would proceed
+    against a server that is not running.
+    """
     if _probe_visual_review_server(base_url):
         return _VisualReviewServerLease(None, False)
-    try:
-        return _VisualReviewServerLease(_start_visual_review_server(base_url), True)
-    except ScriptError:
-        return _VisualReviewServerLease(None, False)
+    return _VisualReviewServerLease(_start_visual_review_server(base_url), True)
 
 
 def _write_visual_review_manifests(
@@ -1613,39 +1379,16 @@ def create_parser() -> argparse.ArgumentParser:
 
     run_calibration = subparsers.add_parser(
         "run-calibration",
-        help="Run the local calibration loop and persist resumable checkpoints",
+        help="Run the local calibration loop as a single uninterrupted session",
     )
     _add_common(run_calibration)
     _add_run_root(run_calibration)
-    run_calibration.add_argument(
-        "--checkpoint-path",
-        type=Path,
-        default=None,
-        help="Optional path for resumable calibration checkpoint state",
-    )
-    run_calibration.add_argument(
-        "--nvda-only",
-        action="store_true",
-        help=(
-            "Require a validated retained visual preflight bundle and "
-            "run the NVDA-only calibration path"
-        ),
-    )
     run_calibration.add_argument(
         "--prerequisite-only",
         action="store_true",
         help=(
             "Probe local NVDA and Chrome prerequisites without running "
             "calibration journeys"
-        ),
-    )
-    run_calibration.add_argument(
-        "--retained-preflight",
-        type=Path,
-        default=None,
-        help=(
-            "Import a validated visual-review output bundle for NVDA-only "
-            "calibration reuse"
         ),
     )
 
@@ -1697,7 +1440,9 @@ def main(argv: list[str] | None = None) -> int:
                 surfaces=list(args.visual_surface or []),
                 states=list(args.visual_state or []),
             )
-            base_url = args.base_url or config.get("baseUrl", "")
+            base_url = _resolve_guarded_base_url(
+                config, args.base_url, allow_external=args.allow_external
+            )
             run_root = (
                 _resolve_repo_path(args.run_root, kind="--run-root")
                 if args.run_root is not None
@@ -1738,21 +1483,6 @@ def main(argv: list[str] | None = None) -> int:
             _write_output(document, args.out)
             return EXIT_SUCCESS
         if args.command == "run-calibration":
-            if args.prerequisite_only and args.nvda_only:
-                raise ScriptError(
-                    "--prerequisite-only and --nvda-only cannot be combined.",
-                    EXIT_USAGE,
-                )
-            if args.retained_preflight is not None and not args.nvda_only:
-                raise ScriptError(
-                    "--retained-preflight requires --nvda-only.",
-                    EXIT_USAGE,
-                )
-            if args.retained_preflight is not None and args.prerequisite_only:
-                raise ScriptError(
-                    "--retained-preflight cannot be combined with --prerequisite-only.",
-                    EXIT_USAGE,
-                )
             config = load_validated_config(
                 args.config, allow_external=args.allow_external
             )
@@ -1761,19 +1491,13 @@ def main(argv: list[str] | None = None) -> int:
                 str(item.get("id"))
                 for item in calibration.get("journeys", [])
                 if str(item.get("id"))
-            ] or ["14399", "14410"]
-            base_url = args.base_url or config.get("baseUrl", "")
-            checkpoint_path = None
+            ]
+            base_url = _resolve_guarded_base_url(
+                config, args.base_url, allow_external=args.allow_external
+            )
             run_root = None
             if args.run_root is not None:
                 run_root = _resolve_repo_path(args.run_root, kind="--run-root")
-            elif args.checkpoint_path is not None:
-                checkpoint_path = str(
-                    _resolve_repo_path(args.checkpoint_path, kind="--checkpoint-path")
-                )
-                candidate = Path(checkpoint_path)
-                run_root = candidate.parent if candidate.suffix else candidate
-                run_root.mkdir(parents=True, exist_ok=True)
             elif args.out is not None:
                 output_candidate = Path(args.out).expanduser()
                 if not output_candidate.is_absolute():
@@ -1792,11 +1516,6 @@ def main(argv: list[str] | None = None) -> int:
                     run_id=f"calibration-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
                 )
 
-            if checkpoint_path is None and args.checkpoint_path is not None:
-                checkpoint_path = str(
-                    _resolve_repo_path(args.checkpoint_path, kind="--checkpoint-path")
-                )
-
             if args.out is not None:
                 out_path = _resolve_repo_path(
                     args.out,
@@ -1811,36 +1530,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 out_path = None
 
-            retained_preflight_bundle = None
-            if args.retained_preflight is not None:
-                retained_preflight_bundle = _import_retained_preflight_bundle(
-                    args.retained_preflight,
-                    run_root=Path(run_root)
-                    if run_root is not None
-                    else _local_runs_root(),
-                )
-                if checkpoint_path is None:
-                    checkpoint_path = str(
-                        (Path(run_root) / "checkpoint.json").resolve(strict=False)
-                    )
-
             config_for_execution = deepcopy(config)
             if args.base_url:
                 config_for_execution["baseUrl"] = args.base_url
-            if args.nvda_only:
-                calibration_payload = deepcopy(calibration)
-                calibration_payload["mode"] = "nvdaOnly"
-                config_for_execution["calibration"] = calibration_payload
-
-            if retained_preflight_bundle is not None and checkpoint_path is not None:
-                checkpoint_payload = {
-                    "state": {
-                        "journeys": {},
-                        "visualPreflightBundle": retained_preflight_bundle,
-                    },
-                    "checkpoints": [],
-                }
-                write_json_atomic(checkpoint_path, checkpoint_payload)
 
             if args.prerequisite_only:
                 payload = _run_prerequisite_probe(
@@ -1872,7 +1564,6 @@ def main(argv: list[str] | None = None) -> int:
                     "baseUrl": base_url,
                     "journeys": journey_ids,
                     "visualStates": calibration.get("visualStates") or [],
-                    "checkpointPath": _public_path(checkpoint_path),
                     "runRoot": _public_path(run_root),
                     "aggregate": aggregate,
                     "checkpoints": [],
@@ -1895,7 +1586,6 @@ def main(argv: list[str] | None = None) -> int:
                     config_for_execution,
                     base_url,
                     str(run_root) if run_root is not None else None,
-                    checkpoint_path,
                     args.trace,
                 )
             finally:
@@ -1927,7 +1617,6 @@ def main(argv: list[str] | None = None) -> int:
                 "baseUrl": base_url,
                 "journeys": payload.get("journeys", journey_ids),
                 "visualStates": calibration.get("visualStates") or [],
-                "checkpointPath": _public_path(checkpoint_path),
                 "runRoot": _public_path(
                     payload.get("runRoot")
                     or (run_root if run_root is not None else None)
@@ -1936,7 +1625,7 @@ def main(argv: list[str] | None = None) -> int:
                 "checkpoints": payload.get("checkpoints", []),
                 "state": payload.get("state", {}),
             }
-            _write_output(document, args.out)
+            _write_output(document, out_path)
             return EXIT_SUCCESS
         if args.command == "run-at-plan":
             if not args.matrix.exists():

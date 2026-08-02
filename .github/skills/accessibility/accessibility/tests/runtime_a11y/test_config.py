@@ -141,7 +141,7 @@ def test_validate_controlled_calibration_journeys_reach_targets_by_keyboard() ->
     # Programmatic focus does not move NVDA's browse-mode review caret, so the
     # combobox must be reached with the documented Control+K shortcut. Preparation
     # only parks the caret in the document body.
-    search_journey = journeys["14399"]
+    search_journey = journeys["search-keyboard-reachability"]
     assert search_journey["triggerSequence"][0]["action"] == "focus"
     assert search_journey["triggerSequence"][0]["target"] == "body"
     search_commands = search_journey["commands"]
@@ -158,7 +158,7 @@ def test_validate_controlled_calibration_journeys_reach_targets_by_keyboard() ->
     # NVDA leaves focus mode after the first typed character, so both journeys
     # send exactly one character and then hold idle. The resulting polite
     # live-region update supplies the announcement under test.
-    for journey_id in ("14399", "14410"):
+    for journey_id in ("search-keyboard-reachability", "search-status-announcement"):
         typed = [
             command
             for command in journeys[journey_id]["commands"]
@@ -170,7 +170,7 @@ def test_validate_controlled_calibration_journeys_reach_targets_by_keyboard() ->
     # The polite status region settles after the first character, so a single
     # keystroke followed by an idle hold keeps the announcement from being
     # superseded by further character echo.
-    status_journey = journeys["14410"]
+    status_journey = journeys["search-status-announcement"]
     assert status_journey["triggerSequence"][0]["action"] == "click"
     assert status_journey["triggerSequence"][0]["target"] == 'input[name="q"]'
     status_commands = status_journey["commands"]

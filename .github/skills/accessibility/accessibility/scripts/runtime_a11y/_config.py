@@ -20,6 +20,10 @@ from runtime_a11y._errors import EXIT_USAGE, ScriptError
 
 _SCHEMA_PATH = Path(__file__).with_name("config-schema.json")
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+# Single definition of loopback, shared with callers that gate on the same
+# notion so the guard and its callers cannot disagree about which hosts are
+# local.
+LOOPBACK_HOSTS = _LOOPBACK_HOSTS
 
 
 def load_schema() -> dict[str, Any]:
@@ -98,13 +102,18 @@ def _host_is_allowlisted(host: str, allowlist: list[str]) -> bool:
     """Return True if the host matches any host-shaped allowlist entry.
 
     Route/path globs (entries beginning with '/') do not authorize a host and
-    are ignored here.
+    are ignored here. A URL-shaped entry authorizes its own host, so an entry
+    written as ``https://docs.example.com/guide`` is not silently inert.
     """
     for entry in allowlist:
         if not entry or entry.startswith("/"):
             continue
-        candidate = entry.split("/", 1)[0]
-        if fnmatch(host.lower(), candidate.lower()):
+        candidate = entry.strip()
+        if "://" in candidate:
+            candidate = urlparse(candidate).hostname or ""
+        else:
+            candidate = candidate.split("/", 1)[0]
+        if candidate and fnmatch(host.lower(), candidate.lower()):
             return True
     return False
 

@@ -1,19 +1,16 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { test, expect, type Page } from '@playwright/test';
-import { waitForHydration } from './_helpers/a11yInvariants';
+import { openSearchWidget, waitForHydration } from './_helpers/a11yInvariants';
 
 async function openNavbarSearch(page: Page) {
   await page.goto('/hve-core/docs/getting-started/');
   await page.waitForLoadState('domcontentloaded');
   await waitForHydration(page);
 
-  const input = page.locator('input.navbar__search-input').first();
-  await input.waitFor({ state: 'visible' });
-  // Wait for the widget to adopt the combobox role before typing: the listbox
-  // is only rendered once the hydrated handler is attached.
-  await expect(input).toHaveAttribute('role', 'combobox', { timeout: 30000 });
-  await input.click();
+  // Gate on upstream attachment rather than role="combobox", which this
+  // repository's swizzle supplies at rest.
+  const input = await openSearchWidget(page);
   await input.fill('agent');
   await page.locator('[role="listbox"]').first().waitFor({ state: 'visible', timeout: 30000 });
 
@@ -92,15 +89,28 @@ test.describe('Search keyboard navigation', () => {
     const optionCount = (await getResultOptionIds(page)).length;
 
     let reachedFooter = false;
-    let focusStayedInInput = true;
+    // Accumulate every iteration's result. Assigning on each pass would let a
+    // final conformant iteration erase an earlier violation, so the assertion
+    // would report only the last step rather than the whole walk.
+    const focusEscapes: string[] = [];
 
     for (let index = 0; index < optionCount + 4; index += 1) {
       await input.press('ArrowDown');
       await page.waitForTimeout(80);
 
       const activeDescendant = await input.getAttribute('aria-activedescendant');
-      const activeElement = await page.evaluate(() => document.activeElement?.className ?? '');
-      focusStayedInInput = activeElement.includes('navbar__search-input');
+      const activeElement = await page.evaluate(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body) {
+          // Focus dropping to <body> is a real failure, not a neutral state:
+          // the user loses their place in the widget entirely.
+          return 'body';
+        }
+        return String(active.className || active.tagName);
+      });
+      if (!activeElement.includes('navbar__search-input')) {
+        focusEscapes.push(`step ${index + 1}: focus moved to "${activeElement}"`);
+      }
       if (activeDescendant && footerId && activeDescendant === footerId) {
         reachedFooter = true;
         break;
@@ -108,7 +118,10 @@ test.describe('Search keyboard navigation', () => {
     }
 
     expect(reachedFooter, 'ArrowDown should reach the footer option').toBe(true);
-    expect(focusStayedInInput, 'Focus should stay on the combobox input while arrowing').toBe(true);
+    expect(
+      focusEscapes,
+      `Focus should stay on the combobox input while arrowing: ${focusEscapes.join('; ')}`,
+    ).toEqual([]);
   });
 
   test('ArrowDown from the last result reaches the footer instead of wrapping to the top', async ({ page }) => {
@@ -178,10 +191,28 @@ test.describe('Search keyboard navigation', () => {
     await input.press('Tab');
     await page.waitForTimeout(250);
 
-    const focusLeftInput = await page.evaluate(
-      () => !document.activeElement?.classList.contains('navbar__search-input'),
-    );
-    expect(focusLeftInput, 'Tab must move focus out of the search input (no keyboard trap, WCAG 2.1.2)').toBe(true);
+    // Focus landing on <body> is not a valid Tab escape. The browser parks focus
+    // there when a handler cancels the default move, which is the keyboard trap
+    // this test exists to detect, so it must be rejected rather than counted as
+    // "left the input".
+    const destination = await page.evaluate(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) {
+        return 'body';
+      }
+      if (active.classList.contains('navbar__search-input')) {
+        return 'search-input';
+      }
+      return String(active.tagName.toLowerCase() + (active.className ? `.${String(active.className).split(' ')[0]}` : ''));
+    });
+    expect(
+      destination,
+      'Tab must move focus to the next focusable control, not to the input or to <body> (no keyboard trap, WCAG 2.1.2)',
+    ).not.toBe('search-input');
+    expect(
+      destination,
+      'Tab dropped focus to <body>, which means the native focus move was cancelled (keyboard trap, WCAG 2.1.2)',
+    ).not.toBe('body');
     expect(page.url()).toBe(urlBefore);
   });
 });

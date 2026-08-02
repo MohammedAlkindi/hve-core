@@ -138,6 +138,59 @@ test('evaluateAssertion reports invalid regular expressions without throwing', (
   assert.equal(result.detail.includes('Invalid regular expression'), true);
 });
 
+test('evaluateAssertion bounds config-supplied patterns before compiling them', () => {
+  const overlong = evaluateAssertion(
+    { type: 'matches', value: 'a'.repeat(513) },
+    ['button, Clear search'],
+  );
+  assert.equal(overlong.status, 'invalid-config');
+  assert.match(overlong.detail, /exceeds 512 characters/);
+
+  const nested = evaluateAssertion(
+    { type: 'matches', value: '(a+)+'.repeat(9) },
+    ['button, Clear search'],
+  );
+  assert.equal(nested.status, 'invalid-config');
+  assert.match(nested.detail, /quantifiers/);
+
+  // Quantifier characters inside a character class are literals and must not
+  // count toward the budget, so a legitimate pattern is still compiled.
+  const literalClass = evaluateAssertion(
+    { type: 'matches', value: '[*+{]*button' },
+    ['button, Clear search'],
+  );
+  assert.equal(literalClass.status, 'pass');
+});
+
+test('assertion families evaluate independently for speech, browser state, and accessibility tree evidence', () => {
+  const speech = evaluateAssertion({ id: 'speech', type: 'contains', value: 'checked', evidenceType: 'speech' }, ['checked', 'checkbox']);
+  const browser = evaluateAssertion({ id: 'browser', type: 'contains', value: 'checked', evidenceType: 'browserState' }, ['checked', 'checkbox']);
+  const tree = evaluateAssertion({ id: 'tree', type: 'contains', value: 'checkbox', evidenceType: 'accessibilityTree' }, ['checked', 'checkbox']);
+
+  assert.equal(speech.status, 'pass');
+  assert.equal(browser.status, 'pass');
+  assert.equal(tree.status, 'pass');
+  assert.equal(speech.evidenceType, 'speech');
+  assert.equal(browser.evidenceType, 'browserState');
+  assert.equal(tree.evidenceType, 'accessibilityTree');
+});
+
+test('evaluation can use raw speech by default and normalized speech when explicitly selected', () => {
+  const rawResult = evaluateAssertion(
+    { type: 'contains', value: 'search results' },
+    { speech: ['Search Results'], normalizedSpeech: ['results'] },
+    { useNormalizedSpeech: false },
+  );
+  const normalizedResult = evaluateAssertion(
+    { type: 'contains', value: 'search results' },
+    { speech: ['Search Results'], normalizedSpeech: ['search results'] },
+    { useNormalizedSpeech: true },
+  );
+
+  assert.equal(rawResult.status, 'pass');
+  assert.equal(normalizedResult.status, 'pass');
+});
+
 test('createScreenReaderDriver supports a fake driver seam for deterministic tests', async () => {
   const driver = await createScreenReaderDriver({ platform: 'win32', driverName: 'fake', config: { commands: [{ kind: 'command', value: 'perform' }] } });
 
@@ -169,12 +222,16 @@ test('ensureAutomationWindowFocused succeeds when the foreground probe matches t
 
   const result = await ensureAutomationWindowFocused({
     page,
-    browser: null,
+    browser: { process: () => ({ pid: 5100 }) },
     context,
     timeoutMs: 1000,
     pollIntervalMs: 10,
     platform: 'win32',
-    readForegroundTitle: async () => 'Example Page - Google Chrome',
+    readForegroundIdentity: async () => ({
+      title: 'Example Page - Google Chrome',
+      processId: 5150,
+    }),
+    readProcesses: async () => new Map([[5150, 5100], [5100, 800]]),
   });
 
   assert.equal(result.status, 'bound');
@@ -206,15 +263,18 @@ test('ensureAutomationWindowFocused performs one remediation attempt before fail
 
   const result = await ensureAutomationWindowFocused({
     page,
-    browser: null,
+    browser: { process: () => ({ pid: 5100 }) },
     context,
     timeoutMs: 100,
     pollIntervalMs: 10,
     platform: 'win32',
-    readForegroundTitle: async () => {
+    readForegroundIdentity: async () => {
       foregroundPasses += 1;
-      return foregroundPasses === 1 ? 'Different Window' : 'Example Page - Google Chrome';
+      return foregroundPasses === 1
+        ? { title: 'Different Window', processId: 6000 }
+        : { title: 'Example Page - Google Chrome', processId: 5150 };
     },
+    readProcesses: async () => new Map([[6000, 800], [5150, 5100], [5100, 800]]),
     activateWindow: async () => true,
   });
 

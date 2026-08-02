@@ -26,7 +26,11 @@ function isDataTable(node) {
 }
 
 function isPresentationTable(node) {
-  return node.properties?.role === 'presentation';
+  // "none" is the current synonym for the legacy "presentation" role. Treating
+  // only the legacy spelling as a layout table would push a role="none" table
+  // through the data-table path and give it a caption it should not have.
+  const role = node.properties?.role;
+  return role === 'presentation' || role === 'none';
 }
 
 function hasCaption(node) {
@@ -58,7 +62,7 @@ function eachRowCell(section, callback) {
   }
 }
 
-function processTable(node, headingId) {
+function processTable(node, headingId, pageTitle) {
   node.properties ??= {};
   const captionText = readDataAttribute(node.properties, 'caption');
   const rowheader = readDataAttribute(node.properties, 'rowheader') === 'true';
@@ -116,11 +120,38 @@ function processTable(node, headingId) {
     ];
   } else if (!captionText && !hasCaption(node) && headingId) {
     node.properties['aria-labelledby'] = headingId;
+  } else if (!captionText && !hasCaption(node) && pageTitle) {
+    // A table can legitimately appear before the first markdown heading, in the
+    // page's introduction. Docusaurus renders the frontmatter title as the page
+    // h1 outside the MDX content tree, so there is no heading id to point at;
+    // the page title is the correct accessible name for that table.
+    node.children = [
+      {
+        type: 'element',
+        tagName: 'caption',
+        properties: {},
+        children: [{ type: 'text', value: pageTitle }],
+      },
+      ...(node.children ?? []),
+    ];
+  } else if (!captionText && !hasCaption(node)) {
+    // No caption, no preceding heading, and no page title leaves the table with
+    // no accessible name at all. Failing the build is deliberate: silently
+    // shipping an unnamed data table is the defect this plugin exists to
+    // prevent, and it is invisible in review.
+    throw new Error(
+      'Data table has no accessible name. Add a :::table{caption="..."} directive, '
+      + 'or place the table under a heading, or mark it role="presentation" if it is '
+      + 'a layout table.',
+    );
   }
 }
 
 export default function rehypeTableScope() {
-  return (tree) => {
+  return (tree, file) => {
+    const pageTitle = typeof file?.data?.frontMatter?.title === 'string'
+      ? file.data.frontMatter.title.trim()
+      : '';
     let lastHeadingId;
     visit(tree, 'element', (node) => {
       if (/^h[1-6]$/.test(node.tagName) && node.properties?.id) {
@@ -128,7 +159,7 @@ export default function rehypeTableScope() {
         return;
       }
       if (node.tagName === 'table' && isDataTable(node) && !isPresentationTable(node)) {
-        processTable(node, lastHeadingId);
+        processTable(node, lastHeadingId, pageTitle);
       }
     });
   };

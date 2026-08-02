@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -226,15 +227,13 @@ def test_given_manifest_bytes_when_exceeding_ceiling_then_rejects(
         )
 
 
-def test_given_missing_path_when_computing_sha256_then_uses_string_digest(
+def test_given_missing_path_when_computing_sha256_then_fails_closed(
     tmp_path: Path,
 ) -> None:
     missing_path = tmp_path / "missing.bin"
 
-    digest = compute_sha256(missing_path)
-
-    assert len(digest) == 64
-    assert digest == compute_sha256(missing_path.as_posix().encode("utf-8"))
+    with pytest.raises(ScriptError, match="does not exist"):
+        compute_sha256(missing_path)
 
 
 def test_given_empty_path_when_normalizing_then_rejects() -> None:
@@ -312,13 +311,58 @@ def test_given_existing_run_root_when_resolving_then_uses_suffix_dir(
     assert (root.parent / "abc123-1").exists()
 
 
-def test_given_symlink_path_when_normalizing_then_rejects(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(Path, "is_symlink", lambda self: True)
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink support required")
+def test_given_symlink_path_when_normalizing_then_rejects(tmp_path: Path) -> None:
+    run_root = tmp_path / "run"
+    run_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "evil.png").write_bytes(b"escaped")
+    try:
+        os.symlink(outside, run_root / "artifacts", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("creating symlinks is not permitted in this environment")
 
     with pytest.raises(ScriptError, match="containment"):
-        normalize_manifest_path("artifacts/evil.png", run_root=tmp_path)
+        normalize_manifest_path("artifacts/evil.png", run_root=run_root)
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink support required")
+def test_given_symlinked_leaf_when_normalizing_then_rejects(tmp_path: Path) -> None:
+    run_root = tmp_path / "run"
+    artifact_dir = run_root / "artifacts"
+    artifact_dir.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "evil.png"
+    target.write_bytes(b"escaped")
+    try:
+        os.symlink(target, artifact_dir / "screenshot.png")
+    except (OSError, NotImplementedError):
+        pytest.skip("creating symlinks is not permitted in this environment")
+
+    with pytest.raises(ScriptError, match="containment"):
+        normalize_manifest_path("artifacts/screenshot.png", run_root=run_root)
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink support required")
+def test_given_symlink_inside_root_when_normalizing_then_rejects(
+    tmp_path: Path,
+) -> None:
+    # The target stays inside the run root, so path containment alone accepts
+    # it. Only the symlink check can reject this, which makes it the assertion
+    # that distinguishes a live check from one that runs after resolve().
+    run_root = tmp_path / "run"
+    real_dir = run_root / "real"
+    real_dir.mkdir(parents=True)
+    (real_dir / "screenshot.png").write_bytes(b"inside")
+    try:
+        os.symlink(real_dir, run_root / "artifacts", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("creating symlinks is not permitted in this environment")
+
+    with pytest.raises(ScriptError, match="containment"):
+        normalize_manifest_path("artifacts/screenshot.png", run_root=run_root)
 
 
 def test_given_credential_query_when_validating_config_then_rejects() -> None:
@@ -489,6 +533,12 @@ def test_given_run_config_when_resolving_root_then_defaults_to_local_runs(
 def test_given_manifest_when_building_then_hashes_and_rel_paths_are_populated(
     tmp_path: Path,
 ) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "screenshot.png").write_bytes(b"screenshot-bytes")
+    (artifact_dir / "trace.zip").write_bytes(b"trace-bytes")
+    (artifact_dir / "metrics.json").write_text("{}", encoding="utf-8")
+
     payload = build_visual_review_manifest(
         run_root=tmp_path,
         run_id="abc123",
@@ -507,6 +557,80 @@ def test_given_manifest_when_building_then_hashes_and_rel_paths_are_populated(
     )
 
     assert payload["artifacts"]["screenshots"][0]["path"] == "artifacts/screenshot.png"
-    assert len(payload["artifacts"]["screenshots"][0]["sha256"]) == 64
+    assert (
+        payload["artifacts"]["screenshots"][0]["sha256"]
+        == hashlib.sha256(b"screenshot-bytes").hexdigest()
+    )
     assert payload["artifacts"]["manifestPayload"]["sha256"]
     assert payload["artifacts"]["manifestPayload"]["sizeBytes"] > 0
+    assert payload["evidenceState"] == "deterministic-pass"
+
+
+def test_given_absent_screenshot_when_building_manifest_then_fails_closed(
+    tmp_path: Path,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "trace.zip").write_bytes(b"trace-bytes")
+    (artifact_dir / "metrics.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ScriptError, match="does not exist"):
+        build_visual_review_manifest(
+            run_root=tmp_path,
+            run_id="abc123",
+            route="/",
+            surface="home",
+            state="default",
+            viewport={"width": 1440, "height": 900},
+            browser={"name": "chrome", "version": "126.0"},
+            platform={"os": "windows", "version": "11"},
+            screenshot_path="artifacts/screenshot.png",
+            trace_path="artifacts/trace.zip",
+            measurement_path="artifacts/metrics.json",
+            deterministic_metrics={"overflow": False},
+            probe_outcomes=[{"id": "reflow", "status": "pass"}],
+            provenance={"environment": {"cwd": str(tmp_path)}},
+        )
+
+
+def test_given_capture_failure_outcome_when_building_manifest_then_state_is_fail(
+    tmp_path: Path,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "screenshot.png").write_bytes(b"screenshot-bytes")
+    (artifact_dir / "trace.zip").write_bytes(b"trace-bytes")
+    (artifact_dir / "metrics.json").write_text("{}", encoding="utf-8")
+
+    payload = build_visual_review_manifest(
+        run_root=tmp_path,
+        run_id="abc123",
+        route="/",
+        surface="home",
+        state="default",
+        viewport={"width": 1440, "height": 900},
+        browser={"name": "chrome", "version": "126.0"},
+        platform={"os": "windows", "version": "11"},
+        screenshot_path="artifacts/screenshot.png",
+        trace_path="artifacts/trace.zip",
+        measurement_path="artifacts/metrics.json",
+        deterministic_metrics={"overflow": False},
+        probe_outcomes=[{"id": "reflow", "status": "capture-failure"}],
+        provenance={"environment": {"cwd": str(tmp_path)}},
+    )
+
+    assert payload["evidenceState"] == "deterministic-fail"
+
+
+def test_given_opaque_token_value_when_redacting_then_masks_but_keeps_digests() -> None:
+    redacted = redact_sensitive_metadata(
+        {
+            "buildTag": "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
+            "sha256": "a" * 64,
+            "note": "a short value",
+        }
+    )
+
+    assert redacted["buildTag"] == "[REDACTED]"
+    assert redacted["sha256"] == "a" * 64
+    assert redacted["note"] == "a short value"

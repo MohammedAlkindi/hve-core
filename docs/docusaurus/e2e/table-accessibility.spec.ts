@@ -44,8 +44,24 @@ test.describe('Table accessibility regression locks', () => {
     });
   }
 
-  test('an uncaptioned data table exposes an accessible name via aria-labelledby', async ({ page }) => {
-    await page.goto('/hve-core/docs/getting-started/tts-voiceover/', { waitUntil: 'domcontentloaded' });
+  test('table wrappers do not add landmarks that collide on pages with several tables', async ({ page }) => {
+    // A focusable scroll container needs an accessible name, but naming it with
+    // role="region" makes every table a landmark sharing one name, which axe
+    // reports as landmark-unique and which fills a screen reader's landmark
+    // list with indistinguishable entries.
+    await page.goto('/hve-core/docs/', { waitUntil: 'domcontentloaded' });
+
+    const wrappers = page.locator('.tableWrapper');
+    const wrapperCount = await wrappers.count();
+    expect(wrapperCount).toBeGreaterThan(1);
+
+    const roles = await wrappers.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('role')),
+    );
+    expect(roles.every((role) => role !== 'region')).toBe(true);
+  });
+
+  test('an uncaptioned data table exposes an accessible name via aria-labelledby', async ({ page }) => {    await page.goto('/hve-core/docs/getting-started/tts-voiceover/', { waitUntil: 'domcontentloaded' });
 
     const uncaptionedTable = page.locator('table[aria-labelledby]').filter({ hasNot: page.locator('caption') }).first();
     await expect(uncaptionedTable).toBeVisible();

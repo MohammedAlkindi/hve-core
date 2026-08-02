@@ -113,9 +113,9 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["bugId", "reason"],
+            "required": ["id", "reason"],
             "properties": {
-              "bugId": { "type": "string", "minLength": 1 },
+              "id": { "type": "string", "minLength": 1 },
               "reason": { "type": "string", "minLength": 1 },
               "reference": { "type": "string" }
             },
@@ -129,7 +129,6 @@
             "required": ["id"],
             "properties": {
               "id": { "type": "string" },
-              "bugId": { "type": "string" },
               "title": { "type": "string" },
               "route": { "type": "string" },
               "surfaceId": { "type": "string" },

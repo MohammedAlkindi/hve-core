@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -11,6 +12,7 @@ import {
   buildVisualReviewPlan,
   buildDeterministicMeasurementEnvelope,
   captureVisualReviewEvidence,
+  resolveRouteUrl,
 } from '../../../scripts/runtime_a11y/runner/visual-review-executor.mjs';
 
 test('buildVisualReviewPlan uses the homepage and configured search route for the required state matrix', () => {
@@ -57,6 +59,12 @@ test('buildDeterministicMeasurementEnvelope defaults to the desktop viewport con
 test('captureVisualReviewEvidence writes a Playwright trace zip artifact and desktop measurements', async () => {
   const runRoot = await mkdtemp(path.join(os.tmpdir(), 'a11y-visual-review-'));
   process.env.RUNTIME_A11Y_VISUAL_REVIEW_RUN_ROOT = runRoot;
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end('<html><body><h1>Visual review</h1></body></html>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
 
   try {
     const payload = await captureVisualReviewEvidence({
@@ -64,7 +72,7 @@ test('captureVisualReviewEvidence writes a Playwright trace zip artifact and des
         routes: [{ path: '/', state: 'default', surfaceId: 'home' }],
         states: ['desktop'],
       },
-      baseUrl: 'data:text/html,<html><body><h1>Visual review</h1></body></html>',
+      baseUrl: `http://127.0.0.1:${port}`,
     });
 
     const run = payload.runs[0];
@@ -81,6 +89,7 @@ test('captureVisualReviewEvidence writes a Playwright trace zip artifact and des
     assert.deepEqual(run.viewport, { width: 1440, height: 900 });
   } finally {
     delete process.env.RUNTIME_A11Y_VISUAL_REVIEW_RUN_ROOT;
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 
@@ -91,7 +100,7 @@ test('captureVisualReviewEvidence records explicit capture failures for failed s
   try {
     const payload = await captureVisualReviewEvidence({
       visualReview: {
-        routes: [{ path: 'http://127.0.0.1:1', state: 'default', surfaceId: 'home' }],
+        routes: [{ path: '/', state: 'default', surfaceId: 'home' }],
         states: ['desktop'],
       },
       baseUrl: 'http://127.0.0.1:1',
@@ -102,4 +111,15 @@ test('captureVisualReviewEvidence records explicit capture failures for failed s
   } finally {
     delete process.env.RUNTIME_A11Y_VISUAL_REVIEW_RUN_ROOT;
   }
+});
+
+test('resolveRouteUrl rejects targets that leave the validated origin', () => {
+  const base = 'http://127.0.0.1:3000';
+
+  assert.equal(resolveRouteUrl('/search', base), 'http://127.0.0.1:3000/search');
+  assert.equal(resolveRouteUrl('', base), 'http://127.0.0.1:3000/');
+  assert.throws(() => resolveRouteUrl('http://evil.test/', base), /must be relative/);
+  assert.throws(() => resolveRouteUrl('https://evil.test/', base), /must be relative/);
+  assert.throws(() => resolveRouteUrl('data:text/html,<h1>x</h1>', base), /must be relative/);
+  assert.throws(() => resolveRouteUrl('//evil.test/path', base), /must be relative/);
 });

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { evaluateAssertion, normalizeSpokenOutput } from './assertions.mjs';
-import { applyStateEmulation, applyTrigger, resolveTargetUrl, launchChrome, maximizeBrowserWindow, snapshotAccessibilityTree, ensureAutomationWindowFocused } from './_shared.mjs';
+import { applyStateEmulation, applyTrigger, resolveTargetUrl, launchChrome, maximizeBrowserWindow, snapshotAccessibilityTree, ensureAutomationWindowFocused, ensureScreenReaderStopped } from './_shared.mjs';
 import { createScreenReaderDriver } from './drivers/driver-contract.mjs';
 
 const ALLOWED_STATUSES = new Set(['pass', 'fail', 'candidate', 'unsupported', 'error']);
@@ -526,6 +526,7 @@ export async function processAtPlanCase({
   pageFactory,
   browserFactory,
   ensureWindowBinding = ensureAutomationWindowFocused,
+  verifyScreenReaderStopped = ensureScreenReaderStopped,
 }) {
   const startTime = new Date().toISOString();
   const commandsExecuted = [];
@@ -977,12 +978,15 @@ export async function processAtPlanCase({
     if (driverStarted) {
       try {
         await driver?.stop?.();
-        driverStopped = true;
-        cleanupState.driverStopped = true;
       } catch {
-        driverStopped = false;
-        cleanupState.driverStopped = false;
+        // A failed stop request still requires the verification below; the
+        // screen reader may have exited anyway, and may need terminating if not.
       }
+      // The driver's stop request is asynchronous and unverified, so cleanup is
+      // only recorded as complete once the screen reader is observably gone.
+      const screenReaderStop = await verifyScreenReaderStopped().catch(() => null);
+      driverStopped = screenReaderStop?.stopped === true;
+      cleanupState.driverStopped = driverStopped;
     }
     if (ownsContext && resolvedContext) {
       try {
@@ -1023,6 +1027,7 @@ export async function runAtPlanCase({
   pageFactory,
   browserFactory,
   ensureWindowBinding,
+  verifyScreenReaderStopped,
 }) {
   const state = matrixCase?.state || 'default';
   const surface = matrixCase?.surface || null;
@@ -1043,6 +1048,7 @@ export async function runAtPlanCase({
     pageFactory,
     browserFactory,
     ensureWindowBinding,
+    verifyScreenReaderStopped,
   });
 }
 
