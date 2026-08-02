@@ -50,6 +50,9 @@ MIN_NODE_SIZE = 100.0
 MAX_NODE_WIDTH = 260.0
 MAX_NODE_HEIGHT = 200.0
 MIN_LAYOUT_GUTTER = 24.0
+# Containment is judged against the emitted boundary rectangle, so the slack
+# only absorbs float accumulation from packing, not a real placement escape.
+ZONE_CONTAINMENT_TOLERANCE = 0.5
 # Two connectors must never share a handle point: TMT renders each connector
 # label at its handle, so a shared handle superimposes both labels.
 MIN_HANDLE_SEPARATION = 24.0
@@ -2973,24 +2976,48 @@ def _pack_zone_rects(
     orientation: str,
     inner_padding: float,
     gutter: float,
+    child_requirements: list[tuple[float, float]] | None = None,
 ) -> list[dict[str, float]]:
-    """Pack sibling zone rectangles inside a parent content rectangle."""
+    """Pack sibling zone rectangles inside a parent content rectangle.
+
+    When per-child requirements are supplied each sibling first receives what
+    it needs and any surplus is shared evenly. An even split alone starves a
+    demanding sibling while over-serving a sparse one, which pushes nodes out
+    of the starved zone. Requirements that cannot all be met fall back to an
+    even split so the allocation and containment checks report the shortfall.
+    """
     if not child_ids:
         return []
     parent_left = parent_rect["left"]
     parent_top = parent_rect["top"]
     parent_width = parent_rect["width"]
     parent_height = parent_rect["height"]
+
+    def _distribute(total: float, index: int) -> list[float]:
+        """Return per-child extents along the packing axis."""
+        even = [total / len(child_ids)] * len(child_ids)
+        if child_requirements is None or len(child_requirements) != len(child_ids):
+            return even
+        needed = [
+            requirement[index] + inner_padding * 2
+            for requirement in child_requirements
+        ]
+        surplus = total - sum(needed)
+        if surplus < 0:
+            return even
+        share = surplus / len(child_ids)
+        return [value + share for value in needed]
+
     if orientation == "vertical":
         usable_height = max(
             60.0,
             parent_height - gutter * (len(child_ids) - 1),
         )
-        child_height = usable_height / len(child_ids)
+        child_heights = _distribute(usable_height, 1)
         child_width = max(80.0, parent_width)
         rects: list[dict[str, float]] = []
-        for index, _ in enumerate(child_ids):
-            top = parent_top + index * (child_height + gutter)
+        top = parent_top
+        for child_height in child_heights:
             rects.append(
                 {
                     "left": parent_left,
@@ -2999,17 +3026,18 @@ def _pack_zone_rects(
                     "height": child_height,
                 }
             )
+            top += child_height + gutter
         return rects
 
     usable_width = max(
         60.0,
         parent_width - gutter * (len(child_ids) - 1),
     )
-    child_width = usable_width / len(child_ids)
+    child_widths = _distribute(usable_width, 0)
     child_height = max(60.0, parent_height)
     rects = []
-    for index, _ in enumerate(child_ids):
-        left = parent_left + index * (child_width + gutter)
+    left = parent_left
+    for child_width in child_widths:
         rects.append(
             {
                 "left": left,
@@ -3018,6 +3046,7 @@ def _pack_zone_rects(
                 "height": child_height,
             }
         )
+        left += child_width + gutter
     return rects
 
 
@@ -3360,6 +3389,15 @@ def _assign_zone_regions(
         # The three lanes stack downward from the same top in their own
         # rectangles, so the zone must hold the tallest lane rather than their
         # sum. Lane widths mirror the ones node placement derives.
+        # The contextual lane is offset from the main lane and is clamped to
+        # keep room for one node, so its reserved width mirrors what placement
+        # uses. `own_min_width` guarantees the zone can hold that offset.
+        contextual_content_width = max(grid_content_width, 120.0 + MIN_NODE_SIZE)
+        contextual_lane_width = contextual_content_width - min(
+            max(120.0, contextual_content_width * 0.55) + layout_gutter,
+            contextual_content_width - MIN_NODE_SIZE,
+        )
+
         packed_height = max(
             _stack_height(
                 _simulate_packed_rows(
@@ -3378,7 +3416,7 @@ def _assign_zone_regions(
             _stack_height(
                 _simulate_packed_rows(
                     lane_entries["contextual"],
-                    max(180.0, grid_content_width * 0.35),
+                    max(MIN_NODE_SIZE, contextual_lane_width),
                     layout_gutter,
                 )
             ),
@@ -3408,6 +3446,14 @@ def _assign_zone_regions(
                 own_min_width,
                 measured_width * 2.0 + layout_gutter + inner_padding * 2,
             )
+        if lane_entries["contextual"]:
+            # The contextual lane is offset from the main lane, so the zone
+            # needs that offset plus room for one node. Reserving exactly this
+            # keeps the lane separate without inflating the zone.
+            own_min_width = max(
+                own_min_width,
+                120.0 + MIN_NODE_SIZE + inner_padding * 2,
+            )
         own_min_height = max(
             220.0 if child_ids else 180.0,
             160.0 + max(0, len(child_ids) - 1) * 16.0,
@@ -3417,29 +3463,57 @@ def _assign_zone_regions(
             child_requirements = [
                 _estimate_zone_content_requirements(child_id) for child_id in child_ids
             ]
+            # `_allocate` reserves the label band and inner padding, and, when
+            # the zone also holds direct nodes, a node band plus a separating
+            # gutter, before any child rectangle starts. It then caps each
+            # child at its received rectangle less another padding pair.
+            # Reserving all of it here stops a parent from being sized smaller
+            # than the children it must contain. The node band is taken
+            # uncapped because `_allocate` only ever caps it downward.
+            child_area_reservation = label_band + inner_padding * 4
+            if direct_node_count > 0:
+                child_area_reservation += (
+                    min(
+                        MAX_NODE_HEIGHT + inner_padding,
+                        max(
+                            140.0,
+                            100.0
+                            + 24.0 * max(1, math.ceil(direct_node_count / 2)),
+                        ),
+                    )
+                    + inner_padding
+                )
             if orientation == "vertical":
                 required_width = max(
                     own_min_width,
-                    max(width for width, _ in child_requirements),
+                    max(width for width, _ in child_requirements)
+                    + inner_padding * 2,
                 )
                 required_height = max(
                     own_min_height,
                     sum(height for _, height in child_requirements)
                     + gutter * max(0, len(child_ids) - 1)
-                    + inner_padding * 2
-                    + 96.0,
+                    + child_area_reservation,
                 )
             else:
+                # `_pack_zone_rects` gives each sibling its own requirement and
+                # shares any surplus, so the parent must hold the sum of the
+                # sibling requirements plus the separating gutters. The result
+                # is an outer width, so the parent's own padding is added on
+                # top of the content width the siblings occupy.
                 required_width = max(
                     own_min_width,
-                    sum(width for width, _ in child_requirements)
-                    + gutter * max(0, len(child_ids) - 1),
+                    sum(
+                        width + inner_padding * 2
+                        for width, _ in child_requirements
+                    )
+                    + gutter * max(0, len(child_ids) - 1)
+                    + inner_padding * 2,
                 )
                 required_height = max(
                     own_min_height,
                     max(height for _, height in child_requirements)
-                    + inner_padding * 2
-                    + 96.0,
+                    + child_area_reservation,
                 )
         else:
             required_width = own_min_width
@@ -3548,14 +3622,15 @@ def _assign_zone_regions(
                 )
 
         zone_rects[zone_id] = outer_rect
+        # The content box is what the zone actually has left after its label
+        # band and padding. Flooring it would let content extend past the zone
+        # that owns it, which is the silent escape finding 25 describes. An
+        # insufficient box is reported by the allocation check below instead.
         content_rect = {
             "left": outer_rect["left"] + inner_padding,
             "top": outer_rect["top"] + label_band + inner_padding,
-            "width": max(120.0, outer_rect["width"] - (inner_padding * 2)),
-            "height": max(
-                120.0,
-                outer_rect["height"] - label_band - (inner_padding * 2),
-            ),
+            "width": outer_rect["width"] - (inner_padding * 2),
+            "height": outer_rect["height"] - label_band - (inner_padding * 2),
         }
         zone_content_rects[zone_id] = content_rect
 
@@ -3583,9 +3658,8 @@ def _assign_zone_regions(
                     content_rect["height"] * 0.5,
                 )
                 child_top = content_rect["top"] + node_band_height + inner_padding
-                child_height = max(
-                    120.0,
-                    content_rect["height"] - node_band_height - inner_padding,
+                child_height = (
+                    content_rect["height"] - node_band_height - inner_padding
                 )
             child_available = {
                 "left": content_rect["left"],
@@ -3607,6 +3681,10 @@ def _assign_zone_regions(
                 orientation=orientation,
                 inner_padding=inner_padding,
                 gutter=gutter,
+                child_requirements=[
+                    _estimate_zone_content_requirements(child_id)
+                    for child_id in child_ids
+                ],
             )
             for child_id, child_rect in zip(child_ids, packed_rects, strict=False):
                 _allocate(child_id, child_rect)
@@ -3646,6 +3724,19 @@ def _assign_zone_regions(
             240.0,
             (180.0 + maximum_root_node_count * 100.0) * LAYOUT_EXPANSION_LIMIT,
             (220.0 + maximum_root_depth * 72.0) * LAYOUT_EXPANSION_LIMIT,
+            # The count and depth heuristics above describe how far a surface
+            # spreads, not how much room its content needs. Without the
+            # measured requirement a root zone can be allocated less height
+            # than its own subtree demands, which pushes nodes past the zone
+            # that owns them.
+            max(
+                (
+                    _estimate_zone_content_requirements(root_zone_id)[1]
+                    for root_zone_id in root_zone_ids
+                ),
+                default=0.0,
+            )
+            + outer_margin * 2,
         ),
     )
     root_node_counts = {
@@ -3697,6 +3788,10 @@ def _assign_zone_regions(
             260.0 if _subtree_depth(root_zone_id) > 0 else 0.0,
             _root_cell_size(root_zone_id)[0] + inner_padding * 4,
             _root_grid_width(root_zone_id),
+            # The floors above describe how far a subtree spreads, not how much
+            # room its content needs. Without the measured requirement a root
+            # zone can be allocated less width than its own subtree demands.
+            _estimate_zone_content_requirements(root_zone_id)[0],
         )
         for root_zone_id in root_zone_ids
     }
@@ -3808,10 +3903,18 @@ def _place_zone_nodes(
         for node_id in node_ids:
             element = element_map.get(node_id, {})
             estimated_width, estimated_height = _measure_node_dimensions(element)
+            # A node must not be wider than the lane that holds it. Without
+            # this clamp a node measured from long label text overflows a
+            # narrow lane or child zone and renders outside its own trust
+            # boundary while the surface as a whole still fits the canvas.
             measured_sizes.append(
                 (
                     node_id,
-                    min(MAX_NODE_WIDTH, max(MIN_NODE_SIZE, estimated_width)),
+                    min(
+                        MAX_NODE_WIDTH,
+                        available_width,
+                        max(MIN_NODE_SIZE, estimated_width),
+                    ),
                     min(MAX_NODE_HEIGHT, max(MIN_NODE_SIZE, estimated_height)),
                 )
             )
@@ -3920,24 +4023,23 @@ def _place_zone_nodes(
             position_map.update(_layout_node_ids(return_nodes, return_rect))
 
         if contextual_nodes:
-            contextual_left = (
+            content_right = content_rect["left"] + content_rect["width"]
+            # The lane keeps its offset from the main lane but is pulled back
+            # far enough to always retain room for one node, so it ends inside
+            # the zone instead of running past it.
+            contextual_left = min(
                 node_area_rect["left"]
                 + max(120.0, node_area_rect["width"] * 0.55)
-                + MIN_LAYOUT_GUTTER
-            )
-            contextual_width = min(
-                max(180.0, node_area_rect["width"] * 0.35),
-                max(
-                    180.0,
-                    content_rect["left"]
-                    + content_rect["width"]
-                    - contextual_left,
-                ),
+                + MIN_LAYOUT_GUTTER,
+                content_right - MIN_NODE_SIZE,
             )
             contextual_rect = {
                 "left": contextual_left,
                 "top": node_area_rect["top"],
-                "width": contextual_width,
+                "width": min(
+                    max(180.0, node_area_rect["width"] * 0.35),
+                    content_right - contextual_left,
+                ),
                 "height": node_area_rect["height"],
             }
             position_map.update(_layout_node_ids(contextual_nodes, contextual_rect))
@@ -4594,6 +4696,7 @@ def apply_layout(
                 }
             )
         surface["flows"] = surface_flows
+        _assert_zone_containment(surface)
 
         geometry_points: list[tuple[float, float]] = []
         for element in surface["elements"]:
@@ -4698,6 +4801,72 @@ def apply_layout(
                 "scroll_extent_ratio_y": maximum_y / viewport_height,
             }
     return model
+
+
+def _assert_zone_containment(surface: dict[str, Any]) -> None:
+    """Fail closed when a laid-out node escapes its declared trust zone.
+
+    The bounded-canvas guard only rejects gross overflow of the whole surface,
+    so a moderately dense zone can pack nodes past its own boundary box while
+    the surface still fits. That renders a diagram whose trust boundaries no
+    longer describe the model, which is worse than no diagram at all.
+    """
+    zone_rects: dict[str, tuple[float, float, float, float]] = {}
+    for element in surface.get("elements", []):
+        if not isinstance(element, dict):
+            continue
+        if str(element.get("kind", "")) != "trust_boundary_box":
+            continue
+        position = element.get("position")
+        if not isinstance(position, dict):
+            continue
+        left = float(position.get("left", 0.0))
+        top = float(position.get("top", 0.0))
+        zone_rects[str(element.get("trust_zone_id", ""))] = (
+            left,
+            top,
+            left + float(position.get("width", 0.0)),
+            top + float(position.get("height", 0.0)),
+        )
+    if not zone_rects:
+        return
+
+    escapes: list[str] = []
+    for element in surface.get("elements", []):
+        if not isinstance(element, dict):
+            continue
+        if str(element.get("kind", "")) == "trust_boundary_box":
+            continue
+        if str(element.get("layout_role") or "").lower() == "suppressed":
+            continue
+        zone_rect = zone_rects.get(str(element.get("trust_zone_id", "") or ""))
+        if zone_rect is None:
+            continue
+        position = element.get("position")
+        if not isinstance(position, dict):
+            continue
+        left = float(position.get("left", 0.0))
+        top = float(position.get("top", 0.0))
+        right = left + float(position.get("width", 0.0))
+        bottom = top + float(position.get("height", 0.0))
+        zone_left, zone_top, zone_right, zone_bottom = zone_rect
+        if (
+            left < zone_left - ZONE_CONTAINMENT_TOLERANCE
+            or top < zone_top - ZONE_CONTAINMENT_TOLERANCE
+            or right > zone_right + ZONE_CONTAINMENT_TOLERANCE
+            or bottom > zone_bottom + ZONE_CONTAINMENT_TOLERANCE
+        ):
+            escapes.append(
+                f"{element.get('id', 'unknown')} in zone "
+                f"{element.get('trust_zone_id', 'unknown')}"
+            )
+    if escapes:
+        raise GenerationError(
+            f"Surface {surface.get('id', 'unknown')} places "
+            f"{len(escapes)} node(s) outside their trust zone: "
+            f"{', '.join(sorted(escapes))}",
+            exit_code=EXIT_ERROR,
+        )
 
 
 def _flatten_laid_out_model(model: dict[str, Any]) -> None:

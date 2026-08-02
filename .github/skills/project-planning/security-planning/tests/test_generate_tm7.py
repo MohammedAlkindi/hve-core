@@ -1250,6 +1250,76 @@ def test_given_archetype_when_laid_out_then_nodes_stay_inside_their_zone(
         assert bottom <= zone_bottom
 
 
+@pytest.mark.parametrize("node_count", [2, 6, 10, 14, 24])
+def test_given_dense_zone_when_laid_out_then_nodes_never_escape_silently(
+    node_count: int,
+) -> None:
+    """A dense zone must contain its nodes or fail closed, never both-and-neither.
+
+    The bounded-canvas guard only rejects gross overflow of the whole surface.
+    Between the sparse cases and that guard there was a window where layout
+    returned successfully while nodes rendered outside their own trust
+    boundary, so the emitted diagram misrepresented the trust model.
+    """
+    # Arrange
+    nodes = [
+        (f"n-{index}", f"Dense service {index}", "tz-a") for index in range(node_count)
+    ]
+    edges = [
+        (f"f-{index}", f"n-{index}", f"n-{index + 1}")
+        for index in range(node_count - 1)
+    ]
+    spec, profile = _build_archetype_spec(
+        surface_id="surface-dense",
+        nodes=nodes,
+        edges=edges,
+        zones=[("tz-a", "Zone A", None)],
+    )
+    model = generate_tm7.build_model_from_spec(
+        spec,
+        profile,
+        str(spec.get("mode") or "pre-populated-comprehensive"),
+    )
+
+    # Act
+    try:
+        laid_out = generate_tm7.apply_layout(model, profile)
+    except generate_tm7.GenerationError:
+        # Assert: failing closed is an acceptable outcome for a zone that
+        # cannot hold its contents.
+        return
+    surface = next(
+        item for item in laid_out["surfaces"] if item["id"] == "surface-dense"
+    )
+    zone_rects = {
+        str(element.get("trust_zone_id", "")): (
+            float(element["position"]["left"]),
+            float(element["position"]["top"]),
+            float(element["position"]["left"]) + float(element["position"]["width"]),
+            float(element["position"]["top"]) + float(element["position"]["height"]),
+        )
+        for element in surface["elements"]
+        if isinstance(element, dict)
+        and str(element.get("kind", "")) == "trust_boundary_box"
+    }
+
+    # Assert
+    escapes = []
+    for node_id, (left, top, right, bottom) in _archetype_node_rects(surface).items():
+        zone_left, zone_top, zone_right, zone_bottom = zone_rects["tz-a"]
+        if (
+            left < zone_left
+            or top < zone_top
+            or right > zone_right
+            or bottom > zone_bottom
+        ):
+            escapes.append(node_id)
+    assert not escapes, (
+        f"{node_count} nodes laid out successfully but {escapes} render "
+        "outside trust zone tz-a"
+    )
+
+
 @pytest.mark.parametrize("archetype_name", sorted(ARCHETYPES))
 def test_given_archetype_when_laid_out_then_rank_order_is_monotonic(
     archetype_name: str,
