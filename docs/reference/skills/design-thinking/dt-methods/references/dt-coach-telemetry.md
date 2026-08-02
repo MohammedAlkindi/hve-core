@@ -2,7 +2,13 @@
 title: .Github/Skills/Design Thinking/Dt Methods/References/Dt Coach Telemetry
 description: Design Thinking Coach telemetry overlay applying telemetry-foundations vocabulary to DT session artifacts
 sidebar_position: 1
-ms.date: 2026-07-03
+author: Microsoft
+ms.date: 2026-08-01
+ms.topic: reference
+keywords:
+  - instruction
+  - design-thinking
+  - .github/skills/design-thinking/dt-methods/references/dt-coach-telemetry
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->

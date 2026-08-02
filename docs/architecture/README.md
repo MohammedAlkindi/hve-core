@@ -3,8 +3,12 @@ title: Architecture Overview
 description: HVE Core system design and component relationships
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-07-08
+ms.date: 2026-08-01
 ms.topic: concept
+keywords:
+  - architecture
+  - system design
+  - hve core
 ---
 
 HVE Core provides a Copilot customization framework that enables teams to extend GitHub Copilot with project-specific context, workflows, and automation. The framework organizes reusable AI artifacts, development scripts, and documentation into a cohesive system that integrates with VS Code and GitHub workflows.

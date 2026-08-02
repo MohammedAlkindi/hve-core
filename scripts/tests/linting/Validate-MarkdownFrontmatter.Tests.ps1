@@ -427,6 +427,10 @@ Describe 'Test-JsonSchemaValidation' -Tag 'Unit' {
             $frontmatter = @{
                 title       = 'Test'
                 description = 'Valid description'
+                author      = 'Microsoft'
+                'ms.date'   = '2026-08-01'
+                'ms.topic'  = 'overview'
+                keywords    = @('test')
             }
             $result = Test-JsonSchemaValidation -Frontmatter $frontmatter -SchemaContent $script:DocsSchema
             $result.IsValid | Should -BeTrue
@@ -482,7 +486,10 @@ Describe 'Test-JsonSchemaValidation' -Tag 'Unit' {
             $frontmatter = @{
                 title       = 'Test'
                 description = 'Valid'
+                author      = 'Microsoft'
+                'ms.date'   = '2026-08-01'
                 'ms.topic'  = 'overview'
+                keywords    = @('test')
             }
             $result = Test-JsonSchemaValidation -Frontmatter $frontmatter -SchemaContent $script:DocsSchema
             $result.IsValid | Should -BeTrue

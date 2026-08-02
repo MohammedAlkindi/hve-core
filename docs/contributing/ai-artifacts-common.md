@@ -3,8 +3,12 @@ title: 'AI Artifacts Common Standards'
 description: 'Common standards and quality gates for all AI artifact contributions to hve-core'
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-07-30
+ms.date: 2026-08-01
 ms.topic: reference
+keywords:
+  - contributing
+  - ai artifacts
+  - standards
 ---
 
 This document defines shared standards, conventions, and quality gates that apply to **all** AI artifact contributions to hve-core (agents, prompts, instructions, and skills).

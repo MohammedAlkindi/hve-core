@@ -3,8 +3,12 @@ title: Collections Overview
 description: Explore the HVE collection system, compare available collections, and choose the right extension for your workflow
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-08-01
 ms.topic: overview
+keywords:
+  - collections
+  - getting started
+  - extensions
 ---
 
 ## How HVE Artifacts Are Organized

@@ -3,8 +3,12 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-07-16
+ms.date: 2026-08-01
 ms.topic: overview
+keywords:
+  - github actions
+  - workflows
+  - ci/cd
 ---
 
 HVE Core uses GitHub Actions for continuous integration, quality validation, security scanning, and release automation. The workflow architecture emphasizes reusable components and parallel execution for fast feedback.

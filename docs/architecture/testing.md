@@ -3,8 +3,12 @@ title: Testing Architecture
 description: PowerShell Pester test infrastructure and conventions
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-06-25
+ms.date: 2026-08-01
 ms.topic: concept
+keywords:
+  - testing
+  - pester
+  - powershell
 ---
 
 ## Overview

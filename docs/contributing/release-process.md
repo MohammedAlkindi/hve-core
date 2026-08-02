@@ -2,9 +2,13 @@
 title: Release Process
 description: Trunk-based release workflow using release-please automation and automated VS Code extension publishing
 sidebar_position: 9
-ms.date: 2026-04-17
+ms.date: 2026-08-01
 ms.topic: how-to
 author: WilliamBerryiii
+keywords:
+  - release process
+  - release-please
+  - publishing
 ---
 
 ## Overview
