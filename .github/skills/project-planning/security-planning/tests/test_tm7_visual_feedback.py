@@ -1155,6 +1155,77 @@ def test_max_iterations_boundary_allows_one_refinement_when_limit_is_two() -> No
     assert convergence.stop_reason == "continue"
 
 
+def test_given_zero_gates_but_incomplete_evidence_then_readiness_is_not_claimed() -> (
+    None
+):
+    """No observed failures is not the same as observed success.
+
+    The zero-gate success path used to run before the evidence check, so a run
+    that captured nothing reported `automated-ready-pending-human` on the
+    strength of having seen no failures.
+    """
+    # Arrange
+    history = [
+        feedback.IterationResult(
+            iteration_id=0,
+            defect_signature="none",
+            gate_failure_count=0,
+            evidence_complete=False,
+        )
+    ]
+
+    # Act
+    convergence = feedback.evaluate_convergence(history, max_iterations=3)
+
+    # Assert
+    assert convergence.should_stop is True
+    assert convergence.stop_reason == "evidence-incomplete"
+    assert convergence.stop_reason != "automated-ready-pending-human"
+
+
+def test_given_scored_candidates_then_every_declared_dimension_discriminates() -> None:
+    """Each declared score member must be able to separate two candidates.
+
+    Six of the eleven previously declared dimensions were returned as constant
+    0.0, so the stop decision ran on a score blind to more than half of what it
+    advertised. A constant member can never order two candidates, so this
+    asserts the property rather than the specific dimension list.
+    """
+    # Arrange
+    base = {
+        "orientation": "horizontal",
+        "zone_order": ["zone-a", "zone-b"],
+        "node_ranks": {"node-a": 0, "node-b": 1},
+        "branch_groups": {"node-a": 0, "node-b": 0},
+        "reverse_edge_members": set(),
+        "fan_in": {"node-a": 0, "node-b": 1},
+        "fan_out": {"node-a": 1, "node-b": 0},
+    }
+    variants = [
+        {**base, "orientation": "vertical"},
+        {**base, "reverse_edge_members": {"node-a"}},
+        {
+            **base,
+            "zone_order": ["zone-b", "zone-a"],
+            "zone_flow_ranks": {"zone-a": 0.0, "zone-b": 1.0},
+        },
+        {**base, "fan_in": {"node-a": 5, "node-b": 5}},
+        {**base, "node_ranks": {"node-a-longer-identifier": 0, "node-b": 1}},
+    ]
+
+    # Act
+    baseline_score = feedback.score_surface_layout_candidate(base)
+    variant_scores = [
+        feedback.score_surface_layout_candidate(variant) for variant in variants
+    ]
+
+    # Assert
+    for index in range(len(baseline_score)):
+        assert any(
+            score[index] != baseline_score[index] for score in variant_scores
+        ), f"score dimension {index} is constant and cannot order candidates"
+
+
 def test_pending_overlay_sets_pending_approval_state() -> None:
     # Arrange
     geometry = feedback.SurfaceGeometry(

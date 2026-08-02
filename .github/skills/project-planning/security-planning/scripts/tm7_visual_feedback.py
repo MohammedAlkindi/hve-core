@@ -2648,8 +2648,19 @@ def score_surface_layout_candidate(
     candidate: dict[str, Any],
     *,
     viewport_target: tuple[float, float, float, float] | None = None,
-) -> tuple[float, float, float, float, float, float, float, float, float, float, float]:
-    """Score a whole-surface layout candidate using the deterministic tuple order."""
+) -> tuple[float, float, float, float, float]:
+    """Score a whole-surface layout candidate using the deterministic tuple order.
+
+    The tuple declares only dimensions this function actually computes:
+    viewport fit, reverse-edge ambiguity, branch order, total edge length, and
+    semantic stability. Six further dimensions were previously declared and
+    returned as constant 0.0 - tile coverage, label collision, connector
+    crossing, unrelated node hits, boundary crossing, and whitespace. Every one
+    of them needs laid-out geometry, and a candidate carries only graph
+    topology, so they could never be computed here. Constant members also never
+    discriminate between candidates, so the stop decision was made on a score
+    that silently ignored six of the eleven dimensions it advertised.
+    """
     if isinstance(viewport_target, dict):
         viewport = (
             float(viewport_target.get("left", 0.0)),
@@ -2693,14 +2704,8 @@ def score_surface_layout_candidate(
     viewport_fit_penalty = (
         max(0.0, (viewport_width - 1200.0) / 100.0) + orientation_penalty
     )
-    tile_coverage_penalty = 0.0
-    label_collision_penalty = 0.0
-    connector_crossing_penalty = 0.0
-    unrelated_node_hit_penalty = 0.0
-    boundary_crossing_penalty = 0.0
     reverse_edge_ambiguity_penalty = 0.0 if not reverse_edge_members else 0.25
     branch_order_penalty = float(zone_order_inversions) * 0.25
-    whitespace_penalty = 0.0
     total_edge_length_penalty = 0.0
     semantic_stability_penalty = 0.0
 
@@ -2718,14 +2723,8 @@ def score_surface_layout_candidate(
 
     return (
         viewport_fit_penalty,
-        tile_coverage_penalty,
-        label_collision_penalty,
-        connector_crossing_penalty,
-        unrelated_node_hit_penalty,
-        boundary_crossing_penalty,
         reverse_edge_ambiguity_penalty,
         branch_order_penalty,
-        whitespace_penalty,
         total_edge_length_penalty,
         semantic_stability_penalty,
     )
@@ -2878,18 +2877,24 @@ def evaluate_convergence(
     *,
     max_iterations: int,
 ) -> ConvergenceResult:
-    """Evaluate whether the feedback loop should stop."""
+    """Evaluate whether the feedback loop should stop.
+
+    Evidence completeness is checked before the zero-gate success path. A run
+    with no failing gates but incomplete evidence has not demonstrated
+    readiness; it has only failed to observe anything, which is the opposite
+    conclusion.
+    """
 
     if not history:
         return ConvergenceResult(should_stop=False, stop_reason="pending")
+    if not history[-1].evidence_complete:
+        return ConvergenceResult(should_stop=True, stop_reason="evidence-incomplete")
     if history[-1].gate_failure_count == 0:
         return ConvergenceResult(
             should_stop=True,
             stop_reason="automated-ready-pending-human",
             reason_detail="automated readiness pending human review",
         )
-    if not history[-1].evidence_complete:
-        return ConvergenceResult(should_stop=True, stop_reason="evidence-incomplete")
     if len(history) >= max_iterations + 1:
         return ConvergenceResult(should_stop=True, stop_reason="max-iterations")
     if (

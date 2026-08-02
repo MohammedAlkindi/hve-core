@@ -451,6 +451,137 @@ def test_given_production_feedback_path_when_identity_changes_then_blocks(
     assert result.status != "automated-ready-pending-human"
 
 
+def test_given_regeneration_failure_when_feedback_runs_then_status_is_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A generator failure must be reported, not raised through the harness.
+
+    Candidate regeneration was unguarded, so a `GenerationError` escaped
+    `run_harness` entirely: the operator saw a traceback and no status.json was
+    ever written for the run.
+    """
+    # Arrange
+    spec_path = tmp_path / "spec.yaml"
+    _write_feedback_spec(spec_path)
+    baseline_model = tmp_path / "baseline.tm7"
+    baseline_model.write_text("baseline", encoding="utf-8")
+    evidence_dir = tmp_path / "evidence"
+
+    def _explode(**kwargs: object) -> Path:
+        raise validate_tm7_with_tmt.generate_tm7.GenerationError("spec is invalid")
+
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "discover_tmt_application",
+        lambda: validate_tm7_with_tmt.TmtDiscovery(
+            path=tmp_path / "ThreatModeling.exe",
+            version="7.3.51110.1",
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        validate_tm7_with_tmt.generate_tm7,
+        "generate_tm7_candidate",
+        _explode,
+    )
+    monkeypatch.setattr(validate_tm7_with_tmt, "sha256_file", lambda path: "sha")
+
+    # Act
+    result = validate_tm7_with_tmt.run_harness(
+        input_model=baseline_model,
+        evidence_dir=evidence_dir,
+        feedback_loop=True,
+        spec_path=spec_path,
+        overlay_input=tmp_path / "overlay-in.yaml",
+        overlay_output=tmp_path / "overlay.yaml",
+        max_iterations=1,
+        require_feedback_evidence=False,
+    )
+
+    # Assert
+    assert result.exit_code != validate_tm7_with_tmt.EXIT_SUCCESS
+    assert "spec is invalid" in str(result.message)
+    assert (evidence_dir / "status.json").is_file()
+
+
+def test_given_ready_status_without_overlay_then_run_does_not_report_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Success must produce the overlay it declares as its output.
+
+    A run with no surface metrics produces no candidate and therefore no
+    overlay, yet still reported `automated-ready-pending-human` with exit 0 and
+    left the declared output missing.
+    """
+    # Arrange
+    spec_path = tmp_path / "spec.yaml"
+    _write_feedback_spec(spec_path)
+    baseline_model = tmp_path / "baseline.tm7"
+    baseline_model.write_text("baseline", encoding="utf-8")
+    overlay_output = tmp_path / "overlay.yaml"
+
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "discover_tmt_application",
+        lambda: validate_tm7_with_tmt.TmtDiscovery(
+            path=tmp_path / "ThreatModeling.exe",
+            version="7.3.51110.1",
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "_validate_feedback_candidate",
+        lambda *args, **kwargs: {
+            "working_model": str(baseline_model),
+            "saved_model": str(baseline_model),
+            "before_summary": {
+                "instance_count": 1,
+                "instances": [],
+                "drawing_surface_hash": "surface",
+                "knowledge_base_hash": "kb",
+            },
+            "after_summary": {
+                "instance_count": 1,
+                "instances": [],
+                "drawing_surface_hash": "surface",
+                "knowledge_base_hash": "kb",
+            },
+            # No surface metrics means no candidate and therefore no overlay,
+            # while nothing failed a gate either.
+            "surface_metrics": [],
+            "evidence_complete": True,
+            "semantic_regression": None,
+            "semantic_summary": {},
+            "candidate_path": str(baseline_model),
+        },
+    )
+    monkeypatch.setattr(validate_tm7_with_tmt, "sha256_file", lambda path: "sha")
+
+    # Act
+    result = validate_tm7_with_tmt.run_harness(
+        input_model=baseline_model,
+        evidence_dir=tmp_path / "evidence",
+        feedback_loop=True,
+        spec_path=spec_path,
+        overlay_output=overlay_output,
+        max_iterations=1,
+        require_feedback_evidence=False,
+    )
+
+    # Assert
+    assert not (
+        result.status == "automated-ready-pending-human"
+        and not overlay_output.exists()
+    ), "a successful run must emit its declared overlay"
+    if result.status == "automated-ready-pending-human":
+        assert overlay_output.is_file()
+    else:
+        assert result.exit_code != validate_tm7_with_tmt.EXIT_SUCCESS
+
+
 def test_given_strict_feedback_evidence_when_capture_is_missing_then_marks_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2447,6 +2578,40 @@ def test_given_ambiguous_tab_names_when_selecting_surface_then_fails() -> None:
 
     # Assert
     assert selected is tabs[0]
+
+
+def test_given_raw_control_tabs_when_match_is_not_first_then_returns_actual_tab() -> (
+    None
+):
+    """A matched surface must resolve to its own tab, not the first one.
+
+    On the raw-control path the selection indexed `tabs` by
+    `matches.index(matches[0])`, which is always 0, so every surface resolved to
+    the first tab and all captured evidence was attributed to it.
+    """
+    # Arrange
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="third",
+        surface_guid="guid-3",
+        surface_name="Deployment and operations",
+        tab_index=2,
+    )
+    tabs = [
+        FakeControl("TabItem", "Primary interaction"),
+        FakeControl("TabItem", "Secondary interaction"),
+        FakeControl("TabItem", "Deployment and operations"),
+    ]
+
+    # Act
+    selected = validate_tm7_with_tmt.select_surface_tab(
+        FakeWindow("Window", 100, 100),
+        surface,
+        tabs,
+    )
+
+    # Assert
+    assert selected is tabs[2]
+    assert selected is not tabs[0]
 
 
 def test_generic_diagram_tabs_are_selected_by_surface_order() -> None:

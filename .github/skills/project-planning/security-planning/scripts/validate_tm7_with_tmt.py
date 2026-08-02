@@ -974,7 +974,12 @@ def select_surface_tab(
         if _normalize_name(name) == _normalize_name(surface.surface_name):
             matches.append(candidate)
     if len(matches) == 1:
-        return tabs[matches.index(matches[0])] if matches[0] in tabs else matches[0]
+        # `matches` already holds the resolved control for both the SurfaceTab
+        # and raw-control shapes. The previous expression indexed `tabs` by
+        # `matches.index(matches[0])`, which is always 0, so on the raw-control
+        # path every surface resolved to the first tab and all captured
+        # evidence was attributed to it.
+        return matches[0]
     if len(matches) > 1:
         if surface.tab_index < len(matches):
             return matches[surface.tab_index]
@@ -3974,31 +3979,45 @@ def run_feedback_loop(
             iteration_bundle = EvidenceBundle(iteration_dir)
             candidate_model_path = iteration_dir / f"candidate-{iteration_label}.tm7"
             candidate_path_for_generation: Path
-            if iteration_index == 0:
-                if overlay_input is None:
-                    candidate_model_path = baseline_model
-                    candidate_path_for_generation = baseline_model
+            # Candidate regeneration runs the generator, which fails closed on
+            # invalid input. Letting that failure escape aborted the harness
+            # before any status was recorded, so an operator saw a traceback
+            # and no status.json at all. It is now reported as a stopped run.
+            try:
+                if iteration_index == 0:
+                    if overlay_input is None:
+                        candidate_model_path = baseline_model
+                        candidate_path_for_generation = baseline_model
+                    else:
+                        candidate_path_for_generation = (
+                            generate_tm7.generate_tm7_candidate(
+                                spec_path=spec_path,
+                                output_path=candidate_model_path,
+                                template=None,
+                                mode=None,
+                                update_path=None,
+                                overlay_path=overlay_input,
+                                threat_generation_enabled=False,
+                            )
+                        )
+                        candidate_model_path = candidate_path_for_generation
                 else:
-                    candidate_path_for_generation = generate_tm7.generate_tm7_candidate(
-                        spec_path=spec_path,
-                        output_path=candidate_model_path,
-                        template=None,
-                        mode=None,
-                        update_path=None,
-                        overlay_path=overlay_input,
-                        threat_generation_enabled=False,
+                    candidate_path_for_generation = (
+                        generate_tm7.generate_tm7_candidate(
+                            spec_path=spec_path,
+                            output_path=candidate_model_path,
+                            template=None,
+                            mode=None,
+                            update_path=None,
+                            overlay_path=iteration_overlay_path,
+                            threat_generation_enabled=False,
+                        )
                     )
-                    candidate_model_path = candidate_path_for_generation
-            else:
-                candidate_path_for_generation = generate_tm7.generate_tm7_candidate(
-                    spec_path=spec_path,
-                    output_path=candidate_model_path,
-                    template=None,
-                    mode=None,
-                    update_path=None,
-                    overlay_path=iteration_overlay_path,
-                    threat_generation_enabled=False,
-                )
+            except generate_tm7.GenerationError as exc:
+                final_status = "candidate-generation-failed"
+                final_exit_code = EXIT_ERROR
+                final_message = f"Candidate regeneration failed: {exc}"
+                break
                 candidate_model_path = candidate_path_for_generation
 
             iteration_workspace = workspace / iteration_label
@@ -4311,12 +4330,30 @@ def run_feedback_loop(
             require_feedback_evidence=require_feedback_evidence,
             exit_code=final_exit_code,
         )
-        if final_overlay is not None:
-            overlay_output.parent.mkdir(parents=True, exist_ok=True)
-            overlay_output.write_text(
-                json.dumps(final_overlay, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
+        # The overlay is the declared output of a successful run, so success
+        # without one is a broken contract rather than a quiet no-op. A stopped
+        # run must not publish an overlay accumulated from an earlier iteration
+        # either: that artifact looks actionable while the run itself is
+        # blocked.
+        if final_status == "automated-ready-pending-human":
+            if final_overlay is None:
+                final_status = "evidence-incomplete"
+                final_exit_code = EXIT_MISSING_FEEDBACK_EVIDENCE
+                final_message = (
+                    "Feedback loop reported readiness without producing the "
+                    "required layout overlay"
+                )
+                manifest_stop_reason = _normalize_feedback_stop_reason(
+                    final_status,
+                    require_feedback_evidence=require_feedback_evidence,
+                    exit_code=final_exit_code,
+                )
+            else:
+                overlay_output.parent.mkdir(parents=True, exist_ok=True)
+                overlay_output.write_text(
+                    json.dumps(final_overlay, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
         candidate_sha256: str | None = None
         feedback_manifest_path: Path | None = None
         if final_candidate_path is not None and final_candidate_path.is_file():
