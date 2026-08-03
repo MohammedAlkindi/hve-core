@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Microsoft Corporation. All rights reserved.
+// SPDX-License-Identifier: MIT
 import { chromium } from 'playwright';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';

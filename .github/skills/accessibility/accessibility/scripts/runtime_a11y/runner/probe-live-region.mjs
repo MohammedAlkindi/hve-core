@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Microsoft Corporation. All rights reserved.
+// SPDX-License-Identifier: MIT
 import { liveRegionStatus } from './_core.mjs';
 import { buildProbeResults, emitProbeResult, readLiveRegionSnapshot, runProbeWithPage } from './_shared.mjs';
 

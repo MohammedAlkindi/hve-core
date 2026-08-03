@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Microsoft Corporation. All rights reserved.
+// SPDX-License-Identifier: MIT
 import { realScreenReaderStatus } from './_core.mjs';
 import { buildProbeResults, emitProbeResult, runProbeWithPage, runRealScreenReaderProbe } from './_shared.mjs';
 

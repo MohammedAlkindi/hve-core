@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Microsoft Corporation. All rights reserved.
+// SPDX-License-Identifier: MIT
 import { virtualSrNameRoleStatus } from './_core.mjs';
 import { buildProbeResults, captureVirtualSr, emitProbeResult, runProbeWithPage } from './_shared.mjs';
 

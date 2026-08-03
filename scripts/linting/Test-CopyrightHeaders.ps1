@@ -65,7 +65,7 @@ param(
     [string]$Path = (git rev-parse --show-toplevel 2>$null),
 
     [Parameter(Mandatory = $false)]
-    [string[]]$FileExtensions = @('*.ps1', '*.psm1', '*.psd1', '*.sh', '*.py'),
+    [string[]]$FileExtensions = @('*.ps1', '*.psm1', '*.psd1', '*.sh', '*.py', '*.mjs', '*.cjs', '*.ts', '*.tsx', '*.jsx'),
 
     [Parameter(Mandatory = $false)]
     [string]$OutputPath = "logs/copyright-header-results.json",
@@ -121,6 +121,8 @@ function Get-CommentPrefixForFile {
         '.tsx' { return '//' }
         '.js' { return '//' }
         '.jsx' { return '//' }
+        '.mjs' { return '//' }
+        '.cjs' { return '//' }
         default { return '#' }
     }
 }
