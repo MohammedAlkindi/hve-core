@@ -324,39 +324,79 @@ Describe 'Seed workspace fixture' -Tag 'Unit' {
     }
 }
 
-Describe 'Copy-SeedWorkspace' -Tag 'Unit' {    BeforeEach {
-        $script:Seed = Join-Path $TestDrive ("cs-seed-" + [Guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path (Join-Path $script:Seed 'src') -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $script:Seed 'README.md') -Value '# fixture' -Encoding utf8NoBOM
-        Set-Content -LiteralPath (Join-Path $script:Seed 'package.json') -Value '{}' -Encoding utf8NoBOM
-        Set-Content -LiteralPath (Join-Path $script:Seed 'src/index.js') -Value 'module.exports = {};' -Encoding utf8NoBOM
-        $script:Target = Join-Path $TestDrive ("cs-ws-" + [Guid]::NewGuid().ToString('N'))
+Describe 'Trial environment delivery' -Tag 'Unit' {
+    # vally materializes each trial in <workspace>/<variant>/<stimulus>/, so files
+    # written to the workspace root are never seen by the agent. Delivery has to go
+    # through environment.files, which means the paths the specs read from must
+    # match the paths the driver writes to. Neither file constrains the other on
+    # its own: when that coupling broke, the customization surface silently stopped
+    # reaching the agent and the suite reported equivalence between two variants
+    # that were effectively identical.
+    BeforeAll {
+        $script:BaselineSpec = Join-Path $script:RepoRoot 'evals/baseline-equivalence/baseline/eval.yaml'
+        $script:CustomizedSpec = Join-Path $script:RepoRoot 'evals/baseline-equivalence/customized/eval.yaml'
+        $script:DriverPath = Join-Path $script:RepoRoot 'scripts/evals/Invoke-BaselineEquivalence.ps1'
+
+        function Get-EnvironmentFileMap {
+            <#
+            .SYNOPSIS
+                Returns a spec's environment.files entries as resolved src/dest pairs.
+            #>
+            param([string]$SpecPath)
+
+            $specDir = Split-Path -Parent $SpecPath
+            $entries = [System.Collections.Generic.List[hashtable]]::new()
+            $pendingSrc = $null
+            $inEnvironment = $false
+            foreach ($line in (Get-Content -LiteralPath $SpecPath)) {
+                if ($line -match '^environment:') { $inEnvironment = $true; continue }
+                if ($inEnvironment -and $line -match '^\S') { break }
+                if (-not $inEnvironment) { continue }
+                if ($line -match '^\s*-\s*src:\s*(\S+)\s*$') { $pendingSrc = $Matches[1]; continue }
+                if ($pendingSrc -and $line -match '^\s*dest:\s*(\S+)\s*$') {
+                    $entries.Add(@{
+                            Src      = $pendingSrc
+                            Dest     = $Matches[1]
+                            Resolved = [System.IO.Path]::GetFullPath((Join-Path $specDir $pendingSrc))
+                        })
+                    $pendingSrc = $null
+                }
+            }
+            return $entries
+        }
     }
 
-    It 'Copies every seed file including nested directories' {
-        $count = Copy-SeedWorkspace -SeedPath $script:Seed -WorkspacePath $script:Target
-        $count | Should -Be 3
-        Test-Path -LiteralPath (Join-Path $script:Target 'README.md') | Should -BeTrue
-        Test-Path -LiteralPath (Join-Path $script:Target 'src/index.js') | Should -BeTrue
+    It 'Seeds the <_.Variant> variant from the shared fixture' -ForEach @(
+        @{ Variant = 'baseline' }
+        @{ Variant = 'customized' }
+    ) {
+        $spec = if ($_.Variant -eq 'baseline') { $script:BaselineSpec } else { $script:CustomizedSpec }
+        $expected = [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot 'evals/baseline-equivalence/seed-workspace'))
+        $seedEntry = @(Get-EnvironmentFileMap -SpecPath $spec | Where-Object { $_.Resolved -eq $expected })
+
+        $seedEntry.Count | Should -Be 1
+        $seedEntry[0].Dest | Should -Be '.'
     }
 
-    It 'Preserves customization already materialized in the workspace' {
-        # The customized workspace receives the agent surface first, then the seed.
-        # Seeding must add project files without discarding that surface, or the
-        # customized run would lose the very thing under test.
-        New-Item -ItemType Directory -Path (Join-Path $script:Target '.github') -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $script:Target '.github/copilot-instructions.md') -Value 'custom' -Encoding utf8NoBOM
+    It 'Delivers the customization surface from the directory the driver writes' {
+        $surfaceEntry = @(Get-EnvironmentFileMap -SpecPath $script:CustomizedSpec |
+                Where-Object { $_.Dest -eq '.github' })
+        $surfaceEntry.Count | Should -Be 1
 
-        Copy-SeedWorkspace -SeedPath $script:Seed -WorkspacePath $script:Target | Out-Null
-        Test-Path -LiteralPath (Join-Path $script:Target '.github/copilot-instructions.md') | Should -BeTrue
-        Test-Path -LiteralPath (Join-Path $script:Target 'README.md') | Should -BeTrue
+        $expected = [System.IO.Path]::GetFullPath(
+            (Join-Path $script:RepoRoot 'evals/baseline-equivalence/customized/surface/.github'))
+        $surfaceEntry[0].Resolved | Should -Be $expected
+
+        $driverText = Get-Content -LiteralPath $script:DriverPath -Raw
+        $driverText | Should -Match "customized/surface'"
+        $driverText | Should -Match 'New-CustomizedEnvironment[\s\S]{0,400}-WorkspacePath \$surfaceRoot'
     }
 
-    It 'Throws when the seed is absent rather than silently seeding nothing' {
-        # A missing seed produced the empty-workspace defect this function exists to
-        # prevent, so it must fail loudly instead of yielding a runnable-looking run.
-        { Copy-SeedWorkspace -SeedPath (Join-Path $TestDrive 'no-such-seed') -WorkspacePath $script:Target } |
-            Should -Throw
+    It 'Does not materialize the surface at the workspace root' {
+        # The workspace root is the one location vally never exposes to the agent.
+        # Materializing there is what silently disabled the customized variant.
+        $driverText = Get-Content -LiteralPath $script:DriverPath -Raw
+        $driverText | Should -Not -Match 'New-CustomizedEnvironment[\s\S]{0,400}-WorkspacePath \$workspaceRoot'
     }
 }
 

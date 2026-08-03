@@ -452,64 +452,10 @@ function Save-BaselineCacheEntry {
     return $targetRun
 }
 
-function Copy-SeedWorkspace {
-    <#
-    .SYNOPSIS
-        Copies the shared fixture project into a run workspace.
-    .DESCRIPTION
-        Several stimuli ask the agent to read or edit ordinary repository files:
-        `README.md`, `package.json`, `src/index.js`, and the `scripts/` directory.
-        The customization surface alone contains none of those, so without a seed
-        every one of those tool calls fails with "path does not exist" in both
-        variants. The two runs then fail identically, the comparison finds no
-        difference, and the suite reports equivalence for a question neither run
-        was able to answer.
-
-        The same fixture is copied into both the baseline and customized
-        workspaces so the only difference between them remains the customization
-        layer.
-
-        Files are copied rather than linked because a stimulus may edit them, and
-        each run must start from an unmodified copy.
-    .OUTPUTS
-        [int] Count of files copied.
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([int])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$SeedPath,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$WorkspacePath
-    )
-
-    if (-not (Test-Path -LiteralPath $SeedPath)) {
-        throw "Seed workspace not found at '$SeedPath'. The stimulus corpus expects an ordinary project to act on."
-    }
-
-    if (-not $PSCmdlet.ShouldProcess($WorkspacePath, 'Copy seed workspace')) {
-        return 0
-    }
-
-    if (-not (Test-Path -LiteralPath $WorkspacePath)) {
-        New-Item -ItemType Directory -Path $WorkspacePath -Force -WhatIf:$false -Confirm:$false | Out-Null
-    }
-
-    foreach ($item in @(Get-ChildItem -LiteralPath $SeedPath -Force)) {
-        Copy-Item -LiteralPath $item.FullName -Destination $WorkspacePath -Recurse -Force -WhatIf:$false -Confirm:$false
-    }
-
-    return @(Get-ChildItem -LiteralPath $WorkspacePath -Recurse -File -Force -ErrorAction SilentlyContinue).Count
-}
-
 Export-ModuleMember -Function `
     Get-AgentSkillReference, `
     Resolve-AgentScopePattern, `
     New-CustomizedEnvironment, `
-    Copy-SeedWorkspace, `
     Get-BaselineCacheKey, `
     Get-StimulusContentHash, `
     Get-BaselineCacheEntry, `

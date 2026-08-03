@@ -232,6 +232,35 @@ function New-DryRunSummary {
     }
 }
 
+function Test-CustomizationCollapse {
+    <#
+    .SYNOPSIS
+        Reports whether every evaluated divergence guard failed.
+    .DESCRIPTION
+        Divergence guards assert behavior only the customization layer can produce.
+        Some failing is an ordinary behavioral result. All of them failing means the
+        customized variant never received its customization and ran as the baseline,
+        which otherwise presents as equivalence rather than as an error.
+
+        Distinguished from a partial failure deliberately: a check that fired on any
+        failure would flag normal runs and would be silenced, and one that fired on
+        zero evaluated guards would flag runs that simply declared none.
+    .OUTPUTS
+        [bool] True when the run collapsed to baseline behavior.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)]
+        [int]$Evaluated,
+
+        [Parameter(Mandatory)]
+        [int]$Failed
+    )
+
+    return ($Evaluated -gt 0 -and $Failed -eq $Evaluated)
+}
+
 function Invoke-VallyCommand {
     [CmdletBinding()]
     param(
@@ -467,7 +496,12 @@ if ($MyInvocation.InvocationName -ne '.') {
         $variantA = Get-VariantMetadata -VariantYamlPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/baseline/variant.yaml') -Default $defaultVariantA
         $variantB = Get-VariantMetadata -VariantYamlPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/customized/variant.yaml') -Default $defaultVariantB
         $workspaceRoot = Join-Path $resolvedRoot 'evals/baseline-equivalence/customized/workspace'
-        $variantB.applied = @(Get-AppliedArtifacts -WorkspaceRoot $workspaceRoot)
+        # The surface is staged outside the workspace because vally owns the workspace
+        # tree and recreates it per trial. The customized spec copies this directory
+        # into each trial through environment.files.
+        $surfaceRoot = Join-Path $resolvedRoot 'evals/baseline-equivalence/customized/surface'
+        $surfacePlaceholderText = 'Placeholder so this directory exists in a clean checkout; the driver rewrites the surface on every run.'
+        $variantB.applied = @(Get-AppliedArtifacts -WorkspaceRoot $surfaceRoot)
         $variants = @{ a = $variantA; b = $variantB; subject = [string]$variantB.name }
 
         Write-Host "Baseline equivalence: agent=$Agent tier=$Tier model(s)=$($models -join ',')" -ForegroundColor Cyan
@@ -591,11 +625,21 @@ if ($MyInvocation.InvocationName -ne '.') {
             # agents would produce identical customized runs and the comparison could not
             # tell them apart.
             $customizedSkillDirForModel = Join-Path $outputRoot "$model/$runId/customized-skill-dir"
+            # Rebuilt from scratch each run so an artifact removed from the agent's
+            # dependency set does not linger and keep influencing later comparisons.
+            # The placeholder is restored because vally's spec linter resolves this
+            # path, so an aborted run must not leave the directory missing.
+            if (Test-Path -LiteralPath $surfaceRoot) {
+                Remove-Item -LiteralPath $surfaceRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            $surfaceGitHub = Join-Path $surfaceRoot '.github'
+            New-Item -ItemType Directory -Path $surfaceGitHub -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $surfaceGitHub '.gitkeep') -Value $surfacePlaceholderText -Encoding utf8NoBOM
             try {
                 $customized = New-CustomizedEnvironment `
                     -RepoRoot $resolvedRoot `
                     -Agent $Agent `
-                    -WorkspacePath $workspaceRoot `
+                    -WorkspacePath $surfaceRoot `
                     -SkillDirPath $customizedSkillDirForModel `
                     -DependencyMap $dependencyMap
                 $variantB.applied = @($customized.Applied)
@@ -613,19 +657,10 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
             }
 
-            # Several stimuli ask the agent to read or edit ordinary project files. The
-            # customization surface contains none of them, so without this seed those
-            # tool calls fail identically in both variants and the comparison reports
-            # equivalence for a task neither run could attempt. Both workspaces receive
-            # the same fixture, so the customization layer stays the only difference.
+            # Both specs seed their trials from this fixture through environment.files.
+            # The hash keys the baseline cache, so a baseline captured before a seed
+            # change is not reused against a customized run that saw the new content.
             $seedPath = Join-Path $resolvedRoot 'evals/baseline-equivalence/seed-workspace'
-            $baselineSeeded = Copy-SeedWorkspace -SeedPath $seedPath -WorkspacePath $baselineWorkspacePath
-            $customizedSeeded = Copy-SeedWorkspace -SeedPath $seedPath -WorkspacePath $workspaceRoot
-            Write-Host "   Seed workspace: $baselineSeeded baseline / $customizedSeeded customized file(s)" -ForegroundColor DarkGray
-
-            # The baseline is identical for every agent, so running it per agent doubles
-            # cost for no signal. Reuse a persisted baseline whenever the inputs that
-            # shaped it are unchanged, and regenerate when they are not.
             $stimulusHash = Get-StimulusContentHash -SpecPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/baseline/eval.yaml') -SeedPath $seedPath
             $cacheKey = Get-BaselineCacheKey -Model $model -VallyVersion $vallyVersion -StimulusHash $stimulusHash
             $baselineRunDir = $null
@@ -733,6 +768,19 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
                 else {
                     Write-Host "   Divergence guards: $($guardTally.Evaluated) evaluated, all passed" -ForegroundColor DarkGray
+                }
+
+                # Divergence guards assert behavior that only the customization can
+                # produce, so every one of them failing is not a weak customization —
+                # it means the customized variant was effectively the baseline. That
+                # happens whenever the surface fails to reach the agent, which is
+                # otherwise silent and reads as equivalence. Treat a total collapse as
+                # a run-health failure so it is attributed to delivery rather than
+                # averaged into the divergence rate as a behavioral result.
+                if (Test-CustomizationCollapse -Evaluated $guardTally.Evaluated -Failed $guardTally.Failed) {
+                    Write-Host "   Customization not delivered: all $($guardTally.Evaluated) divergence guard(s) failed" -ForegroundColor Red
+                    $runHealthFailures++
+                    $dataQualityDiagnostics.Add("All $($guardTally.Evaluated) divergence guards failed for $model; the customized variant behaved as the baseline.")
                 }
             }
             else {

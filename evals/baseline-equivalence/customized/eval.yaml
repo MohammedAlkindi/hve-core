@@ -14,6 +14,20 @@ description: >
   `vally eval --eval-spec ... --workspace <materialized>
   --skill-dir <materialized-skills>`.
 type: capability
+# vally materializes each trial in <workspace>/<variant>/<stimulus>/, not at the
+# workspace root. The customization surface must therefore arrive through
+# environment.files: an agent surface written to the workspace root is never
+# discovered, which silently reduces this variant to the baseline and makes the
+# comparison report equivalence for a difference that was never delivered.
+# The driver materializes the per-agent surface into surface/.github before the
+# run; the seed fixture is identical to the baseline's so customization stays
+# the only difference between the two variants.
+environment:
+  files:
+    - src: ../seed-workspace
+      dest: .
+    - src: ./surface/.github
+      dest: .github
 defaults:
   runs: 5
   timeout: 300s

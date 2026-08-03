@@ -329,6 +329,33 @@ Describe 'Comparison judge pin' -Tag 'Unit' {
     }
 }
 
+Describe 'Test-CustomizationCollapse' -Tag 'Unit' {
+    BeforeAll {
+        . $script:ScriptPath
+    }
+
+    # A total collapse is the fingerprint of an undelivered customization surface:
+    # the customized variant runs as the baseline, so the comparison reports
+    # equivalence rather than an error. The boundary cases matter as much as the
+    # positive one — flagging partial failure would make the check noise, and
+    # flagging an empty guard set would flag runs that declared none.
+    It 'Flags a run where every evaluated guard failed' {
+        Test-CustomizationCollapse -Evaluated 12 -Failed 12 | Should -BeTrue
+    }
+
+    It 'Ignores a partial failure, which is an ordinary behavioral result' {
+        Test-CustomizationCollapse -Evaluated 12 -Failed 11 | Should -BeFalse
+    }
+
+    It 'Ignores a fully passing run' {
+        Test-CustomizationCollapse -Evaluated 12 -Failed 0 | Should -BeFalse
+    }
+
+    It 'Ignores a run with no declared guards' {
+        Test-CustomizationCollapse -Evaluated 0 -Failed 0 | Should -BeFalse
+    }
+}
+
 Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
     BeforeEach {
         $script:StubRepoRoot = Join-Path $TestDrive 'repo'
@@ -344,9 +371,9 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         New-Item -ItemType Directory -Path $stubAgentsDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $stubAgentsDir 'rpi-agent.agent.md') -Encoding UTF8 -Value "---`nname: RPI Agent`n---`n`nStub agent for driver tests."
 
-        # The driver seeds both workspaces from this fixture and treats its absence as a
-        # repo-integrity failure, so the stub repo must carry one the way the real repo
-        # does. Content is irrelevant here; only the copy path is exercised.
+        # vally copies this fixture into each trial via environment.files, and the
+        # driver folds its content into the baseline cache key. The stub repo carries
+        # one so that key is computed over the same shape as a real run.
         $script:StubSeedDir = Join-Path $baselineRoot 'seed-workspace'
         New-Item -ItemType Directory -Path $script:StubSeedDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $script:StubSeedDir 'README.md') -Encoding UTF8 -Value '# Stub seed'
@@ -376,24 +403,22 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         $LASTEXITCODE | Should -Be 1
     }
 
-    It 'Seeds both workspaces so neither variant runs against an empty tree' {
-        # Asserts the files actually land, not just that the copy was called. The
-        # original defect was that both workspaces held only the agent surface, so
-        # every project-file stimulus failed in both variants and the comparison
-        # scored that mutual failure as equivalence.
+    It 'Materializes the customization surface where the spec reads it' {
+        # The surface must land in customized/surface/.github, because that is the
+        # only path the customized spec copies into each trial. Writing it to the
+        # workspace root leaves the agent with no customization at all while every
+        # run still reports success.
         & $script:ScriptPath `
             -Agent 'rpi-agent' `
             -Tier 'ci' `
             -RepoRoot $script:StubRepoRoot `
             -OutputPath $script:StubOutputPath *> $null
 
-        $customizedSeed = Join-Path $script:StubRepoRoot 'evals/baseline-equivalence/customized/workspace/README.md'
-        Test-Path -LiteralPath $customizedSeed | Should -BeTrue
+        $surfaceAgent = Join-Path $script:StubRepoRoot 'evals/baseline-equivalence/customized/surface/.github/agents/hve-core/rpi-agent.agent.md'
+        Test-Path -LiteralPath $surfaceAgent | Should -BeTrue
 
-        $baselineSeeds = @(Get-ChildItem -Path $script:StubRepoRoot -Recurse -Directory -Filter 'baseline-workspace' |
-                ForEach-Object { Join-Path $_.FullName 'README.md' } |
-                Where-Object { Test-Path -LiteralPath $_ })
-        $baselineSeeds.Count | Should -BeGreaterThan 0
+        $workspaceAgent = Join-Path $script:StubRepoRoot 'evals/baseline-equivalence/customized/workspace/.github/agents/hve-core/rpi-agent.agent.md'
+        Test-Path -LiteralPath $workspaceAgent | Should -BeFalse
     }
 
     It 'Exits 0 on the advisory tier despite the same failing verdict' {
@@ -409,26 +434,6 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         $summary = Get-Content -LiteralPath $script:StubOutputPath -Raw | ConvertFrom-Json
         $summary.verdict | Should -Be 'fail'
         $LASTEXITCODE | Should -Be 0
-    }
-
-    It 'Fails loudly when the seed workspace is missing' {
-        # The empty-workspace defect this seeding fixes was invisible: both variants
-        # failed the same tool calls and the comparison read as equivalence. A silent
-        # skip would restore exactly that, so a missing fixture must abort the run
-        # rather than produce a summary that looks runnable.
-        #
-        # Uses devloop, not ci: the advisory tier exits 0 on the stub's failing verdict,
-        # so a non-zero exit here can only come from the missing seed. On ci the failing
-        # verdict alone exits 1 and this case would pass with the seeding deleted.
-        Remove-Item -LiteralPath $script:StubSeedDir -Recurse -Force
-
-        & $script:ScriptPath `
-            -Agent 'rpi-agent' `
-            -Tier 'devloop' `
-            -RepoRoot $script:StubRepoRoot `
-            -OutputPath $script:StubOutputPath *> $null
-
-        $LASTEXITCODE | Should -Not -Be 0
     }
 }
 

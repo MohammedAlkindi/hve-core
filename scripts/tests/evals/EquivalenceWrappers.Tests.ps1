@@ -94,12 +94,15 @@ Describe 'New-EquivalenceDashboard.ps1' -Tag 'Unit' {
 }
 
 Describe 'Invoke-BaselineEquivalence.ps1' -Tag 'Unit' {
-    Context 'Applied artifact wiring (workspace present)' {
+    Context 'Applied artifact wiring (surface present)' {
         BeforeAll {
             $script:DriverRepo = Join-Path $TestDrive 'driver-repo'
-            $script:Workspace = Join-Path $script:DriverRepo 'evals/baseline-equivalence/customized/workspace'
-            New-Item -ItemType Directory -Path (Join-Path $script:Workspace '.github/agents') -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $script:Workspace '.github/agents/bar.agent.md') -Value 'seed' -Encoding utf8NoBOM
+            # The reported artifact list is read from the surface directory, which is
+            # what the customized spec copies into each trial. Reading it from the
+            # workspace root would report a surface the agent never receives.
+            $script:Surface = Join-Path $script:DriverRepo 'evals/baseline-equivalence/customized/surface'
+            New-Item -ItemType Directory -Path (Join-Path $script:Surface '.github/agents') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:Surface '.github/agents/bar.agent.md') -Value 'seed' -Encoding utf8NoBOM
 
             $script:SummaryPath = Join-Path $TestDrive 'driver-summary.json'
             & $script:DriverScript `
@@ -115,7 +118,7 @@ Describe 'Invoke-BaselineEquivalence.ps1' -Tag 'Unit' {
             Test-Path -LiteralPath $script:SummaryPath | Should -BeTrue
         }
 
-        It 'Populates variants.b.applied with the seeded artifact' {
+        It 'Populates variants.b.applied from the surface directory' {
             $script:Summary.variants.b.applied | Should -Contain '.github/agents/bar.agent.md'
         }
     }
