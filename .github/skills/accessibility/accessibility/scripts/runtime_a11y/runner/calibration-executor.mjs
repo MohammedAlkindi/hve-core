@@ -213,7 +213,12 @@ function materializeArtifactEvidence(artifactHashes, runRoot = null) {
   };
 }
 
-function validateArtifactEvidence(artifactHashes, runRoot = null) {
+// True when at least one recorded artifact still hashes to its recorded digest.
+//
+// Evidence is only worth trusting if the bytes on disk are the bytes that were
+// measured, so a recorded hash that no longer matches counts as no evidence
+// rather than as a passing artifact.
+function hasMatchingArtifactHashes(artifactHashes, runRoot = null) {
   if (!artifactHashes || typeof artifactHashes !== 'object') {
     return false;
   }
@@ -263,28 +268,6 @@ function hasMeaningfulPhraseEvidence(evidence = {}) {
     && normalizedPhrases.some((entry) => typeof entry === 'string' && entry.trim().length > 0);
 }
 
-function validatePersistedArtifacts(artifactHashes, runRoot = null) {
-  if (!artifactHashes || typeof artifactHashes !== 'object') {
-    return false;
-  }
-  const entries = Object.entries(artifactHashes).filter(([artifactReference, artifactHash]) => typeof artifactReference === 'string' && artifactReference.trim().length > 0 && typeof artifactHash === 'string' && artifactHash.trim().length > 0);
-  if (entries.length === 0) {
-    return false;
-  }
-  let matchedArtifacts = 0;
-  for (const [artifactReference, expectedHash] of entries) {
-    const resolvedPath = resolveArtifactPath(artifactReference, runRoot);
-    if (!resolvedPath || !existsSync(resolvedPath)) {
-      continue;
-    }
-    const actualHash = createHash('sha256').update(readFileSync(resolvedPath)).digest('hex');
-    if (actualHash === expectedHash) {
-      matchedArtifacts += 1;
-    }
-  }
-  return matchedArtifacts > 0;
-}
-
 function isRealAtDriver(result = {}, evidence = {}) {
   const driverName = String(result?.driver || evidence?.provenance?.driver || '').toLowerCase();
   const atName = String(result?.at || result?.capability?.at || evidence?.provenance?.at || '').toLowerCase();
@@ -315,7 +298,7 @@ export function classifyAtCaseResult(result = {}, runRoot = null) {
   });
 
   const hasNonEmptyPhrases = hasMeaningfulPhraseEvidence(evidence);
-  const hasPersistedArtifacts = validatePersistedArtifacts(result?.artifactHashes, runRoot);
+  const hasPersistedArtifacts = hasMatchingArtifactHashes(result?.artifactHashes, runRoot);
   const capabilitySupported = result?.capability?.supported !== false;
   const isRealDriver = isRealAtDriver(result, evidence);
   const isStrictPass = status === 'pass' && isRealDriver && capabilitySupported && !synthetic && !Boolean(evidence?.synthetic) && hasNonEmptyPhrases && hasPersistedArtifacts && !requiredAssertionFailure && !assertionFailure && !invalidAssertion;
@@ -1167,7 +1150,7 @@ export async function runRealCalibrationSession({
     }
 
     const materialized = materializeArtifactEvidence(artifactHashes, resolvedRunRoot);
-    const hasValidEvidence = materialized.valid && validateArtifactEvidence(materialized.artifactHashes, resolvedRunRoot);
+    const hasValidEvidence = materialized.valid && hasMatchingArtifactHashes(materialized.artifactHashes, resolvedRunRoot);
     const evidence = {
       ...(payload?.evidence || {}),
       provenance: {
