@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@axe-core/playwright": "4.12.1",
-    "@guidepup/guidepup": "0.28.1",
     "@guidepup/virtual-screen-reader": "0.32.1",
     "playwright": "1.61.1"
+  },
+  "optionalDependencies": {
+    "@guidepup/guidepup": "0.28.1"
   }
 }
