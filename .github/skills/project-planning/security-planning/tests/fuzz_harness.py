@@ -73,7 +73,11 @@ class TestGenerateTm7FuzzHarness:
                 try:
                     generate_tm7.load_spec(path)
                 except (generate_tm7.GenerationError, UnicodeError, ValueError):
-                    pass
+                    # A malformed payload must be rejected through a declared
+                    # domain error. The assertion under test is that nothing
+                    # outside this tuple escapes, so the rejection itself is the
+                    # expected outcome and needs no further handling.
+                    continue
 
     def test_given_arbitrary_bytes_when_parse_tm7_then_no_uncaught_exception(
         self,
@@ -85,7 +89,9 @@ class TestGenerateTm7FuzzHarness:
                 try:
                     generate_tm7.parse_hardened_xml(path)
                 except (generate_tm7.GenerationError, UnicodeError, ValueError):
-                    pass
+                    # As above: rejection through a declared domain error is the
+                    # expected result for every payload here.
+                    continue
 
 
 if __name__ == "__main__" and FUZZING:

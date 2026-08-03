@@ -16,9 +16,56 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import generate_tb7  # noqa: E402
 import generate_tm7  # noqa: E402
 import populate_tm7_threats  # noqa: E402
 import tm7_threat_contract  # noqa: E402
+
+XXE_DOCUMENT = (
+    '<?xml version="1.0"?>\n'
+    '<!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>\n'
+    "<root>&xxe;</root>\n"
+)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-16-le", "utf-16-be"])
+@pytest.mark.parametrize(
+    "reader",
+    ["contract", "generate_tm7", "populate", "generate_tb7"],
+)
+def test_given_entity_declaration_then_every_reader_fails_closed(
+    tmp_path: Path,
+    encoding: str,
+    reader: str,
+) -> None:
+    """Every XML entry point must reject DTD and entity declarations.
+
+    The guard was a byte scan for `<!DOCTYPE`, which only matches UTF-8. The
+    same document encoded as UTF-16 interleaves NUL bytes, so the marker never
+    appeared and the check silently passed. Encoding is therefore a test axis
+    rather than an incidental detail.
+    """
+    # Arrange
+    data = XXE_DOCUMENT.encode(encoding)
+    path = tmp_path / "payload.xml"
+    path.write_bytes(data)
+
+    readers = {
+        "contract": lambda: tm7_threat_contract.parse_hardened_xml_bytes(data),
+        "generate_tm7": lambda: generate_tm7._parse_hardened_xml_bytes(data),
+        "populate": lambda: populate_tm7_threats._parse_model(path),
+        "generate_tb7": lambda: generate_tb7._load_source_template(path),
+    }
+    expected = {
+        "contract": tm7_threat_contract.UnsafeXmlError,
+        "generate_tm7": generate_tm7.GenerationError,
+        "populate": populate_tm7_threats.GenerationError,
+        "generate_tb7": generate_tb7.GenerationError,
+    }
+
+    # Act / Assert
+    with pytest.raises(expected[reader]):
+        readers[reader]()
 
 TYPE_ID = "TH-test"
 GUIDS = {

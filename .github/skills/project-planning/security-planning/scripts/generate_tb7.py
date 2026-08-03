@@ -16,6 +16,7 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 import yaml
+from tm7_threat_contract import UnsafeXmlError, parse_hardened_xml_bytes
 
 
 class GenerationError(Exception):
@@ -207,7 +208,13 @@ def _build_mitigation_values(
 def _load_source_template(path: Path) -> ET.Element:
     if not path.exists():
         raise GenerationError(f"Source template not found: {path}")
-    return ET.parse(path).getroot()
+    # The template is read through the same fail-closed policy as every other
+    # XML reader. Plain `ET.parse` rejected an undefined entity only as a side
+    # effect of ElementTree's behavior, not as a declared control.
+    try:
+        return parse_hardened_xml_bytes(path.read_bytes())
+    except UnsafeXmlError as exc:
+        raise GenerationError(f"Unable to parse source template: {exc}") from exc
 
 
 def _clone_manifest(source_root: ET.Element, spec: dict[str, Any]) -> ET.Element:

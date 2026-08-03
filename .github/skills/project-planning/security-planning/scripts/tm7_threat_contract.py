@@ -11,6 +11,11 @@ from collections import Counter
 from typing import Any
 from xml.etree import ElementTree as ET
 
+try:  # pragma: no cover - exercised at runtime when available
+    from defusedxml import ElementTree as DefusedET
+except ImportError:  # pragma: no cover - fallback when defusedxml is absent
+    DefusedET = None
+
 ARRAYS_NS = "http://schemas.microsoft.com/2003/10/Serialization/Arrays"
 KNOWLEDGE_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.KnowledgeBase"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
@@ -66,6 +71,54 @@ STATE_ALIASES = {
     "Partially Mitigated with Documentation": "NeedsMitigation",
 }
 NULL_GUID = "00000000-0000-0000-0000-000000000000"
+
+
+class UnsafeXmlError(ValueError):
+    """Raised when XML input declares a DTD or entities, or cannot be parsed."""
+
+
+def contains_doctype_or_entity(data: bytes) -> bool:
+    """Return True when the payload declares a DTD or entity in any encoding.
+
+    A byte-level scan for ``<!DOCTYPE`` only matches UTF-8. The same document
+    encoded as UTF-16 interleaves NUL bytes, so the marker never appears and
+    the check silently passes. The payload is therefore decoded through the
+    encodings XML permits before scanning.
+    """
+    for encoding in ("utf-8", "utf-16", "utf-16-le", "utf-16-be", "utf-32"):
+        try:
+            text = data.decode(encoding)
+        except (UnicodeDecodeError, LookupError, ValueError):
+            continue
+        upper = text.upper()
+        if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
+            return True
+    return False
+
+
+def parse_hardened_xml_bytes(data: bytes) -> ET.Element:
+    """Parse XML bytes under one fail-closed policy shared by every reader.
+
+    Named for its byte input so it cannot be confused with
+    ``generate_tm7.parse_hardened_xml``, which takes a path and returns a
+    parsed model payload rather than an element.
+
+    Every entry point rejects DTD and entity declarations in any supported
+    encoding, prefers defusedxml when it is installed, and converts parser and
+    defusedxml exceptions alike into ``UnsafeXmlError``. Callers translate that
+    into their own domain error so an unsafe document never surfaces as an
+    unhandled traceback.
+    """
+    if contains_doctype_or_entity(data):
+        raise UnsafeXmlError("Refusing to parse XML with DTD or entity declarations")
+    try:
+        if DefusedET is not None:
+            return DefusedET.fromstring(data)
+        return ET.fromstring(data)
+    except ET.ParseError as exc:
+        raise UnsafeXmlError(f"Unable to parse XML: {exc}") from exc
+    except Exception as exc:  # defusedxml raises its own DTD/entity errors
+        raise UnsafeXmlError(f"Refusing to parse XML: {exc}") from exc
 
 
 class ThreatContractError(ValueError):

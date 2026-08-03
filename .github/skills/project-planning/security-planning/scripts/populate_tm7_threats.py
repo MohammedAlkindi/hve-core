@@ -17,19 +17,15 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 import yaml
-
-try:
-    from defusedxml import ElementTree as DefusedET
-except ImportError:  # pragma: no cover - project environment installs defusedxml
-    DefusedET = None
-
 from tm7_threat_contract import (
     ThreatContractError,
+    UnsafeXmlError,
     build_custom_threat_type_id,
     build_entry_key,
     build_interaction_key,
     build_mitigation_text,
     collect_mapping_failures,
+    parse_hardened_xml_bytes,
     prepare_threat_instances,
     reconcile_authored_base,
     serialize_threat_instances,
@@ -78,16 +74,9 @@ def _load_yaml_or_json(path: Path) -> dict[str, Any]:
 def _parse_model(path: Path) -> ET.Element:
     if not path.is_file():
         raise GenerationError(f"TM7 model not found: {path}")
-    data = path.read_bytes()
-    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
-        raise GenerationError(
-            "Refusing TM7 input containing DTD or entity declarations"
-        )
     try:
-        if DefusedET is not None:
-            return DefusedET.fromstring(data)
-        return ET.fromstring(data)
-    except ET.ParseError as exc:
+        return parse_hardened_xml_bytes(path.read_bytes())
+    except UnsafeXmlError as exc:
         raise GenerationError(f"Unable to parse TM7 model: {exc}") from exc
 
 

@@ -23,21 +23,15 @@ from xml.etree import ElementTree as ET
 
 import tm7_visual_feedback
 import yaml
-
-try:  # pragma: no cover - exercised at runtime when available
-    from defusedxml import ElementTree as DefusedET
-except (
-    ImportError
-):  # pragma: no cover - fallback path for environments without defusedxml
-    DefusedET = None
-
 from tm7_threat_contract import (
     ThreatContractError,
+    UnsafeXmlError,
     build_custom_threat_type_id,
     build_entry_key,
     build_interaction_key,
     build_mitigation_text,
     collect_mapping_failures,
+    parse_hardened_xml_bytes,
     serialize_threat_instances,
 )
 
@@ -369,20 +363,11 @@ def load_spec(path: Path) -> dict[str, Any]:
 
 def _parse_hardened_xml_bytes(data: bytes) -> ET.Element:
     """Parse XML bytes with entity and DTD protections enabled."""
-    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
-        raise GenerationError(
-            "Refusing to parse XML with DTD or entity declarations",
-            exit_code=EXIT_ERROR,
-        )
 
     try:
-        if DefusedET is not None:
-            return DefusedET.fromstring(data)
-        return ET.fromstring(data)
-    except ET.ParseError as exc:
-        raise GenerationError(
-            f"Unable to parse XML: {exc}", exit_code=EXIT_ERROR
-        ) from exc
+        return parse_hardened_xml_bytes(data)
+    except UnsafeXmlError as exc:
+        raise GenerationError(str(exc), exit_code=EXIT_ERROR) from exc
 
 
 def parse_template_xml(path: Path) -> ET.Element:
@@ -5699,28 +5684,12 @@ def parse_hardened_xml(path: Path) -> dict[str, Any]:
             f"Unable to read TM7 input: {exc}", exit_code=EXIT_ERROR
         ) from exc
 
-    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
+    try:
+        root = parse_hardened_xml_bytes(data)
+    except UnsafeXmlError as exc:
         raise GenerationError(
-            "Refusing to parse TM7 input with embedded DTD or entity declarations",
-            exit_code=EXIT_ERROR,
-        )
-
-    if DefusedET is not None:
-        try:
-            root = DefusedET.fromstring(data)
-        except (
-            Exception
-        ) as exc:  # no bare except; this is a narrow parser error boundary
-            raise GenerationError(
-                f"Unable to parse TM7 input: {exc}", exit_code=EXIT_ERROR
-            ) from exc
-    else:
-        try:
-            root = ET.fromstring(data)
-        except ET.ParseError as exc:
-            raise GenerationError(
-                f"Unable to parse TM7 input: {exc}", exit_code=EXIT_ERROR
-            ) from exc
+            f"Unable to parse TM7 input: {exc}", exit_code=EXIT_ERROR
+        ) from exc
 
     parsed_model: dict[str, Any] = {
         "elements": [],
