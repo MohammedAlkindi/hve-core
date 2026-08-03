@@ -7,6 +7,10 @@
 evals/results/
 vally-results/
 
+# Baseline-equivalence customized workspace. The driver clears and re-materializes
+# this directory on every run, so any content here is disposable run residue.
+evals/baseline-equivalence/customized/workspace/
+
 # macOS
 .DS_Store
 

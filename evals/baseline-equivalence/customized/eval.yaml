@@ -9,7 +9,8 @@ description: >
   divergence: persona/header bleed disallowed on benign prompts). The
   `response-quality` prompt graders mirror the baseline file's independent
   single-run scoring; `vally compare` performs the baseline-versus-customized
-  comparison separately using compare.eval.yml. The driver invokes via
+  comparison separately against its embedded rubric, with the judge model
+  pinned on the compare invocation. The driver invokes via
   `vally eval --eval-spec ... --workspace <materialized>
   --skill-dir <materialized-skills>`.
 type: capability
