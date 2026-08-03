@@ -1408,341 +1408,337 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _cmd_run_at_plan(args: argparse.Namespace) -> int:
+    """Derives AT-plan cases from a matrix and executes the eligible ones."""
+    if not args.matrix.exists():
+        raise ScriptError(f"Matrix file does not exist: {args.matrix}", EXIT_USAGE)
+    try:
+        cases = _derive_at_plan_cases(
+            args.matrix,
+            args.config,
+            allow_external=args.allow_external,
+            require_target=True,
+        )
+    except (ValueError, json.JSONDecodeError, OSError) as exc:
+        raise ScriptError(
+            f"Unable to derive AT-plan cases from {args.matrix}: {exc}",
+            EXIT_USAGE,
+        ) from exc
+    if args.list:
+        _write_output(
+            {
+                "cases": [
+                    {
+                        "id": case["caseId"],
+                        "automationEligible": case["automationEligible"],
+                        "automationExclusionReason": case["automationExclusionReason"],
+                    }
+                    for case in cases
+                ]
+            },
+            None,
+        )
+        return EXIT_SUCCESS
+    force_execute = args.driver.lower() in {"fake", "synthetic"}
+    if args.case_id:
+        requested = set(args.case_id)
+        selected = [case for case in cases if case["caseId"] in requested]
+        if len(selected) != len(requested):
+            raise ScriptError(
+                "One or more requested case IDs were not found in the matrix.",
+                EXIT_USAGE,
+            )
+    elif force_execute:
+        selected = list(cases)
+    else:
+        selected = [case for case in cases if case["automationEligible"]]
+    if not selected:
+        raise ScriptError("No executable AT-plan cases were selected.", EXIT_USAGE)
+    results = []
+    for case in selected:
+        if not case.get("automationEligible") and not force_execute:
+            results.append(
+                {
+                    "caseId": case["caseId"],
+                    "status": "unsupported",
+                    "reason": case.get("automationExclusionReason") or "human-only",
+                }
+            )
+            continue
+        eligible_variants = [
+            variant
+            for variant in case.get("variants", [])
+            if variant.get("automationEligible", False)
+        ]
+        if not eligible_variants:
+            if not force_execute:
+                results.append(
+                    {
+                        "caseId": case["caseId"],
+                        "status": "unsupported",
+                        "reason": "No automation-eligible variant was resolved.",
+                    }
+                )
+                continue
+            variant_case = dict(case)
+            variant_case["variant"] = None
+            variant_case["commands"] = list(case.get("commands", []))
+            variant_case["assertions"] = list(case.get("assertions", []))
+            variant_case["at"] = case.get("at")
+            results.append(_run_at_plan_case(variant_case, args.driver, args.trace))
+            continue
+        for variant in eligible_variants:
+            variant_case = dict(case)
+            variant_case["variant"] = variant
+            variant_case["commands"] = list(
+                variant.get("commands") or case.get("commands", [])
+            )
+            variant_case["assertions"] = list(
+                variant.get("assertions") or case.get("assertions", [])
+            )
+            variant_case["at"] = variant.get("at")
+            results.append(_run_at_plan_case(variant_case, args.driver, args.trace))
+    document = {
+        "tool": "runtime_a11y",
+        "command": "run-at-plan",
+        "runAt": datetime.now(timezone.utc).isoformat(),
+        "cases": results,
+    }
+    _write_output(document, args.out)
+    return EXIT_SUCCESS
+
+
+def _cmd_render_artifacts(args: argparse.Namespace) -> int:
+    """Renders review artifacts from a matrix without executing probes."""
+    document = _render_artifacts(
+        args.matrix,
+        args.output_dir,
+        args.repo_slug,
+        runtime_config_path=args.runtime_config,
+    )
+    _write_output(document, None)
+    return EXIT_SUCCESS
+
+
+def _cmd_capture_visual_review(args: argparse.Namespace) -> int:
+    """Captures visual-review evidence for the configured surfaces and states."""
+    config = load_validated_config(args.config, allow_external=args.allow_external)
+    config = validate_visual_review_config(config)
+    visual_review = config.get("visualReview") or {}
+    if visual_review.get("enabled") is not True:
+        raise ScriptError(
+            "Visual review capture requires visualReview.enabled to be "
+            "true in the runtime config.",
+            EXIT_USAGE,
+        )
+    selected_plan = _select_visual_review_plan(
+        config,
+        surfaces=list(args.visual_surface or []),
+        states=list(args.visual_state or []),
+    )
+    base_url = _resolve_guarded_base_url(
+        config, args.base_url, allow_external=args.allow_external
+    )
+    run_root = (
+        _resolve_repo_path(args.run_root, kind="--run-root")
+        if args.run_root is not None
+        else resolve_run_root(
+            _REPO_ROOT,
+            run_id=f"visual-review-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        )
+    )
+    server_process = None
+    server_owned = False
+    try:
+        server_process, server_owned = _ensure_visual_review_server(base_url)
+        payload = _run_visual_review_capture(
+            config,
+            base_url,
+            Path(run_root),
+            args.trace,
+            surfaces=selected_plan["surfaces"],
+            states=selected_plan["states"],
+        )
+        manifest_paths = _write_visual_review_manifests(
+            payload,
+            Path(run_root),
+            max_artifact_bytes=visual_review.get("maxArtifactBytes"),
+        )
+    finally:
+        if server_owned:
+            _stop_visual_review_server(server_process)
+    document = {
+        "tool": "runtime_a11y",
+        "command": "capture-visual-review",
+        "runAt": datetime.now(timezone.utc).isoformat(),
+        "baseUrl": base_url,
+        "runRoot": _public_path(run_root),
+        "manifestPaths": manifest_paths,
+        "runs": payload.get("runs", []),
+    }
+    _write_output(document, args.out)
+    return EXIT_SUCCESS
+
+
+def _resolve_calibration_run_root(args: argparse.Namespace) -> Path:
+    """Chooses the run root for a calibration session.
+
+    An explicit --run-root wins. Otherwise an --out that already points inside
+    the local runs tree keeps its own parent, so a caller directing output at an
+    existing run does not scatter artifacts across two roots. Anything else gets
+    a fresh timestamped root.
+    """
+    if args.run_root is not None:
+        return _resolve_repo_path(args.run_root, kind="--run-root")
+
+    if args.out is not None:
+        output_candidate = Path(args.out).expanduser()
+        if not output_candidate.is_absolute():
+            output_candidate = (_REPO_ROOT / output_candidate).expanduser()
+        resolved_output_candidate = output_candidate.resolve(strict=False)
+        if _is_within(resolved_output_candidate, _local_runs_root()):
+            return resolved_output_candidate.parent
+
+    return resolve_run_root(
+        _REPO_ROOT,
+        run_id=f"calibration-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+    )
+
+
+def _normalize_calibration_aggregate(payload: dict[str, Any]) -> dict[str, Any]:
+    """Returns a calibration aggregate with a status the caller can trust.
+
+    A missing or unrecognized status is reported as unsuccessful rather than
+    passed through, so an incomplete run cannot read as a clean one downstream.
+    """
+    aggregate = payload.get("aggregate")
+    if not isinstance(aggregate, dict):
+        return {
+            "status": "unsuccessful",
+            "reason": "Calibration completed without an aggregate status.",
+        }
+
+    aggregate_status = str(aggregate.get("status") or "").lower()
+    if aggregate_status not in {"successful", "unsuccessful", "incomplete"}:
+        return {
+            "status": "unsuccessful",
+            "reason": (
+                aggregate.get("reason")
+                or "Calibration completed without an aggregate status."
+            ),
+        }
+    return aggregate
+
+
+def _cmd_run_calibration(args: argparse.Namespace) -> int:
+    """Runs a calibration session, or only its prerequisite probe."""
+    config = load_validated_config(args.config, allow_external=args.allow_external)
+    calibration = config.get("calibration") or {}
+    journey_ids = [
+        str(item.get("id"))
+        for item in calibration.get("journeys", [])
+        if str(item.get("id"))
+    ]
+    base_url = _resolve_guarded_base_url(
+        config, args.base_url, allow_external=args.allow_external
+    )
+    run_root = _resolve_calibration_run_root(args)
+
+    if args.out is not None:
+        out_path = _resolve_repo_path(
+            args.out,
+            kind="--out",
+            allowed_root=_resolve_output_allowed_root(run_root, args.out),
+        )
+    elif run_root is not None:
+        out_path = Path(run_root) / "calibration-output.json"
+    else:
+        out_path = None
+
+    config_for_execution = deepcopy(config)
+    if args.base_url:
+        config_for_execution["baseUrl"] = args.base_url
+
+    if args.prerequisite_only:
+        payload = _run_prerequisite_probe(config_for_execution, base_url, args.trace)
+        aggregate = {
+            "status": "successful",
+            "reason": "Calibration prerequisites are ready.",
+        }
+        if isinstance(payload, dict) and payload.get("ok") is False:
+            aggregate = {
+                "status": "unsuccessful",
+                "reason": (
+                    payload.get("reason") or "Calibration prerequisites were not met."
+                ),
+            }
+        elif isinstance(payload, dict) and payload.get("reason"):
+            aggregate = {"status": "successful", "reason": payload.get("reason")}
+        document = {
+            "tool": "runtime_a11y",
+            "command": "run-calibration",
+            "runAt": datetime.now(timezone.utc).isoformat(),
+            "baseUrl": base_url,
+            "journeys": journey_ids,
+            "visualStates": calibration.get("visualStates") or [],
+            "runRoot": _public_path(run_root),
+            "aggregate": aggregate,
+            "checkpoints": [],
+            "state": {"journeys": []},
+            "prerequisiteOnly": True,
+        }
+        _write_output(document, out_path)
+        return EXIT_SUCCESS
+
+    server_process = None
+    server_owned = False
+    _emit_live_test_start_notice(run_root, len(journey_ids))
+    try:
+        if (config.get("visualReview") or {}).get("enabled") is True:
+            server_process, server_owned = _ensure_visual_review_server(base_url)
+        payload = _run_calibration_session(
+            config_for_execution,
+            base_url,
+            str(run_root) if run_root is not None else None,
+            args.trace,
+        )
+    finally:
+        if server_owned:
+            _stop_visual_review_server(server_process)
+        _emit_live_test_finish_notice()
+
+    document = {
+        "tool": "runtime_a11y",
+        "command": "run-calibration",
+        "runAt": datetime.now(timezone.utc).isoformat(),
+        "baseUrl": base_url,
+        "journeys": payload.get("journeys", journey_ids),
+        "visualStates": calibration.get("visualStates") or [],
+        "runRoot": _public_path(
+            payload.get("runRoot") or (run_root if run_root is not None else None)
+        ),
+        "aggregate": _normalize_calibration_aggregate(payload),
+        "checkpoints": payload.get("checkpoints", []),
+        "state": payload.get("state", {}),
+    }
+    _write_output(document, out_path)
+    return EXIT_SUCCESS
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Main entry point."""
+    """Parses arguments and dispatches to the selected command."""
     parser = create_parser()
     args = parser.parse_args(argv)
 
     try:
         if args.command == "render-artifacts":
-            document = _render_artifacts(
-                args.matrix,
-                args.output_dir,
-                args.repo_slug,
-                runtime_config_path=args.runtime_config,
-            )
-            _write_output(document, None)
-            return EXIT_SUCCESS
+            return _cmd_render_artifacts(args)
         if args.command == "capture-visual-review":
-            config = load_validated_config(
-                args.config, allow_external=args.allow_external
-            )
-            config = validate_visual_review_config(config)
-            visual_review = config.get("visualReview") or {}
-            if visual_review.get("enabled") is not True:
-                raise ScriptError(
-                    "Visual review capture requires visualReview.enabled to be "
-                    "true in the runtime config.",
-                    EXIT_USAGE,
-                )
-            selected_plan = _select_visual_review_plan(
-                config,
-                surfaces=list(args.visual_surface or []),
-                states=list(args.visual_state or []),
-            )
-            base_url = _resolve_guarded_base_url(
-                config, args.base_url, allow_external=args.allow_external
-            )
-            run_root = (
-                _resolve_repo_path(args.run_root, kind="--run-root")
-                if args.run_root is not None
-                else resolve_run_root(
-                    _REPO_ROOT,
-                    run_id=f"visual-review-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-                )
-            )
-            server_process = None
-            server_owned = False
-            try:
-                server_process, server_owned = _ensure_visual_review_server(base_url)
-                payload = _run_visual_review_capture(
-                    config,
-                    base_url,
-                    Path(run_root),
-                    args.trace,
-                    surfaces=selected_plan["surfaces"],
-                    states=selected_plan["states"],
-                )
-                manifest_paths = _write_visual_review_manifests(
-                    payload,
-                    Path(run_root),
-                    max_artifact_bytes=visual_review.get("maxArtifactBytes"),
-                )
-            finally:
-                if server_owned:
-                    _stop_visual_review_server(server_process)
-            document = {
-                "tool": "runtime_a11y",
-                "command": "capture-visual-review",
-                "runAt": datetime.now(timezone.utc).isoformat(),
-                "baseUrl": base_url,
-                "runRoot": _public_path(run_root),
-                "manifestPaths": manifest_paths,
-                "runs": payload.get("runs", []),
-            }
-            _write_output(document, args.out)
-            return EXIT_SUCCESS
+            return _cmd_capture_visual_review(args)
         if args.command == "run-calibration":
-            config = load_validated_config(
-                args.config, allow_external=args.allow_external
-            )
-            calibration = config.get("calibration") or {}
-            journey_ids = [
-                str(item.get("id"))
-                for item in calibration.get("journeys", [])
-                if str(item.get("id"))
-            ]
-            base_url = _resolve_guarded_base_url(
-                config, args.base_url, allow_external=args.allow_external
-            )
-            run_root = None
-            if args.run_root is not None:
-                run_root = _resolve_repo_path(args.run_root, kind="--run-root")
-            elif args.out is not None:
-                output_candidate = Path(args.out).expanduser()
-                if not output_candidate.is_absolute():
-                    output_candidate = (_REPO_ROOT / output_candidate).expanduser()
-                resolved_output_candidate = output_candidate.resolve(strict=False)
-                if _is_within(resolved_output_candidate, _local_runs_root()):
-                    run_root = resolved_output_candidate.parent
-                else:
-                    run_root = resolve_run_root(
-                        _REPO_ROOT,
-                        run_id=f"calibration-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-                    )
-            else:
-                run_root = resolve_run_root(
-                    _REPO_ROOT,
-                    run_id=f"calibration-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-                )
-
-            if args.out is not None:
-                out_path = _resolve_repo_path(
-                    args.out,
-                    kind="--out",
-                    allowed_root=_resolve_output_allowed_root(
-                        run_root,
-                        args.out,
-                    ),
-                )
-            elif run_root is not None:
-                out_path = Path(run_root) / "calibration-output.json"
-            else:
-                out_path = None
-
-            config_for_execution = deepcopy(config)
-            if args.base_url:
-                config_for_execution["baseUrl"] = args.base_url
-
-            if args.prerequisite_only:
-                payload = _run_prerequisite_probe(
-                    config_for_execution,
-                    base_url,
-                    args.trace,
-                )
-                aggregate = {
-                    "status": "successful",
-                    "reason": "Calibration prerequisites are ready.",
-                }
-                if isinstance(payload, dict) and payload.get("ok") is False:
-                    aggregate = {
-                        "status": "unsuccessful",
-                        "reason": (
-                            payload.get("reason")
-                            or "Calibration prerequisites were not met."
-                        ),
-                    }
-                elif isinstance(payload, dict) and payload.get("reason"):
-                    aggregate = {
-                        "status": "successful",
-                        "reason": payload.get("reason"),
-                    }
-                document = {
-                    "tool": "runtime_a11y",
-                    "command": "run-calibration",
-                    "runAt": datetime.now(timezone.utc).isoformat(),
-                    "baseUrl": base_url,
-                    "journeys": journey_ids,
-                    "visualStates": calibration.get("visualStates") or [],
-                    "runRoot": _public_path(run_root),
-                    "aggregate": aggregate,
-                    "checkpoints": [],
-                    "state": {"journeys": []},
-                    "prerequisiteOnly": True,
-                }
-                _write_output(document, out_path)
-                return EXIT_SUCCESS
-
-            server_process = None
-            server_owned = False
-            if not args.prerequisite_only:
-                _emit_live_test_start_notice(run_root, len(journey_ids))
-            try:
-                if (config.get("visualReview") or {}).get("enabled") is True:
-                    server_process, server_owned = _ensure_visual_review_server(
-                        base_url
-                    )
-                payload = _run_calibration_session(
-                    config_for_execution,
-                    base_url,
-                    str(run_root) if run_root is not None else None,
-                    args.trace,
-                )
-            finally:
-                if server_owned:
-                    _stop_visual_review_server(server_process)
-                if not args.prerequisite_only:
-                    _emit_live_test_finish_notice()
-
-            aggregate = payload.get("aggregate")
-            if not isinstance(aggregate, dict):
-                aggregate = {
-                    "status": "unsuccessful",
-                    "reason": "Calibration completed without an aggregate status.",
-                }
-            else:
-                aggregate_status = str(aggregate.get("status") or "").lower()
-                if aggregate_status not in {"successful", "unsuccessful", "incomplete"}:
-                    aggregate = {
-                        "status": "unsuccessful",
-                        "reason": (
-                            aggregate.get("reason")
-                            or "Calibration completed without an aggregate status."
-                        ),
-                    }
-            document = {
-                "tool": "runtime_a11y",
-                "command": "run-calibration",
-                "runAt": datetime.now(timezone.utc).isoformat(),
-                "baseUrl": base_url,
-                "journeys": payload.get("journeys", journey_ids),
-                "visualStates": calibration.get("visualStates") or [],
-                "runRoot": _public_path(
-                    payload.get("runRoot")
-                    or (run_root if run_root is not None else None)
-                ),
-                "aggregate": aggregate,
-                "checkpoints": payload.get("checkpoints", []),
-                "state": payload.get("state", {}),
-            }
-            _write_output(document, out_path)
-            return EXIT_SUCCESS
+            return _cmd_run_calibration(args)
         if args.command == "run-at-plan":
-            if not args.matrix.exists():
-                raise ScriptError(
-                    f"Matrix file does not exist: {args.matrix}", EXIT_USAGE
-                )
-            try:
-                cases = _derive_at_plan_cases(
-                    args.matrix,
-                    args.config,
-                    allow_external=args.allow_external,
-                    require_target=True,
-                )
-            except (ValueError, json.JSONDecodeError, OSError) as exc:
-                raise ScriptError(
-                    f"Unable to derive AT-plan cases from {args.matrix}: {exc}",
-                    EXIT_USAGE,
-                ) from exc
-            if args.list:
-                _write_output(
-                    {
-                        "cases": [
-                            {
-                                "id": case["caseId"],
-                                "automationEligible": case["automationEligible"],
-                                "automationExclusionReason": case[
-                                    "automationExclusionReason"
-                                ],
-                            }
-                            for case in cases
-                        ]
-                    },
-                    None,
-                )
-                return EXIT_SUCCESS
-            force_execute = args.driver.lower() in {"fake", "synthetic"}
-            if args.case_id:
-                requested = set(args.case_id)
-                selected = [case for case in cases if case["caseId"] in requested]
-                if len(selected) != len(requested):
-                    raise ScriptError(
-                        "One or more requested case IDs were not found in the matrix.",
-                        EXIT_USAGE,
-                    )
-            elif force_execute:
-                selected = list(cases)
-            else:
-                selected = [case for case in cases if case["automationEligible"]]
-            if not selected:
-                raise ScriptError(
-                    "No executable AT-plan cases were selected.", EXIT_USAGE
-                )
-            results = []
-            for case in selected:
-                if not case.get("automationEligible") and not force_execute:
-                    results.append(
-                        {
-                            "caseId": case["caseId"],
-                            "status": "unsupported",
-                            "reason": case.get("automationExclusionReason")
-                            or "human-only",
-                        }
-                    )
-                    continue
-                eligible_variants = [
-                    variant
-                    for variant in case.get("variants", [])
-                    if variant.get("automationEligible", False)
-                ]
-                if not eligible_variants:
-                    if not force_execute:
-                        results.append(
-                            {
-                                "caseId": case["caseId"],
-                                "status": "unsupported",
-                                "reason": (
-                                    "No automation-eligible variant was resolved."
-                                ),
-                            }
-                        )
-                        continue
-                    variant_case = dict(case)
-                    variant_case["variant"] = None
-                    variant_case["commands"] = list(case.get("commands", []))
-                    variant_case["assertions"] = list(case.get("assertions", []))
-                    variant_case["at"] = case.get("at")
-                    payload = _run_at_plan_case(
-                        variant_case,
-                        args.driver,
-                        args.trace,
-                    )
-                    results.append(payload)
-                    continue
-                for variant in eligible_variants:
-                    variant_case = dict(case)
-                    variant_case["variant"] = variant
-                    variant_case["commands"] = list(
-                        variant.get("commands") or case.get("commands", [])
-                    )
-                    variant_case["assertions"] = list(
-                        variant.get("assertions") or case.get("assertions", [])
-                    )
-                    variant_case["at"] = variant.get("at")
-                    payload = _run_at_plan_case(
-                        variant_case,
-                        args.driver,
-                        args.trace,
-                    )
-                    results.append(payload)
-            document = {
-                "tool": "runtime_a11y",
-                "command": "run-at-plan",
-                "runAt": datetime.now(timezone.utc).isoformat(),
-                "cases": results,
-            }
-            _write_output(document, args.out)
-            return EXIT_SUCCESS
+            return _cmd_run_at_plan(args)
         config = load_validated_config(args.config, allow_external=args.allow_external)
         base_url = args.base_url or config.get("baseUrl", "")
         probe_filter = getattr(args, "probe_id", None)
