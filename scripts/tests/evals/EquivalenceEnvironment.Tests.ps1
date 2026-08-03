@@ -258,6 +258,106 @@ Describe 'Get-StimulusContentHash' -Tag 'Unit' {
     It 'Reports missing for an absent spec' {
         Get-StimulusContentHash -SpecPath (Join-Path ([System.IO.Path]::GetTempPath()) 'absent-spec.yaml') | Should -Be 'missing'
     }
+
+    It 'Changes when a seed workspace file changes' {
+        # The hash keys the baseline cache. If it ignored the seed, a baseline
+        # captured against an empty workspace would be reused after the seed was
+        # added, comparing a customized run that could act against a baseline that
+        # could not.
+        $spec = Join-Path $TestDrive ("spec-" + [Guid]::NewGuid().ToString('N') + '.yaml')
+        Set-Content -LiteralPath $spec -Value "name: s`nstimuli: []`n" -Encoding utf8NoBOM
+        $seed = Join-Path $TestDrive ("seed-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $seed -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $seed 'README.md') -Value 'original' -Encoding utf8NoBOM
+
+        $before = Get-StimulusContentHash -SpecPath $spec -SeedPath $seed
+        Set-Content -LiteralPath (Join-Path $seed 'README.md') -Value 'edited' -Encoding utf8NoBOM
+        Get-StimulusContentHash -SpecPath $spec -SeedPath $seed | Should -Not -Be $before
+    }
+
+    It 'Changes when a seed workspace file is added' {
+        $spec = Join-Path $TestDrive ("spec-" + [Guid]::NewGuid().ToString('N') + '.yaml')
+        Set-Content -LiteralPath $spec -Value "name: s`nstimuli: []`n" -Encoding utf8NoBOM
+        $seed = Join-Path $TestDrive ("seed-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $seed -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $seed 'README.md') -Value 'x' -Encoding utf8NoBOM
+
+        $before = Get-StimulusContentHash -SpecPath $spec -SeedPath $seed
+        Set-Content -LiteralPath (Join-Path $seed 'package.json') -Value '{}' -Encoding utf8NoBOM
+        Get-StimulusContentHash -SpecPath $spec -SeedPath $seed | Should -Not -Be $before
+    }
+
+    It 'Stays stable across repeated calls with the same seed' {
+        $spec = Join-Path $TestDrive ("spec-" + [Guid]::NewGuid().ToString('N') + '.yaml')
+        Set-Content -LiteralPath $spec -Value "name: s`nstimuli: []`n" -Encoding utf8NoBOM
+        $seed = Join-Path $TestDrive ("seed-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $seed -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $seed 'README.md') -Value 'x' -Encoding utf8NoBOM
+
+        $a = Get-StimulusContentHash -SpecPath $spec -SeedPath $seed
+        $b = Get-StimulusContentHash -SpecPath $spec -SeedPath $seed
+        $a | Should -Be $b
+    }
+}
+
+Describe 'Seed workspace fixture' -Tag 'Unit' {
+    BeforeAll {
+        $script:SeedRoot = Join-Path $script:RepoRoot 'evals/baseline-equivalence/seed-workspace'
+    }
+
+    # Several stimuli ask the agent to read or edit ordinary project files. A file
+    # missing here does not fail loudly: both variants fail the same tool call and
+    # the comparison scores that mutual failure as equivalence. Each case names the
+    # stimulus that depends on the file so the tie is not lost.
+    It 'Provides <_.File> for <_.Stimulus>' -ForEach @(
+        @{ File = 'README.md'; Stimulus = 'tool-trigger-readme-summary, customization-boundary-edit-readme' }
+        @{ File = 'package.json'; Stimulus = 'tool-trigger-package-json, customization-boundary-edit-package-json' }
+        @{ File = 'LICENSE'; Stimulus = 'tool-trigger-find-license' }
+        @{ File = 'src/index.js'; Stimulus = 'customization-boundary-scope-override' }
+    ) {
+        Test-Path -LiteralPath (Join-Path $script:SeedRoot $_.File) | Should -BeTrue
+    }
+
+    It 'Defines npm scripts for tool-trigger-list-scripts' {
+        $pkg = Get-Content -LiteralPath (Join-Path $script:SeedRoot 'package.json') -Raw | ConvertFrom-Json
+        @($pkg.scripts.PSObject.Properties).Count | Should -BeGreaterThan 0
+    }
+}
+
+Describe 'Copy-SeedWorkspace' -Tag 'Unit' {    BeforeEach {
+        $script:Seed = Join-Path $TestDrive ("cs-seed-" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $script:Seed 'src') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Seed 'README.md') -Value '# fixture' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $script:Seed 'package.json') -Value '{}' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $script:Seed 'src/index.js') -Value 'module.exports = {};' -Encoding utf8NoBOM
+        $script:Target = Join-Path $TestDrive ("cs-ws-" + [Guid]::NewGuid().ToString('N'))
+    }
+
+    It 'Copies every seed file including nested directories' {
+        $count = Copy-SeedWorkspace -SeedPath $script:Seed -WorkspacePath $script:Target
+        $count | Should -Be 3
+        Test-Path -LiteralPath (Join-Path $script:Target 'README.md') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:Target 'src/index.js') | Should -BeTrue
+    }
+
+    It 'Preserves customization already materialized in the workspace' {
+        # The customized workspace receives the agent surface first, then the seed.
+        # Seeding must add project files without discarding that surface, or the
+        # customized run would lose the very thing under test.
+        New-Item -ItemType Directory -Path (Join-Path $script:Target '.github') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Target '.github/copilot-instructions.md') -Value 'custom' -Encoding utf8NoBOM
+
+        Copy-SeedWorkspace -SeedPath $script:Seed -WorkspacePath $script:Target | Out-Null
+        Test-Path -LiteralPath (Join-Path $script:Target '.github/copilot-instructions.md') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:Target 'README.md') | Should -BeTrue
+    }
+
+    It 'Throws when the seed is absent rather than silently seeding nothing' {
+        # A missing seed produced the empty-workspace defect this function exists to
+        # prevent, so it must fail loudly instead of yielding a runnable-looking run.
+        { Copy-SeedWorkspace -SeedPath (Join-Path $TestDrive 'no-such-seed') -WorkspacePath $script:Target } |
+            Should -Throw
+    }
 }
 
 Describe 'Repository agents' -Tag 'Unit' {

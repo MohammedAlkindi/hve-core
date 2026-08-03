@@ -344,6 +344,13 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         New-Item -ItemType Directory -Path $stubAgentsDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $stubAgentsDir 'rpi-agent.agent.md') -Encoding UTF8 -Value "---`nname: RPI Agent`n---`n`nStub agent for driver tests."
 
+        # The driver seeds both workspaces from this fixture and treats its absence as a
+        # repo-integrity failure, so the stub repo must carry one the way the real repo
+        # does. Content is irrelevant here; only the copy path is exercised.
+        $script:StubSeedDir = Join-Path $baselineRoot 'seed-workspace'
+        New-Item -ItemType Directory -Path $script:StubSeedDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:StubSeedDir 'README.md') -Encoding UTF8 -Value '# Stub seed'
+
         $script:StubOutputPath = Join-Path $script:StubRepoRoot 'logs/summary.json'
         $stubVally = Join-Path $PSScriptRoot 'fixtures/stub-vally.ps1'
         Set-Alias -Name vally -Value $stubVally -Scope Global
@@ -369,6 +376,26 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         $LASTEXITCODE | Should -Be 1
     }
 
+    It 'Seeds both workspaces so neither variant runs against an empty tree' {
+        # Asserts the files actually land, not just that the copy was called. The
+        # original defect was that both workspaces held only the agent surface, so
+        # every project-file stimulus failed in both variants and the comparison
+        # scored that mutual failure as equivalence.
+        & $script:ScriptPath `
+            -Agent 'rpi-agent' `
+            -Tier 'ci' `
+            -RepoRoot $script:StubRepoRoot `
+            -OutputPath $script:StubOutputPath *> $null
+
+        $customizedSeed = Join-Path $script:StubRepoRoot 'evals/baseline-equivalence/customized/workspace/README.md'
+        Test-Path -LiteralPath $customizedSeed | Should -BeTrue
+
+        $baselineSeeds = @(Get-ChildItem -Path $script:StubRepoRoot -Recurse -Directory -Filter 'baseline-workspace' |
+                ForEach-Object { Join-Path $_.FullName 'README.md' } |
+                Where-Object { Test-Path -LiteralPath $_ })
+        $baselineSeeds.Count | Should -BeGreaterThan 0
+    }
+
     It 'Exits 0 on the advisory tier despite the same failing verdict' {
         # devloop is advisory: it reports the failure but must not gate. Without this
         # case the tier check in the exit path could be deleted and the ci test above
@@ -382,6 +409,26 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         $summary = Get-Content -LiteralPath $script:StubOutputPath -Raw | ConvertFrom-Json
         $summary.verdict | Should -Be 'fail'
         $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'Fails loudly when the seed workspace is missing' {
+        # The empty-workspace defect this seeding fixes was invisible: both variants
+        # failed the same tool calls and the comparison read as equivalence. A silent
+        # skip would restore exactly that, so a missing fixture must abort the run
+        # rather than produce a summary that looks runnable.
+        #
+        # Uses devloop, not ci: the advisory tier exits 0 on the stub's failing verdict,
+        # so a non-zero exit here can only come from the missing seed. On ci the failing
+        # verdict alone exits 1 and this case would pass with the seeding deleted.
+        Remove-Item -LiteralPath $script:StubSeedDir -Recurse -Force
+
+        & $script:ScriptPath `
+            -Agent 'rpi-agent' `
+            -Tier 'devloop' `
+            -RepoRoot $script:StubRepoRoot `
+            -OutputPath $script:StubOutputPath *> $null
+
+        $LASTEXITCODE | Should -Not -Be 0
     }
 }
 

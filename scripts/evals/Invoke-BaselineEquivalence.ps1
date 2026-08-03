@@ -613,10 +613,20 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
             }
 
+            # Several stimuli ask the agent to read or edit ordinary project files. The
+            # customization surface contains none of them, so without this seed those
+            # tool calls fail identically in both variants and the comparison reports
+            # equivalence for a task neither run could attempt. Both workspaces receive
+            # the same fixture, so the customization layer stays the only difference.
+            $seedPath = Join-Path $resolvedRoot 'evals/baseline-equivalence/seed-workspace'
+            $baselineSeeded = Copy-SeedWorkspace -SeedPath $seedPath -WorkspacePath $baselineWorkspacePath
+            $customizedSeeded = Copy-SeedWorkspace -SeedPath $seedPath -WorkspacePath $workspaceRoot
+            Write-Host "   Seed workspace: $baselineSeeded baseline / $customizedSeeded customized file(s)" -ForegroundColor DarkGray
+
             # The baseline is identical for every agent, so running it per agent doubles
             # cost for no signal. Reuse a persisted baseline whenever the inputs that
             # shaped it are unchanged, and regenerate when they are not.
-            $stimulusHash = Get-StimulusContentHash -SpecPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/baseline/eval.yaml')
+            $stimulusHash = Get-StimulusContentHash -SpecPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/baseline/eval.yaml') -SeedPath $seedPath
             $cacheKey = Get-BaselineCacheKey -Model $model -VallyVersion $vallyVersion -StimulusHash $stimulusHash
             $baselineRunDir = $null
             $baselineReused = $false

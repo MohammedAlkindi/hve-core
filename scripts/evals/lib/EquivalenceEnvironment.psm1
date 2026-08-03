@@ -304,21 +304,44 @@ function Get-BaselineCacheKey {
 function Get-StimulusContentHash {
     <#
     .SYNOPSIS
-        Returns a stable content hash for the baseline eval spec.
+        Returns a stable content hash for the baseline eval spec and its seed workspace.
+    .DESCRIPTION
+        The hash keys the baseline cache, so it must cover every input that shapes a
+        baseline run. The spec supplies the stimuli; the seed workspace supplies the
+        files those stimuli act on. Hashing only the spec would let a baseline captured
+        against an empty workspace be reused after the seed changed, silently comparing
+        a customized run that could act against a baseline that could not.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
-        [string]$SpecPath
+        [string]$SpecPath,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$SeedPath
     )
 
     if (-not (Test-Path -LiteralPath $SpecPath -PathType Leaf)) { return 'missing' }
-    $normalized = (Get-Content -LiteralPath $SpecPath -Raw) -replace "`r`n", "`n"
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $parts.Add(((Get-Content -LiteralPath $SpecPath -Raw) -replace "`r`n", "`n"))
+
+    # Sorted relative paths plus content, so a rename or an edit both change the key.
+    if ($SeedPath -and (Test-Path -LiteralPath $SeedPath)) {
+        $root = (Resolve-Path -LiteralPath $SeedPath).Path
+        foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Sort-Object FullName)) {
+            $rel = $f.FullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
+            $parts.Add($rel)
+            $parts.Add(((Get-Content -LiteralPath $f.FullName -Raw) -replace "`r`n", "`n"))
+        }
+    }
+
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($normalized))
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes(($parts -join "`n")))
         return (-join ($bytes | ForEach-Object { $_.ToString('x2') }))
     }
     finally { $sha.Dispose() }
@@ -429,10 +452,64 @@ function Save-BaselineCacheEntry {
     return $targetRun
 }
 
+function Copy-SeedWorkspace {
+    <#
+    .SYNOPSIS
+        Copies the shared fixture project into a run workspace.
+    .DESCRIPTION
+        Several stimuli ask the agent to read or edit ordinary repository files:
+        `README.md`, `package.json`, `src/index.js`, and the `scripts/` directory.
+        The customization surface alone contains none of those, so without a seed
+        every one of those tool calls fails with "path does not exist" in both
+        variants. The two runs then fail identically, the comparison finds no
+        difference, and the suite reports equivalence for a question neither run
+        was able to answer.
+
+        The same fixture is copied into both the baseline and customized
+        workspaces so the only difference between them remains the customization
+        layer.
+
+        Files are copied rather than linked because a stimulus may edit them, and
+        each run must start from an unmodified copy.
+    .OUTPUTS
+        [int] Count of files copied.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$SeedPath,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$WorkspacePath
+    )
+
+    if (-not (Test-Path -LiteralPath $SeedPath)) {
+        throw "Seed workspace not found at '$SeedPath'. The stimulus corpus expects an ordinary project to act on."
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($WorkspacePath, 'Copy seed workspace')) {
+        return 0
+    }
+
+    if (-not (Test-Path -LiteralPath $WorkspacePath)) {
+        New-Item -ItemType Directory -Path $WorkspacePath -Force -WhatIf:$false -Confirm:$false | Out-Null
+    }
+
+    foreach ($item in @(Get-ChildItem -LiteralPath $SeedPath -Force)) {
+        Copy-Item -LiteralPath $item.FullName -Destination $WorkspacePath -Recurse -Force -WhatIf:$false -Confirm:$false
+    }
+
+    return @(Get-ChildItem -LiteralPath $WorkspacePath -Recurse -File -Force -ErrorAction SilentlyContinue).Count
+}
+
 Export-ModuleMember -Function `
     Get-AgentSkillReference, `
     Resolve-AgentScopePattern, `
     New-CustomizedEnvironment, `
+    Copy-SeedWorkspace, `
     Get-BaselineCacheKey, `
     Get-StimulusContentHash, `
     Get-BaselineCacheEntry, `
