@@ -289,46 +289,36 @@ def _resolve_layout_overlay(
         spec_path=spec_path,
         model=model,
     )
-    if not isinstance(overlay.get("invalidation"), dict):
-        overlay["invalidation"] = {}
-    for key, value in {
-        "spec_fingerprint": context.spec_sha256,
-        "generator_profile_fingerprint": context.generator_profile_sha256,
-        "surface_identity_fingerprint": tm7_visual_feedback._fingerprint(
-            {
-                "surface_ids": sorted(context.surface_ids),
-                "surface_node_ids": {
-                    surface_key: sorted(surface_value)
-                    for surface_key, surface_value in sorted(
-                        context.surface_node_ids.items()
-                    )
-                },
-            }
-        ),
-        "surface_zone_identity_fingerprint": tm7_visual_feedback._fingerprint(
-            {
-                "surface_ids": sorted(context.surface_ids),
-                "surface_zone_ids": {
-                    surface_key: sorted(surface_value)
-                    for surface_key, surface_value in sorted(
-                        context.surface_zone_ids.items()
-                    )
-                },
-            }
-        ),
-        "surface_flow_identity_fingerprint": tm7_visual_feedback._fingerprint(
-            {
-                "surface_ids": sorted(context.surface_ids),
-                "surface_flow_ids": {
-                    surface_key: sorted(surface_value)
-                    for surface_key, surface_value in sorted(
-                        context.surface_flow_ids.items()
-                    )
-                },
-            }
-        ),
-    }.items():
-        overlay["invalidation"].setdefault(key, value)
+    # The overlay must carry its own invalidation fingerprints. They were
+    # previously synthesized with `setdefault` from the same context they are
+    # then validated against, so an overlay that simply omitted the block
+    # passed validation unconditionally. The evasion was deletion, not forgery,
+    # which is why completeness is required before any comparison happens.
+    required_invalidation_keys = (
+        "spec_fingerprint",
+        "generator_profile_fingerprint",
+        "surface_identity_fingerprint",
+        "surface_zone_identity_fingerprint",
+        "surface_flow_identity_fingerprint",
+    )
+    invalidation = overlay.get("invalidation")
+    if not isinstance(invalidation, dict):
+        raise GenerationError(
+            "Overlay input is invalid: invalidation block is required and must "
+            "be a mapping",
+            exit_code=EXIT_ERROR,
+        )
+    missing = [
+        key
+        for key in required_invalidation_keys
+        if not str(invalidation.get(key, "")).strip()
+    ]
+    if missing:
+        raise GenerationError(
+            "Overlay input is invalid: invalidation is missing "
+            f"{', '.join(sorted(missing))}",
+            exit_code=EXIT_ERROR,
+        )
 
     try:
         tm7_visual_feedback.validate_layout_overlay(overlay, context)

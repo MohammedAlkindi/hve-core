@@ -2968,17 +2968,34 @@ class TestGenerateTm7:
             flow["position"]["target_y"],
         )
 
+    @pytest.mark.parametrize("evasion", ["stale", "deleted", "emptied", "partial"])
     def test_given_stale_overlay_when_generate_then_no_output_is_written(
         self,
         tmp_path: Path,
+        evasion: str,
     ) -> None:
+        """Replay invalidation must be supplied, complete, and current.
+
+        The fingerprints used to be synthesized with `setdefault` from the same
+        context they are then compared against, so an overlay that simply
+        omitted the block validated unconditionally. Deletion, not forgery, was
+        the evasion, so absence and partial presence are checked alongside a
+        stale value.
+        """
         # Arrange
         spec = generate_tm7.load_spec(SPEC_PATH)
         profile = generate_tm7.resolve_profile(spec, None, ROOT)
         overlay_path = _write_overlay(tmp_path, spec=spec, profile=profile)
         output_path = tmp_path / "stale.tm7"
         overlay = generate_tm7.load_layout_overlay(overlay_path)
-        overlay["invalidation"]["spec_fingerprint"] = "stale"
+        if evasion == "stale":
+            overlay["invalidation"]["spec_fingerprint"] = "stale"
+        elif evasion == "deleted":
+            overlay.pop("invalidation", None)
+        elif evasion == "emptied":
+            overlay["invalidation"] = {}
+        else:
+            overlay["invalidation"].pop("surface_flow_identity_fingerprint", None)
         overlay_path.write_text(yaml.safe_dump(overlay), encoding="utf-8")
 
         # Act / Assert
@@ -2993,6 +3010,7 @@ class TestGenerateTm7:
                 threat_generation_enabled=False,
             )
         assert exc_info.value.exit_code == 2
+        assert not output_path.exists()
         assert not output_path.exists()
 
     def test_given_overlay_and_update_when_generate_then_conflict_is_rejected(

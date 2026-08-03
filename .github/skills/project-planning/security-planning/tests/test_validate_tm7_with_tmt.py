@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -580,6 +581,158 @@ def test_given_ready_status_without_overlay_then_run_does_not_report_success(
         assert overlay_output.is_file()
     else:
         assert result.exit_code != validate_tm7_with_tmt.EXIT_SUCCESS
+
+
+def test_given_untrusted_newer_decoy_then_only_signed_candidate_is_selected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Selection must follow publisher trust, never newest modification time.
+
+    Discovery used `max(..., key=st_mtime)` with no signature check, so a decoy
+    dropped into an allowed root wins simply by being newer.
+    """
+    # Arrange
+    root = tmp_path / "Apps" / "2.0"
+    genuine = root / "genuine"
+    decoy = root / "decoy"
+    genuine.mkdir(parents=True)
+    decoy.mkdir(parents=True)
+    genuine_exe = genuine / "TMT7.exe"
+    decoy_exe = decoy / "TMT7.exe"
+    genuine_exe.write_bytes(b"genuine")
+    decoy_exe.write_bytes(b"decoy")
+    # The decoy is the newest file, which is exactly what the old selection
+    # rewarded.
+    os.utime(genuine_exe, (1_000_000, 1_000_000))
+    os.utime(decoy_exe, (2_000_000, 2_000_000))
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.setattr(validate_tm7_with_tmt.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "is_trusted_tmt_executable",
+        lambda path: Path(path).parent.name == "genuine",
+    )
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "_read_windows_file_version",
+        lambda path: validate_tm7_with_tmt.DEFAULT_PINNED_VERSION,
+    )
+
+    # Act
+    discovery = validate_tm7_with_tmt.discover_tmt_application()
+
+    # Assert
+    assert discovery.path == genuine_exe.resolve()
+    assert discovery.path != decoy_exe.resolve()
+
+
+def test_given_no_trusted_candidate_then_discovery_reports_untrusted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unsigned candidate under an allowed root must not be accepted."""
+    # Arrange
+    root = tmp_path / "Apps" / "2.0" / "unsigned"
+    root.mkdir(parents=True)
+    (root / "TMT7.exe").write_bytes(b"unsigned")
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.setattr(validate_tm7_with_tmt.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "is_trusted_tmt_executable",
+        lambda path: False,
+    )
+
+    # Act
+    discovery = validate_tm7_with_tmt.discover_tmt_application()
+
+    # Assert
+    assert discovery.path is None
+    assert discovery.source == "untrusted"
+
+
+@pytest.mark.parametrize(
+    ("secret", "payload"),
+    [
+        ("s3cr3t-value-here", "client_secret=s3cr3t-value-here"),
+        ("hunter2", "password=hunter2"),
+        ("AKIAIOSFODNN7EXAMPLE", "api_key=AKIAIOSFODNN7EXAMPLE"),
+        ("Zm9vYmFyYmF6cXV4", "AccountKey=Zm9vYmFyYmF6cXV4;Endpoint=core.windows.net"),
+        ("eyJhbGciOi", "Authorization: Bearer eyJhbGciOi.payload.signature"),
+        ("SigVal123", "https://acct.blob.core.windows.net/c/b?sig=SigVal123"),
+    ],
+)
+def test_given_sensitive_values_then_no_persisted_sink_leaks(
+    tmp_path: Path,
+    secret: str,
+    payload: str,
+) -> None:
+    """Every persisted evidence sink must redact credential shapes.
+
+    The previous pattern covered only authorization, bearer, and token, and its
+    `\\S+` consumed a single token, so `Authorization: Bearer <jwt>` redacted
+    the word "Bearer" and published the JWT. The CSV writer performed no
+    redaction at all.
+    """
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act
+    bundle.write_manifest({"connection": payload})
+    bundle.write_action_log(f"OPEN {payload}")
+    csv_path = bundle.write_csv_export([{"title": payload}], "exports/threats.csv")
+    summary_path = bundle.write_summary({"note": payload}, "summary.json")
+    uia_path = bundle.write_uia_tree(payload, "tree.txt")
+
+    # Assert
+    sinks = {
+        "manifest": bundle.manifest_path,
+        "action log": bundle.action_log_path,
+        "csv": csv_path,
+        "summary": summary_path,
+        "uia": uia_path,
+    }
+    for label, path in sinks.items():
+        content = path.read_text(encoding="utf-8")
+        assert secret not in content, f"{label} leaked {secret}"
+
+
+def test_given_unmarked_workspace_when_cleanup_then_directory_survives(
+    tmp_path: Path,
+) -> None:
+    """Recursive deletion must be confined to harness-created workspaces.
+
+    Cleanup called `shutil.rmtree(..., ignore_errors=True)` on whatever path it
+    was handed, so an operator `--workspace-root` pointing at a real directory
+    was removed and any failure passed unnoticed.
+    """
+    # Arrange
+    operator_dir = tmp_path / "operator-data"
+    operator_dir.mkdir()
+    sentinel = operator_dir / "important.txt"
+    sentinel.write_text("do not delete", encoding="utf-8")
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act
+    bundle.cleanup_workspace(operator_dir)
+
+    # Assert
+    assert sentinel.is_file()
+    assert sentinel.read_text(encoding="utf-8") == "do not delete"
+
+    # A workspace this harness created and marked is removed normally.
+    owned = tmp_path / "owned-workspace"
+    validate_tm7_with_tmt.mark_workspace_owned(owned)
+    (owned / "scratch.tm7").write_text("temp", encoding="utf-8")
+    bundle.cleanup_workspace(owned)
+    assert not owned.exists()
 
 
 def test_given_strict_feedback_evidence_when_capture_is_missing_then_marks_incomplete(

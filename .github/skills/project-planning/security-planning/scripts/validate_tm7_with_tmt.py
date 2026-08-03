@@ -49,6 +49,10 @@ EXIT_MISSING_FEEDBACK_EVIDENCE = 7
 EXIT_FEEDBACK_NON_CONVERGENCE = 8
 
 DEFAULT_PINNED_VERSION = "7.3.51110.1"
+# Executable trust is anchored to the signing publisher, not to install
+# location or file timestamp. Only a validly signed binary naming this common
+# name is accepted as the native Threat Modeling Tool.
+ACCEPTED_PUBLISHER_CN = "CN=Microsoft Corporation"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_MAX_ITERATIONS = 3
 EVIDENCE_SCHEMA_VERSION = 1
@@ -62,12 +66,32 @@ XSD_NS = "http://www.w3.org/2001/XMLSchema"
 LICENSE_MODAL_TITLE = "MICROSOFT LICENSE TERMS WINDOW"
 TEMPLATE_CONVERSION_MODAL_TITLE = "Threat Model Conversion Confirmation"
 SENSITIVE_KEY = re.compile(
-    r"authorization|client[_-]?secret|password|token|api[_-]?key|sas",
+    r"authorization|client[_-]?secret|password|passwd|token|api[_-]?key|sas|"
+    r"secret|credential|account[_-]?key|shared[_-]?access|connection[_-]?string|"
+    r"private[_-]?key|signature|sig",
     re.IGNORECASE,
 )
+# Sensitive names carry their value in several inline shapes. The value run must
+# stop at a separator, otherwise a `key=value; next=...` pair swallows the rest
+# of the string and a header form leaves the real secret behind. The previous
+# pattern matched only `authorization`, `bearer`, and `token`, and its `\S+`
+# consumed just one token, so `Authorization: Bearer <jwt>` redacted the word
+# "Bearer" and published the JWT.
 SENSITIVE_VALUE = re.compile(
-    r"(?i)(authorization\s*[:=]\s*|bearer\s+|token\s*[:=]\s*)\S+"
+    r"(?i)\b("
+    r"authorization|client[_-]?secret|password|passwd|token|api[_-]?key|"
+    r"secret|credential|account[_-]?key|shared[_-]?access[_-]?key|"
+    r"private[_-]?key|sig|signature"
+    r")\b(\s*[:=]\s*)(?:bearer\s+)?[^\s;,&\"']+",
+    re.IGNORECASE,
 )
+# A bare bearer or basic credential can appear without a preceding key name.
+SENSITIVE_SCHEME_VALUE = re.compile(
+    r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}",
+)
+# Query strings routinely carry credentials, so any query is dropped wholesale
+# rather than matched name by name.
+SENSITIVE_QUERY_KEY = SENSITIVE_KEY
 DIAGRAM_PANE_AUTOMATION_ID = "83b774ee-20a7-5ce1-ac3e-36286067963b"
 
 
@@ -171,11 +195,18 @@ class EvidenceBundle:
             (self.evidence_dir / relative).mkdir(parents=True, exist_ok=True)
 
     def _redact_text(self, value: str) -> str:
-        value = SENSITIVE_VALUE.sub(r"\1[REDACTED]", value)
+        """Redact credential shapes that reach any persisted evidence sink."""
+        value = SENSITIVE_VALUE.sub(r"\1\2[REDACTED]", value)
+        value = SENSITIVE_SCHEME_VALUE.sub(r"\1 [REDACTED]", value)
         try:
             parsed = urlsplit(value)
         except ValueError:
             return value
+        # A query string is dropped whenever it carries a sensitive parameter,
+        # with or without a network location, so a relative URL reference is
+        # covered as well.
+        if parsed.query and SENSITIVE_QUERY_KEY.search(parsed.query):
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         if parsed.scheme and parsed.netloc and parsed.query:
             return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         return value
@@ -248,8 +279,13 @@ class EvidenceBundle:
         return path
 
     def write_csv_export(self, rows: Iterable[dict[str, Any]], path: str) -> Path:
-        """Write a normalized threat CSV export."""
-        materialized = list(rows)
+        """Write a normalized threat CSV export.
+
+        Rows are redacted like every other persisted sink. This writer was the
+        only evidence path that persisted its payload verbatim, so a credential
+        carried in exported threat text reached disk unredacted.
+        """
+        materialized = [self._redact_value(row) for row in rows]
         output_path = self.path(path)
         with output_path.open("w", encoding="utf-8", newline="") as handle:
             if materialized:
@@ -274,9 +310,54 @@ class EvidenceBundle:
         return path
 
     def cleanup_workspace(self, workspace_dir: Path | None) -> None:
-        """Remove transient working copies after a successful run."""
-        if workspace_dir is not None and workspace_dir.exists():
-            shutil.rmtree(workspace_dir, ignore_errors=True)
+        """Remove a harness-owned workspace, surfacing any deletion failure.
+
+        Recursive deletion previously ran against whatever path it was handed
+        with `ignore_errors=True`, so an operator-supplied `--workspace-root`
+        pointing at a real directory would be removed and any failure to do so
+        would pass unnoticed. Deletion is now refused unless the directory
+        carries the ownership marker this harness wrote itself.
+        """
+        _remove_owned_workspace(workspace_dir)
+
+
+WORKSPACE_OWNER_MARKER = ".tm7-harness-owned"
+
+
+def mark_workspace_owned(workspace_dir: Path) -> Path:
+    """Create a harness-owned workspace and record its ownership marker."""
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    marker = workspace_dir / WORKSPACE_OWNER_MARKER
+    marker.write_text(
+        "Created by validate_tm7_with_tmt. Safe to delete with the workspace.\n",
+        encoding="utf-8",
+    )
+    return marker
+
+
+def _remove_owned_workspace(workspace_dir: Path | None) -> None:
+    """Delete a workspace only when this harness marked it as its own."""
+    if workspace_dir is None or not workspace_dir.exists():
+        return
+    if not (workspace_dir / WORKSPACE_OWNER_MARKER).is_file():
+        _emit_operator_notice(
+            f"Refusing to delete unmarked workspace {workspace_dir}; "
+            "only harness-created workspaces are removed automatically"
+        )
+        return
+    errors: list[str] = []
+
+    def _record(_function: Any, path: str, exc_info: Any) -> None:
+        errors.append(f"{path}: {exc_info[1]}")
+
+    shutil.rmtree(workspace_dir, onerror=_record)
+    if errors:
+        # Cleanup failure leaves working copies of the model on disk, so it is
+        # reported rather than silently swallowed.
+        _emit_operator_notice(
+            f"Workspace cleanup did not complete for {workspace_dir}: "
+            + "; ".join(errors[:5])
+        )
 
 
 def configure_logging(verbose: bool = False) -> None:
@@ -351,16 +432,91 @@ def _read_windows_file_version(path: Path) -> str | None:
     return ".".join(str(part) for part in parts)
 
 
+def _authenticode_subject(path: Path) -> tuple[str, str] | None:
+    """Return the Authenticode (status, subject) for a file, or None.
+
+    Python has no built-in Authenticode check, so verification is delegated to
+    the platform. Both PowerShell hosts are attempted because
+    `Microsoft.PowerShell.Security` fails to load under Windows PowerShell in
+    some constrained environments while PowerShell 7 succeeds. None means the
+    signature could not be established, which callers treat as untrusted rather
+    than as a pass.
+    """
+    if platform.system() != "Windows":
+        return None
+    script = (
+        "$s = Get-AuthenticodeSignature -LiteralPath $env:TMT_CANDIDATE_PATH; "
+        "Write-Output $s.Status; "
+        "Write-Output $s.SignerCertificate.Subject"
+    )
+    child_env = {**os.environ, "TMT_CANDIDATE_PATH": str(path)}
+    for host in ("pwsh", "powershell.exe"):
+        try:
+            completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [
+                    host,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+                env=child_env,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        lines = [
+            line.strip() for line in completed.stdout.splitlines() if line.strip()
+        ]
+        if completed.returncode == 0 and len(lines) >= 2:
+            return (lines[0], lines[1])
+    return None
+
+
+def is_trusted_tmt_executable(path: Path) -> bool:
+    """Return True only for a validly signed executable from the pinned publisher.
+
+    Newest modification time is not a trust signal. A decoy dropped into an
+    otherwise allowed root would win on mtime alone, so acceptance requires a
+    valid Authenticode signature naming the accepted publisher.
+    """
+    signature = _authenticode_subject(path)
+    if signature is None:
+        return False
+    status, subject = signature
+    if status != "Valid":
+        return False
+    return ACCEPTED_PUBLISHER_CN.lower() in subject.lower()
+
+
 def discover_tmt_application() -> TmtDiscovery:
-    """Discover TMT across ClickOnce and conventional installation roots."""
+    """Discover TMT across ClickOnce and conventional installation roots.
+
+    Roots are absolute and derived from expanded environment locations. An
+    empty or missing variable previously produced a relative root, so a
+    `./Apps/2.0` directory beside the working directory could contribute
+    candidates. Selection is deterministic over trusted, pinned-version
+    candidates and never falls back to newest modification time.
+    """
     if platform.system() != "Windows":
         return TmtDiscovery(path=None, source="non-windows")
-    roots = [
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Apps" / "2.0",
-        Path(os.environ.get("ProgramFiles", "")) / "Microsoft Threat Modeling Tool",
-        Path(os.environ.get("ProgramFiles(x86)", ""))
-        / "Microsoft Threat Modeling Tool",
-    ]
+    roots: list[Path] = []
+    for raw_root, suffix in (
+        (os.environ.get("LOCALAPPDATA", ""), ("Apps", "2.0")),
+        (os.environ.get("ProgramFiles", ""), ("Microsoft Threat Modeling Tool",)),
+        (os.environ.get("ProgramFiles(x86)", ""), ("Microsoft Threat Modeling Tool",)),
+    ):
+        if not raw_root:
+            continue
+        base = Path(raw_root)
+        if not base.is_absolute():
+            continue
+        roots.append(base.joinpath(*suffix))
     names = {"ThreatModeling.exe", "ThreatModelingTool.exe", "TMT7.exe"}
     candidates: list[Path] = []
     for root in roots:
@@ -369,7 +525,25 @@ def discover_tmt_application() -> TmtDiscovery:
         candidates.extend(path for path in root.rglob("*.exe") if path.name in names)
     if not candidates:
         return TmtDiscovery(path=None, source="not-found")
-    selected = max(candidates, key=lambda item: item.stat().st_mtime)
+    # Trust before selection. An untrusted decoy must never be selected and
+    # then rejected downstream, because selection order would still determine
+    # which executable the operator is told about.
+    trusted = [
+        candidate
+        for candidate in sorted(set(candidates), key=lambda item: str(item).lower())
+        if is_trusted_tmt_executable(candidate)
+    ]
+    if not trusted:
+        return TmtDiscovery(path=None, source="untrusted")
+    # Among equally trusted candidates prefer the pinned version, then fall
+    # back to the lexicographically first path. Both are stable across runs;
+    # newest modification time is not.
+    pinned = [
+        candidate
+        for candidate in trusted
+        if _read_windows_file_version(candidate) == DEFAULT_PINNED_VERSION
+    ]
+    selected = (pinned or trusted)[0]
     return TmtDiscovery(
         path=selected.resolve(),
         version=_read_windows_file_version(selected),
@@ -3886,8 +4060,8 @@ def run_feedback_loop(
         )
 
     if workspace.exists():
-        shutil.rmtree(workspace, ignore_errors=True)
-    workspace.mkdir(parents=True)
+        _remove_owned_workspace(workspace)
+    mark_workspace_owned(workspace)
 
     spec = generate_tm7.load_spec(spec_path)
     template_dir = Path(generate_tm7.__file__).resolve().parent.parent
@@ -4636,8 +4810,8 @@ def run_harness(
         )
 
     if workspace.exists():
-        shutil.rmtree(workspace, ignore_errors=True)
-    workspace.mkdir(parents=True)
+        _remove_owned_workspace(workspace)
+    mark_workspace_owned(workspace)
     success = False
     try:
         if mode == "upgrade-template":
