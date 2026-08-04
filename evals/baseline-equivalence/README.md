@@ -2,7 +2,7 @@
 title: Baseline Equivalence Suite
 description: 'Pairs identical probes across baseline and customized environments to assert only documented divergences appear'
 author: HVE Core Team
-ms.date: 2026-08-01
+ms.date: 2026-08-03
 ---
 
 ## Purpose
@@ -72,17 +72,18 @@ The compare invocation deliberately omits `--fail-on-regression` so `Get-Equival
 | `baselineWins`                                                       | int         | Trials with `winner: "baseline"`; the customization underperformed                                                                                                        |
 | `treatmentWins`                                                      | int         | Trials with `winner: "treatment"`; the customization outperformed                                                                                                         |
 | `meanScore`                                                          | number      | Unweighted average, across records and models, of signed treatment-relative `summary.meanScore` values (positive favors the customization); reporting only                |
-| `ciLow`                                                              | number      | Conservative maximum lower bound of `summary.ciLow` across records and models                                                                                             |
-| `ciHigh`                                                             | number      | Conservative minimum upper bound of `summary.ciHigh` across records and models                                                                                            |
+| `ciLow`                                                              | number      | Conservative maximum lower bound of `summary.ciLow` across records and models; reporting only, not a gate input                                                           |
+| `ciHigh`                                                             | number      | Conservative minimum upper bound of `summary.ciHigh` across records and models; reporting only, not a gate input                                                          |
 | `winRate`                                                            | number      | Unweighted average, across records and models, of `summary.winRate` values; reporting only                                                                                |
 | `invariantFailures`                                                  | int         | Declared-invariant violations read from the baseline run's structured results                                                                                             |
 | `runHealthFailures`                                                  | int         | Run-integrity signals: nonzero `vally eval` or `vally compare` exits, missing run directories, and unparseable compare output                                             |
 | `divergenceGuardFailures`                                            | int         | Declared `customized_required` and `customized_disallow` guards that failed in the customized run                                                                         |
 | `divergenceGuardsEvaluated`                                          | int         | Declared guards actually evaluated; zero means the gate had no signal and fails closed                                                                                    |
 | `failedDivergenceGuards`                                             | list        | Up to 50 `stimulus/guard` identifiers for the failing guards                                                                                                              |
-| `dataQualityViolations`                                              | int         | Malformed, unmatched, or duplicate comparison records; any nonzero value fails closed at every tier                                                                       |
+| `dataQualityViolations`                                              | int         | Malformed, unmatched, duplicate, missing, or unexpected records across comparison and declared-population reconciliation; any nonzero value fails closed at every tier    |
+| `dataQualityDiagnostics`                                             | list        | Up to 50 human-readable diagnostic strings explaining the counted data-quality violations; diagnostic aid, not a contractual enumeration                                  |
 | `judgeErrors`, `judgeErrorRate`                                      | int, number | Errored comparison trials and their share of attempted trials; counted and reported, not yet enforced                                                                     |
-| `equivalentTrials`, `equivalentTies`, `divergenceTrials`, `tieRatio` | int, number | Population split by comparison policy, so intended divergence is excluded from the equivalence denominator                                                                |
+| `equivalentTrials`, `equivalentTies`, `divergenceTrials`, `tieRatio` | int, number | Population split by comparison policy, so intended divergence is excluded from the equivalence denominator; `tieRatio` is the equivalence gate input                      |
 | `equivalenceGate`                                                    | string      | Whether behavior that should not change stayed the same                                                                                                                   |
 | `documentedDivergenceGate`                                           | string      | Whether declared customization guards held                                                                                                                                |
 | `verdict`                                                            | string      | Worst of the two gates; see [Pass and Fail Interpretation](#pass-and-fail-interpretation)                                                                                 |
@@ -112,8 +113,8 @@ Onboarding a new agent (for example `security-planner`) does not require harness
 1. The driver materializes the target agent's surface into an isolated workspace automatically.
    [scripts/evals/lib/EquivalenceEnvironment.psm1](../../scripts/evals/lib/EquivalenceEnvironment.psm1) copies the agent file, its declared
    instructions, its subagents, `copilot-instructions.md`, and only the skills that agent actually references. Two different agents therefore
-   produce different customized environments, which is the property the comparison depends on. The baseline runs against a deliberately emptied
-   workspace and is cached and reused across agents, keyed on model, Vally version, and stimulus content hash.
+   produce different customized environments, which is the property the comparison depends on. The baseline runs against the same shared seed project but no agent or
+   customization surface, and is cached and reused across agents, keyed on model, Vally version, and a content hash covering the baseline spec plus the seed.
 2. The scope-language guard is derived automatically. `Resolve-AgentScopePattern` reads the first `.copilot-tracking/<scope>` reference in the agent body and passes it to the customized run as `--param SCOPE_PATTERN=...`. An agent that references no tracking directory is reported as exempt in the run output rather than silently passing a guard that asserts nothing.
 3. Add per-agent divergence graders inline in [customized/eval.yaml](customized/eval.yaml) (`customized_required` / `customized_disallow` graders attached to the relevant stimuli) for any behavior the derived scope pattern cannot capture.
 
@@ -149,18 +150,18 @@ The driver reports two independent gates via `Get-EquivalenceGateResults` in [sc
 
 * `runs <= 0` or `dataQualityViolations > 0`: `fail` at **every** tier, including `devloop`. An incomplete comparison cannot evidence equivalence regardless of who runs it, and the summary is left on disk so the cause can be diagnosed from `compareLogs` and the sibling `--output` JSONL.
 * `invariantFailures > 0` or `runHealthFailures > 0`: `warn` on `devloop`, `fail` on `ci`.
-* Otherwise, `pass` when the interval straddles zero (`ciLow <= 0 <= ciHigh`); `warn` on `devloop` or `fail` on `ci` when it excludes zero on either side.
+* Otherwise, `pass` when the equivalent-only tie ratio meets the floor (`tieRatio >= 0.80`); `warn` on `devloop` or `fail` on `ci` when it falls below. An `equivalentTrials` count of zero fails closed at every tier instead, because a ratio over zero trials is the absence of the measurement rather than a low score.
 
 **Documented-divergence gate.** Asks whether the declared customization guards actually held, read per-guard from the customized run.
 
 * `divergenceGuardsEvaluated == 0`: `fail`. No guard signal is not conformance; a run that evaluated nothing cannot evidence that its declared divergence held.
 * `divergenceGuardFailures > 0`: `warn` on `devloop`, `fail` on `ci`.
 
-Only the equivalent-policy population contributes to `tieRatio`, so intended divergence is not scored as an equivalence failure. There is no `inconclusive` bucket and no fixed tie-ratio or symmetry threshold; the 0.80 tie-ratio and win-count symmetry heuristics from the Vally 0.6-era driver no longer apply. `devloop` verdicts stay advisory; `ci` verdicts gate. This split keeps the per-PR signal low-friction while preserving a hard regression gate.
+Only the equivalent-policy population contributes to `tieRatio`, so intended divergence is not scored as an equivalence failure. There is no `inconclusive` bucket.
+The `0.80` tie-ratio floor is inherited from the Vally 0.6-era driver rather than calibrated against the current corpus, so it is provisional and is tuned together with the configured trial count: at `runs: 5` across 35 equivalent stimuli the denominator is 175 trials, and the floor tolerates at most 35 non-tie trials.
+The win-count symmetry heuristic from that era no longer applies. `devloop` verdicts stay advisory; `ci` verdicts gate. This split keeps the per-PR signal low-friction while preserving a hard regression gate.
 
-A confidence interval excluding zero on the negative side (`ciHigh < 0`) signals a statistically significant regression: the baseline outperformed the customization.
-This is the same condition `vally compare --fail-on-regression` would flag, which this driver deliberately does not pass on the compare invocation so the gate function remains the single equivalence authority (see [Driver output contract](#driver-output-contract)).
-A confidence interval excluding zero on the positive side (`ciLow > 0`) signals the opposite: an unexpected, statistically significant improvement. Both directions are documented-divergence review triggers for an equivalence suite, since its purpose is proving no undocumented behavior change occurred rather than proving the customization is better.
+`ciLow` and `ciHigh` are reporting-only diagnostics and are not gate inputs. Vally computes them over every compared stimulus, including the documented-divergence ones, so a strong expected win there could otherwise fail equivalence even when every equivalent trial tied. Read them as context for a failing tie ratio, not as the decision.
 
 ## Stimulus Shape
 

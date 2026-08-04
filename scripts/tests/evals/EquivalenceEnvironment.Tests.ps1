@@ -90,6 +90,107 @@ Describe 'Get-AgentSkillReference' -Tag 'Unit' {
     }
 }
 
+Describe 'Get-AgentDeclaredDependency' -Tag 'Unit' {
+    BeforeAll {
+        $script:DepRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        New-AgentFixture -Root $script:DepRoot
+
+        $instructionsDir = Join-Path $script:DepRoot '.github/instructions/sample'
+        New-Item -ItemType Directory -Path $instructionsDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $instructionsDir 'house.instructions.md') -Value 'House rules.' -Encoding UTF8
+
+        $agentsDir = Join-Path $script:DepRoot '.github/agents/sample'
+        New-Item -ItemType Directory -Path (Join-Path $agentsDir 'subagents') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $agentsDir 'subagents/helper.agent.md') -Encoding UTF8 -Value @'
+---
+name: helper
+---
+
+Uses `skill-three` for its work.
+'@
+
+        # Declares an instruction by relative path and a subagent by frontmatter name,
+        # which are the two forms real agents use.
+        Set-Content -LiteralPath (Join-Path $agentsDir 'agent-parent.agent.md') -Encoding UTF8 -Value @'
+---
+name: Agent Parent
+agents:
+  - helper
+---
+
+Follow #file:../../instructions/sample/house.instructions.md and use `skill-one`.
+'@
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath $script:DepRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'Resolves a declared instruction from a relative reference' {
+        $d = Get-AgentDeclaredDependency -RepoRoot $script:DepRoot -AgentRelativePath '.github/agents/sample/agent-parent.agent.md'
+        $d.Instructions | Should -Contain '.github/instructions/sample/house.instructions.md'
+    }
+
+    It 'Resolves a subagent declared by frontmatter name' {
+        $d = Get-AgentDeclaredDependency -RepoRoot $script:DepRoot -AgentRelativePath '.github/agents/sample/agent-parent.agent.md'
+        $d.Subagents | Should -Contain '.github/agents/sample/subagents/helper.agent.md'
+    }
+
+    It 'Throws for an agent file that does not exist' {
+        # Resolution must fail loudly rather than return an empty set, which is how the
+        # optional map previously degraded a partial surface into a clean-looking run.
+        { Get-AgentDeclaredDependency -RepoRoot $script:DepRoot -AgentRelativePath '.github/agents/sample/absent.agent.md' } |
+            Should -Throw -ExpectedMessage '*does not exist*'
+    }
+}
+
+Describe 'Assert-ContainedRepositoryPath' -Tag 'Unit' {
+    BeforeAll {
+        $script:GuardRoot = Join-Path $TestDrive ('guard-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:GuardRoot -Force | Out-Null
+        $script:InsideFile = Join-Path $script:GuardRoot 'inside.txt'
+        Set-Content -LiteralPath $script:InsideFile -Value 'inside' -Encoding UTF8
+
+        $script:OutsideRoot = Join-Path $TestDrive ('outside-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:OutsideRoot -Force | Out-Null
+        $script:OutsideFile = Join-Path $script:OutsideRoot 'secret.txt'
+        Set-Content -LiteralPath $script:OutsideFile -Value 'secret' -Encoding UTF8
+
+        # Link creation needs elevation or Developer Mode on Windows. Record capability
+        # so the link cases skip explicitly rather than silently reporting success.
+        $script:LinkPath = Join-Path $script:GuardRoot 'link.txt'
+        $script:CanLink = $false
+        try {
+            New-Item -ItemType SymbolicLink -Path $script:LinkPath -Target $script:OutsideFile -ErrorAction Stop | Out-Null
+            $script:CanLink = Test-Path -LiteralPath $script:LinkPath
+        }
+        catch {
+            $script:CanLink = $false
+        }
+    }
+
+    It 'Returns the resolved path for a contained regular file' {
+        Assert-ContainedRepositoryPath -Path $script:InsideFile -ApprovedRoot $script:GuardRoot |
+            Should -Be ([System.IO.Path]::GetFullPath($script:InsideFile))
+    }
+
+    It 'Rejects a path outside the approved root' {
+        { Assert-ContainedRepositoryPath -Path $script:OutsideFile -ApprovedRoot $script:GuardRoot } |
+            Should -Throw -ExpectedMessage '*escapes the approved root*'
+    }
+
+    It 'Rejects an in-root link that resolves outside the approved root' {
+        if (-not $script:CanLink) {
+            Set-ItResult -Skipped -Because 'the platform or account cannot create symbolic links'
+            return
+        }
+        # This is the exfiltration shape the check exists to stop: a file that looks
+        # like an expected fixture but resolves to content outside the repository.
+        { Assert-ContainedRepositoryPath -Path $script:LinkPath -ApprovedRoot $script:GuardRoot } |
+            Should -Throw -ExpectedMessage '*symbolic links and reparse points are not permitted*'
+    }
+}
+
 Describe 'New-CustomizedEnvironment' -Tag 'Unit' {
     BeforeAll {
         $script:FixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())

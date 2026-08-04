@@ -227,9 +227,12 @@ clean moderation result.
 | Agent matrix dry run  | `npm run ci:eval:agent:matrix:dryrun`                           | No model invocation; writes a dry-run matrix summary                                                                    |
 | Changed-agent matrix  | `npm run ci:eval:agent:changed`                                 | Requires a suitable git comparison base and model access                                                                |
 
-PR-tier equivalence results can be advisory while nightly results can be
-authoritative. Read the lane's generated JSON verdict and the hosted workflow
-status together. Do not infer a hosted CI policy from a direct local invocation.
+Devloop-tier equivalence results are advisory while CI-tier results are
+authoritative. These tiers name the baseline-equivalence exit policy and are
+distinct from the unchanged `pr` and `nightly` vocabulary of the separate
+agent-matrix commands above. Read the lane's generated JSON verdict and the
+hosted workflow status together. Do not infer a hosted CI policy from a direct
+local invocation.
 
 ### Dashboards and reports
 

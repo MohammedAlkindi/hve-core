@@ -1,6 +1,11 @@
 # Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 # SPDX-License-Identifier: MIT
 
+# EquivalenceEnvironment.psm1
+# Purpose: Materialize a per-agent customization surface, enforce filesystem
+# containment on every materialization input, and manage baseline run reuse for the
+# baseline-equivalence suite.
+
 #Requires -Version 7.4
 
 <#
@@ -142,6 +147,199 @@ function Resolve-AgentScopePattern {
     }
 }
 
+function Assert-ContainedRepositoryPath {
+    <#
+    .SYNOPSIS
+        Verifies a path is a link-free regular entry beneath an approved root.
+    .DESCRIPTION
+        Materialization copies repository-controlled content into a workspace that a
+        credential-bearing evaluation process then reads. A pull request can replace an
+        expected file with a symbolic link or reparse point, so copying by path alone
+        would let the run follow that link outside the repository and surface whatever
+        it points at through model output and logs.
+
+        Containment is checked on the resolved path rather than the supplied string,
+        because a path that looks contained can still resolve elsewhere through a link
+        in any of its parent segments.
+    .OUTPUTS
+        [string] The verified full path.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$ApprovedRoot,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Because = 'materialization input'
+    )
+
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($item.LinkType -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw "Refusing to materialize $Because '$Path': symbolic links and reparse points are not permitted."
+    }
+
+    $rootFull = [System.IO.Path]::GetFullPath((Get-Item -LiteralPath $ApprovedRoot -Force -ErrorAction Stop).FullName)
+    $rootPrefix = $rootFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    $resolved = [System.IO.Path]::GetFullPath($item.FullName)
+
+    if ($resolved -ne $rootFull -and -not $resolved.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to materialize $Because '$Path': resolved path '$resolved' escapes the approved root '$rootFull'."
+    }
+
+    return $resolved
+}
+
+function Get-AgentDeclaredDependency {
+    <#
+    .SYNOPSIS
+        Resolves the instructions and subagents an agent declares.
+    .DESCRIPTION
+        Dependency discovery lives here rather than in an optional side-channel file.
+        The driver previously read a generated map from an ignored logs path and treated
+        any read failure as an empty map, so a run that never generated it materialized
+        only the agent file and its directly referenced skills. The comparison then
+        reported a clean result for a surface that omitted every declared instruction
+        and subagent.
+
+        Resolution reads the agent body directly, so it cannot silently degrade: a
+        declared reference that does not exist on disk is an error rather than an
+        omission.
+    .OUTPUTS
+        [hashtable] With keys Instructions and Subagents, each workspace-relative paths.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$AgentRelativePath
+    )
+
+    $instructions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $subagents = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    $full = Join-Path $RepoRoot $AgentRelativePath
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+        throw "Agent file '$AgentRelativePath' does not exist. Refusing to materialize an incomplete customization surface."
+    }
+    $body = Get-Content -LiteralPath $full -Raw
+    $agentDir = Split-Path -Parent $AgentRelativePath
+
+    # Cross-kind references resolve relative to the containing file, so a repository
+    # `#file:` path such as `../../instructions/<name>.instructions.md` is normalized
+    # against the agent's own directory rather than assumed to start at the repo root.
+    $normalize = {
+        param([string]$Reference)
+
+        $candidates = [System.Collections.Generic.List[string]]::new()
+        $candidates.Add(($Reference -replace '^(\.\./)+', ''))
+        if ($agentDir) {
+            $combined = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $RepoRoot $agentDir) $Reference))
+            $rootFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+            if ($combined.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $candidates.Add($combined.Substring($rootFull.Length).TrimStart('\', '/').Replace('\', '/'))
+            }
+        }
+
+        foreach ($candidate in $candidates) {
+            if (Test-Path -LiteralPath (Join-Path $RepoRoot $candidate) -PathType Leaf) { return $candidate }
+        }
+        return $null
+    }
+
+    foreach ($match in [regex]::Matches($body, '[A-Za-z0-9_./-]*\.instructions\.md')) {
+        $resolved = & $normalize $match.Value
+        if ($resolved) { [void]$instructions.Add($resolved) }
+    }
+
+    foreach ($match in [regex]::Matches($body, '[A-Za-z0-9_./*-]*\.agent\.md')) {
+        # Glob references such as `.github/agents/**/name.agent.md` name a subagent
+        # whose collection directory is intentionally unspecified.
+        if ($match.Value -match '\*') {
+            $leaf = Split-Path -Leaf ($match.Value -replace '\*+/?', '')
+            if (-not [string]::IsNullOrWhiteSpace($leaf)) {
+                $file = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter $leaf -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+                if ($file) {
+                    [void]$subagents.Add($file.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/'))
+                }
+            }
+            continue
+        }
+        $resolved = & $normalize $match.Value
+        if ($resolved -and $resolved -ne $AgentRelativePath) { [void]$subagents.Add($resolved) }
+    }
+
+    # Frontmatter `agents:` names subagents by stable name rather than by path.
+    $frontmatter = [regex]::Match($body, '(?s)\A---\r?\n(.*?)\r?\n---')
+    if ($frontmatter.Success) {
+        $agentsBlock = [regex]::Match($frontmatter.Groups[1].Value, '(?ms)^agents:\s*$(.*?)(?=^\S|\z)')
+        if ($agentsBlock.Success) {
+            foreach ($entry in [regex]::Matches($agentsBlock.Groups[1].Value, '(?m)^\s*-\s*([A-Za-z0-9_.-]+)\s*$')) {
+                $name = $entry.Groups[1].Value
+                $file = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter "$name.agent.md" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+                if ($file) {
+                    [void]$subagents.Add($file.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/'))
+                }
+            }
+        }
+    }
+
+    return @{
+        Instructions = @($instructions | Sort-Object)
+        Subagents    = @($subagents | Sort-Object)
+    }
+}
+
+function Copy-VerifiedRepositoryFile {
+    <#
+    .SYNOPSIS
+        Copies one repository-relative file into a workspace after verifying it.
+    .OUTPUTS
+        [bool] True when the file existed and was copied.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RelativePath,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$WorkspacePath
+    )
+
+    $source = Join-Path $RepoRoot $RelativePath
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($source, 'Copy into customized workspace')) { return $false }
+
+    $null = Assert-ContainedRepositoryPath -Path $source -ApprovedRoot $RepoRoot -Because 'customization artifact'
+
+    $target = Join-Path $WorkspacePath $RelativePath
+    $targetDir = Split-Path -Parent $target
+    if (-not (Test-Path -LiteralPath $targetDir)) {
+        New-Item -ItemType Directory -Path $targetDir -Force -WhatIf:$false -Confirm:$false | Out-Null
+    }
+    Copy-Item -LiteralPath $source -Destination $target -Force -WhatIf:$false -Confirm:$false
+    return $true
+}
+
 function New-CustomizedEnvironment {
     <#
     .SYNOPSIS
@@ -151,6 +349,11 @@ function New-CustomizedEnvironment {
         skills it references into a clean workspace and skill directory. Vally receives
         the skill directory through `--skill-dir` and the workspace through
         `--workspace`, so the customized run sees this agent's surface and nothing else.
+
+        Dependencies are resolved from the agent body rather than from an optional
+        generated map, so a run cannot quietly materialize a partial surface and then
+        report the comparison as clean. Every copied entry is verified to be a
+        link-free regular file beneath the repository root.
     .OUTPUTS
         [hashtable] With keys WorkspacePath, SkillDirPath, and Applied.
     #>
@@ -171,11 +374,7 @@ function New-CustomizedEnvironment {
 
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
-        [string]$SkillDirPath,
-
-        [Parameter(Mandatory = $false)]
-        [AllowNull()]
-        $DependencyMap
+        [string]$SkillDirPath
     )
 
     foreach ($path in @($WorkspacePath, $SkillDirPath)) {
@@ -196,52 +395,32 @@ function New-CustomizedEnvironment {
     }
     $agentRelative = $agentFile.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/')
 
-    $record = $null
-    if ($DependencyMap -and $DependencyMap.PSObject.Properties.Name -contains $Agent) {
-        $record = $DependencyMap.$Agent
+    $declared = Get-AgentDeclaredDependency -RepoRoot $RepoRoot -AgentRelativePath $agentRelative
+
+    if (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath $agentRelative -WorkspacePath $WorkspacePath -WhatIf:$false) {
+        $applied.Add($agentRelative)
     }
 
-    function Copy-IntoWorkspace {
-        param([string]$Relative)
-        $source = Join-Path $RepoRoot $Relative
-        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { return $false }
-        $target = Join-Path $WorkspacePath $Relative
-        $targetDir = Split-Path -Parent $target
-        if (-not (Test-Path -LiteralPath $targetDir)) {
-            New-Item -ItemType Directory -Path $targetDir -Force -WhatIf:$false -Confirm:$false | Out-Null
+    foreach ($relative in @($declared.Instructions) + @($declared.Subagents)) {
+        if ([string]::IsNullOrWhiteSpace($relative)) { continue }
+        if (-not (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath ([string]$relative) -WorkspacePath $WorkspacePath -WhatIf:$false)) {
+            throw "Declared dependency '$relative' for agent '$Agent' could not be materialized. Refusing to compare against a partial customization surface."
         }
-        Copy-Item -LiteralPath $source -Destination $target -Force -WhatIf:$false -Confirm:$false
-        return $true
-    }
-
-    if (Copy-IntoWorkspace -Relative $agentRelative) { $applied.Add($agentRelative) }
-
-    foreach ($key in @('instructions', 'subagents')) {
-        if (-not $record) { continue }
-        if ($record.PSObject.Properties.Name -notcontains $key) { continue }
-        foreach ($relative in @($record.$key)) {
-            if ([string]::IsNullOrWhiteSpace($relative)) { continue }
-            if (Copy-IntoWorkspace -Relative ([string]$relative)) { $applied.Add([string]$relative) }
-        }
+        $applied.Add([string]$relative)
     }
 
     $copilotInstructions = '.github/copilot-instructions.md'
-    if (Copy-IntoWorkspace -Relative $copilotInstructions) { $applied.Add($copilotInstructions) }
+    if (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath $copilotInstructions -WorkspacePath $WorkspacePath -WhatIf:$false) {
+        $applied.Add($copilotInstructions)
+    }
 
     $skillDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($relative in (Get-AgentSkillReference -RepoRoot $RepoRoot -AgentFilePath $agentRelative)) {
         [void]$skillDirs.Add($relative)
     }
-    if ($record -and $record.PSObject.Properties.Name -contains 'skills') {
-        foreach ($relative in @($record.skills)) {
-            if ([string]::IsNullOrWhiteSpace($relative)) { continue }
-            $dir = ([string]$relative) -replace '/SKILL\.md$', ''
-            if (Test-Path -LiteralPath (Join-Path $RepoRoot (Join-Path $dir 'SKILL.md')) -PathType Leaf) {
-                [void]$skillDirs.Add($dir)
-            }
-        }
-    }
-    foreach ($subagentRelative in @(if ($record -and $record.PSObject.Properties.Name -contains 'subagents') { $record.subagents } else { @() })) {
+    # A subagent's skills are part of the surface the parent agent delivers, so they
+    # are resolved transitively rather than left to the agent body alone.
+    foreach ($subagentRelative in @($declared.Subagents)) {
         if ([string]::IsNullOrWhiteSpace($subagentRelative)) { continue }
         foreach ($relative in (Get-AgentSkillReference -RepoRoot $RepoRoot -AgentFilePath ([string]$subagentRelative))) {
             [void]$skillDirs.Add($relative)
@@ -251,6 +430,10 @@ function New-CustomizedEnvironment {
     foreach ($relative in ($skillDirs | Sort-Object)) {
         $source = Join-Path $RepoRoot $relative
         if (-not (Test-Path -LiteralPath $source -PathType Container)) { continue }
+        $null = Assert-ContainedRepositoryPath -Path $source -ApprovedRoot $RepoRoot -Because 'skill directory'
+        foreach ($entry in @(Get-ChildItem -LiteralPath $source -Recurse -Force -ErrorAction SilentlyContinue)) {
+            $null = Assert-ContainedRepositoryPath -Path $entry.FullName -ApprovedRoot $RepoRoot -Because 'skill content'
+        }
         $target = Join-Path $SkillDirPath (Split-Path -Leaf $relative)
         Copy-Item -LiteralPath $source -Destination $target -Recurse -Force -WhatIf:$false -Confirm:$false
         $applied.Add("$relative/SKILL.md")
@@ -330,9 +513,12 @@ function Get-StimulusContentHash {
     $parts.Add(((Get-Content -LiteralPath $SpecPath -Raw) -replace "`r`n", "`n"))
 
     # Sorted relative paths plus content, so a rename or an edit both change the key.
+    # Each entry is verified before it is read: hashing follows the same trust boundary
+    # as materialization, so a link planted in the seed must not be read here either.
     if ($SeedPath -and (Test-Path -LiteralPath $SeedPath)) {
         $root = (Resolve-Path -LiteralPath $SeedPath).Path
         foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Sort-Object FullName)) {
+            $null = Assert-ContainedRepositoryPath -Path $f.FullName -ApprovedRoot $root -Because 'seed workspace entry'
             $rel = $f.FullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
             $parts.Add($rel)
             $parts.Add(((Get-Content -LiteralPath $f.FullName -Raw) -replace "`r`n", "`n"))
@@ -452,11 +638,14 @@ function Save-BaselineCacheEntry {
     return $targetRun
 }
 
-Export-ModuleMember -Function `
-    Get-AgentSkillReference, `
-    Resolve-AgentScopePattern, `
-    New-CustomizedEnvironment, `
-    Get-BaselineCacheKey, `
-    Get-StimulusContentHash, `
-    Get-BaselineCacheEntry, `
-    Save-BaselineCacheEntry
+Export-ModuleMember -Function @(
+    'Get-AgentSkillReference',
+    'Get-AgentDeclaredDependency',
+    'Assert-ContainedRepositoryPath',
+    'Resolve-AgentScopePattern',
+    'New-CustomizedEnvironment',
+    'Get-BaselineCacheKey',
+    'Get-StimulusContentHash',
+    'Get-BaselineCacheEntry',
+    'Save-BaselineCacheEntry'
+)

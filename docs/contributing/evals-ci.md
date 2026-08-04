@@ -249,19 +249,21 @@ vally lint --eval-spec evals/baseline-equivalence/baseline/eval.yaml
 vally lint --eval-spec evals/baseline-equivalence/customized/eval.yaml
 ```
 
-[scripts/evals/Invoke-BaselineEquivalence.ps1](../../scripts/evals/Invoke-BaselineEquivalence.ps1) runs both implicitly during `npm run ci:eval:run:equivalence`. See [evals/baseline-equivalence/README.md](https://github.com/microsoft/hve-core/blob/main/evals/baseline-equivalence/README.md) for the suite operator guide and driver-output contract.
+`npm run ci:eval:run:equivalence` invokes the two specs directly through `vally eval`, with no driver, comparison, or summary.
+[scripts/evals/Invoke-BaselineEquivalence.ps1](../../scripts/evals/Invoke-BaselineEquivalence.ps1) runs during `npm run ci:eval:equivalence` instead, and owns environment materialization, seeding, baseline caching, the pinned comparison invocation, and summary generation.
+See [evals/baseline-equivalence/README.md](https://github.com/microsoft/hve-core/blob/main/evals/baseline-equivalence/README.md) for the suite operator guide and driver-output contract.
 
 ## Matrix, Moderation, and Dashboard Scripts
 
 Beyond the lint lanes, `scripts/evals/` holds the scripts that scope runs, moderate artifacts, and render results.
 
-| Script                                    | Invoked by                                                      | Purpose                                                                                     |
-|-------------------------------------------|-----------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| `Invoke-ArtifactModeration.ps1`           | `ci:eval:moderate:artifacts`                                    | Moderates all eval specs plus changed AI artifacts from the changed-artifact manifest       |
-| `New-AgentMatrixDashboard.ps1`            | `ci:eval:agent:dashboard`, `ci:eval:agent:report`               | Renders a self-contained HTML matrix dashboard, one row per inventory agent                 |
-| `New-EquivalenceDashboard.ps1`            | `ci:eval:dashboard`                                             | Renders a self-contained HTML dashboard for a baseline-equivalence run                      |
-| `Get-AgentDependencyMap.ps1`              | Run directly                                                    | Builds a JSON map of agent dependencies for the baseline-equivalence dispatcher             |
-| `Update-AgentMatrixSummariesFromLogs.ps1` | Run directly                                                    | Rebuilds per-agent matrix summaries from existing vally logs without re-running `npx vally` |
+| Script                                    | Invoked by                                        | Purpose                                                                                     |
+|-------------------------------------------|---------------------------------------------------|---------------------------------------------------------------------------------------------|
+| `Invoke-ArtifactModeration.ps1`           | `ci:eval:moderate:artifacts`                      | Moderates all eval specs plus changed AI artifacts from the changed-artifact manifest       |
+| `New-AgentMatrixDashboard.ps1`            | `ci:eval:agent:dashboard`, `ci:eval:agent:report` | Renders a self-contained HTML matrix dashboard, one row per inventory agent                 |
+| `New-EquivalenceDashboard.ps1`            | `ci:eval:dashboard`                               | Renders a self-contained HTML dashboard for a baseline-equivalence run                      |
+| `Get-AgentDependencyMap.ps1`              | Run directly                                      | Builds a JSON map of agent dependencies for the baseline-equivalence dispatcher             |
+| `Update-AgentMatrixSummariesFromLogs.ps1` | Run directly                                      | Rebuilds per-agent matrix summaries from existing vally logs without re-running `npx vally` |
 
 `Invoke-ArtifactModeration.ps1` and `Invoke-CorpusModeration.ps1` are distinct lanes over the same changed-artifact manifest. Corpus moderation scores stimulus text inside eval specs; artifact moderation covers the specs plus the changed AI artifacts themselves, writing to a separate output file.
 

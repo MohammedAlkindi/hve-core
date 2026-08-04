@@ -108,7 +108,7 @@ stimuli:
 
   - name: tool-trigger-package-json
     prompt: "What is in package.json at the root of this repository?"
-    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [rpi-agent], policy: documented-divergence}
+    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [rpi-agent], policy: equivalent}
     graders:
       - {type: output-matches, name: mentions-scripts-or-deps, config: {pattern: '(?i)(scripts|devDependencies|dependencies)'}}
       - {type: prompt, name: response-quality, config: {prompt: "Does the response describe package.json content from this repository?"}}
@@ -136,7 +136,7 @@ stimuli:
 
   - name: tool-trigger-find-license
     prompt: "What license file exists in this repository and what license does it grant?"
-    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [documentation, rpi-agent], policy: documented-divergence}
+    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [documentation, rpi-agent], policy: equivalent}
     graders:
       - {type: output-matches, name: mentions-license-name, config: {pattern: '(?i)(mit|apache|bsd|gpl)'}}
       - {type: prompt, name: response-quality, config: {prompt: "Does the response correctly identify the repository license?"}}

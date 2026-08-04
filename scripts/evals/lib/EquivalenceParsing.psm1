@@ -201,6 +201,107 @@ function Measure-CompareTrials {
     }
 }
 
+function Resolve-ExpectedInstanceCount {
+    <#
+    .SYNOPSIS
+        Builds the expected (stimulus, grader) instance counts for a declared manifest.
+    .DESCRIPTION
+        Scoping a reader to declared names answers "did any declared grader fail", but
+        not "was every declared grader actually evaluated". A grader that is declared in
+        the canonical library yet absent from the executable spec is never evaluated, so
+        a name-scoped reader reports zero failures over a population that never ran.
+
+        The expected count is the declared grader for each stimulus that declares it,
+        multiplied by the effective trial count, so a run that produced fewer instances
+        than declared is distinguishable from one that produced them all and passed.
+    .OUTPUTS
+        [hashtable] Key `stimulus||name`, value expected instance count.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [hashtable]$Manifest,
+
+        [Parameter(Mandatory = $false)]
+        [int]$ExpectedTrials = 1
+    )
+
+    $expected = @{}
+    if (-not $Manifest) { return $expected }
+
+    $multiplier = if ($ExpectedTrials -gt 0) { $ExpectedTrials } else { 1 }
+    foreach ($stimulus in $Manifest.Keys) {
+        foreach ($name in @($Manifest[$stimulus])) {
+            if ([string]::IsNullOrWhiteSpace([string]$name)) { continue }
+            $expected["$stimulus||$name"] = $multiplier
+        }
+    }
+
+    return $expected
+}
+
+function Compare-DeclaredInstanceCoverage {
+    <#
+    .SYNOPSIS
+        Reconciles observed grader instances against an expected manifest, both ways.
+    .DESCRIPTION
+        Presence of a signal is not coverage. Fewer observed instances than declared
+        means part of the population was never evaluated; more means duplicated or
+        misplaced records. Both directions are data-quality violations, because either
+        one makes a conformance claim over a population the run did not actually cover.
+    .OUTPUTS
+        [hashtable] With keys Missing, Duplicate, Unexpected, and Diagnostics.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [hashtable]$Expected,
+
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [hashtable]$Observed
+    )
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    $missing = 0
+    $duplicate = 0
+    $unexpected = 0
+
+    if (-not $Expected) { return @{ Missing = 0; Duplicate = 0; Unexpected = 0; Diagnostics = @() } }
+    $seen = if ($Observed) { $Observed } else { @{} }
+
+    foreach ($key in $Expected.Keys) {
+        $want = [int]$Expected[$key]
+        $got = if ($seen.ContainsKey($key)) { [int]$seen[$key] } else { 0 }
+        if ($got -lt $want) {
+            $missing += ($want - $got)
+            $diagnostics.Add("Declared grader '$key' produced $got of $want expected result instances.")
+        }
+        elseif ($got -gt $want) {
+            $duplicate += ($got - $want)
+            $diagnostics.Add("Declared grader '$key' produced $got result instances, exceeding the $want expected.")
+        }
+    }
+
+    foreach ($key in $seen.Keys) {
+        if (-not $Expected.ContainsKey($key)) {
+            $unexpected += [int]$seen[$key]
+            $diagnostics.Add("Grader result '$key' was not declared for that stimulus.")
+        }
+    }
+
+    return @{
+        Missing     = $missing
+        Duplicate   = $duplicate
+        Unexpected  = $unexpected
+        Diagnostics = @($diagnostics)
+    }
+}
+
 function Measure-DeclaredInvariantFailures {
     <#
     .SYNOPSIS
@@ -220,8 +321,14 @@ function Measure-DeclaredInvariantFailures {
         The scraper also returns no distinguishable value when the directory, the file,
         the read, or the parse fails, so a run that produced no report at all was
         indistinguishable from a run with zero failures. `HasSignal` separates those.
+
+        `HasSignal` alone still only proves that something was evaluated. When an
+        expected manifest is supplied, the observed instances are reconciled against it
+        in both directions so a declared invariant that never ran cannot be reported as
+        conformant.
     .OUTPUTS
-        [hashtable] With keys HasSignal, Failed, Evaluated, and Diagnostics.
+        [hashtable] With keys HasSignal, Failed, Evaluated, MalformedRecords, Missing,
+        Duplicate, Unexpected, and Diagnostics.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -233,20 +340,28 @@ function Measure-DeclaredInvariantFailures {
 
         [Parameter(Mandatory = $false)]
         [AllowNull()]
-        [string[]]$InvariantNames
+        [string[]]$InvariantNames,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [hashtable]$ExpectedManifest,
+
+        [Parameter(Mandatory = $false)]
+        [int]$ExpectedTrials = 1
     )
 
     $diagnostics = [System.Collections.Generic.List[string]]::new()
+    $empty = @{ HasSignal = $false; Failed = 0; Evaluated = 0; MalformedRecords = 0; Missing = 0; Duplicate = 0; Unexpected = 0 }
 
     if ([string]::IsNullOrWhiteSpace($RunDir) -or -not (Test-Path -LiteralPath $RunDir)) {
         $diagnostics.Add('Invariant run directory is missing.')
-        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; Diagnostics = @($diagnostics) }
+        return ($empty + @{ Diagnostics = @($diagnostics) })
     }
 
     $files = @(Get-ChildItem -LiteralPath $RunDir -Filter 'results.jsonl' -Recurse -File -ErrorAction SilentlyContinue)
     if ($files.Count -eq 0) {
         $diagnostics.Add('No results.jsonl found under the run directory.')
-        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; Diagnostics = @($diagnostics) }
+        return ($empty + @{ Diagnostics = @($diagnostics) })
     }
 
     $scoped = $null
@@ -260,6 +375,8 @@ function Measure-DeclaredInvariantFailures {
 
     $failed = 0
     $evaluated = 0
+    $malformed = 0
+    $observed = @{}
 
     foreach ($file in $files) {
         foreach ($line in (Get-Content -LiteralPath $file.FullName -Encoding utf8)) {
@@ -268,6 +385,9 @@ function Measure-DeclaredInvariantFailures {
                 $record = $line | ConvertFrom-Json -Depth 100 -ErrorAction Stop
             }
             catch {
+                # A truncated record can hide a failing invariant. Counting it lets the
+                # caller fail the run closed instead of scoring only the survivors.
+                $malformed++
                 $diagnostics.Add('Malformed line in results.jsonl.')
                 continue
             }
@@ -287,6 +407,8 @@ function Measure-DeclaredInvariantFailures {
                     if ($kind -ne 'code') { continue }
                 }
                 $evaluated++
+                $key = "$stimulus||$name"
+                $observed[$key] = 1 + $(if ($observed.ContainsKey($key)) { [int]$observed[$key] } else { 0 })
                 $passed = $detail.PSObject.Properties['passed'] -and $detail.passed
                 if (-not $passed) {
                     $failed++
@@ -296,12 +418,35 @@ function Measure-DeclaredInvariantFailures {
         }
     }
 
+    $coverage = Compare-DeclaredInstanceCoverage `
+        -Expected (Resolve-ExpectedInstanceCount -Manifest $ExpectedManifest -ExpectedTrials $ExpectedTrials) `
+        -Observed $observed
+    foreach ($entry in @($coverage.Diagnostics)) { $diagnostics.Add($entry) }
+
     if ($evaluated -eq 0) {
         $diagnostics.Add('No invariant graders were evaluated in this run.')
-        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; Diagnostics = @($diagnostics) }
+        return @{
+            HasSignal        = $false
+            Failed           = 0
+            Evaluated        = 0
+            MalformedRecords = $malformed
+            Missing          = [int]$coverage.Missing
+            Duplicate        = [int]$coverage.Duplicate
+            Unexpected       = [int]$coverage.Unexpected
+            Diagnostics      = @($diagnostics)
+        }
     }
 
-    return @{ HasSignal = $true; Failed = $failed; Evaluated = $evaluated; Diagnostics = @($diagnostics) }
+    return @{
+        HasSignal        = $true
+        Failed           = $failed
+        Evaluated        = $evaluated
+        MalformedRecords = $malformed
+        Missing          = [int]$coverage.Missing
+        Duplicate        = [int]$coverage.Duplicate
+        Unexpected       = [int]$coverage.Unexpected
+        Diagnostics      = @($diagnostics)
+    }
 }
 
 function Measure-DivergenceGuardResults {
@@ -324,8 +469,14 @@ function Measure-DivergenceGuardResults {
         `HasSignal` distinguishes a run where no guard was evaluated from a run where
         every guard passed. Treating the former as clean would let a broken or empty
         customized run report perfect divergence conformance.
+
+        Any-signal is still weaker than coverage: one passing guard elsewhere could
+        stand in for a stimulus whose guard details never appeared. When an expected
+        manifest is supplied, observed instances are reconciled against it in both
+        directions so a partial population cannot produce a conformant result.
     .OUTPUTS
-        [hashtable] With keys HasSignal, Failed, Evaluated, FailedGuards, Diagnostics.
+        [hashtable] With keys HasSignal, Failed, Evaluated, FailedGuards,
+        MalformedRecords, Missing, Duplicate, Unexpected, and Diagnostics.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -337,15 +488,23 @@ function Measure-DivergenceGuardResults {
 
         [Parameter(Mandatory = $false)]
         [AllowNull()]
-        [string[]]$GuardNames
+        [string[]]$GuardNames,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [hashtable]$ExpectedManifest,
+
+        [Parameter(Mandatory = $false)]
+        [int]$ExpectedTrials = 1
     )
 
     $diagnostics = [System.Collections.Generic.List[string]]::new()
     $failedGuards = [System.Collections.Generic.List[string]]::new()
+    $empty = @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); MalformedRecords = 0; Missing = 0; Duplicate = 0; Unexpected = 0 }
 
     if ([string]::IsNullOrWhiteSpace($RunDir) -or -not (Test-Path -LiteralPath $RunDir)) {
         $diagnostics.Add('Customized run directory is missing.')
-        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+        return ($empty + @{ Diagnostics = @($diagnostics) })
     }
 
     $scoped = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -356,17 +515,19 @@ function Measure-DivergenceGuardResults {
         # No declared guards means there is nothing for this gate to assert. That is a
         # legitimate configuration, not a passing run, so it reports no signal.
         $diagnostics.Add('No divergence guards are declared in the canonical library.')
-        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+        return ($empty + @{ Diagnostics = @($diagnostics) })
     }
 
     $files = @(Get-ChildItem -LiteralPath $RunDir -Filter 'results.jsonl' -Recurse -File -ErrorAction SilentlyContinue)
     if ($files.Count -eq 0) {
         $diagnostics.Add('No results.jsonl found under the customized run directory.')
-        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+        return ($empty + @{ Diagnostics = @($diagnostics) })
     }
 
     $failed = 0
     $evaluated = 0
+    $malformed = 0
+    $observed = @{}
 
     foreach ($file in $files) {
         foreach ($line in (Get-Content -LiteralPath $file.FullName -Encoding utf8)) {
@@ -375,6 +536,7 @@ function Measure-DivergenceGuardResults {
                 $record = $line | ConvertFrom-Json -Depth 100 -ErrorAction Stop
             }
             catch {
+                $malformed++
                 $diagnostics.Add('Malformed line in customized results.jsonl.')
                 continue
             }
@@ -388,6 +550,8 @@ function Measure-DivergenceGuardResults {
                 $name = if ($detail.PSObject.Properties['name']) { [string]$detail.name } else { '' }
                 if (-not $scoped.Contains($name)) { continue }
                 $evaluated++
+                $key = "$stimulus||$name"
+                $observed[$key] = 1 + $(if ($observed.ContainsKey($key)) { [int]$observed[$key] } else { 0 })
                 $passed = $detail.PSObject.Properties['passed'] -and $detail.passed
                 if (-not $passed) {
                     $failed++
@@ -398,17 +562,36 @@ function Measure-DivergenceGuardResults {
         }
     }
 
+    $coverage = Compare-DeclaredInstanceCoverage `
+        -Expected (Resolve-ExpectedInstanceCount -Manifest $ExpectedManifest -ExpectedTrials $ExpectedTrials) `
+        -Observed $observed
+    foreach ($entry in @($coverage.Diagnostics)) { $diagnostics.Add($entry) }
+
     if ($evaluated -eq 0) {
         $diagnostics.Add('No divergence guards were evaluated in the customized run.')
-        return @{ HasSignal = $false; Failed = 0; Evaluated = 0; FailedGuards = @(); Diagnostics = @($diagnostics) }
+        return @{
+            HasSignal        = $false
+            Failed           = 0
+            Evaluated        = 0
+            FailedGuards     = @()
+            MalformedRecords = $malformed
+            Missing          = [int]$coverage.Missing
+            Duplicate        = [int]$coverage.Duplicate
+            Unexpected       = [int]$coverage.Unexpected
+            Diagnostics      = @($diagnostics)
+        }
     }
 
     return @{
-        HasSignal    = $true
-        Failed       = $failed
-        Evaluated    = $evaluated
-        FailedGuards = @($failedGuards)
-        Diagnostics  = @($diagnostics)
+        HasSignal        = $true
+        Failed           = $failed
+        Evaluated        = $evaluated
+        FailedGuards     = @($failedGuards)
+        MalformedRecords = $malformed
+        Missing          = [int]$coverage.Missing
+        Duplicate        = [int]$coverage.Duplicate
+        Unexpected       = [int]$coverage.Unexpected
+        Diagnostics      = @($diagnostics)
     }
 }
 
@@ -446,10 +629,22 @@ function Get-EquivalenceGateResults {
     .DESCRIPTION
         Two questions are being asked, and folding them into one verdict made neither
         answerable. The equivalence gate asks whether behavior that should not change
-        stayed the same; it reads confidence-interval bounds over the equivalent-policy
-        population only. The documented-divergence gate asks whether declared
-        customization guards actually held; it reads per-guard conformance from the
-        customized run.
+        stayed the same; it reads the tie ratio over the equivalent-policy population
+        only. The documented-divergence gate asks whether declared customization guards
+        actually held; it reads per-guard conformance from the customized run.
+
+        The statistic is the equivalent-only tie ratio rather than a confidence
+        interval. Vally's `compare` summary reports bounds over every compared stimulus,
+        including the ones the suite expects to diverge, so a strong expected win among
+        the documented-divergence stimuli could move the interval away from zero and
+        fail equivalence even when every equivalent trial was unchanged. `ciLow` and
+        `ciHigh` remain in the summary as reporting-only diagnostics.
+
+        An empty equivalent population is a structural failure rather than a below-floor
+        statistical result. A ratio computed from zero trials is not a low score; it is
+        the absence of the measurement the gate exists to make, and reporting it as a
+        statistical miss would send diagnosis toward the customization instead of the
+        configuration that emptied the population.
 
         Data-quality violations and invariant failures fail closed regardless of tier,
         because an incomplete comparison cannot evidence equivalence and reporting a
@@ -468,10 +663,11 @@ function Get-EquivalenceGateResults {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][int]$Runs,
-        [Parameter(Mandatory)][double]$CiLow,
-        [Parameter(Mandatory)][double]$CiHigh,
         [Parameter(Mandatory)][int]$InvariantFailures,
         [Parameter(Mandatory)][string]$Tier,
+        [Parameter(Mandatory = $false)][double]$TieRatio = 0.0,
+        [Parameter(Mandatory = $false)][int]$EquivalentTotal = 0,
+        [Parameter(Mandatory = $false)][double]$TieRatioFloor = 0.80,
         [Parameter(Mandatory = $false)][int]$DataQualityViolations = 0,
         [Parameter(Mandatory = $false)][int]$DivergenceGuardFailures = 0,
         [Parameter(Mandatory = $false)][bool]$DivergenceHasSignal = $false,
@@ -481,21 +677,28 @@ function Get-EquivalenceGateResults {
     $advisory = ($Tier -eq 'devloop')
     $downgrade = { param($state) if ($state -eq 'fail' -and $advisory) { 'warn' } else { $state } }
 
+    # An equivalent population of zero cannot evidence equivalence. It is grouped with
+    # the other structural conditions so it fails closed at both tiers.
+    $emptyEquivalentPopulation = ($EquivalentTotal -le 0)
+
     # Equivalence gate.
     $equivalence = 'pass'
     if ($Runs -le 0) {
         $equivalence = 'fail'
     }
+    elseif ($emptyEquivalentPopulation) {
+        $equivalence = 'fail'
+    }
     elseif ($InvariantFailures -gt 0 -or $DataQualityViolations -gt 0 -or $RunHealthFailures -gt 0) {
         $equivalence = 'fail'
     }
-    elseif (($CiLow -gt 0) -or ($CiHigh -lt 0)) {
+    elseif ($TieRatio -lt $TieRatioFloor) {
         $equivalence = 'fail'
     }
 
     # A structurally broken run fails closed at both tiers. Only a statistical or
     # guard-conformance result is advisory in devloop.
-    $structural = ($Runs -le 0) -or ($DataQualityViolations -gt 0)
+    $structural = ($Runs -le 0) -or ($DataQualityViolations -gt 0) -or $emptyEquivalentPopulation
     $equivalenceGate = if ($structural) { $equivalence } else { & $downgrade $equivalence }
 
     # Documented-divergence gate.

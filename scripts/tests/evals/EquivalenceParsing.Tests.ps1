@@ -167,9 +167,8 @@ Describe 'Measure-CompareTrials against captured Vally 0.10 output' -Tag 'Unit' 
     }
 
     It 'Retains the 0.10 unmatched arrays that the tally does not currently count' {
-        # Documents a known gap: unmatched trajectories never reach the tally, so
-        # Total reflects only matched pairs. Policy work in a later phase makes
-        # these counts observable rather than silent.
+        # Total reflects matched pairs only, so the unmatched arrays have to be
+        # preserved on the record for the data-quality assertion below to read.
         @($script:V010Record.unmatchedBaseline).Count | Should -Be 1
         @($script:V010Record.unmatchedTreatment).Count | Should -Be 1
         $script:V010Tally.Total | Should -Be 2
@@ -398,6 +397,86 @@ Describe 'Measure-DeclaredInvariantFailures' -Tag 'Unit' {
         }
         finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
+
+    It 'Counts a malformed line so the caller can fail the run closed' {
+        # Tolerating the rest of the run is not the same as accepting it. A truncated
+        # record can hide a failing invariant, so the count has to reach the caller
+        # rather than living only in a diagnostic string.
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @('{broken', $script:PassLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four')
+            $result.HasSignal | Should -BeTrue
+            $result.MalformedRecords | Should -Be 1
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Reports a declared invariant that never produced a result as missing' {
+        # The defect this closes: a grader declared in the canonical library but absent
+        # from the executable spec is never evaluated, so a name-scoped reader reported
+        # zero failures over a population that never ran.
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:PassLine)
+            $manifest = @{ 's' = @('answers-four'); 'absent-stimulus' = @('never-emitted') }
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four', 'never-emitted') -ExpectedManifest $manifest -ExpectedTrials 1
+            $result.HasSignal | Should -BeTrue
+            $result.Failed | Should -Be 0
+            $result.Missing | Should -Be 1
+            ($result.Diagnostics -join ' ') | Should -Match 'absent-stimulus'
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Reports fewer instances than the configured trial count as missing' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:PassLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four') -ExpectedManifest @{ 's' = @('answers-four') } -ExpectedTrials 5
+            $result.Missing | Should -Be 4
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Reports more instances than expected as duplicates' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:PassLine, $script:PassLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four') -ExpectedManifest @{ 's' = @('answers-four') } -ExpectedTrials 1
+            $result.Duplicate | Should -Be 1
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Reports a result on an undeclared stimulus as unexpected' {
+        # Misplacement matters as much as absence: a guard result attributed to the
+        # wrong stimulus would otherwise satisfy the population count for a stimulus
+        # that never actually ran it.
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:PassLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four') -ExpectedManifest @{ 'other-stimulus' = @('answers-four') } -ExpectedTrials 1
+            $result.Unexpected | Should -Be 1
+            $result.Missing | Should -Be 1
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'Reports full coverage when every declared instance appears exactly once' {
+        # Pins the boundary so the preceding cases must be caused by the mismatch,
+        # not by the manifest parameter being supplied at all.
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        try {
+            New-RunFixture -Root $root -Lines @($script:PassLine)
+            $result = Measure-DeclaredInvariantFailures -RunDir $root -InvariantNames @('answers-four') -ExpectedManifest @{ 's' = @('answers-four') } -ExpectedTrials 1
+            $result.Missing | Should -Be 0
+            $result.Duplicate | Should -Be 0
+            $result.Unexpected | Should -Be 0
+            $result.MalformedRecords | Should -Be 0
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 Describe 'Measure-InvariantFailures' -Tag 'Unit' {
@@ -431,59 +510,81 @@ Describe 'Measure-InvariantFailures' -Tag 'Unit' {
 Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
     BeforeAll {
         # Most cases assert the equivalence gate, so supply a healthy divergence signal
-        # by default. Without it every case would fail on the divergence gate instead,
-        # which would hide whatever the case is actually testing.
+        # and a passing equivalent population by default. Without them every case would
+        # fail on another gate input instead, hiding what the case actually tests.
         $script:Healthy = @{ DivergenceHasSignal = $true; DivergenceGuardFailures = 0 }
+        $script:Population = @{ TieRatio = 1.0; EquivalentTotal = 10 }
     }
 
     It 'Returns fail when there are zero runs' {
-        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 0 -InvariantFailures 0 -Tier 'devloop' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Returns fail for a zero-run nightly evaluation' {
-        (Get-EquivalenceGateResults -Runs 0 -CiLow 0 -CiHigh 0 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 0 -InvariantFailures 0 -Tier 'ci' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'fail'
     }
 
-    It 'Returns pass when the 95% confidence interval straddles zero' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'devloop' @script:Healthy
+    It 'Returns pass when the equivalent tie ratio meets the floor' {
+        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'devloop' @script:Healthy @script:Population
         $r.EquivalenceGate | Should -Be 'pass'
         $r.Verdict | Should -Be 'pass'
     }
 
+    It 'Passes at exactly the tie-ratio floor' {
+        # The floor is inclusive. Pinning the boundary keeps a later refactor from
+        # turning the documented rule into a strictly-greater comparison.
+        $r = Get-EquivalenceGateResults -Runs 10 -TieRatio 0.80 -EquivalentTotal 175 -InvariantFailures 0 -Tier 'ci' @script:Healthy
+        $r.EquivalenceGate | Should -Be 'pass'
+    }
+
+    It 'Fails on the authoritative tier just below the floor' {
+        (Get-EquivalenceGateResults -Runs 10 -TieRatio 0.79 -EquivalentTotal 175 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+    }
+
+    It 'Downgrades a below-floor tie ratio to warn on the advisory tier' {
+        (Get-EquivalenceGateResults -Runs 10 -TieRatio 0.79 -EquivalentTotal 175 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+    }
+
+    It 'Fails closed at both tiers when the equivalent population is empty' {
+        # A ratio over zero trials is not a low score; it is the absence of the
+        # measurement the gate exists to make. Reporting it as a below-floor
+        # statistical result would send diagnosis toward the customization instead
+        # of the configuration that emptied the population.
+        foreach ($tier in @('devloop', 'ci')) {
+            $r = Get-EquivalenceGateResults -Runs 10 -TieRatio 0.0 -EquivalentTotal 0 -InvariantFailures 0 -Tier $tier @script:Healthy
+            $r.EquivalenceGate | Should -Be 'fail'
+            $r.Verdict | Should -Be 'fail'
+        }
+    }
+
+    It 'Ignores confidence-interval inputs entirely' {
+        # The gate no longer accepts CiLow or CiHigh. Vally reports those bounds over
+        # every compared stimulus, including the documented-divergence ones, so a
+        # strong expected win there could previously fail equivalence even when every
+        # equivalent trial tied.
+        $command = Get-Command Get-EquivalenceGateResults
+        $command.Parameters.Keys | Should -Not -Contain 'CiLow'
+        $command.Parameters.Keys | Should -Not -Contain 'CiHigh'
+    }
+
     It 'Returns warn on PR when invariants fail' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -InvariantFailures 1 -Tier 'devloop' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Returns fail on nightly when invariants fail' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 1 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
-    }
-
-    It 'Returns warn on PR when the confidence interval excludes zero on the negative side (regression)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
-    }
-
-    It 'Returns fail on nightly when the confidence interval excludes zero on the negative side (regression)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.6 -CiHigh -0.1 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
-    }
-
-    It 'Returns warn on PR when the confidence interval excludes zero on the positive side (unexpected improvement)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
-    }
-
-    It 'Returns fail on nightly when the confidence interval excludes zero on the positive side (unexpected improvement)' {
-        (Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -InvariantFailures 1 -Tier 'ci' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Fails a data-quality violation closed even on the advisory tier' {
         # An incomplete comparison cannot evidence equivalence at any tier. Only a
         # statistical or guard result is advisory.
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -DataQualityViolations 3 -Tier 'devloop' @script:Healthy
+        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -DataQualityViolations 3 -Tier 'devloop' @script:Healthy @script:Population
         $r.EquivalenceGate | Should -Be 'fail'
         $r.Verdict | Should -Be 'fail'
     }
 
     It 'Fails the divergence gate when a declared guard fails' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $true -DivergenceGuardFailures 1
+        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $true -DivergenceGuardFailures 1 @script:Population
         $r.DocumentedDivergenceGate | Should -Be 'fail'
         $r.EquivalenceGate | Should -Be 'pass'
         $r.Verdict | Should -Be 'fail'
@@ -492,13 +593,13 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
     It 'Fails the divergence gate when the customized run produced no guard signal' {
         # No signal is not conformance. Treating an absent result as a pass is the
         # defect that made the retired signature subsystem look healthy for months.
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $false
+        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $false @script:Population
         $r.DocumentedDivergenceGate | Should -Be 'fail'
         $r.Verdict | Should -Be 'fail'
     }
 
     It 'Downgrades a failing divergence gate to warn on the advisory tier' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -Tier 'devloop' -DivergenceHasSignal $true -DivergenceGuardFailures 2
+        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'devloop' -DivergenceHasSignal $true -DivergenceGuardFailures 2 @script:Population
         $r.DocumentedDivergenceGate | Should -Be 'warn'
         $r.Verdict | Should -Be 'warn'
     }
@@ -507,23 +608,23 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
         # RunHealthFailures was renamed from divergenceFailures and measures whether
         # the run itself completed cleanly. A run with unparseable compare output
         # cannot evidence equivalence regardless of what the surviving records say.
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -RunHealthFailures 2 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
+        (Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -RunHealthFailures 2 -Tier 'ci' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'fail'
     }
 
     It 'Downgrades a run-health failure to warn on the advisory tier' {
         # Run health is a statistical-population concern, not a structural one, so it
         # follows the same advisory downgrade as invariants rather than failing closed.
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -RunHealthFailures 2 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+        (Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -RunHealthFailures 2 -Tier 'devloop' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'warn'
     }
 
     It 'Passes the equivalence gate when run-health failures are zero' {
         # Pins the boundary: the preceding two cases must be caused by the count
         # being non-zero, not by the parameter being present at all.
-        (Get-EquivalenceGateResults -Runs 10 -CiLow -0.2 -CiHigh 0.2 -InvariantFailures 0 -RunHealthFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'pass'
+        (Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -RunHealthFailures 0 -Tier 'ci' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'pass'
     }
 
     It 'Reports the two gates independently' {
-        $r = Get-EquivalenceGateResults -Runs 10 -CiLow 0.1 -CiHigh 0.6 -InvariantFailures 0 -Tier 'ci' @script:Healthy
+        $r = Get-EquivalenceGateResults -Runs 10 -TieRatio 0.5 -EquivalentTotal 10 -InvariantFailures 0 -Tier 'ci' @script:Healthy
         $r.EquivalenceGate | Should -Be 'fail'
         $r.DocumentedDivergenceGate | Should -Be 'pass'
     }
@@ -1111,5 +1212,55 @@ Describe 'Measure-DivergenceGuardResults' -Tag 'Unit' {
         New-GuardRun -Root $root -Details @(@{ name = 'response-quality'; passed = $true; kind = 'prompt' })
         $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames
         $r.HasSignal | Should -BeFalse
+    }
+
+    It 'Reports a declared guard instance that never appeared as missing' {
+        # Any-signal is weaker than coverage. One passing guard elsewhere must not
+        # stand in for a stimulus whose guard details never appeared, or zero observed
+        # failures over a partial population would read as conformance.
+        $root = Join-Path $TestDrive ('guard-missing-' + [Guid]::NewGuid().ToString('N'))
+        New-GuardRun -Root $root -Details @(@{ name = 'scope-language'; passed = $true; kind = 'code' })
+        $manifest = @{
+            'customization-boundary-write-tmp' = @('scope-language')
+            'another-stimulus'                 = @('routes-through-rpi-lifecycle')
+        }
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames -ExpectedManifest $manifest -ExpectedTrials 1
+        $r.HasSignal | Should -BeTrue
+        $r.Failed | Should -Be 0
+        $r.Missing | Should -Be 1
+        ($r.Diagnostics -join ' ') | Should -Match 'another-stimulus'
+    }
+
+    It 'Reports a repeated guard result as a duplicate rather than coverage' {
+        $root = Join-Path $TestDrive ('guard-dup-' + [Guid]::NewGuid().ToString('N'))
+        New-GuardRun -Root $root -Details @(
+            @{ name = 'scope-language'; passed = $true; kind = 'code' },
+            @{ name = 'scope-language'; passed = $true; kind = 'code' }
+        )
+        $manifest = @{ 'customization-boundary-write-tmp' = @('scope-language') }
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames -ExpectedManifest $manifest -ExpectedTrials 1
+        $r.Duplicate | Should -Be 1
+    }
+
+    It 'Counts a malformed customized record' {
+        $root = Join-Path $TestDrive ('guard-malformed-' + [Guid]::NewGuid().ToString('N'))
+        New-GuardRun -Root $root -Details @(@{ name = 'scope-language'; passed = $true; kind = 'code' })
+        Add-Content -LiteralPath (Join-Path $root 'results.jsonl') -Value '{broken' -Encoding utf8NoBOM
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames
+        $r.MalformedRecords | Should -Be 1
+    }
+
+    It 'Reports full coverage when every declared guard instance appears exactly once' {
+        $root = Join-Path $TestDrive ('guard-complete-' + [Guid]::NewGuid().ToString('N'))
+        New-GuardRun -Root $root -Details @(
+            @{ name = 'scope-language'; passed = $true; kind = 'code' },
+            @{ name = 'routes-through-rpi-lifecycle'; passed = $true; kind = 'code' }
+        )
+        $manifest = @{ 'customization-boundary-write-tmp' = @('scope-language', 'routes-through-rpi-lifecycle') }
+        $r = Measure-DivergenceGuardResults -RunDir $root -GuardNames $script:GuardNames -ExpectedManifest $manifest -ExpectedTrials 1
+        $r.Missing | Should -Be 0
+        $r.Duplicate | Should -Be 0
+        $r.Unexpected | Should -Be 0
+        $r.MalformedRecords | Should -Be 0
     }
 }

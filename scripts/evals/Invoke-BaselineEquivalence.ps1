@@ -51,6 +51,12 @@
 .PARAMETER OutputPath
     Path to the summary JSON. Defaults to `<RepoRoot>/logs/baseline-equivalence-summary.json`.
 
+.PARAMETER NoBaselineCache
+    Bypasses both baseline cache lookup and cache persistence, forcing a fresh baseline
+    run for every model. Because the baseline is otherwise reused across agents, this
+    switch materially increases model-backed execution time and cost; use it when a
+    cached baseline is suspect rather than as a default.
+
 .EXAMPLE
     ./Invoke-BaselineEquivalence.ps1 -Agent rpi-agent -Tier devloop -WhatIf
 
@@ -314,9 +320,16 @@ function Get-CanonicalStimulusPolicy {
         membership have to come from `stimuli.yml`. Without them the parser would count
         intentional divergence against equivalence, and the invariant tally would fall
         back to every deterministic grader rather than the ones actually declared.
+
+        Flat name lists answer "did a declared grader fail" but not "was every declared
+        grader evaluated". The per-stimulus manifests carry that second question, so a
+        declared grader that never produced a result is distinguishable from one that
+        ran and passed.
     .OUTPUTS
-        [hashtable] With keys Policy (name to policy), Invariants (unique names), and
-        Guards (unique customized_required and customized_disallow grader names).
+        [hashtable] With keys Policy (name to policy), Invariants (unique names),
+        Guards (unique customized_required and customized_disallow grader names),
+        InvariantManifest (stimulus to declared invariant names), and GuardManifest
+        (stimulus to declared guard names).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -325,7 +338,7 @@ function Get-CanonicalStimulusPolicy {
         [string]$RepoRoot
     )
 
-    $result = @{ Policy = @{}; Invariants = @(); Guards = @() }
+    $result = @{ Policy = @{}; Invariants = @(); Guards = @(); InvariantManifest = @{}; GuardManifest = @{} }
     $path = Join-Path $RepoRoot 'evals/baseline-equivalence/stimuli.yml'
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $result }
 
@@ -350,27 +363,73 @@ function Get-CanonicalStimulusPolicy {
         $result.Policy[$name] = $policy
 
         if ($stimulus.ContainsKey('invariants') -and $stimulus.invariants) {
+            $perStimulus = [System.Collections.Generic.List[string]]::new()
             foreach ($invariant in @($stimulus.invariants)) {
-                if (-not [string]::IsNullOrWhiteSpace([string]$invariant)) { [void]$invariants.Add([string]$invariant) }
+                if (-not [string]::IsNullOrWhiteSpace([string]$invariant)) {
+                    [void]$invariants.Add([string]$invariant)
+                    $perStimulus.Add([string]$invariant)
+                }
             }
+            if ($perStimulus.Count -gt 0) { $result.InvariantManifest[$name] = @($perStimulus) }
         }
 
         # The divergence gate asserts that declared customization guards actually held.
         # Both kinds belong: customized_required asserts a behavior the customization
         # mandates, and customized_disallow asserts one it must not produce. Either
         # failing means the customization did not behave as documented.
+        $perStimulusGuards = [System.Collections.Generic.List[string]]::new()
         foreach ($key in @('customized_required', 'customized_disallow')) {
             if ($stimulus.ContainsKey($key) -and $stimulus[$key]) {
                 foreach ($guard in @($stimulus[$key])) {
-                    if (-not [string]::IsNullOrWhiteSpace([string]$guard)) { [void]$guards.Add([string]$guard) }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$guard)) {
+                        [void]$guards.Add([string]$guard)
+                        $perStimulusGuards.Add([string]$guard)
+                    }
                 }
             }
         }
+        if ($perStimulusGuards.Count -gt 0) { $result.GuardManifest[$name] = @($perStimulusGuards) }
     }
 
     $result.Invariants = @($invariants)
     $result.Guards = @($guards)
     return $result
+}
+
+function Get-EffectiveTrialCount {
+    <#
+    .SYNOPSIS
+        Reads the effective per-stimulus trial count from an executable eval spec.
+    .DESCRIPTION
+        Expected result cardinality is the declared grader multiplied by the number of
+        trials the spec actually runs. Hard-coding that multiplier would make the
+        coverage check silently wrong the moment the run count is tuned, which the
+        equivalence policy expects to happen during calibration.
+    .OUTPUTS
+        [int] The configured run count, or 1 when it cannot be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$SpecPath
+    )
+
+    if (-not (Test-Path -LiteralPath $SpecPath -PathType Leaf)) { return 1 }
+
+    try {
+        $spec = ConvertFrom-Yaml (Get-Content -LiteralPath $SpecPath -Raw)
+    }
+    catch {
+        return 1
+    }
+
+    if ($spec -and $spec.ContainsKey('defaults') -and $spec.defaults -and $spec.defaults.ContainsKey('runs')) {
+        $runs = [int]$spec.defaults.runs
+        if ($runs -gt 0) { return $runs }
+    }
+
+    return 1
 }
 
 function Get-InvariantFailureCount {
@@ -397,6 +456,16 @@ function Get-InvariantFailureCount {
 }
 
 function Get-PlannedCommands {
+    <#
+    .SYNOPSIS
+        Renders the vally commands a run would issue, one set per model.
+    .DESCRIPTION
+        The customized skill directory is derived per model rather than accepted as a
+        single path. Each model materializes its own surface, so rendering one shared
+        path would make dry-run output disagree with the live invocation for every
+        model after the first, which is exactly the mismatch that let the `ci` sweep
+        evaluate later models against the first model's surface.
+    #>
     [CmdletBinding()]
     [OutputType([string[]])]
     param(
@@ -410,18 +479,18 @@ function Get-PlannedCommands {
         [string]$JudgeModel,
         [string]$BaselineWorkspacePath,
         [string]$BaselineSkillDirPath,
-        [string]$CustomizedWorkspacePath,
-        [string]$CustomizedSkillDirPath
+        [string]$CustomizedWorkspacePath
     )
 
     $plan = [System.Collections.Generic.List[string]]::new()
     foreach ($model in $Models) {
         $aDir = Join-Path $OutputRoot "$model/$RunId/baseline"
         $bDir = Join-Path $OutputRoot "$model/$RunId/customized"
+        $customizedSkillDirPath = Join-Path $OutputRoot "$model/$RunId/customized-skill-dir"
         $baselineWorkspaceArg = if ([string]::IsNullOrEmpty($BaselineWorkspacePath)) { '""' } else { '"' + $BaselineWorkspacePath + '"' }
         $baselineSkillArg = if ([string]::IsNullOrEmpty($BaselineSkillDirPath)) { '""' } else { '"' + $BaselineSkillDirPath + '"' }
         $customizedWorkspaceArg = if ([string]::IsNullOrEmpty($CustomizedWorkspacePath)) { '""' } else { '"' + $CustomizedWorkspacePath + '"' }
-        $customizedSkillArg = if ([string]::IsNullOrEmpty($CustomizedSkillDirPath)) { '""' } else { '"' + $CustomizedSkillDirPath + '"' }
+        $customizedSkillArg = '"' + $customizedSkillDirPath + '"'
         $plan.Add("vally eval --eval-spec evals/baseline-equivalence/baseline/eval.yaml --model $model --output-dir $aDir --workspace $baselineWorkspaceArg --skill-dir $baselineSkillArg")
         $plan.Add("vally eval --eval-spec evals/baseline-equivalence/customized/eval.yaml --model $model --output-dir $bDir --workspace $customizedWorkspaceArg --skill-dir $customizedSkillArg")
         $plan.Add("vally compare --judge-model $JudgeModel --baseline <resolved baseline run> --treatment <resolved customized run> --output <compare jsonl path>")
@@ -533,20 +602,8 @@ if ($MyInvocation.InvocationName -ne '.') {
         $baselineCacheRoot = Join-Path $resolvedRoot 'evals/results/baseline-equivalence/_baseline-cache'
         Write-Host "   Vally version:   $vallyVersion" -ForegroundColor DarkGray
 
-        $dependencyMap = $null
-        $dependencyMapPath = Join-Path $resolvedRoot 'logs/agent-dependency-map.json'
-        if (Test-Path -LiteralPath $dependencyMapPath -PathType Leaf) {
-            try {
-                $dependencyMap = Get-Content -LiteralPath $dependencyMapPath -Raw | ConvertFrom-Json
-            }
-            catch {
-                $dependencyMap = $null
-            }
-        }
-
         $customizedWorkspacePath = $workspaceRoot
-        $customizedSkillDirPath = Join-Path $outputRoot "$($models[0])/$runId/customized-skill-dir"
-        $plannedCommands = Get-PlannedCommands -Models $models -OutputRoot $outputRoot -RunId $runId -JudgeModel $ComparisonJudgeModel -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath -CustomizedSkillDirPath $customizedSkillDirPath
+        $plannedCommands = Get-PlannedCommands -Models $models -OutputRoot $outputRoot -RunId $runId -JudgeModel $ComparisonJudgeModel -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath
 
         if ($WhatIfPreference) {
             Write-Host "Dry-run mode: skipping live SDK calls." -ForegroundColor Yellow
@@ -592,7 +649,16 @@ if ($MyInvocation.InvocationName -ne '.') {
         $canonicalPolicy = $canonical.Policy
         $canonicalInvariants = @($canonical.Invariants)
         $canonicalGuards = @($canonical.Guards)
+        $invariantManifest = $canonical.InvariantManifest
+        $guardManifest = $canonical.GuardManifest
+
+        # Expected result cardinality is the declared grader multiplied by the trials the
+        # spec actually runs, read from the spec so a calibration change to the run count
+        # cannot silently invalidate the coverage check.
+        $baselineTrials = Get-EffectiveTrialCount -SpecPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/baseline/eval.yaml')
+        $customizedTrials = Get-EffectiveTrialCount -SpecPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/customized/eval.yaml')
         Write-Host "   Canonical policy: $($canonicalPolicy.Count) stimulus/stimuli, $($canonicalInvariants.Count) declared invariant(s), $($canonicalGuards.Count) divergence guard(s)" -ForegroundColor DarkGray
+        Write-Host "   Expected coverage: $($invariantManifest.Count) invariant stimulus/stimuli x $baselineTrials trial(s), $($guardManifest.Count) guard stimulus/stimuli x $customizedTrials trial(s)" -ForegroundColor DarkGray
         $compareLogs = [System.Collections.Generic.List[string]]::new()
         $meanScores = [System.Collections.Generic.List[double]]::new()
         $winRates = [System.Collections.Generic.List[double]]::new()
@@ -640,8 +706,7 @@ if ($MyInvocation.InvocationName -ne '.') {
                     -RepoRoot $resolvedRoot `
                     -Agent $Agent `
                     -WorkspacePath $surfaceRoot `
-                    -SkillDirPath $customizedSkillDirForModel `
-                    -DependencyMap $dependencyMap
+                    -SkillDirPath $customizedSkillDirForModel
                 $variantB.applied = @($customized.Applied)
                 $variants.b = $variantB
                 Write-Host "   Customized surface: $($customized.Applied.Count) artifact(s)" -ForegroundColor DarkGray
@@ -700,14 +765,14 @@ if ($MyInvocation.InvocationName -ne '.') {
                 '--model', $model,
                 '--output-dir', $bDir,
                 '--workspace', $workspaceRoot,
-                '--skill-dir', $customizedSkillDirPath,
+                '--skill-dir', $customizedSkillDirForModel,
                 '--param', "SCOPE_PATTERN=$($scopeResolution.Pattern)"
             )
 
             if ($baselineReused) {
                 # A reused baseline was already graded when it was captured. Its invariant
                 # tally is re-read from the cached run so the verdict still accounts for it.
-                $baselineTally = Measure-DeclaredInvariantFailures -RunDir $baselineRunDir -InvariantNames $canonicalInvariants
+                $baselineTally = Measure-DeclaredInvariantFailures -RunDir $baselineRunDir -InvariantNames $canonicalInvariants -ExpectedManifest $invariantManifest -ExpectedTrials $baselineTrials
                 if ($baselineTally.HasSignal) {
                     $invariantFailures += $baselineTally.Failed
                 }
@@ -722,7 +787,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             else {
                 $codeA = Invoke-VallyCommand -Arguments $evalBaseline
                 $baselineRunDir = Resolve-LatestRunDir -OutputDir $aDir
-                $baselineTally = Measure-DeclaredInvariantFailures -RunDir $baselineRunDir -InvariantNames $canonicalInvariants
+                $baselineTally = Measure-DeclaredInvariantFailures -RunDir $baselineRunDir -InvariantNames $canonicalInvariants -ExpectedManifest $invariantManifest -ExpectedTrials $baselineTrials
                 if ($baselineTally.HasSignal) {
                     $invariantFailures += $baselineTally.Failed
                 }
@@ -734,7 +799,10 @@ if ($MyInvocation.InvocationName -ne '.') {
                     if ($codeA -ne 0) { $invariantFailures++ }
                 }
 
-                if (-not $NoBaselineCache -and $baselineRunDir -and $codeA -eq 0 -and $baselineTally.HasSignal) {
+                # A run whose declared invariant population was incomplete or malformed
+                # must not become the cached baseline every later agent compares against.
+                $cacheSafe = ([int]$baselineTally.MalformedRecords + [int]$baselineTally.Missing + [int]$baselineTally.Duplicate + [int]$baselineTally.Unexpected) -eq 0
+                if (-not $NoBaselineCache -and $baselineRunDir -and $codeA -eq 0 -and $baselineTally.HasSignal -and $cacheSafe) {
                     $baselineRunDir = Save-BaselineCacheEntry `
                         -CacheRoot $baselineCacheRoot `
                         -CacheKey $cacheKey `
@@ -744,6 +812,15 @@ if ($MyInvocation.InvocationName -ne '.') {
                         -StimulusHash $stimulusHash
                     Write-Host "   Baseline: cached for reuse by later agents" -ForegroundColor DarkGray
                 }
+            }
+            # Malformed, missing, duplicate, and unexpected invariant results are
+            # structural: they mean the run did not cover the declared population, so a
+            # conformance claim over it would assert something never measured. Counting
+            # them here also keeps an unsafe run out of the baseline cache.
+            $baselineStructural = [int]$baselineTally.MalformedRecords + [int]$baselineTally.Missing + [int]$baselineTally.Duplicate + [int]$baselineTally.Unexpected
+            if ($baselineStructural -gt 0) {
+                $dataQualityViolations += $baselineStructural
+                Write-Host "   Baseline invariant coverage: $($baselineTally.MalformedRecords) malformed, $($baselineTally.Missing) missing, $($baselineTally.Duplicate) duplicate, $($baselineTally.Unexpected) unexpected" -ForegroundColor Yellow
             }
             foreach ($diagnostic in @($baselineTally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
 
@@ -757,7 +834,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             # customized run. This is the only place those results exist: comparison
             # JSONL carries winners, not grader detail, and the run's own 0.7 scoring
             # threshold is too coarse for a single guard failure to move.
-            $guardTally = Measure-DivergenceGuardResults -RunDir $bRunDir -GuardNames $canonicalGuards
+            $guardTally = Measure-DivergenceGuardResults -RunDir $bRunDir -GuardNames $canonicalGuards -ExpectedManifest $guardManifest -ExpectedTrials $customizedTrials
             if ($guardTally.HasSignal) {
                 $divergenceHasSignal = $true
                 $divergenceGuardFailures += $guardTally.Failed
@@ -771,8 +848,8 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
 
                 # Divergence guards assert behavior that only the customization can
-                # produce, so every one of them failing is not a weak customization —
-                # it means the customized variant was effectively the baseline. That
+                # produce, so every one of them failing is not a weak customization.
+                # It means the customized variant was effectively the baseline. That
                 # happens whenever the surface fails to reach the agent, which is
                 # otherwise silent and reads as equivalence. Treat a total collapse as
                 # a run-health failure so it is attributed to delivery rather than
@@ -785,6 +862,14 @@ if ($MyInvocation.InvocationName -ne '.') {
             }
             else {
                 Write-Host "   Divergence guards: no signal from the customized run" -ForegroundColor Yellow
+            }
+            # Guard coverage is reconciled the same way as invariants. One passing guard
+            # elsewhere must not stand in for a stimulus whose guard never produced a
+            # result, so an incomplete population is a data-quality violation.
+            $guardStructural = [int]$guardTally.MalformedRecords + [int]$guardTally.Missing + [int]$guardTally.Duplicate + [int]$guardTally.Unexpected
+            if ($guardStructural -gt 0) {
+                $dataQualityViolations += $guardStructural
+                Write-Host "   Divergence guard coverage: $($guardTally.MalformedRecords) malformed, $($guardTally.Missing) missing, $($guardTally.Duplicate) duplicate, $($guardTally.Unexpected) unexpected" -ForegroundColor Yellow
             }
             foreach ($diagnostic in @($guardTally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
 
@@ -858,10 +943,15 @@ if ($MyInvocation.InvocationName -ne '.') {
         $aggregateCiLow = if ($ciLows.Count -gt 0) { ($ciLows | Measure-Object -Maximum).Maximum } else { 0.0 }
         $aggregateCiHigh = if ($ciHighs.Count -gt 0) { ($ciHighs | Measure-Object -Minimum).Minimum } else { 0.0 }
 
+        # The gate reads the equivalent-only tie ratio. Aggregating the ties and trials
+        # rather than averaging per-model ratios keeps every trial weighted equally, so
+        # a model that contributed fewer trials cannot move the result disproportionately.
+        $aggregateTieRatio = if ($totalEquivalent -gt 0) { $totalEquivalentTies / $totalEquivalent } else { 0.0 }
+
         $gates = Get-EquivalenceGateResults `
             -Runs $totalRuns `
-            -CiLow $aggregateCiLow `
-            -CiHigh $aggregateCiHigh `
+            -TieRatio $aggregateTieRatio `
+            -EquivalentTotal $totalEquivalent `
             -InvariantFailures $invariantFailures `
             -DataQualityViolations $dataQualityViolations `
             -DivergenceGuardFailures $divergenceGuardFailures `

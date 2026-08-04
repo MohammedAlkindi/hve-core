@@ -889,6 +889,7 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
         $invFail = 0
         $runHealthFail = 0
         $guardFail = 0
+        $dataQualityFail = 0
         $verdict = 'unknown'
         $equivalenceGate = 'unknown'
         $divergenceGate = 'unknown'
@@ -906,11 +907,19 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
                 if ($major -ne '2') {
                     $contractError = "Unsupported equivalence summary schemaVersion '$schemaVersion'; this consumer requires 2.x. Rerun the equivalence driver."
                 }
+                elseif (-not $equivSummary.PSObject.Properties['dataQualityViolations']) {
+                    # A structurally failed run can report dataQualityViolations as its
+                    # only nonzero counter. Reading a 2.x summary that omits the field
+                    # would silently drop the sole evidence of that failure, so absence
+                    # is a contract error rather than an implied zero.
+                    $contractError = "Equivalence summary declares schemaVersion '$schemaVersion' but omits dataQualityViolations; this consumer requires the 2.x field. Rerun the equivalence driver."
+                }
                 else {
                     $runs            = [int]$equivSummary.runs
                     $invFail         = [int]$equivSummary.invariantFailures
                     $runHealthFail   = [int]$equivSummary.runHealthFailures
                     $guardFail       = [int]$equivSummary.divergenceGuardFailures
+                    $dataQualityFail = [int]$equivSummary.dataQualityViolations
                     $verdict         = [string]$equivSummary.verdict
                     $equivalenceGate = [string]$equivSummary.equivalenceGate
                     $divergenceGate  = [string]$equivSummary.documentedDivergenceGate
@@ -926,7 +935,11 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
             $verdict = 'fail'
         }
 
-        $assertionsFailed = $invFail + $runHealthFail + $guardFail
+        # Data-quality violations belong in the failed-assertion total. Without them a
+        # structurally failed advisory run reported verdict fail alongside zero failed
+        # assertions and every trial counted as passed, which is unreadable exactly
+        # where the advisory tier makes the summary the only output.
+        $assertionsFailed = $invFail + $runHealthFail + $guardFail + $dataQualityFail
         $assertionsPassed = [Math]::Max(0, $runs - $assertionsFailed)
 
         $equivalenceResults.Add([ordered]@{
@@ -942,6 +955,7 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
             invariantFailures        = $invFail
             runHealthFailures        = $runHealthFail
             divergenceGuardFailures  = $guardFail
+            dataQualityViolations    = $dataQualityFail
             resultsPath              = "logs/baseline-equivalence-$agentSlug.json"
         }) | Out-Null
 

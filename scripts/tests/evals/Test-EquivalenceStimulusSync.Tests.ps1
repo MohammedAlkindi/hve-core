@@ -351,10 +351,14 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
         }
 
         It 'Classifies every committed stimulus into exactly one policy' {
+            # The two shared-seed project reads are equivalent-policy: both variants now
+            # receive the same package.json and LICENSE, so both sides can answer and the
+            # reads belong in the equivalence denominator rather than exempted from it.
             $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
             $result = Test-EquivalenceStimulusSync -RepoRoot $repoRoot
             ($result.equivalent + $result.divergence) | Should -Be 40
-            $result.divergence | Should -Be 7
+            $result.equivalent | Should -Be 35
+            $result.divergence | Should -Be 5
         }
     }
 

@@ -5,7 +5,7 @@ description: >
   customization-boundary, multi-turn, ambiguous-spec, and scope-redirect.
   This file is the canonical source of truth; baseline/eval.yaml and
   customized/eval.yaml inline equivalent stimulus entries with graders
-  attached per Vally 0.10 schema. Contributor workflow: edit this file
+  attached per the schema of the repository-pinned Vally CLI. Contributor workflow: edit this file
   first, then mirror name, prompt, and tags into the two eval.yaml files.
   Synchronization is enforced, not conventional: Test-EquivalenceStimulusSync
   fails schema linting on name-set, prompt, tag, grader, invariant, guard, or
@@ -160,10 +160,12 @@ stimuli:
   - name: tool-trigger-package-json
     category: tool-trigger
     prompt: "What is in package.json at the root of this repository?"
-    invariants: []
-    customized_required: [mentions-scripts-or-deps]
-    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [rpi-agent], policy: documented-divergence}
+    invariants: [mentions-scripts-or-deps]
+    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [rpi-agent], policy: equivalent}
     graders:
+      - type: output-matches
+        name: mentions-scripts-or-deps
+        config: {pattern: '(?i)(scripts|devDependencies|dependencies)'}
       - type: prompt
         name: response-quality
         config: {prompt: "Does the response describe package.json content from this repository?"}
@@ -210,10 +212,12 @@ stimuli:
   - name: tool-trigger-find-license
     category: tool-trigger
     prompt: "What license file exists in this repository and what license does it grant?"
-    invariants: []
-    customized_required: [mentions-license-name]
-    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [documentation, rpi-agent], policy: documented-divergence}
+    invariants: [mentions-license-name]
+    tags: {category: baseline-equivalence, subcategory: tool-trigger, agent: [documentation, rpi-agent], policy: equivalent}
     graders:
+      - type: output-matches
+        name: mentions-license-name
+        config: {pattern: '(?i)(mit|apache|bsd|gpl)'}
       - type: prompt
         name: response-quality
         config: {prompt: "Does the response correctly identify the repository license?"}

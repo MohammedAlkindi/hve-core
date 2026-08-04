@@ -130,6 +130,26 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         It 'Selects gpt-5.5 as the primary nightly model' {
             $script:Summary.model | Should -Be 'gpt-5.5'
         }
+
+        It 'Gives every model its own customized skill directory' {
+            # The sweep materializes a surface per model. Reusing the first model's
+            # directory for the later two would evaluate them against a surface they
+            # did not build, so the comparison would not be attributable to the model.
+            $customized = @($script:Summary.plannedCommands | Where-Object { $_ -match 'customized/eval\.yaml' })
+            $customized.Count | Should -Be 3
+            foreach ($model in @('gpt-5.5', 'claude-opus-4.6', 'claude-sonnet-latest')) {
+                $line = @($customized | Where-Object { $_ -match "--model $([regex]::Escape($model)) " })
+                $line.Count | Should -Be 1
+                $line[0] | Should -Match "--skill-dir [^ ]*$([regex]::Escape($model))[\\/][^ ]*customized-skill-dir"
+            }
+        }
+
+        It 'Uses three distinct customized skill directories' {
+            $skillDirs = @($script:Summary.plannedCommands |
+                    Where-Object { $_ -match 'customized/eval\.yaml' } |
+                    ForEach-Object { ($_ -split '--skill-dir ')[1] })
+            ($skillDirs | Sort-Object -Unique).Count | Should -Be 3
+        }
     }
 
     Context 'Retired parameters and tiers' {
@@ -337,7 +357,7 @@ Describe 'Test-CustomizationCollapse' -Tag 'Unit' {
     # A total collapse is the fingerprint of an undelivered customization surface:
     # the customized variant runs as the baseline, so the comparison reports
     # equivalence rather than an error. The boundary cases matter as much as the
-    # positive one — flagging partial failure would make the check noise, and
+    # positive one: flagging partial failure would make the check noise, and
     # flagging an empty guard set would flag runs that declared none.
     It 'Flags a run where every evaluated guard failed' {
         Test-CustomizationCollapse -Evaluated 12 -Failed 12 | Should -BeTrue
