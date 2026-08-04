@@ -89,7 +89,7 @@ Import-Module (Join-Path $PSScriptRoot "../lib/Modules/CIHelpers.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "../lib/Modules/CopyrightHeader.psm1") -Force
 
 # Canonical default exclusions shared between script-level param and Invoke-CopyrightHeaderCheck
-$DefaultExcludePaths = @('node_modules', '.git', 'vendor', 'logs', '.venv', '.copilot-tracking', 'plugins')
+$DefaultExcludePaths = @('node_modules', '.git', 'vendor', 'logs', '.venv', '.copilot-tracking', 'plugins', '.docusaurus')
 
 if (-not $PSBoundParameters.ContainsKey('ExcludePaths')) {
     $ExcludePaths = $DefaultExcludePaths

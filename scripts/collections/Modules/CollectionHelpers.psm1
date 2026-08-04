@@ -91,6 +91,34 @@ function Test-DeprecatedPath {
     return ($Path -match '[/\\]deprecated[/\\]')
 }
 
+function Test-BuildArtifactPath {
+    <#
+    .SYNOPSIS
+    Checks whether a file path sits inside a dependency or build artifact directory.
+
+    .DESCRIPTION
+    Returns true when the path contains a node_modules or .venv segment. A skill
+    may vendor its own runtime dependencies, and those packages can ship their
+    own agent, prompt, and skill files. Those belong to the dependency, not to
+    this repository, so they must never be treated as distributable artifacts.
+
+    .PARAMETER Path
+    File path to check (absolute or relative, any slash style).
+
+    .OUTPUTS
+    [bool] True when the path is inside a dependency or build artifact directory.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path
+    )
+
+    return ($Path -match '[/\\](node_modules|\.venv)[/\\]')
+}
+
 function Test-HveCoreRepoSpecificPath {
     <#
     .SYNOPSIS
@@ -506,6 +534,9 @@ function Get-ArtifactFiles {
             $kind = if ($suffixToKind.ContainsKey($suffix)) { $suffixToKind[$suffix] } else { $suffix }
             $relativePath = [System.IO.Path]::GetRelativePath($RepoRoot, $file.FullName) -replace '\\', '/'
 
+            if (Test-BuildArtifactPath -Path $relativePath) {
+                continue
+            }
             if (Test-HveCoreRepoRelativePath -Path $relativePath) {
                 continue
             }
@@ -524,6 +555,9 @@ function Get-ArtifactFiles {
             $dir = $skillFile.Directory
             $relativePath = [System.IO.Path]::GetRelativePath($RepoRoot, $dir.FullName) -replace '\\', '/'
 
+            if (Test-BuildArtifactPath -Path $relativePath) {
+                continue
+            }
             if (Test-DeprecatedPath -Path $relativePath) {
                 continue
             }
@@ -885,6 +919,7 @@ Export-ModuleMember -Function @(
     'Set-ContentIfChanged',
     'Split-CollectionMdByMarkers',
     'Test-ArtifactDeprecated',
+    'Test-BuildArtifactPath',
     'Test-DeprecatedPath',
     'Test-HveCoreRepoRelativePath',
     'Test-HveCoreRepoSpecificPath',
