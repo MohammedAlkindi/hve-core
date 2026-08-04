@@ -167,6 +167,17 @@ Prompts are single-session workflows a user invokes and Copilot executes to comp
 * Instruction files have no `name:`, so refer to them by their full `<name>.instructions.md` filename, naming the specific section when only part applies.
 * Reserve file paths for a skill's own bundled resources (relative to its root), for caller-defined tracking or evidence output locations, and for frontmatter wiring such as `agents:`, `agent:`, and `applyTo`.
 * Never hard-code a skill's `SKILL.md` path to load it; the skill root differs across distributions. Name the skill and let progressive disclosure load it.
+* Never hard-code a path into another skill's directory. Cross-skill references name the target skill and the section or reference wanted, so resolution stays correct across repository, extension, and plugin distributions.
+
+### Resolve by name and warn when missing
+
+A named artifact is resolved at activation time by searching the host for its `name:`. Resolution can fail because a collection is not installed, a host does not support the artifact type, or the name changed. Handle that failure explicitly rather than silently.
+
+* Search for the artifact by its `name:` before depending on it. Do not assume availability from a reference alone.
+* When it does not resolve, warn the user in the response: name the artifact searched for, the capability now unavailable, and the concrete effect on the current request.
+* Stop the dependent step. Do not substitute a different artifact, inline a local reimplementation of its behavior, or fall back to a hard-coded path.
+* Treat a missing required artifact as a blocker and a missing optional artifact as a stated degradation that still completes the rest of the work.
+* Never report a clean or passing result for work that depended on an artifact that never loaded. Record the unresolved name and the exact condition under which the step can be rerun.
 
 ## Tool Schemas and Structured Outputs
 

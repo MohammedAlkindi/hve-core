@@ -23,7 +23,7 @@ Keeping these concerns separate means:
 * The skill can be included in collections independently.
 * Layout primitives, `Invoke-PptxPipeline.ps1`, theming, and validation behavior are not reimplemented here.
 
-For full PowerPoint pipeline documentation, see [powerpoint/SKILL.md](../powerpoint/SKILL.md).
+For full PowerPoint pipeline documentation, activate the `powerpoint` skill by name. When it does not resolve, warn the user that the pipeline documentation and build behavior are unavailable and stop rather than reimplementing them here.
 
 ## Prerequisites
 
@@ -120,7 +120,7 @@ For the section-to-field mapping contract and Use Case 3-slide layout details, s
   -OutputPath .copilot-tracking/dt/<project-slug>/render/output/customer-cards.pptx
 ```
 
-The PowerShell orchestrator manages virtual environment setup and dependency installation automatically via `uv sync`. See [powerpoint/SKILL.md](../powerpoint/SKILL.md) for the full `Invoke-PptxPipeline.ps1` parameter reference, template usage, validation, and export options.
+The PowerShell orchestrator manages virtual environment setup and dependency installation automatically via `uv sync`. See the `powerpoint` skill for the full `Invoke-PptxPipeline.ps1` parameter reference, template usage, validation, and export options.
 
 ## DT Coach Integration
 
