@@ -189,7 +189,7 @@ The gate separation, fail-closed rules, population reconciliation, and contract-
 
 ## More Information
 
-* [evals/baseline-equivalence/](../../../evals/baseline-equivalence/) holds the stimulus corpus and the paired baseline and customized specs this policy governs; its [README.md](../../../evals/baseline-equivalence/README.md) documents the runtime behavior, the summary field contract, and the pass and fail interpretation rules.
+* [evals/baseline-equivalence/](pathname://../../../evals/baseline-equivalence/) holds the stimulus corpus and the paired baseline and customized specs this policy governs; its [README.md](pathname://../../../evals/baseline-equivalence/README.md) documents the runtime behavior, the summary field contract, and the pass and fail interpretation rules.
 * [scripts/evals/Invoke-BaselineEquivalence.ps1](../../../scripts/evals/Invoke-BaselineEquivalence.ps1) is the single entry point that owns tier validation, model resolution, the pinned judge invocation, and the exit policy in parts 1, 3, and 4.
 * [scripts/evals/lib/EquivalenceParsing.psm1](../../../scripts/evals/lib/EquivalenceParsing.psm1) computes both gates and the verdict described in parts 2 and 4, and reads comparison and guard results.
 * [scripts/evals/lib/EquivalenceEnvironment.psm1](../../../scripts/evals/lib/EquivalenceEnvironment.psm1) materializes the per-agent customized environment and derives the scope guard whose conformance the documented-divergence gate reads.
