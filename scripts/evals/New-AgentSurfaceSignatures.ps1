@@ -17,13 +17,16 @@
     Required rules:
       - header-present: regex derived from the agent body's
         "Start responses with: `## <prefix>`" directive.
-      - <scope>-scope-language: regex derived from the first
-        `.copilot-tracking/<scope>` directive in the agent body, when present.
+      - <scope>-scope-language: regex accepting any
+        `.copilot-tracking/<scope>` directive found in the agent body. An agent
+        that declares several tracking roots yields one alternation covering
+        all of them.
 
     Disallowed rules:
       - writes-outside-<scope>-dir (or writes-outside-allowed-dirs when no scope
-        is detected): constant pattern matching common out-of-scope filesystem
-        prefixes.
+        is detected): matches out-of-scope filesystem prefixes. A Windows path
+        that resolves beneath an allowed tracking root is not treated as
+        leakage, so cross-platform output does not fail the signature.
       - persona-bleed-<sibling>: only when -IncludePersonaBleed is supplied;
         emits one disallow per sibling agent in the same package directory.
 
@@ -159,13 +162,25 @@ function Get-HeaderPattern {
 
 function Get-ScopeDir {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([string[]])]
     param([Parameter(Mandatory)] [string]$Body)
 
-    if ($Body -match '\.copilot-tracking/([a-z][a-z0-9-]*)') {
-        return $matches[1]
+    # An agent may declare more than one tracking root (for example, one per
+    # supported platform). Collect every distinct scope in first-seen order so
+    # the generated signature accepts all of them rather than only the first.
+    $scopes = [System.Collections.Generic.List[string]]::new()
+    foreach ($match in [regex]::Matches($Body, '\.copilot-tracking/([a-z][a-z0-9-]*)')) {
+        $scope = $match.Groups[1].Value
+        if (-not $scopes.Contains($scope)) {
+            [void]$scopes.Add($scope)
+        }
     }
-    return $null
+
+    if ($scopes.Count -eq 0) {
+        return @()
+    }
+
+    return $scopes.ToArray()
 }
 
 function ConvertTo-YamlSingleQuoted {
@@ -243,10 +258,21 @@ if ($headerPattern) {
     Write-Warning "No 'Start responses with: \`## ...\`' directive found in agent body for '$Agent'; skipping header-present rule."
 }
 
-$scope = Get-ScopeDir -Body $parsed.Body
-if ($scope) {
-    Add-Rule -Set $required -Name "$scope-scope-language" -Pattern ('(?i)\.copilot-tracking/' + $scope)
-    Add-Rule -Set $disallowed -Name "writes-outside-$scope-dir" -Pattern '(?i)(C:\\|/etc/|/usr/|~/Documents)'
+$scopes = Get-ScopeDir -Body $parsed.Body
+if ($scopes.Count -gt 0) {
+    $primaryScope = $scopes[0]
+    $scopeAlternation = ($scopes | ForEach-Object { [regex]::Escape($_) }) -join '|'
+    $scopePattern = if ($scopes.Count -gt 1) {
+        '(?i)\.copilot-tracking/(' + $scopeAlternation + ')'
+    } else {
+        '(?i)\.copilot-tracking/' + $primaryScope
+    }
+    Add-Rule -Set $required -Name "$primaryScope-scope-language" -Pattern $scopePattern
+
+    # A Windows drive-letter path is legitimate when it resolves beneath an
+    # allowed tracking root, so only reject drive-letter paths that do not.
+    $leakagePattern = '(?i)(/etc/|/usr/|~/Documents|[A-Za-z]:\\(?!.*[\\/]\.copilot-tracking[\\/](' + $scopeAlternation + ')))'
+    Add-Rule -Set $disallowed -Name "writes-outside-$primaryScope-dir" -Pattern $leakagePattern
 } else {
     Write-Warning "No '.copilot-tracking/<scope>' directive found in agent body for '$Agent'; emitting generic writes-outside-allowed-dirs."
     Add-Rule -Set $disallowed -Name 'writes-outside-allowed-dirs' -Pattern '(?i)(C:\\|/etc/|/usr/|~/Documents)'
