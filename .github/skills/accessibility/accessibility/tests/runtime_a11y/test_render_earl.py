@@ -35,8 +35,12 @@ def test_earl_outcome_applies_method_adequacy() -> None:
         earl_outcome(_cell("pass", "axe-auto", adequate={"screen-reader"}))
         == "earl:cantTell"
     )
-    # A pass on a criterion with no adequacy requirement is earl:passed.
-    assert earl_outcome(_cell("pass", "axe-auto", adequate=set())) == "earl:passed"
+    # A pass on a cell with no declared adequate methods is earl:cantTell, not
+    # earl:passed. Matrix loading defaults an absent adequateMethods field to an
+    # empty set, so an empty set cannot be distinguished from "not configured".
+    # EARL feeds conformance reporting, so the undetermined case must not be
+    # published as a decided pass.
+    assert earl_outcome(_cell("pass", "axe-auto", adequate=set())) == "earl:cantTell"
     # Partial (informs-only) is earl:cantTell.
     assert (
         earl_outcome(_cell("partial", "runtime-automation", adequate={"screen-reader"}))

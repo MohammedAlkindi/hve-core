@@ -41,7 +41,16 @@ def _identifier_token(*parts: str) -> str:
 
 
 def _method_adequacy(cell: Cell) -> str:
-    if not cell.adequateMethods or cell.verifiedByMethod in cell.adequateMethods:
+    """Report whether the winning method decides the criterion, or only informs it.
+
+    An empty adequacy list means no method has been declared adequate for this
+    criterion, so whether the winning method decides it is unknown. Unknown is
+    reported as "informs" rather than "decides": absent configuration is not
+    evidence that every method is sufficient.
+    """
+    if not cell.adequateMethods:
+        return "informs"
+    if cell.verifiedByMethod in cell.adequateMethods:
         return "decides"
     return "informs"
 
@@ -54,6 +63,10 @@ def earl_outcome(cell: Cell) -> str:
     simulated check on a class it cannot decide) yields earl:cantTell -- the EARL
     expression of the method-adequacy rule. Inapplicable cells are earl:inapplicable
     and unevaluated cells are earl:untested.
+
+    A cell with no declared adequate methods is also earl:cantTell. EARL feeds
+    conformance reporting, so an undeclared adequacy list must not be read as
+    "any method suffices"; that would publish an unverified pass as a decided one.
     """
     if not cell.isApplicable or cell.status == "not-applicable":
         return "earl:inapplicable"
@@ -64,7 +77,9 @@ def earl_outcome(cell: Cell) -> str:
     if cell.status == "partial":
         return "earl:cantTell"
     if cell.status == "pass":
-        if cell.adequateMethods and cell.verifiedByMethod not in cell.adequateMethods:
+        if not cell.adequateMethods:
+            return "earl:cantTell"
+        if cell.verifiedByMethod not in cell.adequateMethods:
             return "earl:cantTell"
         return "earl:passed"
     return "earl:untested"
