@@ -41,7 +41,13 @@ async function measurePlaceholderFit(page: Page): Promise<PlaceholderFit> {
   return page.evaluate(() => {
     const input = document.querySelector<HTMLInputElement>('input.navbar__search-input');
     if (!input) {
-      return { present: false, collapsed: false, requiredWidth: 0, usableWidth: 0 };
+      return {
+        present: false,
+        collapsed: false,
+        requiredWidth: 0,
+        usableWidth: 0,
+        badgeCount: 0,
+      };
     }
 
     // Below the theme's small breakpoint the field deliberately collapses to an
