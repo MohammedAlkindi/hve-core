@@ -37,7 +37,6 @@ param(
         'scripts/docs/templates/**',
         'docs/docusaurus/playwright-report/**',
         'docs/docusaurus/test-results/**',
-        'collections/*.collection.md',
         'pr.md',
         '.github/PULL_REQUEST_TEMPLATE.md',
         '.github/PULL_REQUEST_TEMPLATE/**',

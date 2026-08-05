@@ -3,7 +3,7 @@ title: 'Contributing Prompts to HVE Core'
 description: 'Requirements and standards for contributing GitHub Copilot prompt files to hve-core'
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-02
 ms.topic: how-to
 keywords:
   - contributing
@@ -33,16 +33,16 @@ Create a prompt when you need to:
 
 ### Location
 
-Prompt files are typically organized in a collection subdirectory by convention:
+Prompt files are typically organized in a package subdirectory by convention:
 
 ```text
-.github/prompts/{collection-id}/
+.github/prompts/{package-id}/
 └── your-prompt-name.prompt.md
 ```
 
 > [!NOTE]
-> Collections can reference artifacts from any subfolder. The `path:` field in collection YAML files
-> accepts any valid repo-relative path regardless of the artifact's parent directory.
+> Marketplace package recipes can reference artifacts from any canonical subfolder. Standard component paths
+> are declared in `.github/plugin/marketplace.json` and resolve to canonical source files.
 
 ### Naming Convention
 
@@ -207,36 +207,11 @@ Begin by reading the current branch state and identifying open work items.
 
 Prompts that delegate to a custom agent via `agent:` typically omit the activation line because the agent's phases define execution order.
 
-## Collection Entry Requirements
+## Marketplace Recipe Registration
 
-All prompts must have matching entries in one or more `collections/*.collection.yml` manifests. Collection entries control distribution and maturity.
+Distributable prompts must be declared under the `commands` field of the `hve-core` entry in `.github/plugin/marketplace.json`. Use the recipe-relative `commands/<subpath>/<name>.md` path and keep the canonical source under `.github/prompts/`.
 
-### Adding Your Prompt to a Collection
-
-After creating your prompt file, add an `items[]` entry in each target collection manifest:
-
-```yaml
-items:
-  # path can reference artifacts from any subfolder
-  - path: .github/prompts/{collection-id}/my-prompt.prompt.md
-    kind: prompt
-    maturity: stable
-```
-
-### Selecting Collections for Prompts
-
-Choose collections based on who invokes or benefits from the workflow:
-
-| Prompt Type             | Recommended Collections                   |
-|-------------------------|-------------------------------------------|
-| Git/PR workflows        | `hve-core-all`, `hve-core`                |
-| ADO work item workflows | `hve-core-all`, `ado`, `project-planning` |
-| GitHub issue workflows  | `hve-core-all`, `github`                  |
-| RPI workflow prompts    | `hve-core-all`, `hve-core`                |
-| Documentation workflows | `hve-core-all`, `hve-core`                |
-| Architecture prompts    | `hve-core-all`, `project-planning`        |
-
-For complete collection documentation, see [AI Artifacts Common Standards - Collection Manifests](ai-artifacts-common.md#collection-manifests-and-dependencies).
+Add non-stable lifecycle disclosure only through `x-hve.componentMaturity`, update `docs/plugins/hve-core.md`, then run `npm run lint:marketplace` and `npm run plugin:generate`.
 
 ## Prompt Content Structure Standards
 
@@ -536,7 +511,7 @@ Before submitting your prompt, verify:
 
 * [ ] Clear H1 title describing workflow
 * [ ] Overview/purpose section
-* [ ] Maturity set in collection item (see [Common Standards - Maturity](ai-artifacts-common.md#maturity-field-requirements))
+* [ ] Maturity set in marketplace package metadata (see [Common Standards - Maturity](ai-artifacts-common.md#marketplace-packages))
 * [ ] Prerequisites or context section
 * [ ] Workflow steps with clear sequence
 * [ ] Success criteria defined
@@ -672,7 +647,7 @@ All checks **MUST** pass before merge.
 
 ## Getting Help
 
-See [AI Artifacts Common Standards - Getting Help](ai-artifacts-common.md#getting-help) for support resources. For prompt-specific assistance, review existing examples in `.github/prompts/{collection-id}/` (the conventional location for prompt files).
+See [AI Artifacts Common Standards - Getting Help](ai-artifacts-common.md#getting-help) for support resources. For prompt-specific assistance, review existing examples in `.github/prompts/{package-id}/` (the conventional location for prompt files).
 
 ---
 
