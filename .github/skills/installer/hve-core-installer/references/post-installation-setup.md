@@ -108,13 +108,13 @@ If user chooses to configure MCP, present:
 ```text
 Which MCP servers would you like to configure?
 
-| Server         | Purpose                   | Recommended For                  |
-|----------------|---------------------------|----------------------------------|
-| github         | GitHub issues and repos   | GitHub-hosted repositories       |
-| ado            | Azure DevOps work items   | Azure DevOps repositories        |
-| context7       | SDK/library documentation | All users (optional)             |
-| microsoft-docs | Microsoft Learn docs      | All users (optional)             |
-| figma          | FigJam & Figma design     | Design Thinking collection users |
+| Server         | Purpose                   | Recommended For               |
+|----------------|---------------------------|-------------------------------|
+| github         | GitHub issues and repos   | GitHub-hosted repositories    |
+| ado            | Azure DevOps work items   | Azure DevOps repositories     |
+| context7       | SDK/library documentation | All users (optional)          |
+| microsoft-docs | Microsoft Learn docs      | All users (optional)          |
+| figma          | FigJam & Figma design     | Design Thinking package users |
 
 ⚠️ Suggest EITHER github OR ado based on where your repo is hosted, not both.
 
@@ -266,5 +266,5 @@ For **Extension** installations, also include:
 Run this skill again and choose "Clone-Based Installation" for full customization options.
 ```
 
-For **Clone-based** installations, proceed to Phase 7 for optional agent customization.
+For **Clone-based** installations, proceed to Phase 7 for optional component installation.
 

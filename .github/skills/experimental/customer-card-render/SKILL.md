@@ -20,7 +20,7 @@ This skill is a sibling to the experimental powerpoint skill. It handles the Des
 Keeping these concerns separate means:
 
 * Customer-card mapping logic stays independent from general PowerPoint capabilities.
-* The skill can be included in collections independently.
+* The skill can be included in packages independently.
 * Layout primitives, `Invoke-PptxPipeline.ps1`, theming, and validation behavior are not reimplemented here.
 
 For full PowerPoint pipeline documentation, activate the `powerpoint` skill by name. When it does not resolve, warn the user that the pipeline documentation and build behavior are unavailable and stop rather than reimplementing them here.

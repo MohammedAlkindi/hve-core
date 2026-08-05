@@ -1,17 +1,17 @@
 ---
 name: hve-core-installer
-description: 'Decision-driven HVE-Core installer with multiple clone-based and extension install methods, environment detection, and agent customization'
-compatibility: 'Requires VS Code or VS Code Insiders. Clone-based methods require git on PATH and network access.'
+description: 'Decision-driven HVE-Core installer with multiple clone-based and extension install methods, environment detection, and selective component installation'
+compatibility: 'Requires VS Code or VS Code Insiders. Clone-based methods require git on PATH and network access. The Bash component scripts require jq.'
 license: MIT
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-07-15"
+  last_updated: "2026-08-03"
 ---
 
 # HVE-Core Installer Skill
 
-Decision-driven installer for HVE-Core with environment detection, 6 clone-based installation methods, extension quick-install, validation, MCP configuration, and agent customization workflows.
+Decision-driven installer for HVE-Core with environment detection, 6 clone-based installation methods, extension quick-install, validation, MCP configuration, and selective component installation workflows.
 
 ## Role Definition
 
@@ -26,15 +26,15 @@ The Installer persona handles all detection and execution. After installation co
 
 ## Required Phases
 
-| Phase | Name                                    | Purpose                                                          |
-|-------|-----------------------------------------|------------------------------------------------------------------|
-| 1     | Environment Detection                   | Obtain consent and detect user's environment                     |
-| 2     | Installation Path Selection             | Choose between Extension (quick) or Clone-based installation     |
-| 3     | Environment Detection & Decision Matrix | For clone path: detect environment and recommend method          |
-| 4     | Installation Methods                    | Execute the selected installation method                         |
-| 5     | Validation                              | Verify installation success and configure settings               |
-| 6     | Post-Installation Setup                 | Configure gitignore and present MCP guidance                     |
-| 7     | Agent Customization                     | Optional: copy agents for local customization (clone-based only) |
+| Phase | Name                                    | Purpose                                                             |
+|-------|-----------------------------------------|---------------------------------------------------------------------|
+| 1     | Environment Detection                   | Obtain consent and detect user's environment                        |
+| 2     | Installation Path Selection             | Choose between Extension (quick) or Clone-based installation        |
+| 3     | Environment Detection & Decision Matrix | For clone path: detect environment and recommend method             |
+| 4     | Installation Methods                    | Execute the selected installation method                            |
+| 5     | Validation                              | Verify installation success and configure settings                  |
+| 6     | Post-Installation Setup                 | Configure gitignore and present MCP guidance                        |
+| 7     | Component Installation                  | Optional: copy selected components for local use (clone-based only) |
 
 **Flow paths:**
 
@@ -131,6 +131,11 @@ Before clone-based installation, verify git is available:
 * Run: `git --version`
 * If fails: "Git is required for clone-based installation. Install git or choose Extension Quick Install."
 
+When the user selects Bash, also verify `jq` is available:
+
+* Run: `jq --version`
+* If fails: "jq is required by the Bash component scripts. Install jq or choose PowerShell."
+
 ### Extension Installation Execution
 
 When user selects Quick Install, first ask which VS Code variant they are using:
@@ -198,7 +203,7 @@ The HVE Core extension has been installed from the VS Code Marketplace.
 
 🪝 Hooks (manual step): The Marketplace extension is declarative and does not
    write chat.hookFilesLocations. To enable bundled hooks (e.g. telemetry), add
-   each collection's hook folder to that setting yourself, or use a clone-based
+   each package's hook folder to that setting yourself, or use a clone-based
    or CLI-plugin install which documents this configuration.
 
 📋 Configuring optional settings...
@@ -350,7 +355,7 @@ Each supported installation path is documented end to end in [references/install
 After installation completes, switch to the **Validator** persona and verify the installation.
 
 > [!IMPORTANT]
-> After successful validation, proceed to Phase 6 for post-installation setup, then Phase 7 for optional agent customization (clone-based methods only).
+> After successful validation, proceed to Phase 6 for post-installation setup, then Phase 7 for optional component installation (clone-based methods only).
 
 ### Checkpoint 3: Settings Authorization
 
@@ -413,9 +418,9 @@ After displaying the success report, proceed to Phase 6 for post-installation se
 
 Post-installation setup is documented in [references/post-installation-setup.md](references/post-installation-setup.md).
 
-## Phase 7: Agent Customization and Upgrade
+## Phase 7: Component Installation and Upgrade
 
-Optional agent customization and the upgrade mode are documented in [references/agent-customization.md](references/agent-customization.md).
+Optional component installation and the upgrade mode are documented in [references/component-installation.md](references/component-installation.md).
 
 ## Error Recovery
 
@@ -445,7 +450,7 @@ To remove a failed or unwanted installation:
 
 Then remove HVE-Core paths from `.vscode/settings.json`.
 
-If you used Phase 7 agent copy, also delete `.hve-tracking.json` and optionally `.github/agents/` if you no longer need copied agents.
+If you used Phase 7 component installation, also delete `.hve-tracking.json` and any copied `.github/agents/`, `.github/prompts/`, `.github/instructions/`, or `.github/skills/` content you no longer need.
 
 ## Authorization Guardrails
 

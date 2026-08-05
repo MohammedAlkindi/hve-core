@@ -1,6 +1,6 @@
 ---
 description: "Command taxonomy and CI-owned validation conventions for package scripts, eval wrappers, and owning workflows"
-applyTo: 'package.json, docs/docusaurus/package.json, scripts/evals/**, .github/workflows/docusaurus-tests.yml, .github/workflows/eval-validation.yml, .github/workflows/beval.yml, .github/workflows/pr-validation.yml'
+applyTo: 'package.json, docs/docusaurus/package.json, scripts/evals/**, .github/workflows/docusaurus-tests.yml, .github/workflows/eval-validation.yml, .github/workflows/agent-conformance.yml, .github/workflows/pr-validation.yml'
 ---
 
 # CI-Owned Validation Instructions
@@ -29,7 +29,7 @@ The `ci:*` prefix communicates ownership and default agent behavior. It does not
 
 * Coordinate a breaking package-script rename with every owning workflow consumer in the same change set.
 * Preserve workflow change detection, gates, arguments, outputs, artifacts, summaries, permissions, and failure behavior when changing only an entry-point name.
-* Keep Beval service orchestration and direct workflow invocation unchanged unless a separate requirement justifies a package entry point.
+* Keep agent-conformance suite orchestration and its `workflow_call` invocation unchanged unless a separate requirement justifies a package entry point.
 * Use existing repository syntax, workflow, and source checks plus hosted CI evidence. Do not add a command-policy test subsystem or dedicated policy job solely for this taxonomy.
 
 ## Prerequisites and evidence
@@ -39,4 +39,4 @@ The `ci:*` prefix communicates ownership and default agent behavior. It does not
 * Record CI-owned checks that did not run as `Pending CI`, `Skipped`, `Deferred`, or `Unavailable`, as applicable. Do not report them as passed.
 * Use the canonical validation guide at `docs/contributing/validation.md` for operator commands, prerequisites, outputs, and local reproduction guidance.
 
-This root-level instruction is repository-specific. Do not add it to collection manifests or generated plugin and extension outputs.
+This root-level instruction is repository-specific. Do not add it to marketplace package membership or generated plugin and extension outputs.
