@@ -9,13 +9,13 @@
 
 .DESCRIPTION
     Central version bump script for the version-tracked files that must agree
-    with the release-please baseline. Updates:
+    for a release or moving catalog. Updates:
 
     - package.json
     - package-lock.json (version and packages[""].version)
     - extension/templates/package.template.json
     - .github/plugin/marketplace.json (metadata.version and plugins[*].version)
-    - .release-please-manifest.json
+    - The selected release-please manifest, unless SkipManifest is set
 
     After updating the files, runs 'npm run plugin:generate' to regenerate
     plugin outputs so plugin-validation passes.
@@ -25,6 +25,14 @@
 
 .PARAMETER RepoRoot
     Optional. Repository root directory. Defaults to the git working tree root.
+
+.PARAMETER ManifestPath
+    Optional. Repository-relative manifest path to update. Defaults to
+    .release-please-manifest.json.
+
+.PARAMETER SkipManifest
+    Optional. Update shared version metadata without changing a release-please
+    manifest. Cannot be combined with ManifestPath.
 
 .PARAMETER SkipPluginGenerate
     Optional. Skip running 'npm run plugin:generate' after updating files.
@@ -41,7 +49,7 @@
     ref, which release-please's extra-files updaters cannot express.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Manifest')]
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+')]
@@ -49,6 +57,17 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$RepoRoot = "",
+
+    [Parameter(Mandatory = $false, ParameterSetName = 'Manifest')]
+    [ValidateNotNullOrEmpty()]
+    [ValidateScript({
+            -not [System.IO.Path]::IsPathRooted($_) -and
+            $_ -notmatch '(^|[\\/])\.\.([\\/]|$)'
+        })]
+    [string]$ManifestPath = '.release-please-manifest.json',
+
+    [Parameter(Mandatory = $true, ParameterSetName = 'SkipManifest')]
+    [switch]$SkipManifest,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipPluginGenerate
@@ -164,11 +183,24 @@ if ($MyInvocation.InvocationName -ne '.') {
                 $j
             }
 
-        # 5. .release-please-manifest.json
-        Update-JsonVersion `
-            -FilePath (Join-Path $root ".release-please-manifest.json") `
-            -Description ".release-please-manifest.json" `
-            -Transform { param($j) $j.'.' = $Version; $j }
+        # 5. Selected release-please manifest
+        if (-not $SkipManifest) {
+            $resolvedManifestPath = Join-Path $root $ManifestPath
+            if (
+                $PSBoundParameters.ContainsKey('ManifestPath') -and
+                -not (Test-Path -LiteralPath $resolvedManifestPath -PathType Leaf)
+            ) {
+                throw "Manifest file not found: $ManifestPath"
+            }
+
+            Update-JsonVersion `
+                -FilePath $resolvedManifestPath `
+                -Description $ManifestPath `
+                -Transform { param($j) $j.'.' = $Version; $j }
+        }
+        else {
+            Write-Host "  ⏭️  Skipping release-please manifest update" -ForegroundColor Yellow
+        }
 
         # 6. Regenerate plugin outputs
         if (-not $SkipPluginGenerate) {

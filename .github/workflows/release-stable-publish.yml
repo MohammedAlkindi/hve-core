@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: MIT
 name: Stable Release Publish
 
-# Runs release-please on release/stable after a reviewed pull request merges.
-# A main promotion creates the managed release PR. Merging that managed PR lets
-# release-please create the draft Stable release and emit the immutable release
-# identity consumed by the artifact and publication gates below.
+# Runs release-please after an approved promotion or managed release pull
+# request merges into release/stable. The promotion prepares release metadata;
+# the managed release pull request creates the draft and immutable tag.
 
 on:
     pull_request:
@@ -27,6 +26,10 @@ jobs:
             github.event.pull_request.merged == true
             && github.event.pull_request.base.ref == 'release/stable'
             && github.event.pull_request.head.repo.full_name == github.repository
+            && (
+              github.event.pull_request.head.ref == 'release-promotion--release-prerelease--to--release-stable'
+              || github.event.pull_request.head.ref == 'release-please--branches--release/stable'
+            )
         runs-on: ubuntu-latest
         permissions:
             contents: write
@@ -54,10 +57,15 @@ jobs:
                   config-file: release-please-config.json
                   manifest-file: .release-please-manifest.json
                   target-branch: release/stable
+                  # Only the managed release pull request tags. The reviewed
+                  # promotion merge prepares metadata without creating a tag.
+                  skip-github-release: ${{ github.event.pull_request.head.ref != 'release-please--branches--release/stable' }}
+                  skip-github-pull-request: ${{ github.event.pull_request.head.ref == 'release-please--branches--release/stable' }}
 
             - name: Validate release-please outputs
               id: release-pr
               env:
+                  MERGED_HEAD: ${{ github.event.pull_request.head.ref }}
                   PRS_CREATED: ${{ steps.release.outputs.prs_created }}
                   RELEASE_PR: ${{ steps.release.outputs.pr }}
                   RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
@@ -75,6 +83,14 @@ jobs:
                       echo "::error::release-please reported an unexpected preparation branch"
                       exit 1
                     fi
+                  fi
+
+                  # A promotion merge exists to prepare a release. No managed
+                  # pull request means either nothing changelog-visible was
+                  # promoted or a pending release interlock blocked preparation.
+                  if [ "$MERGED_HEAD" != 'release-please--branches--release/stable' ] && [ -z "$branch" ]; then
+                    echo "::error::release-please prepared no release pull request for merged promotion $MERGED_HEAD; check for changelog-visible commits and any pending release interlock"
+                    exit 1
                   fi
 
                   if [ "$RELEASE_CREATED" = 'true' ]; then
@@ -136,7 +152,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
                   persist-credentials: true
 
-            - name: Update committed version fields and the plugin locator
+            - name: Update committed version fields and retire the promotion intent
               env:
                   RELEASE_BRANCH: ${{ needs.release-please.outputs.release-pr-branch }}
               run: |
@@ -147,6 +163,19 @@ jobs:
                     echo "::error::.release-please-manifest.json has no MAJOR.MINOR.PATCH root version"
                     exit 1
                   fi
+
+                  # The promotion wrote exact release intent. It must describe
+                  # this managed release, and it is retired here so it can never
+                  # survive the merge into a later release-please run on the
+                  # branch.
+                  CONFIG="$RELEASE_REPO/release-please-config.json"
+                  INTENT=$(jq -r '.packages["."]["release-as"] // ""' "$CONFIG")
+                  if [ "$INTENT" != "$VERSION" ]; then
+                    echo "::error::release-please-config.json carries release-as '$INTENT' but the managed release is $VERSION"
+                    exit 1
+                  fi
+                  jq 'del(.packages["."]["release-as"])' "$CONFIG" > "$CONFIG.sync"
+                  mv "$CONFIG.sync" "$CONFIG"
 
                   pwsh -NoProfile -File "$GITHUB_WORKSPACE/scripts/release/Update-VersionFiles.ps1" \
                       -Version "$VERSION" \
@@ -180,32 +209,45 @@ jobs:
             - name: Verify trusted release identity
               env:
                   EVENT_SHA: ${{ github.sha }}
+                  MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
                   RELEASE_SHA: ${{ needs.release-please.outputs.sha }}
               run: |
                   set -euo pipefail
+                  if [ "$MERGE_SHA" != "$EVENT_SHA" ]; then
+                    echo "::error::Pull request merge commit $MERGE_SHA does not match event SHA $EVENT_SHA"
+                    exit 1
+                  fi
                   if [ "$RELEASE_SHA" != "$EVENT_SHA" ]; then
                     echo "::error::release-please SHA does not match the merged release/stable commit"
                     exit 1
                   fi
 
-            - name: Checkout released commit
+            - name: Checkout release/stable history
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.sha }}
+                  ref: release/stable
+                  fetch-depth: 0
                   persist-credentials: false
+
+            # Containment rather than branch HEAD equality, so a later merge on
+            # release/stable cannot fail a valid release.
+            - name: Check out the released commit contained in release/stable
+              env:
+                  RELEASE_SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  if ! git merge-base --is-ancestor "$RELEASE_SHA" HEAD; then
+                    echo "::error::Release commit $RELEASE_SHA is not contained in release/stable"
+                    exit 1
+                  fi
+                  git checkout --detach "$RELEASE_SHA"
 
             - name: Verify release version and committed state
               env:
-                  RELEASE_SHA: ${{ github.sha }}
                   RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
                   RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
               run: |
                   set -euo pipefail
-                  if [ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]; then
-                    echo "::error::Checked-out commit does not match the release-please SHA"
-                    exit 1
-                  fi
-
                   MINOR=$(printf '%s' "$RELEASE_VERSION" | cut -d. -f2)
                   if (( MINOR % 2 != 0 )); then
                     echo "::error::Stable version $RELEASE_VERSION has an odd minor"
@@ -231,6 +273,15 @@ jobs:
 
                   if ! grep -Eq "^## \[${RELEASE_VERSION}\]" CHANGELOG.md; then
                     echo "::error::CHANGELOG.md has no release entry for $RELEASE_VERSION"
+                    exit 1
+                  fi
+
+                  # Promotion intent is consumed by the managed release pull
+                  # request. A survivor would silently pin the next release to a
+                  # stale version.
+                  STALE_INTENT=$(jq -r '.packages["."]["release-as"] // ""' release-please-config.json)
+                  if [ -n "$STALE_INTENT" ]; then
+                    echo "::error::release-please-config.json still carries release-as $STALE_INTENT"
                     exit 1
                   fi
 
@@ -712,25 +763,6 @@ jobs:
         permissions:
             contents: write
         steps:
-            - name: Publish GitHub Release
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  TAG: ${{ needs.validate-release.outputs.tag_name }}
-              run: |
-                  set -euo pipefail
-                  # Promote draft to published. The release becomes immutable
-                  # after publish with all assets already attached.
-                  gh release edit "$TAG" --draft=false -R "$REPOSITORY"
-
-    open-main-sync-pr:
-        name: Open Stable Metadata Sync PR
-        needs: [validate-release, publish-release]
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            pull-requests: write
-        steps:
             - name: Generate GitHub App Token
               id: app-token
               uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v2.0.0
@@ -738,34 +770,16 @@ jobs:
                   app-id: ${{ vars.RELEASE_APP_ID }}
                   private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-            - name: Open or update the Stable metadata synchronization pull request
+            # A github.token publish emits no release event, so the Stable
+            # Marketplace workflow would never start. The App token makes the
+            # published event reach it.
+            - name: Publish GitHub Release
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
-                  VERSION: ${{ needs.validate-release.outputs.version }}
-                  HEAD_BRANCH: release/stable
-                  BASE_BRANCH: main
+                  TAG: ${{ needs.validate-release.outputs.tag_name }}
               run: |
                   set -euo pipefail
-                  TITLE="chore(release): sync ${VERSION} metadata to main"
-                  BODY="## Stable release metadata synchronization
-
-                  Synchronizes release-please version, changelog, manifest, and immutable
-                  plugin locator state from \`${HEAD_BRANCH}\` to \`${BASE_BRANCH}\` after
-                  Stable publication.
-
-                  ---
-                  *Managed automatically by the Stable release workflow. Auto-merge is not enabled.*"
-
-                  PR_NUMBER=$(gh pr list --head "$HEAD_BRANCH" --base "$BASE_BRANCH" --state open \
-                    --json number --jq '.[0].number // empty' -R "$REPOSITORY")
-                  if [ -n "$PR_NUMBER" ]; then
-                    gh pr edit "$PR_NUMBER" --title "$TITLE" --body "$BODY" -R "$REPOSITORY"
-                  else
-                    gh pr create \
-                      --head "$HEAD_BRANCH" \
-                      --base "$BASE_BRANCH" \
-                      --title "$TITLE" \
-                      --body "$BODY" \
-                      -R "$REPOSITORY"
-                  fi
+                  # Promote draft to published. The release becomes immutable
+                  # after publish with all assets already attached.
+                  gh release edit "$TAG" --draft=false -R "$REPOSITORY"

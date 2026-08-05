@@ -21,22 +21,29 @@ flowchart TD
         PV --> TEST[Test Jobs]
     end
 
-    subgraph MAIN["Main Branch"]
-        direction TB
-        MERGE[Merge to Main] --> MN[release-stable.yml]
-        MN --> VAL[Validation]
-        VAL --> PROMO[Review main to release/stable Promotion]
-        PROMO --> STABLE[release-stable-publish.yml]
-        STABLE --> REL[release-please Stable PR]
-        REL --> REVIEW[Review Stable Release PR]
-        REVIEW --> EVIDENCE[Artifacts and Immutable Plugin Snapshot]
-        EVIDENCE --> PUBLISH[Publish Stable Release]
-        PUBLISH --> SYNC[Review release/stable to main Metadata Sync]
-    end
-
     subgraph PRE["PreRelease"]
         direction TB
-        SHA[Explicit main SHA] --> PRE_RELEASE[release-prerelease.yml]
+        MERGE[Merge to main] --> PREP[Pre-Release Promotion Preparation]
+        PREP --> PROMO[Review main to PreRelease Promotion]
+        PROMO -->|merge, no tag| PRE_RP[Pre-Release Pipeline PR-only mode]
+        PRE_RP --> PRE_REL[Review managed PreRelease PR]
+        PRE_REL -->|merge| PRE_DRAFT[Tag-only Draft at Managed Merge]
+        PRE_DRAFT --> PRE_EVIDENCE[Release-tag Packages and Immutable Snapshot]
+        PRE_EVIDENCE --> PRE_PUBLISH[App-token Prerelease Publication]
+        PRE_PUBLISH --> PRE_MARKET[Pre-Release Marketplace Publish]
+        PRE_PUBLISH --> MAIN_SYNC[Review Main Catalog and Changelog Sync]
+    end
+
+    subgraph STABLE["Stable"]
+        direction TB
+        PRE_PUBLISH --> ST_PREP[Stable Release Preparation]
+        ST_PREP --> ST_PROMO[Review PreRelease to Stable Promotion]
+        ST_PROMO -->|merge, no tag| ST_RP[Stable Release Publish PR-only mode]
+        ST_RP --> ST_REL[Review managed Stable PR]
+        ST_REL -->|merge| ST_DRAFT[Tag-only Draft at Managed Merge]
+        ST_DRAFT --> ST_EVIDENCE[Release-tag Packages and Immutable Snapshot]
+        ST_EVIDENCE --> ST_PUBLISH[App-token Stable Publication]
+        ST_PUBLISH --> ST_MARKET[Stable Marketplace Publish]
     end
 
     subgraph SCHED["Scheduled"]
@@ -47,38 +54,42 @@ flowchart TD
 
     subgraph MANUAL["Manual"]
         direction TB
-        DISPATCH[Manual Trigger] --> PUB[release-marketplace-stable.yml]
+        DISPATCH[Recovery Dispatch] --> PREP
+        DISPATCH --> ST_PREP
+        DISPATCH --> PUB[Channel Marketplace Workflow]
         PUB --> VSCE[Publish to Marketplace]
     end
 ```
 
 ## Workflow Inventory
 
-| Workflow                             | Trigger                   | Purpose                                                                |
-|--------------------------------------|---------------------------|------------------------------------------------------------------------|
-| `pr-validation.yml`                  | Pull request, manual      | Pre-merge quality gate with parallel validation                        |
-| `release-stable.yml`                 | Push to main, manual      | Validate `main` and open the reviewed Stable promotion PR              |
-| `release-stable-publish.yml`         | PR merged to Stable       | Run release-please, build release evidence, publish, and sync metadata |
-| `weekly-security-maintenance.yml`    | Sunday 2 AM UTC, manual   | Scheduled security posture review                                      |
-| `weekly-validation.yml`              | Schedule, manual          | Weekly full validation sweep                                           |
-| `security-scan.yml`                  | Push to main/develop      | CodeQL security validation                                             |
-| `release-marketplace-stable.yml`     | Manual                    | VS Code extension marketplace publishing                               |
-| `release-marketplace-prerelease.yml` | Manual                    | VS Code extension pre-release publishing                               |
-| `copilot-setup-steps.yml`            | Manual                    | Coding agent environment setup                                         |
-| `devcontainer-change-log.yml`        | Push to main/develop      | Logs devcontainer infrastructure file changes to the step summary      |
-| `devcontainer-lockfile-check.yml`    | Reusable                  | Validates devcontainer lockfile integrity and SHA-256 pinning          |
-| `release-prerelease.yml`             | Manual                    | Package an explicit main SHA as an immutable PreRelease                |
-| `scorecard.yml`                      | Schedule, push            | OpenSSF Scorecard security analysis                                    |
-| `codeql-analysis.yml`                | Schedule                  | Weekly CodeQL security scan (also reusable)                            |
-| `dependency-review.yml`              | Pull request              | Dependency vulnerability review (also reusable)                        |
-| `sha-staleness-check.yml`            | Manual                    | SHA reference freshness check (also reusable)                          |
-| `deploy-docs.yml`                    | Push to main, manual      | Docusaurus documentation site deployment                               |
-| `create-stale-docs-issues.yml`       | Schedule                  | Automated stale docs issue creation from ms.date freshness             |
-| `msdate-freshness-check.yml`         | Schedule, manual          | ms.date freshness validation across documentation                      |
-| `label-sync.yml`                     | Push to main, manual      | Repository label synchronization                                       |
-| `workflow-permissions-scan.yml`      | Schedule, manual          | GitHub Actions permissions audit                                       |
-| `weekly-gh-code-scanning.yml`        | Monday 3 AM UTC, manual   | Weekly GitHub code scanning alert retrieval and issue creation         |
-| `vex-detect.yml`                     | Schedule, release, manual | Dependency vulnerability scan and VEX triage issue creation            |
+| Workflow                             | Trigger                           | Purpose                                                                    |
+|--------------------------------------|-----------------------------------|----------------------------------------------------------------------------|
+| `pr-validation.yml`                  | Pull request, manual              | Pre-merge quality gate for main, develop, and both release branches        |
+| `release-prerelease-prepare.yml`     | Merged PR to `main`, manual       | Open the reviewed `main` to `release/prerelease` promotion PR              |
+| `release-prerelease.yml`             | Merged PR to `release/prerelease` | Prepare or publish the managed odd-minor PreRelease                        |
+| `release-stable.yml`                 | Published PreRelease, manual      | Open the reviewed `release/prerelease` to `release/stable` promotion PR    |
+| `release-stable-publish.yml`         | Merged PR to `release/stable`     | Prepare or publish the managed even-minor Stable release                   |
+| `release-main-catalog-sync.yml`      | Reusable                          | Open a reviewed main catalog and changelog PR after PreRelease publication |
+| `weekly-security-maintenance.yml`    | Sunday 2 AM UTC, manual           | Scheduled security posture review                                          |
+| `weekly-validation.yml`              | Schedule, manual                  | Weekly full validation sweep                                               |
+| `security-scan.yml`                  | Push to main/develop              | CodeQL security validation                                                 |
+| `release-marketplace-stable.yml`     | Published Stable release, manual  | VS Code extension Marketplace publishing                                   |
+| `release-marketplace-prerelease.yml` | Published PreRelease, manual      | VS Code extension pre-release publishing                                   |
+| `copilot-setup-steps.yml`            | Manual                            | Coding agent environment setup                                             |
+| `devcontainer-change-log.yml`        | Push to main/develop              | Logs devcontainer infrastructure file changes to the step summary          |
+| `devcontainer-lockfile-check.yml`    | Reusable                          | Validates devcontainer lockfile integrity and SHA-256 pinning              |
+| `scorecard.yml`                      | Schedule, push                    | OpenSSF Scorecard security analysis                                        |
+| `codeql-analysis.yml`                | Schedule                          | Weekly CodeQL security scan (also reusable)                                |
+| `dependency-review.yml`              | Pull request                      | Dependency vulnerability review (also reusable)                            |
+| `sha-staleness-check.yml`            | Manual                            | SHA reference freshness check (also reusable)                              |
+| `deploy-docs.yml`                    | Push to main, manual              | Docusaurus documentation site deployment                                   |
+| `create-stale-docs-issues.yml`       | Schedule                          | Automated stale docs issue creation from ms.date freshness                 |
+| `msdate-freshness-check.yml`         | Schedule, manual                  | ms.date freshness validation across documentation                          |
+| `label-sync.yml`                     | Push to main, manual              | Repository label synchronization                                           |
+| `workflow-permissions-scan.yml`      | Schedule, manual                  | GitHub Actions permissions audit                                           |
+| `weekly-gh-code-scanning.yml`        | Monday 3 AM UTC, manual           | Weekly GitHub code scanning alert retrieval and issue creation             |
+| `vex-detect.yml`                     | Schedule, release, manual         | Dependency vulnerability scan and VEX triage issue creation                |
 
 GitHub Agentic Workflow markdown files (`issue-triage.md`, `issue-implement.md`, `pr-review.md`, `dependency-pr-review.md`, `doc-update-check.md`, and `vex-draft.md`) compile to `*.lock.yml` workflows and are documented in [Agentic Workflows](agentic-workflows).
 
@@ -189,49 +200,45 @@ flowchart LR
 
 All jobs run in parallel with no dependencies, enabling fast feedback (typically under 3 minutes).
 
-## Main Branch Pipeline
+## Release Promotion and Publication
 
-`release-stable.yml` opens the reviewed `main` to `release/stable` promotion after validating `main` and confirming that the prior Stable metadata has returned to `main`. It does not run release-please, package artifacts, create a tag, or publish a release.
+The preparation workflows each contain exactly two jobs:
 
-```mermaid
-flowchart LR
-    V1[spell-check] --> PREP[prepare-promotion]
-    V2[markdown-lint] --> PREP
-    V3[table-format] --> PREP
-    V4[dependency-pinning-scan] --> PREP
-    V5[action-version-consistency-scan] --> PREP
-    V6[gitleaks-scan] --> PREP
-    V7[pester-tests] --> PREP
-    V8[docusaurus-tests] --> PREP
-    V9[discover-python-projects] --> PREP
-    V9 --> V10[python-lint]
-    V9 --> V11[pytest]
-    V10 --> PREP
-    V11 --> PREP
-    PREP --> PR[open-promotion-pr]
-```
+| Workflow                         | Jobs                                     | Source and target                        |
+|----------------------------------|------------------------------------------|------------------------------------------|
+| `release-prerelease-prepare.yml` | `prepare-promotion`, `open-promotion-pr` | `main` to `release/prerelease`           |
+| `release-stable.yml`             | `prepare-promotion`, `open-promotion-pr` | `release/prerelease` to `release/stable` |
 
-### Main Branch Jobs
+Each preparation starts from the target branch, merges the current source,
+restores target-owned release metadata, writes the exact `release-as`, and
+opens a reviewed PR. Promotion heads are stable per hop and are updated without
+force. The promotion merge creates no tag.
 
-| Job                             | Purpose                                          | Dependencies             |
-|---------------------------------|--------------------------------------------------|--------------------------|
-| spell-check                     | Post-merge spelling validation                   | None                     |
-| markdown-lint                   | Post-merge Markdown validation                   | None                     |
-| table-format                    | Post-merge table validation                      | None                     |
-| dependency-pinning-scan         | Dependency pinning security check                | None                     |
-| action-version-consistency-scan | Action version consistency check                 | None                     |
-| gitleaks-scan                   | Secret detection scanning                        | None                     |
-| pester-tests                    | PowerShell unit tests                            | None                     |
-| docusaurus-tests                | Documentation site build and tests               | None                     |
-| discover-python-projects        | Enumerate Python projects                        | None                     |
-| python-lint                     | Python lint (ruff)                               | discover-python-projects |
-| pytest                          | Python unit tests                                | discover-python-projects |
-| prepare-promotion               | Verify source state and determine promotion need | All validation jobs      |
-| open-promotion-pr               | Open or update the reviewed `main` promotion     | prepare-promotion        |
+The release workflows accept only the exact promotion or managed head for
+their channel. A promotion merge selects PR-only mode. A managed PR merge
+selects tag-only mode and creates the draft `hve-core-v<version>` release at
+that managed merge commit.
 
-After the promotion merges, `release-stable-publish.yml` runs release-please on `release/stable`. Release-please owns the managed Stable release PR and draft Stable release. The workflow synchronizes version fields and the immutable plugin locator on the managed PR.
+### Release Channel Jobs
 
-After review and merge, it validates the released commit, packages and attests release assets, publishes the immutable `plugins-v<version>` snapshot, finalizes the draft, and opens a non-auto-merged `release/stable` to `main` metadata synchronization PR.
+| Workflow                     | Jobs                                                                                                                                                                                                                                                                                                             |
+|------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `release-prerelease.yml`     | `release-please`, `sync-release-pr`, `validate-release`, `close-milestone`, `extension-package-prerelease`, `plugin-package-prerelease`, `plugin-snapshot-production`, `generate-dependency-sbom`, `attest-and-upload`, `upload-plugin-packages`, `verify-provenance`, `publish-release`, `main-catalog-sync`    |
+| `release-stable-publish.yml` | `release-please`, `sync-release-pr`, `validate-release`, `close-milestone`, `extension-provenance`, `plugin-package-release`, `plugin-snapshot-production`, `generate-dependency-sbom`, `upload-plugin-packages`, `vex-attest`, `verify-provenance`, `sbom-diff`, `append-verification-notes`, `publish-release` |
+
+Both release workflows verify event, merge, release-please, and release-tag
+SHA equality plus target-branch ancestry. Extension and plugin packages use
+the immutable release tag as their source. Production snapshot publication
+creates `plugins-v<version>` without force and verifies its evidence against
+the release SHA.
+
+Both channels publish their draft with a release GitHub App token. The
+resulting `published` event triggers the matching Marketplace workflow.
+PreRelease also calls `release-main-catalog-sync.yml` after its snapshot and
+publication succeed. That reusable workflow opens a reviewed, version-scoped
+PR that moves synchronized package metadata, immutable plugin entry refs, and
+`CHANGELOG.md` on `main`; newer candidates close older open sync PRs as
+superseded. Stable has no reverse-main synchronization path.
 
 ## Security Workflows
 
@@ -259,28 +266,36 @@ The `weekly-security-maintenance.yml` workflow runs every Sunday at 2AM UTC, pro
 
 ## Extension Publishing
 
-The `release-marketplace-stable.yml` and `release-marketplace-prerelease.yml` workflows discover active package IDs from the catalog and process one VSIX per matrix entry. Stable uses the reviewed `release/stable` release source, while PreRelease uses an explicit `main` source commit. The channels differ in source ownership, cadence, and version policy, not in active package membership or component maturity.
+The `release-marketplace-stable.yml` and
+`release-marketplace-prerelease.yml` workflows discover active package IDs
+from the catalog and process one VSIX per matrix entry. Stable uses the managed
+release PR merge on `release/stable`; PreRelease uses the managed release PR
+merge on `release/prerelease`. Both Marketplace workflows package from the
+immutable `hve-core-v<version>` release tag. The channels differ in source
+ownership, cadence, and version policy, not in active package membership or
+component maturity.
 
 ```mermaid
 flowchart TD
     subgraph Stable["release-marketplace-stable.yml"]
-        NV[normalize-version] --> PKG1["package (matrix)"]
-        PKG1 --> PUB1["publish (matrix)"]
+        NV[normalize-version] --> DISC[discover]
+        DISC --> PUB1[publish]
     end
     subgraph PreRelease["release-marketplace-prerelease.yml"]
-        VV[validate-version] --> PKG2["package (matrix)"]
-        PKG2 --> PUB2["publish (matrix)"]
+        VV[validate-version] --> PKG2[package]
+        PKG2 --> PUB2[publish]
     end
 ```
 
 ### Publishing Jobs
 
-| Job               | Purpose                                                               | Workflow                             |
-|-------------------|-----------------------------------------------------------------------|--------------------------------------|
-| normalize-version | Ensure Stable version consistency                                     | `release-marketplace-stable.yml`     |
-| validate-version  | Enforce the PreRelease odd-minor version convention                   | `release-marketplace-prerelease.yml` |
-| discover/package  | Resolve the catalog matrix and build one source-explicit VSIX per row | Both                                 |
-| publish           | Upload each selected VSIX through OIDC and `vsce`                     | Both                                 |
+| Job               | Purpose                                             | Workflow                             |
+|-------------------|-----------------------------------------------------|--------------------------------------|
+| normalize-version | Ensure Stable version consistency                   | `release-marketplace-stable.yml`     |
+| validate-version  | Enforce the PreRelease odd-minor version convention | `release-marketplace-prerelease.yml` |
+| discover          | Resolve the catalog matrix and release version      | `release-marketplace-stable.yml`     |
+| package           | Build source-explicit PreRelease VSIX packages      | `release-marketplace-prerelease.yml` |
+| publish           | Upload each selected VSIX through OIDC and `vsce`   | Both                                 |
 
 ### Marketplace Build
 

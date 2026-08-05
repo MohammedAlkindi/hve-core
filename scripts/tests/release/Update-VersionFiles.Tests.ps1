@@ -231,6 +231,8 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $script:FakeRoot '.github/plugin/marketplace.json')
         @{ '.' = '1.0.0' } |
             ConvertTo-Json | Set-Content (Join-Path $script:FakeRoot '.release-please-manifest.json')
+        @{ '.' = '1.0.0' } |
+            ConvertTo-Json | Set-Content (Join-Path $script:FakeRoot '.release-please-prerelease-manifest.json')
         @{
             name            = 'hve-core'
             version         = '1.0.0'
@@ -264,6 +266,8 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
 
         $manifest = Get-Content -Raw (Join-Path $script:FakeRoot '.release-please-manifest.json') | ConvertFrom-Json
         $manifest.'.' | Should -Be '2.5.0'
+        $preReleaseManifest = Get-Content -Raw (Join-Path $script:FakeRoot '.release-please-prerelease-manifest.json') | ConvertFrom-Json
+        $preReleaseManifest.'.' | Should -Be '1.0.0'
 
         $lock = Get-Content -Raw (Join-Path $script:FakeRoot 'package-lock.json') | ConvertFrom-Json -Depth 10 -AsHashtable
         $lock['version'] | Should -Be '2.5.0'
@@ -301,6 +305,55 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         finally {
             Remove-Item -Recurse -Force $sparseRoot
         }
+    }
+
+    It 'Updates an explicitly selected manifest without changing the Stable manifest' {
+        & $script:ScriptPath `
+            -Version '2.6.0' `
+            -RepoRoot $script:FakeRoot `
+            -ManifestPath '.release-please-prerelease-manifest.json' `
+            -SkipPluginGenerate
+
+        $stable = Get-Content -Raw (Join-Path $script:FakeRoot '.release-please-manifest.json') | ConvertFrom-Json
+        $preRelease = Get-Content -Raw (Join-Path $script:FakeRoot '.release-please-prerelease-manifest.json') | ConvertFrom-Json
+        $stable.'.' | Should -Be '2.5.0'
+        $preRelease.'.' | Should -Be '2.6.0'
+    }
+
+    It 'Skips both manifests while updating shared version metadata' {
+        & $script:ScriptPath `
+            -Version '2.7.0' `
+            -RepoRoot $script:FakeRoot `
+            -SkipManifest `
+            -SkipPluginGenerate
+
+        $stable = Get-Content -Raw (Join-Path $script:FakeRoot '.release-please-manifest.json') | ConvertFrom-Json
+        $preRelease = Get-Content -Raw (Join-Path $script:FakeRoot '.release-please-prerelease-manifest.json') | ConvertFrom-Json
+        $package = Get-Content -Raw (Join-Path $script:FakeRoot 'package.json') | ConvertFrom-Json
+        $stable.'.' | Should -Be '2.5.0'
+        $preRelease.'.' | Should -Be '2.6.0'
+        $package.version | Should -Be '2.7.0'
+    }
+
+    It 'Rejects a manifest path when manifest updates are skipped' {
+        {
+            & $script:ScriptPath `
+                -Version '2.8.0' `
+                -RepoRoot $script:FakeRoot `
+                -ManifestPath '.release-please-prerelease-manifest.json' `
+                -SkipManifest `
+                -SkipPluginGenerate
+        } | Should -Throw
+    }
+
+    It 'Rejects an explicitly selected missing manifest' {
+        {
+            & $script:ScriptPath `
+                -Version '2.8.0' `
+                -RepoRoot $script:FakeRoot `
+                -ManifestPath '.missing-release-manifest.json' `
+                -SkipPluginGenerate
+        } | Should -Throw '*Manifest file not found*'
     }
 
     It 'Rejects invalid version "<Version>"' -ForEach @(
@@ -383,13 +436,26 @@ Describe 'Release preparation repair' -Tag 'Unit' {
     # A lint gate that only fails on a stale locator would block every release.
     # The release workflow must call this updater on the release-please branch
     # so the managed PR owns the complete committed release state.
-    It 'Is invoked on the managed release preparation branch' {
-        $workflowPath = Join-Path $script:RepositoryRoot '.github/workflows/release-stable-publish.yml'
+    It 'Is invoked on each managed release preparation branch' -ForEach @(
+        @{
+            Workflow = 'release-prerelease.yml'
+            TargetBranch = 'release/prerelease'
+            ManifestPath = '.release-please-prerelease-manifest.json'
+            ConfigPath = 'release-please-prerelease-config.json'
+        }
+        @{
+            Workflow = 'release-stable-publish.yml'
+            TargetBranch = 'release/stable'
+            ManifestPath = ''
+            ConfigPath = 'release-please-config.json'
+        }
+    ) {
+        $workflowPath = Join-Path $script:RepositoryRoot ".github/workflows/$Workflow"
         $workflow = Get-Content -LiteralPath $workflowPath -Raw -Encoding utf8
         $document = $workflow | ConvertFrom-Yaml
 
         $release = $document['jobs']['release-please']
-        [string]$release['steps'][1]['with']['target-branch'] | Should -BeExactly 'release/stable'
+        [string]$release['steps'][1]['with']['target-branch'] | Should -BeExactly $TargetBranch
 
         $sync = $document['jobs']['sync-release-pr']
         $sync | Should -Not -BeNullOrEmpty
@@ -419,6 +485,15 @@ Describe 'Release preparation repair' -Tag 'Unit' {
         $invocation[0] | Should -Match 'RELEASE_REPO="\$GITHUB_WORKSPACE/release-preparation"'
         $invocation[0] | Should -Match '-RepoRoot "\$RELEASE_REPO"'
         $invocation[0] | Should -Match '-SkipPluginGenerate'
+        if ($ManifestPath) {
+            $invocation[0] | Should -Match "-ManifestPath $([regex]::Escape($ManifestPath))"
+        }
+        else {
+            $invocation[0] | Should -Not -Match '-ManifestPath'
+        }
+        $invocation[0] | Should -Match ([regex]::Escape($ConfigPath))
+        $invocation[0] | Should -Match 'release-as'
+        $invocation[0] | Should -Match 'del\(\.packages\["\."\]\["release-as"\]\)'
         $invocation[0] | Should -Match 'cd "\$RELEASE_REPO"'
         $invocation[0] | Should -Match 'git push origin "HEAD:refs/heads/\$RELEASE_BRANCH"'
         $invocation[0] | Should -Not -Match 'push --force'
@@ -463,7 +538,8 @@ Describe 'Release preparation repair' -Tag 'Unit' {
 
         $checkout = @($steps | Where-Object { $_.Contains('uses') -and [string]$_['uses'] -match '^actions/checkout@' })
         $checkout | Should -HaveCount 1
-        [string]$checkout[0]['with']['ref'] | Should -BeExactly '${{ github.sha }}'
+        [string]$checkout[0]['with']['ref'] | Should -BeExactly 'release/stable'
+        [string]$checkout[0]['with']['fetch-depth'] | Should -BeExactly '0'
         $steps.IndexOf($identity[0]) | Should -BeLessThan $steps.IndexOf($checkout[0])
         $workflow | Should -Not -Match 'ref:\s*\$\{\{\s*needs\.release-please\.outputs\.sha'
 

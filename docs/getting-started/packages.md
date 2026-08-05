@@ -3,7 +3,7 @@ title: HVE Core Identity and Channels
 description: Choose HVE Core package identities and understand their lifecycle and release channels
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-04
 ms.topic: overview
 ---
 
@@ -23,12 +23,22 @@ Do not install `hve-core` and `hve-core-all` together because their content over
 
 Stable and PreRelease contain the same active package-name set and the same active components and maturity for every package.
 
-| Channel    | Source ownership                                                  | Version and cadence                              |
-|------------|-------------------------------------------------------------------|--------------------------------------------------|
-| PreRelease | Packages directly from an explicit commit on `main`               | Odd minor runtime version; publishes more often  |
-| Stable     | Packages a reviewed `main` promotion merged into `release/stable` | Even minor release version; may lag newer `main` |
+| Channel    | Source ownership                                                          | Version and cadence                             |
+|------------|---------------------------------------------------------------------------|-------------------------------------------------|
+| PreRelease | Managed release PR merge on `release/prerelease`, packaged by release tag | Odd minor runtime version; publishes more often |
+| Stable     | Managed release PR merge on `release/stable`, packaged by release tag     | Even minor release version; may lag PreRelease  |
 
-PreRelease packages directly from `main` and maintains no companion source branch. Stable promotion requires the promoted `main` tree and the merged `release/stable` tree to match before packaging.
+Source moves in one direction through reviewed target-based promotion PRs:
+`main` to `release/prerelease` to `release/stable`. A promotion merge creates
+no tag. Release-please opens a separate managed PR on the target branch, and
+merging that PR creates the channel's `hve-core-v<version>` tag and draft
+release. Both channels package from that immutable release tag.
+
+`main` is not a release-please target. After successful PreRelease snapshot and
+publication, a reviewed PR advances the package metadata and `CHANGELOG.md` on
+`main`. This keeps `microsoft/hve-core#main` useful as a moving development
+catalog while every plugin entry resolves immutable `plugins-v<version>`
+payload bytes. Stable never synchronizes metadata back to `main`.
 
 Each catalog entry has a deterministic plugin root and extension identity. `hve-core` remains the unsuffixed HVE Core extension, `ise-hve-essentials.hve-core`. Other active entries use package-specific generated identities. A single immutable `plugins-v<version>` snapshot contains every active package root and its projected catalog.
 
@@ -46,13 +56,28 @@ Lifecycle labels are disclosure and governance metadata, not channel filters. Th
 
 ## Copilot Marketplace Registration
 
-Register the catalog ref selected by your organization or release instructions:
+Register the moving development catalog:
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core#<ref>
+copilot plugin marketplace add microsoft/hve-core#main
 ```
 
-The Git ref selects the catalog. Each selected entry's `source.ref` selects matching immutable `plugins-v<version>` bytes. Use the client to select the desired catalog package after registration.
+Register a fixed release snapshot instead when you need immutable catalog
+selection:
+
+```bash
+copilot plugin marketplace add microsoft/hve-core#plugins-v<version>
+```
+
+Both refs use the marketplace name `hve-core`; keep one active registration at
+a time rather than depending on simultaneous same-name registrations. The
+client does not promise automatic catalog refresh. After `main` advances,
+refresh the marketplace and then update the installed plugin explicitly:
+
+```bash
+copilot plugin marketplace update hve-core
+copilot plugin update hve-core@hve-core
+```
 
 ## Selective Clone Adoption
 

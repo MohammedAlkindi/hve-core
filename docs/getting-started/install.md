@@ -3,7 +3,7 @@ title: Installing HVE Core
 description: Install a catalog-selected HVE Core extension or plugin, or adopt selected components from a clone
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-04
 ms.topic: how-to
 keywords: [installation, setup, github copilot, marketplace, selective clone]
 estimated_reading_time: 4
@@ -85,7 +85,12 @@ graph LR
 
 ## Distribution Identity and Channels
 
-Release workflows discover active entries from the catalog. Stable and PreRelease use the same active package set and component maturity per package. Stable packages reviewed content from `release/stable`; PreRelease packages an explicit `main` commit.
+Release workflows discover active entries from the catalog. Stable and
+PreRelease use the same active package set and component maturity per package.
+PreRelease packages the managed release PR merge on `release/prerelease` from
+its immutable `hve-core-v<version>` tag. Stable does the same on
+`release/stable`. The one-way source flow is `main` to `release/prerelease` to
+`release/stable`.
 
 `hve-core` and `hve-core-all` each include the telemetry hook. VS Code does not expose a declarative hook contribution point, so configure hook locations manually for extension installations.
 
@@ -93,13 +98,32 @@ See [HVE Core Identity and Channels](packages) for the lifecycle and source cont
 
 ### Copilot Plugin Registration
 
-Register an approved catalog ref, then select the required package through the client:
+Register the moving development catalog, then install the package through the
+client:
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core#<ref>
+copilot plugin marketplace add microsoft/hve-core#main
+copilot plugin install hve-core@hve-core
 ```
 
-The marketplace ref selects the catalog, and each selected entry's `source.ref` pins matching immutable `plugins-v<version>` bytes. Select the required catalog package through the client after registration.
+The `main` catalog is updated by a reviewed pull request after successful
+PreRelease publication. Each catalog entry still pins matching immutable
+`plugins-v<version>` bytes. Register an exact release snapshot when you need a
+fixed catalog and payload set:
+
+```bash
+copilot plugin marketplace add microsoft/hve-core#plugins-v<version>
+```
+
+Both refs register the same marketplace name, `hve-core`, so keep one active
+registration at a time. The client does not promise automatic refresh. After
+the moving catalog advances, explicitly refresh it and update the installed
+plugin:
+
+```bash
+copilot plugin marketplace update hve-core
+copilot plugin update hve-core@hve-core
+```
 
 ### Clone Methods
 
