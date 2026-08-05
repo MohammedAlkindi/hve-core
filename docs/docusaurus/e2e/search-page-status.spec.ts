@@ -12,6 +12,16 @@ test.describe('Search page status announcements', () => {
     await expect(status).toHaveAttribute('aria-live', 'polite');
     await expect(status).toHaveText(/\d+ document(?:s)? found/, { timeout: 15000 });
 
+    // The region is owned by the component. It was previously appended to <body>
+    // as a singleton and removed unconditionally on unmount, so a second mount
+    // left the survivor writing to a detached node. Ownership is what closes that
+    // defect: a single node, rendered by the component rather than parked on the
+    // document body. Its position relative to the main landmark is not asserted,
+    // because a live region announces from anywhere in the document and axe's
+    // landmark-containment rule exempts role="status" and aria-live regions.
+    await expect(status).toHaveCount(1);
+    await expect(page.locator('body > #search-results-status')).toHaveCount(0);
+
     const searchInput = page.locator('input[name="q"]');
     // cspell:disable-next-line -- deliberate nonsense token so the query matches nothing
     await searchInput.fill('zzzzzzzzqqqq');

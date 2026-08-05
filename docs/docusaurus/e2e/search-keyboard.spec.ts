@@ -43,6 +43,28 @@ async function arrowDownUntilActive(page: Page, input: ReturnType<Page['locator'
   return (await input.getAttribute('aria-activedescendant')) === targetId;
 }
 
+// Describes where focus currently sits, distinguishing the input, <body>, and
+// whether the destination is inside the search widget. A signature is included
+// so two observations can be compared for "focus did not move".
+async function describeActiveElement(page: Page) {
+  return page.evaluate(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) {
+      return { role: 'body', insideWidget: false, signature: 'body' };
+    }
+    const widget = document.querySelector('.navbar__search');
+    const insideWidget = Boolean(widget && widget.contains(active));
+    const role = active.classList.contains('navbar__search-input') ? 'search-input' : 'other';
+    const signature = [
+      active.tagName.toLowerCase(),
+      active.id || '',
+      String(active.className || ''),
+      (active.textContent || '').trim().slice(0, 40),
+    ].join('|');
+    return { role, insideWidget, signature };
+  });
+}
+
 test.describe('Search keyboard navigation', () => {
   test('exposes an accessible name on the search clear button', async ({ page }) => {
     await openNavbarSearch(page);
@@ -182,38 +204,154 @@ test.describe('Search keyboard navigation', () => {
     expect(page.url()).toContain('/search');
   });
 
-  test('Tab from the open popup moves focus out of the search without navigating', async ({ page }) => {
+  test('Tab from the open popup follows native focus order out of the widget', async ({ page }) => {
     const input = await openNavbarSearch(page);
 
     await getFooterId(page);
 
     const urlBefore = page.url();
+
+    // The interceptor previously discarded every in-widget candidate as a class,
+    // which made the clear button unreachable. The contract is native sequential
+    // focus: Tab reaches the next control in document order, which is the clear
+    // button where the plugin renders one and an element outside the widget
+    // otherwise. Asserting only "not the input" would pass either way, and
+    // asserting only "inside the widget" would pass for any other in-widget
+    // control, so the rendered clear button is identified explicitly.
+    //
+    // It is identified by the attributes the plugin itself renders. Matching on
+    // the accessible name instead would depend on this repository's own wrapper
+    // having applied it: if the name were not yet set, the locator would resolve
+    // to nothing and the weaker "somewhere in the widget" branch below would run
+    // in its place, reporting a pass without ever checking the destination.
+    const clearButton = page
+      .locator('.navbar__search button[type="reset"], .navbar__search button[class*="clear" i]')
+      .first();
+    const clearButtonCount = await clearButton.count();
+    const widgetControlCount = await page.evaluate(() => {
+      const root = document.querySelector('.navbar__search');
+      if (!root) {
+        return 0;
+      }
+      return root.querySelectorAll(
+        'button:not([disabled]):not([tabindex="-1"]), a[href]:not([tabindex="-1"])',
+      ).length;
+    });
+
     await input.press('Tab');
     await page.waitForTimeout(250);
 
+    const first = await describeActiveElement(page);
+
     // Focus landing on <body> is not a valid Tab escape. The browser parks focus
     // there when a handler cancels the default move, which is the keyboard trap
-    // this test exists to detect, so it must be rejected rather than counted as
-    // "left the input".
-    const destination = await page.evaluate(() => {
-      const active = document.activeElement;
-      if (!active || active === document.body) {
-        return 'body';
-      }
-      if (active.classList.contains('navbar__search-input')) {
-        return 'search-input';
-      }
-      return String(active.tagName.toLowerCase() + (active.className ? `.${String(active.className).split(' ')[0]}` : ''));
-    });
+    // this test exists to detect. It is also where focus ends up if the widget
+    // reclaims it while tearing the popup down.
     expect(
-      destination,
-      'Tab must move focus to the next focusable control, not to the input or to <body> (no keyboard trap, WCAG 2.1.2)',
+      first.role,
+      'Tab must move focus off the input (no keyboard trap, WCAG 2.1.2)',
     ).not.toBe('search-input');
     expect(
-      destination,
-      'Tab dropped focus to <body>, which means the native focus move was cancelled (keyboard trap, WCAG 2.1.2)',
+      first.role,
+      'Tab dropped focus to <body>, which means the native focus move was cancelled or reclaimed (keyboard trap, WCAG 2.1.2)',
     ).not.toBe('body');
+
+    if (clearButtonCount > 0) {
+      // The widget's own control is the next stop in document order. The defect
+      // being locked out is skipping past it or losing it to popup teardown.
+      await expect(
+        clearButton,
+        'Tab must reach the search clear button rather than skipping past it',
+      ).toBeFocused();
+
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(250);
+      const second = await describeActiveElement(page);
+      expect(
+        second.insideWidget,
+        'A further Tab must leave the search widget',
+      ).toBe(false);
+      expect(second.role, 'A further Tab must not park focus on <body>').not.toBe('body');
+    } else if (widgetControlCount > 0) {
+      // Some other in-widget control is rendered instead; the contract is still
+      // that Tab reaches it and a further Tab leaves.
+      expect(
+        first.insideWidget,
+        'Tab must reach the widget\'s own control rather than skipping past it',
+      ).toBe(true);
+
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(250);
+      const second = await describeActiveElement(page);
+      expect(
+        second.insideWidget,
+        'A further Tab must leave the search widget',
+      ).toBe(false);
+      expect(second.role, 'A further Tab must not park focus on <body>').not.toBe('body');
+    } else {
+      // With no in-widget control rendered, Tab leaves the widget directly.
+      expect(first.insideWidget, 'Tab must leave the widget when it renders no control').toBe(false);
+    }
+
     expect(page.url()).toBe(urlBefore);
+  });
+
+  test('Shift+Tab returns through the same path and focus stays where the user put it', async ({ page }) => {
+    const input = await openNavbarSearch(page);
+    await getFooterId(page);
+
+    await input.press('Tab');
+    await page.waitForTimeout(250);
+    const forward = await describeActiveElement(page);
+    expect(forward.role).not.toBe('body');
+
+    await page.keyboard.press('Shift+Tab');
+    await page.waitForTimeout(250);
+    const back = await describeActiveElement(page);
+    expect(back.role, 'Shift+Tab must not park focus on <body>').not.toBe('body');
+    // Reverse traversal from the widget's first control returns to the input the
+    // user started from. Naming that destination is what distinguishes a real
+    // round trip from focus merely landing somewhere that is not <body>.
+    expect(
+      back.role,
+      'Shift+Tab must return to the search input the forward Tab left',
+    ).toBe('search-input');
+
+    // The removed guard reclaimed focus for 600 ms after a Tab, so a deliberate
+    // reverse move was undone. Waiting past that window proves nothing contests
+    // the destination any more.
+    await page.waitForTimeout(900);
+    const settled = await describeActiveElement(page);
+    expect(
+      settled.signature,
+      'Focus must stay where the user put it after the former guard window elapses',
+    ).toBe(back.signature);
+  });
+
+  test('completing the search index load does not steal focus back to the input', async ({ page }) => {
+    const input = await openNavbarSearch(page);
+
+    await input.press('Tab');
+    await page.waitForTimeout(250);
+    const before = await describeActiveElement(page);
+    expect(before.role, 'the test needs focus off the input first').not.toBe('search-input');
+    expect(before.role).not.toBe('body');
+
+    // Deterministic seam: the upstream package refocuses the input from an
+    // asynchronous continuation when its index finishes loading. Calling focus()
+    // outside any user gesture reproduces exactly that call without depending on
+    // index-load timing.
+    await page.evaluate(() => {
+      const node = document.querySelector('input.navbar__search-input');
+      (node as HTMLInputElement | null)?.focus();
+    });
+    await page.waitForTimeout(250);
+
+    const after = await describeActiveElement(page);
+    expect(
+      after.signature,
+      'Programmatic refocus after index load must not move focus away from the user',
+    ).toBe(before.signature);
   });
 });
 

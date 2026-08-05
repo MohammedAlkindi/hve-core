@@ -174,29 +174,29 @@ export async function createGuidepupDriverAdapter({
           ? lastError
           : new Error(lastError ? String(lastError) : 'Guidepup NVDA startup failed.');
       },
+      // Ownership flags describe what the adapter has observed, so they survive
+      // a stop that rejects or times out. Clearing them early would report a
+      // clean exit for a screen reader that is still running and would make a
+      // retried stop return without calling through.
       async stop() {
         if (!startedByAdapter && !started) {
           return { driver, platform, cleanup: { startedByAdapter, started } };
         }
-        const shouldStop = startedByAdapter && started;
-        startedByAdapter = false;
-        started = false;
-        if (!shouldStop) {
-          return { driver, platform, cleanup: { startedByAdapter, started } };
-        }
-        try {
-          await runWithTimeout(
-            () => runtimeTarget.stop(),
-            stopTimeoutMs,
-            'Guidepup NVDA stop',
-          );
-        } finally {
+        if (!startedByAdapter || !started) {
           startedByAdapter = false;
           started = false;
+          return { driver, platform, cleanup: { startedByAdapter, started } };
         }
+        await runWithTimeout(
+          () => runtimeTarget.stop(),
+          stopTimeoutMs,
+          'Guidepup NVDA stop',
+        );
         if (stopSettleDelayMs > 0) {
           await sleep(stopSettleDelayMs);
         }
+        startedByAdapter = false;
+        started = false;
         return { driver, platform, cleanup: { startedByAdapter, started } };
       },
       cleanupState() {

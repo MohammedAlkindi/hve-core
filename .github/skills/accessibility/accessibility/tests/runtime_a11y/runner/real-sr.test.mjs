@@ -6,7 +6,13 @@ import { test } from 'node:test';
 
 import { realScreenReaderStatus } from '../../../scripts/runtime_a11y/runner/_core.mjs';
 import { evaluateAssertion } from '../../../scripts/runtime_a11y/runner/assertions.mjs';
-import { ensureAutomationWindowFocused } from '../../../scripts/runtime_a11y/runner/_shared.mjs';
+import {
+  ensureAutomationWindowFocused,
+  ensureScreenReaderStopped,
+  isScreenReaderCleanupUnproven,
+  resolveScreenReaderVerifier,
+  runRealScreenReaderProbe,
+} from '../../../scripts/runtime_a11y/runner/_shared.mjs';
 import { createScreenReaderDriver, validateScreenReaderConfig } from '../../../scripts/runtime_a11y/runner/drivers/driver-contract.mjs';
 import { createGuidepupDriverAdapter } from '../../../scripts/runtime_a11y/runner/drivers/guidepup-adapter.mjs';
 
@@ -456,6 +462,104 @@ test('createGuidepupDriverAdapter times out a hung startup attempt and retries',
   assert.equal(startCalls, 2);
   assert.equal(stopCalls >= 2, true);
   assert.equal(sleeps.includes(3), true);
+});
+
+test('createGuidepupDriverAdapter keeps ownership state when the stop fails and re-attempts it on retry', async () => {
+  let stopCalls = 0;
+  const adapter = await createGuidepupDriverAdapter({
+    platform: 'win32',
+    config: {
+      lifecycle: {
+        startAttempts: 1,
+        stopSettleDelayMs: 0,
+      },
+    },
+    sleep: async () => undefined,
+    target: {
+      start: async () => undefined,
+      stop: async () => {
+        stopCalls += 1;
+        if (stopCalls === 1) {
+          throw new Error('nvda --quit did not exit');
+        }
+      },
+      press: async () => undefined,
+      spokenPhraseLog: async () => [],
+    },
+  });
+
+  await adapter.start();
+
+  await assert.rejects(adapter.stop(), /did not exit/);
+  assert.deepEqual(adapter.cleanupState(), { startedByAdapter: true, started: true });
+
+  await adapter.stop();
+  assert.equal(stopCalls, 2);
+  assert.deepEqual(adapter.cleanupState(), { startedByAdapter: false, started: false });
+});
+
+test('runRealScreenReaderProbe keeps its accessibility result while reporting an unproven stop', async () => {
+  const result = await runRealScreenReaderProbe(null, {
+    config: {},
+    createDriver: async () => ({
+      supported: true,
+      status: 'ready',
+      driver: 'fake',
+      async start() {},
+      async executeCommand() {},
+      async captureLog() {
+        return { driver: 'fake', phrases: ['button, Clear search'], assertions: [] };
+      },
+      async stop() {
+        throw new Error('Guidepup NVDA stop timed out after 10000ms');
+      },
+    }),
+    verifyScreenReaderStopped: async () => ({
+      stopped: false,
+      terminated: false,
+      reason: 'screen-reader-still-running',
+    }),
+  });
+
+  assert.equal(result.ran, true);
+  assert.deepEqual(result.phrases, ['button, Clear search']);
+  assert.equal(result.cleanup.driverStarted, true);
+  assert.equal(result.cleanup.driverStopped, false);
+  assert.match(result.cleanup.stopError, /timed out/);
+  assert.equal(result.cleanup.reason, 'screen-reader-still-running');
+  assert.equal(isScreenReaderCleanupUnproven(result.cleanup), true);
+});
+
+test('runRealScreenReaderProbe records a forced termination rather than a clean stop', async () => {
+  const result = await runRealScreenReaderProbe(null, {
+    config: {},
+    createDriver: async () => ({
+      supported: true,
+      status: 'ready',
+      driver: 'fake',
+      async start() {},
+      async executeCommand() {},
+      async captureLog() {
+        return { driver: 'fake', phrases: [], assertions: [] };
+      },
+      async stop() {},
+    }),
+    verifyScreenReaderStopped: async () => ({ stopped: true, terminated: true, reason: null }),
+  });
+
+  assert.equal(result.cleanup.driverStopped, true);
+  assert.equal(result.cleanup.terminated, true);
+  assert.equal(result.cleanup.stopError, null);
+  assert.equal(isScreenReaderCleanupUnproven(result.cleanup), false);
+});
+
+test('the probe stop verifier defaults to the production implementation when none is injected', () => {
+  assert.equal(resolveScreenReaderVerifier(undefined), ensureScreenReaderStopped);
+  assert.equal(resolveScreenReaderVerifier(null), ensureScreenReaderStopped);
+  assert.equal(resolveScreenReaderVerifier({ stopped: true }), ensureScreenReaderStopped);
+
+  const injected = async () => ({ stopped: true, terminated: false, reason: null });
+  assert.equal(resolveScreenReaderVerifier(injected), injected);
 });
 
 test('realScreenReaderStatus passes only when every configured assertion matches', () => {

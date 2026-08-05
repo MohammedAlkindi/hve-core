@@ -880,20 +880,49 @@ def _write_visual_review_manifests(
     total_bytes = 0
 
     for index, run in enumerate(runs):
+        if not isinstance(run, dict):
+            raise ScriptError(
+                f"Visual review run {index + 1} is not an object.",
+                EXIT_USAGE,
+            )
         route = str(run.get("route") or "/")
         surface = str(run.get("surface") or "surface")
         state = str(run.get("state") or "default")
+
+        # Capture failures are validated before any directory is created, so a
+        # run that cannot produce evidence never leaves a partial manifest tree
+        # behind and never reports success with an empty manifest list.
+        probe_outcomes = run.get("probeOutcomes") or []
+        if not isinstance(probe_outcomes, list):
+            raise ScriptError(
+                f"Visual review run {index + 1} ({surface}/{state}) reported "
+                "probe outcomes that are not a list.",
+                EXIT_USAGE,
+            )
+        for outcome in probe_outcomes:
+            if not isinstance(outcome, dict):
+                raise ScriptError(
+                    f"Visual review run {index + 1} ({surface}/{state}) reported "
+                    "a probe outcome that is not an object.",
+                    EXIT_USAGE,
+                )
+            if str(outcome.get("status")) == "capture-failure":
+                raise ScriptError(
+                    f"Visual review run {index + 1} ({surface}/{state}) failed to "
+                    "capture its evidence.",
+                    EXIT_USAGE,
+                )
+
         label = "-".join([surface, state]).lower().replace(" ", "-")
         label = (
             "".join(ch if ch.isalnum() else "-" for ch in label).strip("-")
             or f"run-{index + 1}"
         )
-        manifest_dir = run_root / "runs" / label
+        # The run index keeps the directory unique: sanitizing distinct surface
+        # and state pairs can produce the same label, and colliding runs would
+        # otherwise overwrite each other's manifest.
+        manifest_dir = run_root / "runs" / f"{index + 1:03d}-{label}"
         manifest_dir.mkdir(parents=True, exist_ok=True)
-
-        probe_outcomes = run.get("probeOutcomes") or []
-        if any(str(item.get("status")) == "capture-failure" for item in probe_outcomes):
-            continue
 
         screenshot_path = run.get("screenshotPath")
         measurement_path = run.get("measurementPath")

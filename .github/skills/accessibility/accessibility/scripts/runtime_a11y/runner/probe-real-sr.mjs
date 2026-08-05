@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { realScreenReaderStatus } from './_core.mjs';
-import { buildProbeResults, emitProbeResult, runProbeWithPage, runRealScreenReaderProbe } from './_shared.mjs';
+import { buildProbeResults, emitProbeResult, isScreenReaderCleanupUnproven, runProbeWithPage, runRealScreenReaderProbe } from './_shared.mjs';
 
 export async function runProbe() {
   const payload = await runProbeWithPage(async ({ page, surface, state, targetUrl }) => {
@@ -21,8 +21,17 @@ export async function runProbe() {
       runAt: new Date().toISOString(),
       baseUrl: targetUrl,
       results,
+      cleanup: snapshot?.cleanup || null,
     };
   });
 
+  // The accessibility result is emitted first: an unproven stop is an
+  // operational failure, not a reason to discard a valid finding.
   emitProbeResult(payload);
+
+  if (isScreenReaderCleanupUnproven(payload?.cleanup)) {
+    const reason = payload.cleanup.reason || payload.cleanup.stopError || 'screen-reader-stop-unverified';
+    process.stderr.write(`Screen reader cleanup could not be verified: ${reason}\n`);
+    process.exitCode = 1;
+  }
 }

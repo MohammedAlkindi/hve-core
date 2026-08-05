@@ -988,17 +988,46 @@ export async function runProbeWithPage(callback) {
   }
 }
 
-export async function runRealScreenReaderProbe(page, { surface, state, targetUrl, config = {} } = {}) {
+// Resolves the cleanup verifier used by the real screen-reader probe.
+//
+// The injection seam exists so failure paths are reachable without a real
+// screen reader. It deliberately falls back to the production verifier: a
+// permissive default would reintroduce the fail-open this verification closes.
+export function resolveScreenReaderVerifier(verifier) {
+  return typeof verifier === 'function' ? verifier : ensureScreenReaderStopped;
+}
+
+export async function runRealScreenReaderProbe(page, {
+  surface,
+  state,
+  targetUrl,
+  config = {},
+  createDriver = createScreenReaderDriver,
+  verifyScreenReaderStopped,
+} = {}) {
   const runtimeConfig = config || getRuntimeContext().config || {};
   const surfaceConfig = surface?.states?.find((entry) => entry.state === state) || {};
   const probeConfig = surfaceConfig?.realScreenReader || runtimeConfig?.realScreenReader || {};
+  const verifyStopped = resolveScreenReaderVerifier(verifyScreenReaderStopped);
   let driver = null;
+  let driverStarted = false;
+  // Cleanup is a separate outcome from the accessibility verdict. A run can
+  // produce a valid finding and still fail to stop the screen reader, so the
+  // facts travel on the result rather than replacing it with a throw.
+  const cleanup = {
+    driverStarted: false,
+    driverStopped: false,
+    terminated: false,
+    stopError: null,
+    reason: null,
+  };
+  let result = null;
 
   try {
-    driver = await createScreenReaderDriver({ platform: process.platform, config: probeConfig });
+    driver = await createDriver({ platform: process.platform, config: probeConfig });
 
     if (!driver?.supported) {
-      return {
+      result = {
         ran: false,
         supported: false,
         reason: driver?.reason || driver?.status || 'unsupported',
@@ -1007,47 +1036,48 @@ export async function runRealScreenReaderProbe(page, { surface, state, targetUrl
         driver: driver?.driver || null,
         platform: process.platform,
       };
-    }
-
-    await driver.start();
-    for (const command of probeConfig.commands || []) {
-      await driver.executeCommand(command);
-    }
-    const snapshot = await driver.captureLog();
-    const phrases = Array.isArray(snapshot?.phrases) ? snapshot.phrases : [];
-    const expectedAnnouncements = Array.isArray(probeConfig.expectedAnnouncements)
-      ? probeConfig.expectedAnnouncements
-      : [];
-    const assertions = (Array.isArray(snapshot?.assertions) ? snapshot.assertions : []).map((assertion) => ({
-      ...assertion,
-      ...evaluateAssertion(assertion, phrases),
-    }));
-
-    if (expectedAnnouncements.length > 0) {
-      for (const assertion of expectedAnnouncements) {
-        const evaluation = evaluateAssertion(assertion, phrases);
-        assertions.push({
-          id: assertion.id || 'announcement',
-          type: assertion.type,
-          value: assertion.value,
-          ...evaluation,
-        });
+    } else {
+      await driver.start();
+      driverStarted = true;
+      for (const command of probeConfig.commands || []) {
+        await driver.executeCommand(command);
       }
-    }
+      const snapshot = await driver.captureLog();
+      const phrases = Array.isArray(snapshot?.phrases) ? snapshot.phrases : [];
+      const expectedAnnouncements = Array.isArray(probeConfig.expectedAnnouncements)
+        ? probeConfig.expectedAnnouncements
+        : [];
+      const assertions = (Array.isArray(snapshot?.assertions) ? snapshot.assertions : []).map((assertion) => ({
+        ...assertion,
+        ...evaluateAssertion(assertion, phrases),
+      }));
 
-    return {
-      ran: true,
-      supported: true,
-      phrases,
-      assertions,
-      driver: snapshot?.driver || driver?.driver || null,
-      platform: process.platform,
-      targetUrl,
-      state,
-      evidence: JSON.stringify({ phrases, assertions, driver: snapshot?.driver || driver?.driver || null }),
-    };
+      if (expectedAnnouncements.length > 0) {
+        for (const assertion of expectedAnnouncements) {
+          const evaluation = evaluateAssertion(assertion, phrases);
+          assertions.push({
+            id: assertion.id || 'announcement',
+            type: assertion.type,
+            value: assertion.value,
+            ...evaluation,
+          });
+        }
+      }
+
+      result = {
+        ran: true,
+        supported: true,
+        phrases,
+        assertions,
+        driver: snapshot?.driver || driver?.driver || null,
+        platform: process.platform,
+        targetUrl,
+        state,
+        evidence: JSON.stringify({ phrases, assertions, driver: snapshot?.driver || driver?.driver || null }),
+      };
+    }
   } catch (error) {
-    return {
+    result = {
       ran: false,
       supported: false,
       reason: error instanceof Error ? error.message : String(error),
@@ -1058,9 +1088,36 @@ export async function runRealScreenReaderProbe(page, { surface, state, targetUrl
     };
   } finally {
     if (driver?.supported && typeof driver.stop === 'function') {
-      await driver.stop().catch(() => undefined);
+      try {
+        await driver.stop();
+      } catch (error) {
+        cleanup.stopError = error instanceof Error ? error.message : String(error);
+      }
     }
+    if (driverStarted) {
+      // The driver's stop request is asynchronous and unverified, so cleanup is
+      // only recorded as complete once the screen reader is observably gone.
+      const verification = await verifyStopped().catch((error) => ({
+        stopped: false,
+        terminated: false,
+        reason: error instanceof Error ? error.message : 'screen-reader-verification-failed',
+      }));
+      cleanup.driverStopped = verification?.stopped === true;
+      cleanup.terminated = verification?.terminated === true;
+      cleanup.reason = verification?.reason ?? null;
+    }
+    cleanup.driverStarted = driverStarted;
+    result.cleanup = cleanup;
   }
+
+  return result;
+}
+
+// A started screen reader that cannot be proven stopped leaves the operator's
+// machine under its control, so the invoking command must fail even though the
+// accessibility result is still valid and emitted.
+export function isScreenReaderCleanupUnproven(cleanup) {
+  return cleanup?.driverStarted === true && cleanup?.driverStopped !== true;
 }
 
 export { redactUrl, buildProbeResults, emitProbeResult, loadProbeCriteriaMap };

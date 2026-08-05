@@ -47,33 +47,49 @@ export default function SearchBarWrapper(props) {
     let lastResultCount = null;
     let lastQuery = '';
     let lastOpenState = false;
+    let lastMessage = null;
     let announceTimer = null;
+    let announceDelayTimer = null;
     let currentInput = null;
     // The upstream widget owns a hashed CSS-module "cursor" class for the
     // highlighted option. When focus roves onto the external "See all results"
     // footer we borrow that class so the footer shows the same highlight; this
     // remembers the discovered token across state changes.
     let footerActiveClass = null;
-    // How long to defend a Tab destination against the widget restoring focus
-    // to its input while the popup tears down.
-    const FOCUS_GUARD_MS = 600;
-    // Active focus guards, so an unmount mid-guard cannot leave a listener
-    // attached to the document.
-    const focusGuardCleanups = [];
+    // Announcement timing mirrors the search page: a quiet period so ordinary
+    // typing produces one announcement rather than one per keystroke, a short
+    // write delay, and suppression of a repeated message. The quiet period must
+    // exceed a realistic inter-keystroke interval, otherwise it elapses between
+    // every character and coalesces nothing.
+    const ANNOUNCE_QUIET_MS = 300;
+    const ANNOUNCE_WRITE_MS = 60;
 
     const clearStatusMessage = () => {
       window.clearTimeout(announceTimer);
+      window.clearTimeout(announceDelayTimer);
       statusNode.textContent = '';
+      lastMessage = null;
     };
 
     const announceResultCount = (count, query) => {
       const message = count === 0
         ? `No results for "${query}". Try a broader term or browse the documentation.`
         : `${count} result${count === 1 ? '' : 's'}`;
-      clearStatusMessage();
-      announceTimer = window.setTimeout(() => {
-        statusNode.textContent = message;
-      }, 120);
+      // Suppression is keyed on the query as well as the message. Keying on the
+      // message alone withholds confirmation when a changed query happens to
+      // return the same count, which is the state a user most needs announced.
+      const messageKey = `${query}\u0000${message}`;
+      window.clearTimeout(announceDelayTimer);
+      announceDelayTimer = window.setTimeout(() => {
+        if (messageKey === lastMessage) {
+          return;
+        }
+        lastMessage = messageKey;
+        window.clearTimeout(announceTimer);
+        announceTimer = window.setTimeout(() => {
+          statusNode.textContent = message;
+        }, ANNOUNCE_WRITE_MS);
+      }, ANNOUNCE_QUIET_MS);
     };
 
     const getSearchInput = () => root.querySelector('input.navbar__search-input');
@@ -93,54 +109,75 @@ export default function SearchBarWrapper(props) {
       return { holder, cls: cls ?? footerActiveClass };
     };
 
-    // Returns focusable candidates in document order that sit outside the
-    // search widget, nearest first. Callers must confirm a candidate actually
-    // takes focus: matching the selector and having layout boxes does not make
-    // an element focusable. Docusaurus's back-to-top button is the concrete
-    // case here - it is the next control after the navbar search, it has layout
-    // boxes, and it is visibility:hidden until the page scrolls, so focus() on
-    // it is a silent no-op.
-    const collectFocusTargetsOutsideWidget = (input, backwards) => {
-      const focusableSelector = [
-        'a[href]',
-        'button:not([disabled])',
-        'input:not([disabled])',
-        'select:not([disabled])',
-        'textarea:not([disabled])',
-        '[tabindex]:not([tabindex="-1"])',
-      ].join(',');
-      const all = Array.from(document.querySelectorAll(focusableSelector))
-        .filter((element) => element.getClientRects().length > 0)
-        .filter((element) => element.getAttribute('tabindex') !== '-1');
-      const index = all.indexOf(input);
-      if (index === -1) {
-        return [];
+    // A focus request that originates from a user gesture is issued while that
+    // gesture's event is still being dispatched. An event's phase is reset to
+    // NONE once dispatch ends, so this distinguishes the Ctrl+K shortcut, which
+    // focuses the input from inside its own keydown dispatch, from the upstream
+    // index-load refocus, which runs from an asynchronous continuation.
+    let lastUserGesture = null;
+    const rememberUserGesture = (event) => {
+      lastUserGesture = event;
+    };
+    document.addEventListener('keydown', rememberUserGesture, true);
+    document.addEventListener('pointerdown', rememberUserGesture, true);
+    const isUserGestureInFlight = () => Boolean(lastUserGesture)
+      && lastUserGesture.eventPhase !== Event.NONE;
+
+    // The upstream package calls focus() on the input once its search index
+    // finishes loading. A user who opened search and then moved on while the
+    // index was still loading has focus taken back. Wrapping the input's own
+    // focus method suppresses exactly that call - focus is elsewhere and no
+    // gesture asked for it - while leaving Ctrl+K and every user-driven focus
+    // untouched.
+    let guardedInput = null;
+    const releaseRefocusGuard = () => {
+      if (guardedInput) {
+        delete guardedInput.focus;
+        guardedInput = null;
       }
-      const step = backwards ? -1 : 1;
-      const candidates = [];
-      for (let cursor = index + step; cursor >= 0 && cursor < all.length; cursor += step) {
-        const candidate = all[cursor];
-        if (root && root.contains(candidate)) {
-          continue;
-        }
-        if (typeof candidate.focus === 'function') {
-          candidates.push(candidate);
-        }
+    };
+    const applyRefocusGuard = (input) => {
+      if (guardedInput === input) {
+        return;
       }
-      return candidates;
+      releaseRefocusGuard();
+      const nativeFocus = HTMLElement.prototype.focus;
+      input.focus = function guardedFocus(...args) {
+        if (document.activeElement !== this && !isUserGestureInFlight()) {
+          return undefined;
+        }
+        return nativeFocus.apply(this, args);
+      };
+      guardedInput = input;
     };
 
-    // Moves focus to the nearest candidate that genuinely accepts it, and
-    // returns that element, or null when nothing outside the widget can take
-    // focus.
-    const focusOutsideWidget = (input, backwards) => {
-      for (const candidate of collectFocusTargetsOutsideWidget(input, backwards)) {
-        candidate.focus();
-        if (document.activeElement === candidate) {
-          return candidate;
-        }
+    // The upstream widget closes its popup when the input blurs, and its close
+    // subscriber then calls blur() on the input a second time. During a native
+    // Tab the browser has already chosen the next control by the time that
+    // second call runs, so it arrives against an input that no longer holds
+    // focus. Ignoring exactly that call leaves the browser's chosen destination
+    // intact. A blur() issued while the input really is focused - selecting a
+    // result, or dismissing the popup - still calls through.
+    let blurGuardedInput = null;
+    const releaseBlurGuard = () => {
+      if (blurGuardedInput) {
+        delete blurGuardedInput.blur;
+        blurGuardedInput = null;
       }
-      return null;
+    };
+    const applyBlurGuard = (input) => {
+      if (blurGuardedInput === input) {
+        return;
+      }
+      releaseBlurGuard();
+      const nativeBlur = HTMLElement.prototype.blur;
+      input.blur = function guardedBlur(...args) {
+        if (document.activeElement !== this) {
+          return undefined;
+        }
+        return nativeBlur.apply(this, args);
+      };
+      blurGuardedInput = input;
     };
 
     const clearFooterHighlight = (footerLink) => {
@@ -194,76 +231,26 @@ export default function SearchBarWrapper(props) {
         return;
       }
 
-      // Tab must escape unconditionally. Two mechanisms conspire to trap focus,
-      // and both are handled here.
-      //
-      // First, the upstream handler cancels Tab to keep focus inside the
-      // combobox, which is a WCAG 2.1.2 keyboard trap under a screen reader
-      // whose focus mode keeps the popup open. Gating this on a listbox or
-      // footer link would leave the trap intact in exactly the states where it
-      // bites, including the zero-results state where no footer link exists.
-      //
-      // Second, and confirmed by measurement: the next element in native focus
-      // order is the search clear button, which lives inside this widget. A
-      // native Tab therefore lands inside the widget, the widget then tears the
-      // popup down, and focus falls to <body>. Moving focus explicitly to the
-      // first candidate outside the widget avoids handing focus to an element
-      // that is about to be removed. The move is re-asserted asynchronously
-      // because the widget restores focus to the input while closing.
-      //
-      // The default move is cancelled only after a destination is confirmed.
-      // Cancelling first and then discovering no target leaves focus pinned on
-      // the input with the native move already suppressed, which is itself the
-      // keyboard trap this handler exists to prevent.
+      // The upstream handler cancels Tab to keep focus inside the combobox,
+      // which is a WCAG 2.1.2 keyboard trap under a screen reader whose focus
+      // mode keeps the popup open. Suppressing that handler without cancelling
+      // the native default restores sequential focus, so Tab reaches the next
+      // control in document order - the clear button when it is rendered, and
+      // an element outside the widget otherwise. Both directions keep an
+      // un-cancelled native route out, which is what keeps 2.1.2 closed.
       if (event.key === 'Tab') {
-        // Resolve against the element the user is actually on. Reading the
-        // input from the container can return a different (or stale) node than
-        // the focused one, which yields no index in the focus order and no
-        // target.
-        const focusedInput = document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : input;
-        const shift = event.shiftKey;
-
-        // Move focus first, then decide whether to cancel the native Tab. A
-        // handler that cancels Tab and then fails to place focus leaves the
-        // user pinned on the input with no way out by keyboard, which is the
-        // WCAG 2.1.2 trap this exists to prevent. Attempting the move first
-        // makes cancelling conditional on having actually succeeded.
-        const target = focusOutsideWidget(focusedInput, shift);
-        if (!target) {
-          // Nothing outside the widget can take focus: let the browser do
-          // whatever it would normally do rather than swallowing the key.
-          return;
-        }
-
         event.stopImmediatePropagation();
-        event.preventDefault();
         clearFooterHighlight(footerLink);
         input.removeAttribute('aria-activedescendant');
+        return;
+      }
 
-        // The widget tears its popup down asynchronously and restores focus to
-        // the input on the way, so the move above can be undone a few frames
-        // later. Guard the destination by re-claiming focus if it returns to
-        // the widget, rather than polling a fixed number of frames.
-        const guard = (guardEvent) => {
-          const landed = guardEvent.target;
-          if (landed === target) {
-            return;
-          }
-          // Only contest focus the widget itself reclaimed. A deliberate move
-          // elsewhere (the user tabbing onward) is left alone.
-          if (landed === input || (root && root.contains(landed))) {
-            target.focus();
-          }
-        };
-        const stopGuard = () => {
-          document.removeEventListener('focusin', guard, true);
-          window.clearTimeout(guardTimer);
-        };
-        const guardTimer = window.setTimeout(stopGuard, FOCUS_GUARD_MS);
-        document.addEventListener('focusin', guard, true);
-        focusGuardCleanups.push(stopGuard);
+      // Escape is handled before the listbox gate below: a zero-results query
+      // renders no footer link, and gating Escape on one skips cleanup in
+      // exactly that state.
+      if (event.key === 'Escape') {
+        clearFooterHighlight(footerLink);
+        clearActiveOption(input, listbox);
         return;
       }
 
@@ -316,15 +303,6 @@ export default function SearchBarWrapper(props) {
         return;
       }
 
-      // Escape collapses the popup. Clear the roving position and the borrowed
-      // highlight so a later re-open does not resume pointing at an option that
-      // is no longer rendered.
-      if (event.key === 'Escape') {
-        clearFooterHighlight(footerLink);
-        clearActiveOption(input, listbox);
-        return;
-      }
-
       // Enter on the footer follows the "See all results" link instead of
       // activating the upstream widget's last selected option.
       if (event.key === 'Enter' && isOnFooter) {
@@ -342,6 +320,8 @@ export default function SearchBarWrapper(props) {
         }
         currentInput = input;
         currentInput.addEventListener('keydown', handleInputKeyDown, { capture: true });
+        applyRefocusGuard(currentInput);
+        applyBlurGuard(currentInput);
       }
 
       if (input) {
@@ -446,23 +426,13 @@ export default function SearchBarWrapper(props) {
           input.setAttribute('aria-describedby', [...describedByIds, descriptionId].join(' ').trim());
         }
 
-        const headingId = 'search-input-heading';
-        let headingNode = root.querySelector(`#${headingId}`);
-        if (!headingNode) {
-          headingNode = document.createElement('h2');
-          headingNode.id = headingId;
-          // Same [PutForwards=cssText] caveat as the description node above: the
-          // sr-only styles must be copied onto the live style object, otherwise
-          // this heading renders visibly and injects a stray h2 into the banner.
-          Object.assign(headingNode.style, srOnlyStyle);
-          headingNode.textContent = 'Search';
-          root.prepend(headingNode);
+        // The input is named directly. Naming it by reference required injecting
+        // a visually hidden h2 into the banner on every page, which disturbed
+        // the heading outline around the page title.
+        if (input.hasAttribute('aria-labelledby')) {
+          input.removeAttribute('aria-labelledby');
         }
-
-        if (input.getAttribute('aria-labelledby') !== headingId) {
-          input.setAttribute('aria-labelledby', headingId);
-        }
-        if (!input.hasAttribute('aria-label')) {
+        if (input.getAttribute('aria-label') !== 'Search') {
           input.setAttribute('aria-label', 'Search');
         }
       }
@@ -529,9 +499,10 @@ export default function SearchBarWrapper(props) {
       if (currentInput) {
         currentInput.removeEventListener('keydown', handleInputKeyDown, true);
       }
-      for (const stopGuard of focusGuardCleanups.splice(0)) {
-        stopGuard();
-      }
+      releaseRefocusGuard();
+      releaseBlurGuard();
+      document.removeEventListener('keydown', rememberUserGesture, true);
+      document.removeEventListener('pointerdown', rememberUserGesture, true);
       observer.disconnect();
       clearStatusMessage();
     };

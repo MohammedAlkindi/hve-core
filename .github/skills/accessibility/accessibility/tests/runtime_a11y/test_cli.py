@@ -1559,7 +1559,7 @@ def test_given_visual_review_server_start_when_process_exits_before_ready_then_r
         cli._start_visual_review_server("http://127.0.0.1:3000")
 
 
-def test_given_capture_failure_run_when_writing_manifests_then_skips_it(
+def test_given_capture_failure_run_when_writing_manifests_then_raises(
     tmp_path: Path,
 ) -> None:
     payload = {
@@ -1573,9 +1573,68 @@ def test_given_capture_failure_run_when_writing_manifests_then_skips_it(
         ]
     }
 
-    manifest_paths = cli._write_visual_review_manifests(payload, tmp_path)
+    with pytest.raises(cli.ScriptError, match=r"run 1 \(home/default\)"):
+        cli._write_visual_review_manifests(payload, tmp_path)
 
-    assert manifest_paths == []
+    assert not (tmp_path / "runs").exists()
+
+
+def test_given_malformed_probe_outcome_when_writing_manifests_then_raises(
+    tmp_path: Path,
+) -> None:
+    payload = {
+        "runs": [
+            {
+                "route": "/",
+                "surface": "home",
+                "state": "default",
+                "probeOutcomes": ["capture-failure"],
+            }
+        ]
+    }
+
+    with pytest.raises(cli.ScriptError, match="not an object"):
+        cli._write_visual_review_manifests(payload, tmp_path)
+
+
+def test_given_colliding_run_labels_when_writing_manifests_then_uses_distinct_dirs(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run-root"
+    artifacts_dir = run_root / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "screenshot.png").write_bytes(b"abc")
+    (artifacts_dir / "measurements.json").write_bytes(b"{}")
+    (artifacts_dir / "trace.json").write_bytes(b"{}")
+
+    def _run(surface: str, state: str) -> dict[str, object]:
+        return {
+            "route": "/",
+            "surface": surface,
+            "state": state,
+            "screenshotPath": "artifacts/screenshot.png",
+            "measurementPath": "artifacts/measurements.json",
+            "tracePath": "artifacts/trace.json",
+            "probeOutcomes": [],
+            "viewport": {"width": 1440, "height": 900},
+            "browser": {"name": "chrome", "version": "126"},
+            "deterministicMetrics": {},
+        }
+
+    # Both runs sanitize to the same "home-search-default" label.
+    payload = {"runs": [_run("home-search", "default"), _run("home", "search-default")]}
+
+    manifest_paths = cli._write_visual_review_manifests(payload, run_root)
+
+    assert len(manifest_paths) == 2
+    parents = {Path(path).parent for path in manifest_paths}
+    assert len(parents) == 2
+
+    surfaces = sorted(
+        json.loads(Path(path).read_text(encoding="utf-8"))["surface"]
+        for path in manifest_paths
+    )
+    assert surfaces == ["home", "home-search"]
 
 
 def test_given_artifact_bytes_ceiling_when_writing_manifests_then_raises(

@@ -25,6 +25,11 @@
 
 /* Layer 1: Infima variable overrides */
 :root {
+  /* Search selection pair. Declared once and reused in both color modes so the
+     cue never inherits the theme primary, which differs per mode and fails
+     contrast against the selected foreground in dark mode. */
+  --hve-search-selected-bg: #005a9e;
+  --hve-search-selected-fg: #ffffff;
   --ifm-color-primary: #0f6cbd;
   --ifm-color-primary-dark: #115ea3;
   --ifm-color-primary-darker: #0c3b5e;
@@ -514,30 +519,57 @@ html {
 /* This repository owns the active-option cue rather than borrowing the upstream
    hashed CSS-module "cursor" class, which changes on every package build and
    silently stops matching. aria-selected is set by the SearchBar swizzle on
-   exactly one option at a time, so it is a stable, semantic hook. */
+   exactly one option at a time, so it is a stable, semantic hook.
+
+   The selected pair is declared explicitly and identically in both color modes.
+   Deferring to the theme primary resolved to a light blue in dark mode, giving
+   2.19:1 against the forced white text. White on #005a9e computes to 7.10:1. */
 [role='listbox'] [role='option'][aria-selected='true'],
 [class*='hitFooter'] a.search-footer-active {
-  background-color: var(--search-local-highlight-color, var(--ifm-color-primary));
-  color: #ffffff;
+  background-color: var(--hve-search-selected-bg);
+  color: var(--hve-search-selected-fg);
   border-radius: 4px;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* The upstream package paints the matched term with its own color, which
+   resolves to the selected background and makes the characters the user typed
+   disappear from the option they are reading. Repaint it on the selected pair,
+   and keep a weight difference so the match stays distinguishable from adjacent
+   option text for anyone who cannot perceive the color difference. */
+[role='listbox'] [role='option'][aria-selected='true'] mark,
+[class*='hitFooter'] a.search-footer-active mark {
+  background-color: transparent;
+  color: var(--hve-search-selected-fg);
+  font-weight: 700;
 }
 
 /* WCAG 1.4.11 / Windows High Contrast: in forced-colors mode the browser
    replaces author colors with the user's system palette, so a selection cue
    expressed only as background-color disappears and the active option becomes
    indistinguishable. Re-express the cue with system color keywords, which are
-   the only values honoured in this mode, and add an outline so the cue does not
-   depend on background painting at all. */
+   the only values honoured in this mode, and draw the outline in the paired
+   foreground so it contrasts with the selection background rather than being
+   painted in that same background. */
 @media (forced-colors: active) {
   [class*='hitFooter'] a.search-footer-active,
   [role='option'][aria-selected='true'],
   [role='option'][class*='cursor'] {
     background-color: Highlight;
     color: HighlightText;
-    outline: 2px solid Highlight;
+    outline: 2px solid HighlightText;
     outline-offset: -2px;
+    forced-color-adjust: none;
+  }
+
+  /* forced-color-adjust does not inherit, so descendants of the selected option
+     would keep their author colors over a system background. */
+  [class*='hitFooter'] a.search-footer-active *,
+  [role='option'][aria-selected='true'] *,
+  [role='option'][class*='cursor'] * {
+    background-color: transparent;
+    color: HighlightText;
     forced-color-adjust: none;
   }
 

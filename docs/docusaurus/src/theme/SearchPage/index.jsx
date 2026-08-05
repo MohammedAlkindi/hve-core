@@ -19,21 +19,15 @@ export default function SearchPageWrapper(props) {
   const statusRef = useRef(null);
 
   useEffect(() => {
-    // The /search/ page renders no <main> landmark, so anchor the live region
-    // on <body> and guard against duplicate nodes across mounts with a stable id.
-    const STATUS_ID = 'search-results-status';
-    let statusNode = document.getElementById(STATUS_ID);
+    // The status region is owned by this component and rendered inside the main
+    // landmark. It was previously created on <body> under a fixed id and removed
+    // unconditionally on unmount, so two live instances left the survivor writing
+    // to a detached node and announcements stopped with no error.
+    const statusNode = statusRef.current;
     if (!statusNode) {
-      statusNode = document.createElement('div');
-      statusNode.id = STATUS_ID;
-      statusNode.setAttribute('role', 'status');
-      statusNode.setAttribute('aria-live', 'polite');
-      statusNode.setAttribute('aria-atomic', 'true');
-      Object.assign(statusNode.style, srOnlyStyle);
-      document.body.appendChild(statusNode);
+      return undefined;
     }
     statusNode.textContent = '';
-    statusRef.current = statusNode;
 
     // Separate timers: one debounces recomputation, the other sets the text.
     // Sharing a single timer let the results observer keep cancelling the
@@ -48,7 +42,7 @@ export default function SearchPageWrapper(props) {
     // Results render as <article> elements (searchResultItem). Scope the count
     // to the main landmark so unrelated articles elsewhere on the page cannot
     // inflate the announced result count.
-    const getResultsRoot = () => document.querySelector('main') ?? document.body;
+    const getResultsRoot = () => document.querySelector('main, [role="main"]') ?? document.body;
     const getResultCount = () => getResultsRoot().querySelectorAll('article').length;
 
     const announce = (message) => {
@@ -130,9 +124,20 @@ export default function SearchPageWrapper(props) {
       window.clearTimeout(syncTimer);
       window.clearTimeout(announceTimer);
       window.clearTimeout(zeroConfirmTimer);
-      statusNode.remove();
     };
   }, []);
 
-  return <SearchPage {...props} />;
+  return (
+    <>
+      <div
+        ref={statusRef}
+        id="search-results-status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        style={srOnlyStyle}
+      />
+      <SearchPage {...props} />
+    </>
+  );
 }
