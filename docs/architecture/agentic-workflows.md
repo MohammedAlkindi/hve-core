@@ -2,7 +2,7 @@
 title: Agentic Workflows
 description: End-to-end process flow for AI-driven issue triage, implementation, and review workflows in hve-core
 author: HVE Core Team
-ms.date: 2026-07-16
+ms.date: 2026-07-31
 ms.topic: concept
 sidebar_position: 4
 keywords:
@@ -32,8 +32,6 @@ flowchart TD
         C["Classify by type<br/>and component"]
         D["Detect duplicates<br/>via keyword search"]
         E["Assess issue quality"]
-        F{"Scope too broad<br/>for single deliverable?"}
-        G["Decompose into<br/>sub-issues"]
         H{"Passes all<br/>agent-ready criteria?"}
         I["Apply labels,<br/>remove needs-triage"]
         J["Add agent-ready label"]
@@ -66,10 +64,7 @@ flowchart TD
     B --> C
     C --> D
     D --> E
-    E --> F
-    F -- Yes --> G
-    G --> I
-    F -- No --> H
+    E --> H
     H -- Yes --> I
     I --> J
     H -- No --> I
@@ -94,7 +89,7 @@ flowchart TD
 
 | Workflow             | Trigger                                                             | Execution Owner                                                                                                                    | Key Actions                                                                                                                                             |
 |----------------------|---------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Issue Triage         | Issue opened or labeled `needs-triage`                              | [Issue Triage Agent](https://github.com/microsoft/hve-core/blob/main/.github/agents/issue-triage.agent.md)                         | Classify, detect duplicates, assess quality, decompose, label, evaluate readiness                                                                       |
+| Issue Triage         | Issue opened or labeled `needs-triage`                              | [Issue Triage Agent](https://github.com/microsoft/hve-core/blob/main/.github/agents/issue-triage.agent.md)                         | Classify, detect duplicates, assess quality, label, evaluate readiness                                                                                  |
 | Issue Implementation | Issue labeled `agent-ready`                                         | Workflow-owned procedure in `.github/workflows/issue-implement.md`                                                                 | Research codebase, plan changes, implement, open PR                                                                                                     |
 | PR Review            | PR opened or marked ready for review                                | [Code Review Agent](https://github.com/microsoft/hve-core/blob/main/.github/agents/coding-standards/code-review.agent.md)          | Review correctness, conventions, security; label `review-passed` or `needs-revision` for non-maintainer PRs, advisory `COMMENT` only for maintainer PRs |
 | Dependabot PR Review | Dependabot PR opened or updated                                     | [Dependency Reviewer Agent](https://github.com/microsoft/hve-core/blob/main/.github/agents/dependency-reviewer.agent.md)           | Validate licensing, SHA pinning, environment sync; approve safe bumps                                                                                   |
@@ -102,7 +97,7 @@ flowchart TD
 | VEX Draft            | `workflow_run` after VEX Detection succeeds, or `workflow_dispatch` | [SSSC Reviewer](https://github.com/microsoft/hve-core/blob/main/.github/agents/security/sssc-reviewer.agent.md)                    | Enrich CVEs, analyze reachability, open one PR with OpenVEX draft statements for human review                                                           |
 
 > [!TIP]
-> The triage agent only classifies, labels, and optionally decomposes issues. It does not close issues, assign users, or modify issue titles.
+> The triage agent classifies issues, applies type, area, and priority labels, detects duplicates, assesses quality, and marks qualifying issues `agent-ready`. It does not create sub-issues, close issues, assign users, or modify issue titles.
 
 <!-- markdownlint-disable-next-line MD028 -->
 
@@ -130,6 +125,22 @@ All six workflows are defined as GitHub Agentic Workflow markdown files under `.
 | `vex-draft.md`            | `vex-draft.lock.yml`            | VEX Detection `workflow_run` + dispatch | SSSC Reviewer            |
 
 Each workflow file declares permissions, safe output limits, and activation guards that prevent unintended execution.
+
+### Lock File Ownership
+
+The `*.lock.yml` files under `.github/workflows/` are generated outputs of `gh aw compile`. Editing them directly is not supported: the next compile overwrites the change. Edit the source `.md` workflow instead, then recompile.
+
+Because these files are generated, Dependabot is configured to leave them alone. `.github/dependabot.yml` excludes the `.github/workflows/*.lock.yml` path and the `github/gh-aw-actions/*` action family, so action bumps inside a lock file never arrive as a pull request.
+
+### Upgrading gh-aw-actions
+
+The `gh-aw-actions` version is pinned in `.github/aw/actions-lock.json`, which maps each action reference to a resolved commit SHA. This file, not Dependabot, is the upgrade path:
+
+1. Upgrade the `gh aw` CLI/compiler (the resolved `gh-aw-actions` version is tied to the compiler release, not set independently).
+2. Run `gh aw compile` (or `gh aw update-actions`) with API access to re-resolve actions and regenerate `actions-lock.json` plus every `*.lock.yml` file.
+3. Commit `actions-lock.json` and the regenerated lock files together.
+
+The pinned version is version-locked to the `gh aw` compiler that produces the lock files, so the bump and the recompile belong in the same change.
 
 ## Label-Driven Handoffs
 
@@ -176,7 +187,7 @@ The `hve-builder` skill uses one lifecycle for agents, prompts, instructions, su
 4. Keep known target files and caller-supplied canonical references as bounded lifecycle reads; activate `rpi-research` for open-ended exploration and decision-critical research
 5. Run non-mutating host validation and resolve one overall outcome
 
-HVE Builder selects a reasoning profile from each worker's responsibility. High uses GPT-5.6 Sol, Claude Opus 4.8, then GPT-5.5 for architecture and consequential decisions. Medium uses GPT-5.6 Terra, Claude Sonnet 5, then MAI-Code-1-Flash for semantic discovery, authoring, research, implementation, and review. Low uses GPT-5.6 Luna, MAI-Code-1-Flash, then Claude Haiku 4.5 for literal simulation and mechanical validation.
+HVE Builder selects a reasoning profile from each worker's responsibility. High uses Claude Opus 5, GPT-5.6 Sol, then GPT-5.5 for architecture and consequential decisions. Medium uses GPT-5.6 Terra, Claude Sonnet 5, then MAI-Code-1-Flash for semantic discovery, authoring, research, implementation, and review. Low uses GPT-5.6 Luna, MAI-Code-1-Flash, then Claude Haiku 4.5 for literal simulation and mechanical validation.
 
 Each ordered list is an availability fallback within its selected profile. The retained `prompt-builder`, `prompt-analyze`, and `prompt-refactor` skills remain compatibility aliases that route legacy requests to this lifecycle.
 
