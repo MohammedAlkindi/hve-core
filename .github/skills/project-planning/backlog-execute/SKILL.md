@@ -25,6 +25,39 @@ Every operation this command runs is externally visible. The five safety protoco
 
 Use `backlog-plan` instead for discovery, triage, sprint planning, or any read-only analysis. A handoff file is normally produced there and reviewed by a human before it reaches this command.
 
+## Direct Invocation
+
+This command is user-invocable. When a user runs it directly, build the missing context collaboratively rather than demanding a fully formed request. The bar for entry is low; the bar for mutating is not.
+
+Infer what can be inferred safely, from the live conversation, an item key or URL the user names, the tracking root already present under `.copilot-tracking/`, the repository remote, and which platform credentials and tools are actually available. Confirm an inference before acting on it. Ask only for what is missing and mutation-critical, one focused question at a time rather than as an intake form.
+
+Four things must hold before the first mutating call. Everything else can be discovered, inferred, or deferred:
+
+1. **One platform**, resolved and, if inferred, confirmed by the user.
+2. **One destination**, named and confirmed: an ADO project, a GitHub repository, or a Jira project key.
+3. **A compatible write surface** actually reachable in the active context.
+4. **Any confirmation the autonomy tier requires** for the operations at hand.
+
+### Supported direct-invocation contexts
+
+| Context | Write surface | Notes |
+|---------|---------------|-------|
+| The `Backlog Manager` agent | Dispatches to the executor for the resolved platform | Preferred path; the orchestrator resolves and confirms, the executor mutates |
+| An agent or host session carrying the platform's own write tools | Those tools directly | Requires the ADO or GitHub write family, or terminal access for the Jira CLI |
+| A read-only session | None | Plan the operations, write the handoff, and stop before mutating |
+
+When the active context exposes no compatible write surface, say so plainly and stop before the first mutating call: state which platform was resolved, that the current context has no write surface for it, and that the planned operations were written to the handoff file for execution through `Backlog Manager` or an equivalently equipped context. Do not substitute a terminal command or an alternate CLI to reach an operation the context withholds, and never fall back to a different platform because that one happens to be reachable.
+
+### Direct-invocation scenarios
+
+| Situation | Behavior |
+|-----------|----------|
+| User supplies platform, destination, and item details | Confirm the destination, sanitize, execute |
+| User names only an item key such as `PROJ-123` or `#482` | Infer the platform from the key shape and the destination from repository or tracking context, state both, and confirm before mutating |
+| Everything is clear except one mutation-critical field, such as issue type | Ask that one question, then proceed |
+| Platform resolves but the context has no matching write tools | Write the handoff and stop with the no-compatible-write-surface message |
+| Two platforms both plausible and no signal separates them | Present the two candidates with rationale and ask; never pick one because it happens to pass preflight |
+
 ## Required Flow
 
 ### Step 1: Resolve the platform and confirm the destination
