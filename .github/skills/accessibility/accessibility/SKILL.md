@@ -1,13 +1,13 @@
 ---
 name: accessibility
-description: "Consolidated accessibility skill entrypoint for WCAG 2.2, ARIA Authoring Practices, cognitive accessibility, Section 508, EN 301 549, and the Accessibility Planner workflow."
+description: "Consolidated accessibility skill entrypoint for WCAG 2.2, ARIA Authoring Practices, cognitive accessibility, Section 508, EN 301 549, design intent verification, and the Accessibility Planner workflow."
 license: MIT
 compatibility: "Requires Python 3.11+ and uv; the scanner additionally needs Node.js and network access to run 'npx --yes @axe-core/cli@4.12.1'."
 user-invocable: false
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-06-19"
+  last_updated: "2026-08-02"
 ---
 
 # Accessibility — Skill Entry
@@ -21,6 +21,7 @@ This skill is the canonical accessibility reference contract for HVE Core. Agent
 * [Cognitive Accessibility Guidance](references/frameworks/coga.md)
 * [Section 508](references/frameworks/section-508.md)
 * [EN 301 549](references/frameworks/en-301-549.md)
+* [Graphics ARIA and SVG-AAM](references/frameworks/graphics-aria-svg-aam.md)
 
 ## Accessibility Planner workflow
 
@@ -192,6 +193,67 @@ Use the ready-to-copy workflow template at [references/ci/accessibility-coverage
 The template mirrors the Docusaurus workflow recipe by provisioning system Chrome, setting up Node 24 plus Python and `uv`, building the target, serving it under a configurable base URL, and running `uv run python -m runtime_a11y run-all --config a11y-runtime.config.json --out results.json`. It treats the high-confidence probes as blocking failures: `probe-axe`, `probe-dom-hygiene`, `probe-broken-links`, `probe-console-errors`, `probe-target-size`, `probe-contrast`, and `probe-reflow-resize`. The heuristic probes such as `use-of-color`, `hover-focus`, `link-purpose`, `name-in-label`, `keyboard-traversal`, `widget-keyboard`, `aria-tree`, and `focus-*` are surfaced as informational results so they can guide follow-up work without blocking initial adoption.
 
 The parity reference at [references/ci/probe-spec-parity.md](references/ci/probe-spec-parity.md) maps each runtime probe to the closest existing Docusaurus e2e spec and highlights gaps where no equivalent spec currently exists.
+
+### Design intent verification
+
+A consuming project can declare what a surface must convey and have CI check that what shipped still matches. The declaration is a Design Intent Record, human-authored and committed at `design-intent/<surface-id>.intent.yaml` in that project. Each intent states what the surface must communicate, why, and for whom, and binds every claim to a named check.
+
+The authored-record field contract is in [references/design-intent/record-contract.md](references/design-intent/record-contract.md). Read it when authoring or reviewing a record. This section covers verification.
+
+This skill supplies the step that turns a probe run into a verdict against that declaration.
+
+#### Invocation
+
+```bash
+uv run python -m runtime_a11y verify-intent \
+  --record design-intent/<surface-id>.intent.yaml \
+  --results results.json
+```
+
+* `--record` is the authored record. It is never read for anything but its declarations and never rewritten.
+* `--results` is a results document from `run-all`.
+* `--out` overrides the output path, which defaults to `design-intent/.verification/<surface-id>.earl.json` beside the record.
+
+#### How results resolve to outcomes
+
+A result row matches an expectation when its surface, state, emitting probe, and criterion all match what the record declares. Because criterion coverage overlaps across probes, the emitting probe is part of the join.
+
+| Situation                             | Outcome    | Mode        |
+|---------------------------------------|------------|-------------|
+| Every matched criterion passed        | `passed`   | `automatic` |
+| Any matched criterion failed          | `failed`   | `automatic` |
+| Evidence gathered but not decisive    | `cantTell` | `automatic` |
+| No result row matched the expectation | `untested` | `automatic` |
+| The expectation uses `assert: custom` | `untested` | `manual`    |
+
+An expectation is one claim over one or more criteria, so the worst criterion outcome governs. Expectations the run did not cover report `untested` rather than being omitted, which keeps a missing check visible instead of silently absent.
+
+Expectations whose criteria a probe only informs resolve to `cantTell` in normal operation. That is expected: the probe gathered evidence without settling the claim.
+
+A `custom` expectation reports `untested` whether or not the record carries a human `override`. The adapter never reads human-authored content, so the override stays authoritative in the record itself rather than being merged into the generated artifact.
+
+#### Exit codes
+
+* `0` — the artifact was written and no blocking expectation failed.
+* `1` — the record or results document was malformed. Nothing is written.
+* `2` — the record or results document could not be read.
+* `3` — the artifact was written and a blocking expectation failed.
+
+Exit code `3` is the enforcement signal. A consuming project's CI step fails its build on that non-zero exit, exactly as it would for any other command. The artifact is still written so the run can publish it. Which expectations block is the record's decision, through each expectation's `blocking` flag.
+
+Graphics and diagram semantics have no runtime probe. Those expectations use `assert: custom` and resolve through human review; see the [Graphics ARIA and SVG-AAM reference](references/frameworks/graphics-aria-svg-aam.md) for the boundary between what automation can decide and what it cannot.
+
+#### Rendering a record for review
+
+A record states what must be true and how it is checked, but carries no implementation or delivery scope. Reviewers who want prose rather than YAML can render one:
+
+```bash
+uv run python -m runtime_a11y project-intent \
+  --record design-intent/<surface-id>.intent.yaml \
+  --out handoff.md
+```
+
+Output is deterministic and renders only what the record already says, adding no analysis and no verification results. Generate it on demand rather than committing it, so it cannot drift from the record it describes. Without `--out` the Markdown goes to stdout.
 
 ## Usage notes
 

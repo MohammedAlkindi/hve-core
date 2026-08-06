@@ -2,7 +2,7 @@
 title: Instructions
 description: Reference documentation for HVE Core instructions.
 sidebar_position: 0
-ms.date: 2026-07-23
+ms.date: 2026-08-03
 ---
 
 <!-- BEGIN AUTO-GENERATED: index -->

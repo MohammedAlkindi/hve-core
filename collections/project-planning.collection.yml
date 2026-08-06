@@ -136,6 +136,12 @@ items:
   - path: .github/skills/rai/rai-standards
     kind: skill
     maturity: experimental
+  - path: .github/skills/design-thinking/ux-coaching
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/design-thinking/ux-artifacts
+    kind: skill
+    maturity: experimental
   # Instructions
   - path: .github/instructions/experimental/mural/mural-bootstrap.instructions.md
     kind: instruction

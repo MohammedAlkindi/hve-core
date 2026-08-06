@@ -525,6 +525,12 @@ items:
 - path: .github/skills/design-thinking/dt-rpi-integration
   kind: skill
   maturity: preview
+- path: .github/skills/design-thinking/ux-artifacts
+  kind: skill
+  maturity: experimental
+- path: .github/skills/design-thinking/ux-coaching
+  kind: skill
+  maturity: experimental
 - path: .github/skills/experimental/caveman
   kind: skill
   maturity: experimental

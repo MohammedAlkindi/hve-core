@@ -5,14 +5,17 @@
 """CLI entry point for the runtime accessibility probe harness.
 
 Subcommands:
-    run-all   Run every scoped probe and aggregate the normalized results.
-    probe     Run a single probe by id across its scoped surfaces and states.
+    run-all        Run every scoped probe and aggregate the normalized results.
+    probe          Run a single probe by id across its scoped surfaces/states.
+    verify-intent  Write a design-intent verification artifact from results.
+    project-intent Render a design intent record as Markdown for review.
 
 The harness invokes pinned Playwright probes through ``npx`` so no skill-local
 package.json or node_modules are required. Config is passed to the Node runner
 through environment variables. Exit code is 0 on a completed run even when
 findings exist; a non-zero exit signals a harness error (bad config, missing
-Node or browser, or a blocked target).
+Node or browser, or a blocked target). ``verify-intent`` additionally exits
+with EXIT_INTENT_DRIFT when a blocking design-intent expectation failed.
 """
 
 from __future__ import annotations
@@ -26,8 +29,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from runtime_a11y import _intent as intent
+from runtime_a11y import _projection as projection
 from runtime_a11y._config import load_validated_config
-from runtime_a11y._errors import EXIT_SUCCESS, EXIT_USAGE, ScriptError
+from runtime_a11y._errors import (
+    EXIT_INTENT_DRIFT,
+    EXIT_SUCCESS,
+    EXIT_USAGE,
+    ScriptError,
+)
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _RUNNER_INDEX = _PACKAGE_DIR / "runner" / "index.mjs"
@@ -150,15 +160,22 @@ def run(
     results: list[dict[str, Any]] = []
     for probe_id, surface_id, state in _iter_runs(config, probe_filter):
         payload = _run_probe(config, probe_id, surface_id, state, base_url, trace)
+        emitting_probe = payload.get("probeId", probe_id)
         runs.append(
             {
-                "probeId": payload.get("probeId", probe_id),
+                "probeId": emitting_probe,
                 "surfaceId": surface_id,
                 "state": state,
             }
         )
         for item in payload.get("results", []):
-            results.append(item)
+            # Stamp the emitting probe on every row. Probes may push rows
+            # inline rather than exclusively through the shared result
+            # builder, so this aggregation point is the only place that sees
+            # them all. Consumers that join a row back to a declared
+            # expectation need it because criterion coverage overlaps across
+            # probes.
+            results.append({**item, "probeId": emitting_probe})
     return {
         "tool": "runtime_a11y",
         "runAt": datetime.now(timezone.utc).isoformat(),
@@ -221,7 +238,75 @@ def create_parser() -> argparse.ArgumentParser:
     probe.add_argument("probe_id", help="Probe id, e.g. probe-axe")
     _add_common(probe)
 
+    verify_intent = subparsers.add_parser(
+        "verify-intent",
+        help="Write a design-intent verification artifact from probe results",
+    )
+    verify_intent.add_argument(
+        "--record",
+        type=Path,
+        required=True,
+        help="Path to design-intent/<surface-id>.intent.yaml",
+    )
+    verify_intent.add_argument(
+        "--results",
+        type=Path,
+        required=True,
+        help="Path to a results document produced by run-all",
+    )
+    verify_intent.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help=(
+            "Path to write the verification artifact "
+            "(defaults to the record's .verification directory)"
+        ),
+    )
+
+    project_intent = subparsers.add_parser(
+        "project-intent",
+        help="Render a design intent record as Markdown for engineering review",
+    )
+    project_intent.add_argument(
+        "--record",
+        type=Path,
+        required=True,
+        help="Path to design-intent/<surface-id>.intent.yaml",
+    )
+    project_intent.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Path to write the Markdown projection (defaults to stdout)",
+    )
+
     return parser
+
+
+def _project_intent(args: argparse.Namespace) -> int:
+    """Render a record as Markdown, to a file or stdout."""
+    markdown, destination = projection.project(args.record, args.out)
+    if destination is None:
+        print(markdown, end="")
+    else:
+        print(f"Wrote {destination}")
+    return EXIT_SUCCESS
+
+
+def _verify_intent(args: argparse.Namespace) -> int:
+    """Generate a verification artifact and report blocking intent drift."""
+    raw_text = intent.read_record_text(args.record)
+    record = intent.parse_record(raw_text, args.record)
+    destination, document = intent.generate(args.record, args.results, args.out)
+    print(f"Wrote {destination}")
+    if intent.has_blocking_failure(record, document["assertions"]):
+        print(
+            "Error: a blocking design intent expectation failed",
+            file=sys.stderr,
+        )
+        return EXIT_INTENT_DRIFT
+    return EXIT_SUCCESS
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -230,6 +315,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "verify-intent":
+            return _verify_intent(args)
+        if args.command == "project-intent":
+            return _project_intent(args)
         config = load_validated_config(args.config, allow_external=args.allow_external)
         base_url = args.base_url or config.get("baseUrl", "")
         probe_filter = getattr(args, "probe_id", None)

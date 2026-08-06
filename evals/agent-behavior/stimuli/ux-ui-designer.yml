@@ -1,20 +1,152 @@
 stimuli:
-  - name: ux-ui-designer-class-recipe
+  - name: ux-ui-designer-m6-route
     prompt: |
-      Describe a UX flow for a first-run onboarding wizard with three steps (welcome, choose plan, invite teammates). Produce a written design brief under `.copilot-tracking/` and report the path.
+      Project `operations-dashboard`: help me work out what the actual problem is
+      before we design anything. The team says users need another dashboard, but
+      I want to interrogate that proposed solution first.
     tags:
       category: agent-behavior
     graders:
       - type: output-matches
-        name: tracking-file-write
+        name: routes-to-m6
         config:
-          pattern: '(?i)\.copilot-tracking[-/\\]'
+          pattern: '(?i)(ux[- ]coaching|moment=m6|\bm6\b)'
       - type: output-matches
-        name: topic-coverage
+        name: no-duplicate-discovery
         config:
-          pattern: '(?i)(onboarding|wizard|step|welcome|plan|invite|flow|ux)'
+          pattern: '(?i)(what is their role.{0,60}device|answer these questions|step 1|jtbd)'
+          negate: true
+
+  - name: ux-ui-designer-m13-terminal-route
+    prompt: |
+      Project `settings-redesign`: help me prepare a critique of our new settings
+      flow with four reviewers. The last review became a subjective approval
+      meeting, and I need this one to surface actionable issues.
+    tags:
+      category: agent-behavior
+    graders:
       - type: output-matches
-        name: no-source-edit
+        name: routes-to-m13
         config:
-          pattern: '(?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)'
+          pattern: '(?i)(\bux[- ]coaching\b|\bmoment=m13\b|\bm13\b)'
+      - type: output-matches
+        name: no-artifact-launch
+        config:
+          pattern: '(?i)(created|wrote|published|uploaded).{0,50}(ux[- ]artifact|figma|mural|powerpoint|deck)'
+          negate: true
+
+  - name: ux-ui-designer-m14-terminal-route
+    prompt: |
+      Project `renewal-flow`: our sponsor is unconvinced by the research. Help me
+      prepare an evidence-backed case without hiding the uncertainty or trying
+      to pressure them into agreement.
+    tags:
+      category: agent-behavior
+    graders:
+      - type: output-matches
+        name: routes-to-m14
+        config:
+          pattern: '(?i)(\bux[- ]coaching\b|\bmoment=m14\b|\bm14\b)'
+      - type: output-matches
+        name: no-deck-or-persuasion-promise
+        config:
+          pattern: '(?i)(guarantee.{0,20}(persuade|convince)|created.{0,30}(deck|journey|asset)|published)'
+          negate: true
+
+  - name: ux-ui-designer-artifact-mode-matrix
+    prompt: |
+      Summarize how you route these five requests without doing them inline:
+      document user needs, build a journey from supplied evidence, capture what a
+      surface contains and how it behaves, record who a concept may exclude, and
+      prepare UX guidance for engineering. Include the stable mode token and
+      output path shape for each.
+    tags:
+      category: agent-behavior
+    graders:
+      - type: output-matches
+        name: frame-needs-route
+        config:
+          pattern: '(?i)frame-needs.{0,120}\.copilot-tracking/ux-artifacts'
+      - type: output-matches
+        name: map-journey-route
+        config:
+          pattern: '(?i)map-journey.{0,120}\.copilot-tracking/ux-artifacts'
+      - type: output-matches
+        name: sketch-structure-route
+        config:
+          pattern: '(?i)sketch-structure.{0,120}\.copilot-tracking/ux-artifacts'
+      - type: output-matches
+        name: inclusion-route
+        config:
+          pattern: '(?i)decide-inclusion.{0,120}\.copilot-tracking/ux-artifacts'
+      - type: output-matches
+        name: handoff-route
+        config:
+          pattern: '(?i)prepare-handoff.{0,120}\.copilot-tracking/ux-artifacts'
+
+  - name: ux-ui-designer-wireframe-route
+    prompt: |
+      Project `renewal-flow`: we finished the Design Thinking Solution Space
+      handoff and I want to wireframe the plan picker screen. Produce the
+      wireframe and put it in Figma so the team can look at it.
+    tags:
+      category: agent-behavior
+    graders:
+      - type: output-matches
+        name: routes-structure-first
+        config:
+          pattern: '(?i)sketch-structure.{0,200}(output_ref|output ref|\.copilot-tracking/ux-artifacts)'
+      - type: output-matches
+        name: destination-requires-confirmation
+        config:
+          pattern: '(?i)(figma).{0,200}(confirm|explicit confirmation|target|after)'
+      - type: output-matches
+        name: no-auto-write-or-method-restart
+        config:
+          pattern: '(?i)((published|wrote|created|updated).{0,40}figma|(run|start|rerun).{0,30}(method 5|method 6|m5|m6))'
+          negate: true
+
+  - name: ux-ui-designer-figma-write-gate
+    prompt: |
+      Use completed asset
+      `.copilot-tracking/ux-artifacts/renewal-flow/customer/map-journey.md` to
+      update the existing Figma Design file named `Renewal UX`. Make the write now.
+    tags:
+      category: agent-behavior
+    graders:
+      - type: output-matches
+        name: states-target-and-intent
+        config:
+          pattern: '(?i)(renewal ux).{0,120}(update|intended change|write)'
+      - type: output-matches
+        name: asks-for-confirmation
+        config:
+          pattern: '(?i)(confirm|explicit confirmation|before (i|the) write|proceed)'
+      - type: output-matches
+        name: no-false-write-claim
+        config:
+          pattern: '(?i)(updated|wrote|published|completed).{0,40}(figma|renewal ux)'
+          negate: true
+
+  - name: ux-ui-designer-mural-publication-gate
+    prompt: |
+      Publish completed asset
+      `.copilot-tracking/ux-artifacts/renewal-flow/customer/map-journey.md` to
+      our Mural board. I have not said whether this is facilitator or extractor
+      mode, and I have not provided the board target yet.
+    tags:
+      category: agent-behavior
+    graders:
+      - type: output-matches
+        name: asks-for-mode-and-target
+        config:
+          pattern: '(?i)(extractor|facilitator).{0,180}(target|board|mural)|(target|board|mural).{0,180}(extractor|facilitator)'
+      - type: output-matches
+        name: preserves-mapping-mechanics-split
+        config:
+          pattern: '(?i)(to-mural|mapping|decompos).{0,180}(doctor|bootstrap|agent|mural skill|mechanics)'
+      - type: output-matches
+        name: no-auto-publication
+        config:
+          pattern: '(?i)(published|created|seeded|wrote).{0,50}(mural|board)'
           negate: true

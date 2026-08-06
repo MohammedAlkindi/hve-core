@@ -492,6 +492,60 @@ description: "My skill description"
             $content | Should -Not -Match 'zebra'
         }
 
+        It 'Keeps experimental members in channel-neutral collection markdown while excluding them from Stable README, regardless of projection order' {
+            $collection = @{
+                id          = 'projection-independence'
+                name        = 'Projection Independence'
+                description = 'Channel-neutral collection markdown must not inherit channel filtering'
+                items       = @(
+                    @{ kind = 'agent'; path = '.github/agents/alpha.agent.md'; maturity = 'stable' },
+                    @{ kind = 'agent'; path = '.github/agents/zebra.agent.md'; maturity = 'experimental' }
+                )
+            }
+            $markdownBody = @"
+Projection intro.
+
+## Included Artifacts
+
+<!-- BEGIN AUTO-GENERATED ARTIFACTS -->
+
+Placeholder.
+
+<!-- END AUTO-GENERATED ARTIFACTS -->
+"@
+
+            $stableFirstMd = Join-Path $script:tempDir 'projection-stable-first.collection.md'
+            $markdownBody | Set-Content -Path $stableFirstMd -Encoding utf8NoBOM
+            $stableReadme = Join-Path $script:tempDir 'README.projection-stable.md'
+            $prereleaseReadme = Join-Path $script:tempDir 'README.projection-prerelease.md'
+
+            New-CollectionReadme -Collection $collection -CollectionMdPath $stableFirstMd -TemplatePath $script:templatePath -RepoRoot $script:tempDir -OutputPath $stableReadme -AllowedMaturities @('stable')
+            New-CollectionReadme -Collection $collection -CollectionMdPath $stableFirstMd -TemplatePath $script:templatePath -RepoRoot $script:tempDir -OutputPath $prereleaseReadme -AllowedMaturities @('stable', 'preview', 'experimental')
+
+            $stableFirstResult = Get-Content -Path $stableFirstMd -Raw
+
+            # Same manifest, opposite projection order.
+            $prereleaseFirstMd = Join-Path $script:tempDir 'projection-prerelease-first.collection.md'
+            $markdownBody | Set-Content -Path $prereleaseFirstMd -Encoding utf8NoBOM
+
+            New-CollectionReadme -Collection $collection -CollectionMdPath $prereleaseFirstMd -TemplatePath $script:templatePath -RepoRoot $script:tempDir -OutputPath $prereleaseReadme -AllowedMaturities @('stable', 'preview', 'experimental')
+            New-CollectionReadme -Collection $collection -CollectionMdPath $prereleaseFirstMd -TemplatePath $script:templatePath -RepoRoot $script:tempDir -OutputPath $stableReadme -AllowedMaturities @('stable')
+
+            $prereleaseFirstResult = Get-Content -Path $prereleaseFirstMd -Raw
+
+            # Channel-neutral collection markdown retains the declared experimental member.
+            $stableFirstResult | Should -Match 'alpha'
+            $stableFirstResult | Should -Match 'zebra'
+
+            # Stable extension output still excludes it.
+            $stableReadmeContent = Get-Content -Path $stableReadme -Raw
+            $stableReadmeContent | Should -Match 'alpha'
+            $stableReadmeContent | Should -Not -Match 'zebra'
+
+            # The shared file does not depend on which channel ran last.
+            $prereleaseFirstResult | Should -BeExactly $stableFirstResult
+        }
+
         It 'Includes experimental items when AllowedMaturities allows them' {
             $collection = @{
                 id    = 'maturity-test2'

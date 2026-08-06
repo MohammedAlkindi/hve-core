@@ -55,6 +55,8 @@ The accessibility skill runs an external Node scanner (`@axe-core/cli`, version-
 1. `scripts/scan.py` — the Python wrapper: builds the argument list, spawns the scanner, normalizes JSON, and writes output.
 2. `@axe-core/cli@4.12.1` — the external Node scanner (resolved via `npx`), which drives a headless browser to fetch and render the target.
 3. Output path — the operator-chosen `--output` file or stdout.
+4. `scripts/runtime_a11y/_intent.py` — the design-intent adapter: reads an authored record and a harness results document, joins them, and writes a verification artifact.
+5. `scripts/runtime_a11y/_projection.py` — the projection renderer: reads an authored record and renders Markdown.
 
 ### Data Flow
 
@@ -79,6 +81,29 @@ flowchart TD
     CLI -->|"writes"| OUT
 ```
 
+Design-intent verification adds a second, offline flow. It runs after a probe run, spawns no process, and reaches no network.
+
+```mermaid
+flowchart TD
+    subgraph PROJECT["Consuming Project Repository (operator-controlled)"]
+        REC["design-intent/&lt;id&gt;.intent.yaml<br/>human-authored, committed"]
+        RES["results.json<br/>harness output (untrusted content)"]
+        SIDE["design-intent/.verification/&lt;id&gt;.earl.json<br/>generated, never committed"]
+        PROJ["Markdown projection<br/>generated on demand"]
+    end
+    subgraph HOST2["Operator Workstation / Runner (trust zone)"]
+        ADPT["_intent.py adapter"]
+        REND["_projection.py renderer"]
+    end
+    REC -->|"read (text + YAML safe_load)"| ADPT
+    RES -->|"read (JSON)"| ADPT
+    ADPT -->|"writes outcomes + digest"| SIDE
+    REC -->|"read (text + YAML safe_load)"| REND
+    REND -->|"writes"| PROJ
+```
+
+Two properties bound this flow. The adapter never reads or writes human-authored fields, including `override`, so no generator can alter a human decision. And the authored record is operator-controlled committed source rather than third-party input, so its trust level matches the repository it lives in.
+
 ## Trust Boundaries
 
 ### Boundary Diagram
@@ -100,20 +125,23 @@ flowchart TD
 
 ### Boundary Descriptions
 
-| Boundary                      | Assets Protected               | Controls Enforced                                                         |
-|-------------------------------|--------------------------------|---------------------------------------------------------------------------|
-| Operator Workstation / Runner | Output integrity, host process | Argument list (no shell); typed errors; default-perm output path          |
-| npm registry                  | Scanner toolchain integrity    | Version pin `@axe-core/cli@4.12.1` (no lockfile/integrity hash — G-SUP-1) |
-| Scan Target                   | None (target is untrusted)     | No allow-list (G-INF-1); rendering isolated to upstream browser           |
+| Boundary                      | Assets Protected               | Controls Enforced                                                                                                                    |
+|-------------------------------|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| Operator Workstation / Runner | Output integrity, host process | Argument list (no shell); typed errors; default-perm output path                                                                     |
+| npm registry                  | Scanner toolchain integrity    | Version pin `@axe-core/cli@4.12.1` (no lockfile/integrity hash — G-SUP-1)                                                            |
+| Scan Target                   | None (target is untrusted)     | No allow-list (G-INF-1); rendering isolated to upstream browser                                                                      |
+| Design-intent record          | Human decision integrity       | Adapter never reads or writes human-authored fields; YAML parsed with `safe_load`; digest binds results to the exact record revision |
 
 ## Assets
 
-| Id | Asset                     | Lifetime         | Notes                                                                                                                                    |
-|----|---------------------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| A1 | Scan target (URL or file) | Command lifetime | Operator-supplied argument. When a URL, the scanner's headless browser fetches and renders it, generating outbound network traffic.      |
-| A2 | `@axe-core/cli` toolchain | Per-invocation   | Resolved and executed via `npx --yes @axe-core/cli@4.12.1`, which fetches the pinned package version at runtime when not already cached. |
-| A3 | Scanner JSON output       | Command lifetime | Untrusted: derived from the rendered target page; normalized and forwarded to the caller / consuming agent.                              |
-| A4 | Normalized output file    | Command lifetime | Written to the operator-chosen `--output` path.                                                                                          |
+| Id | Asset                     | Lifetime            | Notes                                                                                                                                                                      |
+|----|---------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| A1 | Scan target (URL or file) | Command lifetime    | Operator-supplied argument. When a URL, the scanner's headless browser fetches and renders it, generating outbound network traffic.                                        |
+| A2 | `@axe-core/cli` toolchain | Per-invocation      | Resolved and executed via `npx --yes @axe-core/cli@4.12.1`, which fetches the pinned package version at runtime when not already cached.                                   |
+| A3 | Scanner JSON output       | Command lifetime    | Untrusted: derived from the rendered target page; normalized and forwarded to the caller / consuming agent.                                                                |
+| A4 | Normalized output file    | Command lifetime    | Written to the operator-chosen `--output` path.                                                                                                                            |
+| A5 | Design Intent Record      | Repository lifetime | Human-authored, committed source in the consuming project. Read but never written by this skill; its `override` field records a human verdict that no generator may alter. |
+| A6 | Verification artifact     | CI run lifetime     | Generated beside the record and never committed. Carries a digest of the record revision it describes, so results cannot be silently reattributed to a changed record.     |
 
 ## Adversaries
 

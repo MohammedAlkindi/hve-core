@@ -29,6 +29,7 @@ jobs:
       TARGET_SERVE_COMMAND: python -m http.server 3000 --directory dist
       TARGET_CONFIG: a11y-runtime.config.json
       TARGET_RESULTS: results.json
+      TARGET_INTENT_DIR: design-intent
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -119,15 +120,12 @@ jobs:
           }
           failures = []
           for item in payload.get("results", []):
-              evidence = str(item.get("evidence", ""))
               if item.get("status") != "fail":
                   continue
-              for probe_id in high_confidence:
-                  if evidence.startswith(f"{probe_id} evaluated"):
-                      failures.append(
-                          f"{probe_id}: {item.get('criterionId')} ({item.get('surfaceId')}/{item.get('state')})"
-                      )
-                      break
+              if item.get("probeId") in high_confidence:
+                  failures.append(
+                      f"{item.get('probeId')}: {item.get('criterionId')} ({item.get('surfaceId')}/{item.get('state')})"
+                  )
 
           if failures:
               print("High-confidence probes reported fail cells:")
@@ -137,3 +135,36 @@ jobs:
 
           print("No high-confidence fail cells detected.")
           PY
+
+      - name: Verify declared design intent
+        if: always()
+        working-directory: ${{ env.TARGET_WORKDIR }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "${{ env.TARGET_INTENT_DIR }}" ]; then
+            echo "::notice::No design-intent directory is committed yet; intent verification is inactive."
+            exit 0
+          fi
+          if [ ! -f "${{ env.TARGET_RESULTS }}" ]; then
+            echo "::warning::No runtime results file found; skipping intent verification."
+            exit 0
+          fi
+          status=0
+          for record in "${{ env.TARGET_INTENT_DIR }}"/*.intent.yaml; do
+            [ -e "$record" ] || continue
+            echo "Verifying $record"
+            # Exit 3 means a blocking expectation failed: real intent drift.
+            # Any other non-zero exit is an adapter error and stops the job.
+            uv run python -m runtime_a11y verify-intent \
+              --record "$record" \
+              --results "${{ env.TARGET_RESULTS }}" || {
+              code=$?
+              if [ "$code" -eq 3 ]; then
+                echo "::error::Design intent drift in $record"
+                status=1
+              else
+                exit "$code"
+              fi
+            }
+          done
+          exit "$status"

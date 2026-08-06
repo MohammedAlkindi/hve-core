@@ -66,6 +66,11 @@ Import-Module (Join-Path $PSScriptRoot "../collections/Modules/CollectionHelpers
 
 #region Pure Functions
 
+# Maturity levels included in channel-neutral output. Shared collection markdown
+# is written by every channel, so it renders declared membership rather than any
+# one channel's filtered view. Deprecated items stay excluded from all output.
+$script:ChannelNeutralMaturities = @('stable', 'preview', 'experimental')
+
 #region Package Generation Functions
 
 function Get-CollectionDisplayName {
@@ -330,6 +335,102 @@ function Invoke-ExtensionCollectionsGeneration {
     return $expectedFiles
 }
 
+function New-CollectionArtifactTables {
+    <#
+    .SYNOPSIS
+        Builds the generated artifact tables for a collection at one maturity projection.
+    .DESCRIPTION
+        Groups a collection's declared items by kind, filters them to the supplied
+        maturity levels, reads each artifact's description from frontmatter, and
+        returns the rendered markdown tables.
+
+        Callers render one projection per output channel. Channel-specific
+        extension output passes the release channel's allowed maturities, while
+        channel-neutral collection markdown passes every publishable maturity so
+        the shared file never inherits a channel's filtering.
+    .PARAMETER Collection
+        Parsed collection manifest hashtable.
+    .PARAMETER RepoRoot
+        Repository root path for resolving artifact file paths.
+    .PARAMETER AllowedMaturities
+        Maturity levels to include in this projection.
+    .OUTPUTS
+        [string] Rendered markdown tables, trimmed of trailing whitespace.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Collection,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$AllowedMaturities
+    )
+
+    $agents = @()
+    $prompts = @()
+    $instructions = @()
+    $skills = @()
+    $hooks = @()
+
+    if ($Collection.ContainsKey('items')) {
+        foreach ($item in $Collection.items) {
+            if (-not $item.ContainsKey('kind') -or -not $item.ContainsKey('path')) {
+                continue
+            }
+            $maturity = Resolve-CollectionItemMaturity -Maturity $item.maturity
+            if ($AllowedMaturities -notcontains $maturity) {
+                continue
+            }
+            $kind = [string]$item.kind
+            $path = [string]$item.path
+            $artifactName = Get-CollectionArtifactKey -Kind $kind -Path $path
+
+            # Resolve full file path for frontmatter reading
+            $resolvedPath = Join-Path $RepoRoot ($path -replace '^\./', '')
+            if ($kind -eq 'skill') {
+                $resolvedPath = Join-Path $resolvedPath 'SKILL.md'
+            }
+            $artifactDesc = Get-ArtifactDescription -FilePath $resolvedPath
+
+            $entry = @{ Name = $artifactName; Description = $artifactDesc }
+            switch ($kind) {
+                'agent' { $agents += $entry }
+                'prompt' { $prompts += $entry }
+                'instruction' { $instructions += $entry }
+                'skill' { $skills += $entry }
+                'hook' { $hooks += $entry }
+            }
+        }
+    }
+
+    $artifactSections = [System.Text.StringBuilder]::new()
+
+    foreach ($section in @(
+        @{ Title = 'Chat Agents'; Items = $agents },
+        @{ Title = 'Prompts'; Items = $prompts },
+        @{ Title = 'Instructions'; Items = $instructions },
+        @{ Title = 'Skills'; Items = $skills },
+        @{ Title = 'Hooks'; Items = $hooks }
+    )) {
+        if ($section.Items.Count -eq 0) { continue }
+
+        $null = $artifactSections.AppendLine("### $($section.Title)")
+        $null = $artifactSections.AppendLine()
+        $null = $artifactSections.AppendLine('| Name | Description |')
+        $null = $artifactSections.AppendLine('|------|-------------|')
+        foreach ($entry in ($section.Items | Sort-Object { $_.Name })) {
+            $null = $artifactSections.AppendLine("| **$($entry.Name)** | $($entry.Description) |")
+        }
+        $null = $artifactSections.AppendLine()
+    }
+
+    return $artifactSections.ToString().TrimEnd()
+}
+
 function New-CollectionReadme {
     <#
     .SYNOPSIS
@@ -406,71 +507,18 @@ function New-CollectionReadme {
         $bodyForTemplate = $bodyContent.Trim()
     }
 
-    # Collect artifacts with descriptions grouped by kind
-    $agents = @()
-    $prompts = @()
-    $instructions = @()
-    $skills = @()
-    $hooks = @()
-
-    if ($Collection.ContainsKey('items')) {
-        foreach ($item in $Collection.items) {
-            if (-not $item.ContainsKey('kind') -or -not $item.ContainsKey('path')) {
-                continue
-            }
-            $maturity = Resolve-CollectionItemMaturity -Maturity $item.maturity
-            if ($AllowedMaturities -and $AllowedMaturities -notcontains $maturity) {
-                continue
-            }
-            $kind = [string]$item.kind
-            $path = [string]$item.path
-            $artifactName = Get-CollectionArtifactKey -Kind $kind -Path $path
-
-            # Resolve full file path for frontmatter reading
-            $resolvedPath = Join-Path $RepoRoot ($path -replace '^\./', '')
-            if ($kind -eq 'skill') {
-                $resolvedPath = Join-Path $resolvedPath 'SKILL.md'
-            }
-            $artifactDesc = Get-ArtifactDescription -FilePath $resolvedPath
-
-            $entry = @{ Name = $artifactName; Description = $artifactDesc }
-            switch ($kind) {
-                'agent' { $agents += $entry }
-                'prompt' { $prompts += $entry }
-                'instruction' { $instructions += $entry }
-                'skill' { $skills += $entry }
-                'hook' { $hooks += $entry }
-            }
-        }
-    }
-
-    # Build markdown tables for each artifact kind
-    $artifactSections = [System.Text.StringBuilder]::new()
-
-    foreach ($section in @(
-        @{ Title = 'Chat Agents'; Items = $agents },
-        @{ Title = 'Prompts'; Items = $prompts },
-        @{ Title = 'Instructions'; Items = $instructions },
-        @{ Title = 'Skills'; Items = $skills },
-        @{ Title = 'Hooks'; Items = $hooks }
-    )) {
-        if ($section.Items.Count -eq 0) { continue }
-
-        $null = $artifactSections.AppendLine("### $($section.Title)")
-        $null = $artifactSections.AppendLine()
-        $null = $artifactSections.AppendLine('| Name | Description |')
-        $null = $artifactSections.AppendLine('|------|-------------|')
-        foreach ($entry in ($section.Items | Sort-Object { $_.Name })) {
-            $null = $artifactSections.AppendLine("| **$($entry.Name)** | $($entry.Description) |")
-        }
-        $null = $artifactSections.AppendLine()
-    }
+    # Render two independent projections from the same declared membership.
+    # The extension README follows the release channel; the shared collection
+    # markdown stays channel-neutral so a Stable run never strips declared
+    # preview or experimental members from a file both channels write.
+    $artifactSections = New-CollectionArtifactTables -Collection $Collection -RepoRoot $RepoRoot -AllowedMaturities $AllowedMaturities
+    $channelNeutralSections = New-CollectionArtifactTables -Collection $Collection -RepoRoot $RepoRoot -AllowedMaturities $script:ChannelNeutralMaturities
 
     # Write back updated artifact section into collection.md when markers are present.
     # The hand-authored intro provides the `## Included Artifacts` H2 immediately
     # before the BEGIN marker, so the generated block contains only the H3 tables.
     if ($parsed.HasMarkers) {
-        $generatedBlock = $artifactSections.ToString().TrimEnd()
+        $generatedBlock = $channelNeutralSections
         $updatedCollectionMd = "$($parsed.Intro)`n`n$($CollectionMdBeginMarker)`n`n$generatedBlock`n`n$($CollectionMdEndMarker)"
         if (-not [string]::IsNullOrWhiteSpace($parsed.Footer)) {
             $updatedCollectionMd += "`n`n$($parsed.Footer.TrimEnd())"
@@ -493,7 +541,7 @@ function New-CollectionReadme {
         -replace '\{\{DESCRIPTION\}\}', $description `
         -replace '\{\{MATURITY_NOTICE\}\}', $maturityNotice `
         -replace '\{\{BODY\}\}', $bodyForTemplate `
-        -replace '\{\{ARTIFACTS\}\}', $artifactSections.ToString().TrimEnd() `
+        -replace '\{\{ARTIFACTS\}\}', $artifactSections `
         -replace '\{\{FULL_EDITION\}\}', $fullEdition
 
     # Clean up blank lines left by empty token replacements

@@ -87,7 +87,9 @@ We've been asked to "build a digital dashboard" but I'm not sure that's
 the right solution.
 ```
 
-The coach responds with observations and a guiding question, never a solution. When a new project starts, the coach creates the state directory at `.copilot-tracking/design-thinking-sessions/{project-slug}/`, the artifact directory at `docs/design-thinking/{project-slug}/`, and initializes `coaching-state.md` before method-specific coaching begins. It also asks whether you want to enable the canonical deck and customer-card workflow before the first method-specific coaching step.
+The coach responds with observations and a guiding question, never a solution. When a new project starts, the coach creates the state directory at `.copilot-tracking/design-thinking-sessions/{project-slug}/`, the artifact directory at `docs/design-thinking/{project-slug}/`, and initializes `coaching-state.md` before method-specific coaching begins.
+
+It does not ask about the canonical deck and customer-card workflow at that point. That offer arrives at the Method 3 and Method 5 exits, once the work has produced content worth capturing, and you can ask for it directly at any time.
 
 ### Navigating Methods
 

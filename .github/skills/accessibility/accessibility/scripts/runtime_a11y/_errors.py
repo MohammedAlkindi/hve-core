@@ -8,6 +8,10 @@ from __future__ import annotations
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_USAGE = 2
+# A blocking design-intent expectation resolved to 'failed'. Distinct from a
+# harness or adapter error so a consuming project's CI can tell a real drift
+# signal apart from a broken run.
+EXIT_INTENT_DRIFT = 3
 
 
 class ScriptError(Exception):
