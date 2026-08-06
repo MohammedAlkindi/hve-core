@@ -2,6 +2,7 @@
 name: security-planning
 description: Security planning reference set for operational buckets, STRIDE analysis, standards mapping, NIST control families, backlog scaffolding, and deterministic TM7 (.tm7) plus markdown dual-output generation.
 license: MIT
+compatibility: 'Generation requires Python 3.11+ and uv. The native TM7 feedback loop additionally requires Windows with an interactive desktop session and the pinned Microsoft Threat Modeling Tool 7.3.51110.1.'
 user-invocable: true
 ---
 
