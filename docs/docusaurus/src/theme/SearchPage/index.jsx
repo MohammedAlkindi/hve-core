@@ -78,6 +78,16 @@ export default function SearchPageWrapper(props) {
     const getResultsRoot = () => document.querySelector('main, [role="main"]') ?? document.body;
     const getResultCount = () => getResultsRoot().querySelectorAll('article').length;
 
+    // The upstream search page renders its own result summary paragraph as a
+    // direct child of the search container, and only once the query has
+    // resolved. It renders for both outcomes: "N documents found" and the
+    // not-found text. Its presence is therefore a render-level answer to "has
+    // this search finished", which elapsed time is not.
+    const getResultSummary = () => {
+      const container = getSearchInput()?.closest('.container') ?? null;
+      return container ? container.querySelector(':scope > p') : null;
+    };
+
     const announce = (message) => {
       if (message === lastMessage) {
         return;
@@ -110,15 +120,34 @@ export default function SearchPageWrapper(props) {
       // Search results render asynchronously, so announcing "No documents
       // found" on the first pass tells a screen-reader user there are no
       // results for a query that is still running, and the later correction
-      // does not undo what they already heard. Require a quiet period with the
-      // count still zero before making that claim.
+      // does not undo what they already heard.
+      //
+      // A quiet period alone cannot tell those two states apart, because it
+      // measures elapsed time rather than whether the search finished. Measured
+      // under parallel load: this timer fired about 1750 ms after the last
+      // keystroke while results arrived 1860-4413 ms after it, so every sampled
+      // run announced a definitive "no results" for a query returning 100
+      // documents. Requiring upstream's rendered summary as well replaces that
+      // proxy with the fact it was approximating.
+      //
+      // The quiet period is kept rather than replaced: upstream does not reset
+      // its results when the query changes, only when the query empties, so a
+      // summary left over from a previous query can still be on screen while
+      // the current one is running.
       window.clearTimeout(zeroConfirmTimer);
       zeroConfirmTimer = window.setTimeout(() => {
         const currentInput = getSearchInput();
         const currentQuery = currentInput?.value?.trim() ?? '';
-        if (currentQuery === query && getResultCount() === 0) {
-          announce('No documents found');
+        if (currentQuery !== query || getResultCount() !== 0) {
+          return;
         }
+        // Stay silent while the search is still running. The observer below
+        // schedules another sync when upstream renders its summary, which
+        // re-enters this path with the query resolved.
+        if (!getResultSummary()) {
+          return;
+        }
+        announce('No documents found');
       }, 1500);
     };
 
