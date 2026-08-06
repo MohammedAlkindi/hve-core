@@ -39,7 +39,7 @@ test.describe('Forced-colors accessibility regression locks', () => {
 
     // System color keywords resolve from the operating system palette, so the
     // absolute values are unpredictable. The contract is expressed as
-    // inequalities: the cue must not be painted in the colour it sits on.
+    // inequalities: the cue must not be painted in the color it sits on.
     const resolved = await page.evaluate(() => {
       const node = document.querySelector('[role="option"][aria-selected="true"]');
       if (!node) {

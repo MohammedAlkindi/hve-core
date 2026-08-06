@@ -235,6 +235,7 @@ test.describe('Search', () => {
     // A query with no matches renders no footer link. Escape handling used to sit
     // below a gate that returned early without one, so cleanup was skipped in
     // exactly this state.
+    // cspell:disable-next-line
     await searchInput.fill('zzzzqqqxnotarealdocumentterm');
     await page.waitForTimeout(600);
 

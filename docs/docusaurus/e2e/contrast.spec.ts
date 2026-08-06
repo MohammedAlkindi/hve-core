@@ -225,7 +225,7 @@ test.describe('Contrast measurement gates', () => {
       // something other than color, so the affordance survives for users who
       // cannot perceive the color difference. Compared against a sibling text run
       // rather than the background, which would pass even if the mark became
-      // indistinguishable from its neighbours.
+      // indistinguishable from its neighbors.
       const distinction = await page.evaluate(() => {
         const markNode = document.querySelector('[role="option"][aria-selected="true"] mark');
         if (!markNode || !markNode.parentElement) {
