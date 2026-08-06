@@ -13,8 +13,8 @@ The posture is enforced at authoring time rather than at runtime. Contributors a
 
 These rules apply to any file that summarizes, quotes, or reproduces upstream standards material under either tree:
 
-* `.github/skills/**` — skill packages, including `references/*.md` files and `templates/*.md` files that paraphrase, quote, or vendor upstream text.
-* `.copilot-tracking/**` — tracking artifacts, including planning notes, review logs, and excerpts pasted into tracking files during a session.
+* `.github/skills/**`: skill packages, including `references/*.md` files and `templates/*.md` files that paraphrase, quote, or vendor upstream text.
+* `.copilot-tracking/**`: tracking artifacts, including planning notes, review logs, and excerpts pasted into tracking files during a session.
 
 Domain-specific overlays (for example, accessibility frameworks or RAI standards) map their particular standards onto the source classes defined here and add any domain-specific gating hooks. The default rule everywhere is **paraphrase-first**: prefer paraphrased prose with a source link, and reserve verbatim quotation for cases where the source license explicitly permits it or the source is in the public domain.
 
@@ -26,7 +26,7 @@ When more than one class could apply, the most specific class governs, and where
 
 ### Repository original content (CC BY 4.0)
 
-Original prose authored for this repository — review criteria, anchors, indicators, taxonomies, templates, and explanatory material — is Microsoft content licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Where original content names a standard's characteristics or categories, the accompanying criteria are original content and not reproductions of the standard's definitions; the authoritative definitions remain with the cited standard.
+Original prose authored for this repository (review criteria, anchors, indicators, taxonomies, templates, and explanatory material) is Microsoft content licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Where original content names a standard's characteristics or categories, the accompanying criteria are original content and not reproductions of the standard's definitions; the authoritative definitions remain with the cited standard.
 
 ### Public domain (US government works)
 
@@ -54,14 +54,14 @@ Attribution block for any verbatim W3C quote:
 
 ### Creative Commons (CC BY, CC0)
 
-CC-licensed sources (for example, OWASP materials under CC BY, OpenTelemetry Semantic Conventions under CC BY 4.0, MADR templates under CC0) follow the applicable original license terms for any reproduced text, diagrams, tables, or examples.
+CC-licensed sources (for example, OWASP materials under CC BY, the Microsoft Code With Engineering Playbook documentation under CC BY 4.0, OpenTelemetry Semantic Conventions under CC BY 4.0, MADR templates under CC0) follow the applicable original license terms for any reproduced text, diagrams, tables, or examples.
 
-* CC BY: prefer paraphrase and a source link; reproduce only the minimum text necessary for a specific technical point, with attribution.
+* CC BY: prefer paraphrase and a source link; reproduce only the minimum text necessary for a specific technical point, with attribution. Record the source in `THIRD-PARTY-NOTICES` at the repository root with its license, source URLs, and usage scope, and indicate that the content has been changed.
 * CC0: verbatim reproduction is permitted; preserve attribution to the source for provenance even though CC0 does not require it.
 
 ### Permissive open-source licenses (MIT, Apache-2.0, BSD, and similar)
 
-Permissively licensed sources (for example, the Microsoft Code With Engineering Playbook under MIT) grant rights to use, copy, modify, and redistribute without restriction, conditioned on preserving the copyright and permission notice in all copies or substantial portions. Verbatim reproduction is permitted when that notice requirement is met. This class covers any open-source license granting those rights on notice alone, including ISC and similar terms, not only the three named.
+Permissively licensed sources (for example, OpenSSF Scorecard under Apache-2.0) grant rights to use, copy, modify, and redistribute without restriction, conditioned on preserving the copyright and permission notice in all copies or substantial portions. Verbatim reproduction is permitted when that notice requirement is met. This class covers any open-source license granting those rights on notice alone, including ISC and similar terms, not only the three named.
 
 Paraphrase remains preferred for stylistic consistency, so that a reference file reads as repository guidance rather than a mirror of upstream. Reproduce verbatim only when paraphrase would distort a named requirement, checklist item, or technical term, or when short factual statements have too little expressive range for paraphrase to be meaningful. Reproducing a whole upstream page or section is outside this allowance even when the license permits it.
 
@@ -75,6 +75,8 @@ Requirements for any verbatim or lightly edited reproduction:
 ### Mixed-content packages
 
 A skill package that combines third-party-derived content with repository-original content declares a compound SPDX expression naming both, for example `MIT AND CC-BY-4.0`. Its attribution section states which files belong to which license. Declaring only one license misrepresents the other body of content.
+
+When both bodies carry the same license, declare that single license rather than a degenerate compound expression. The attribution section still identifies which content is third-party-derived: by file where the split is by file, and inline where derived and original material share a file.
 
 ### Open legal text (statutes and regulations)
 
