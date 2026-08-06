@@ -943,11 +943,11 @@ Copying agents enables local customization and offline use.
   • adr-creation, agile-coach, brd-builder, doc-ops, prd-builder
   • product-manager-advisor, security-planner, ux-ui-designer
 
-⚙️ Generators
-  • gen-data-spec, gen-jupyter-notebook, gen-streamlit-dashboard
+📊 Data Science
+  • data-workstream-coach
 
 ✅ Review & Testing
-  • code-review, test-streamlit-dashboard
+  • code-review
 
 🔗 Platform-Specific
   • ado-prd-to-wit (Azure DevOps)
