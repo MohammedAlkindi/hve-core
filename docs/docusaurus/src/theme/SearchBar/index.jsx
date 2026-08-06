@@ -180,8 +180,63 @@ export default function SearchBarWrapper(props) {
       blurGuardedInput = input;
     };
 
-    const clearFooterHighlight = (footerLink) => {
-      if (footerLink) {
+    // Returns focusable elements in document order starting after (or before,
+    // when going backwards) the given element.
+    //
+    // The widget's own controls are included: the clear button is the correct
+    // next stop when the plugin renders one, and skipping it would move focus
+    // somewhere the user did not ask for. Candidates are returned rather than a
+    // single element because matching the selector and having layout boxes does
+    // not make an element focusable - Docusaurus's back-to-top button has both
+    // and is visibility:hidden until the page scrolls, so focus() on it is a
+    // silent no-op. The caller confirms which candidate actually took focus.
+    const collectSequentialFocusCandidates = (fromElement, backwards) => {
+      const focusableSelector = [
+        'a[href]',
+        'button:not([disabled])',
+        'input:not([disabled])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(',');
+      const all = Array.from(document.querySelectorAll(focusableSelector))
+        .filter((element) => element.getClientRects().length > 0)
+        .filter((element) => element.getAttribute('tabindex') !== '-1');
+      const index = all.indexOf(fromElement);
+      if (index === -1) {
+        return [];
+      }
+      const step = backwards ? -1 : 1;
+      const candidates = [];
+      for (let cursor = index + step; cursor >= 0 && cursor < all.length; cursor += step) {
+        const candidate = all[cursor];
+        if (typeof candidate.focus === 'function') {
+          candidates.push(candidate);
+        }
+      }
+      return candidates;
+    };
+
+    // Moves focus to the nearest element that genuinely accepts it, and returns
+    // that element, or null when nothing does.
+    //
+    // The activeElement check is a guard, not the mechanism: on the current
+    // markup the first candidate always accepts focus, so removing the check
+    // does not change behavior here. It stays because focus() is silent when it
+    // fails - a visibility:hidden or otherwise unfocusable candidate would
+    // return "moved" without moving anything, and the caller would then cancel
+    // the browser's own move on the strength of it.
+    const moveFocusSequentially = (fromElement, backwards) => {
+      for (const candidate of collectSequentialFocusCandidates(fromElement, backwards)) {
+        candidate.focus();
+        if (document.activeElement === candidate) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    const clearFooterHighlight = (footerLink) => {      if (footerLink) {
         footerLink.classList.remove('search-footer-active');
       }
       // The borrowed upstream class can also be left on the footer, so clear any
@@ -233,15 +288,34 @@ export default function SearchBarWrapper(props) {
 
       // The upstream handler cancels Tab to keep focus inside the combobox,
       // which is a WCAG 2.1.2 keyboard trap under a screen reader whose focus
-      // mode keeps the popup open. Suppressing that handler without cancelling
-      // the native default restores sequential focus, so Tab reaches the next
-      // control in document order - the clear button when it is rendered, and
-      // an element outside the widget otherwise. Both directions keep an
-      // un-cancelled native route out, which is what keeps 2.1.2 closed.
+      // mode keeps the popup open.
+      //
+      // Suppressing that handler is not sufficient on its own. Measured on the
+      // built site: with the popup open the native move is left uncancelled and
+      // still ends on <body>, while the intended destination stays connected
+      // and tabbable throughout and the very next Tab reaches it. The widget's
+      // synchronous teardown runs in the same task as the browser's in-flight
+      // sequential move and the move is lost. Deferring that teardown by a task
+      // was tried and did not recover it.
+      //
+      // So the move is performed here rather than delegated. Focus is placed on
+      // the next element that genuinely accepts it - the clear button when the
+      // plugin renders one - and the default is cancelled only once that has
+      // been confirmed. If nothing accepts focus the event is left alone and the
+      // browser does whatever it would have done, so this can never be the thing
+      // that strands a keyboard user.
       if (event.key === 'Tab') {
         event.stopImmediatePropagation();
         clearFooterHighlight(footerLink);
         input.removeAttribute('aria-activedescendant');
+
+        const origin = document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : input;
+        const moved = moveFocusSequentially(origin, event.shiftKey);
+        if (moved) {
+          event.preventDefault();
+        }
         return;
       }
 

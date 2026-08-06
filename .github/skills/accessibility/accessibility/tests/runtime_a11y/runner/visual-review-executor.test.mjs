@@ -77,6 +77,19 @@ test('captureVisualReviewEvidence writes a Playwright trace zip artifact and des
 
     const run = payload.runs[0];
     assert.ok(run);
+
+    // The capture path records a failed capture as a run with a
+    // "capture-failure" outcome rather than throwing, so a run object exists
+    // either way. Assert the outcome before reading artifacts: otherwise a
+    // failed capture surfaces as ENOENT on a file that was never written, and
+    // the real reason -- which is already recorded here -- is discarded.
+    const outcome = run.probeOutcomes?.[0];
+    assert.equal(
+      outcome?.status,
+      'pass',
+      `visual review capture did not succeed: ${outcome?.detail ?? 'no detail recorded'}`,
+    );
+
     const artifactDir = path.join(runRoot, 'artifacts', `${run.route.replace(/^\//, '').replace(/[^a-zA-Z0-9._-]+/g, '-')}-desktop`);
     const tracePath = path.join(artifactDir, 'trace.zip');
     const measurementPath = path.join(artifactDir, 'measurements.json');
