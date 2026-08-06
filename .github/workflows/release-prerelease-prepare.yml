@@ -134,12 +134,13 @@ jobs:
                   fi
 
                   PRERELEASE_BASELINE=$(git show "refs/remotes/origin/$BASE_BRANCH:$TARGET_MANIFEST" | jq -r '.["."] // ""')
-                  if ! printf '%s' "$PRERELEASE_BASELINE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                  if [[ "$PRERELEASE_BASELINE" == *$'\n'* || "$PRERELEASE_BASELINE" == *$'\r'* || ! "$PRERELEASE_BASELINE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                     echo "::error::$BASE_BRANCH $TARGET_MANIFEST has no MAJOR.MINOR.PATCH version"
                     exit 1
                   fi
-                  PRERELEASE_MINOR=$(printf '%s' "$PRERELEASE_BASELINE" | cut -d. -f2)
-                  if (( PRERELEASE_MINOR % 2 == 0 )); then
+                  PRERELEASE_MINOR=${PRERELEASE_BASELINE#*.}
+                  PRERELEASE_MINOR=${PRERELEASE_MINOR%%.*}
+                  if (( 10#$PRERELEASE_MINOR % 2 == 0 )); then
                     echo "::error::PreRelease baseline $PRERELEASE_BASELINE has an even minor"
                     exit 1
                   fi
@@ -163,7 +164,7 @@ jobs:
                       -AsJson)
 
                   VERSION=$(printf '%s' "$RESOLVED" | jq -r '.Version // ""')
-                  if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                  if [[ "$VERSION" == *$'\n'* || "$VERSION" == *$'\r'* || ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                     echo "::error::Resolved PreRelease version $VERSION is not MAJOR.MINOR.PATCH"
                     exit 1
                   fi

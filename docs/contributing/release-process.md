@@ -189,6 +189,41 @@ For more details, see the [commit message instructions](https://github.com/micro
 
 ## For Maintainers
 
+### Recovering from an Occupied Candidate
+
+Promotion preparation stops before branch mutation when the calculated
+`hve-core-v<version>` release identity or `plugins-v<version>` snapshot identity
+already exists. The calculation is deterministic, so rerunning preparation
+without reconciling channel state selects the same occupied version and fails
+again.
+
+1. Inspect both tags, the GitHub release, their target commits, and available
+    plugin snapshot evidence. Determine whether they belong to a completed HVE
+    Core release or are unrelated, manual, or abandoned state.
+2. Do not delete, move, or force-update either immutable tag. Do not republish a
+    completed release to make branch metadata agree with it.
+3. If the identities belong to a completed release, reconcile the channel
+    branch manifest and synchronized release metadata with that released commit
+    through a reviewed pull request. Continue with the next ordinary channel
+    release instead of recreating the occupied version.
+4. If the identities must remain reserved but do not represent a completed
+    channel release, make an explicit reviewed release-state decision:
+    * For PreRelease, advance the `release/prerelease` manifest and synchronized
+      version metadata to the occupied odd-minor baseline. Then run the
+      input-free **Pre-Release Promotion Preparation** workflow dispatch. It
+      calculates the following odd-minor candidate from the reviewed baseline.
+    * For Stable, publish the next valid odd-minor PreRelease through the normal
+            reviewed path. Publication starts **Stable Release Preparation**
+            automatically. Inspect that run's outcome, including any no-op notice. If
+            the run did not start or failed, dispatch the workflow manually with the
+            published `hve-core-v<version>` PreRelease tag. A successful preparation
+            calculates the following even-minor candidate from the selected source.
+
+Record the provenance finding and reviewed state change with the release. An
+authentication, transport, rate-limit, or ambiguous lookup failure is not an
+occupied-candidate recovery case; fix that failure and rerun the unchanged
+preparation workflow.
+
 ### Reviewing the PreRelease
 
 1. Review the target-based `main` to `release/prerelease` promotion PR and its

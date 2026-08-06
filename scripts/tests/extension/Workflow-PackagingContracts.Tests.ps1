@@ -1457,6 +1457,9 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
             }
             $prepareOutputs.Contains('stable-baseline') | Should -BeFalse
             $text | Should -Not -Match 'STABLE_BASELINE|STABLE_BRANCH|STABLE_MANIFEST|stable-baseline|release/stable|Read Stable baseline'
+            $resolverRun | Should -Match ([regex]::Escape('^[0-9]+\.[0-9]+\.[0-9]+$'))
+            $resolverRun | Should -Match '\[\[ .*VERSION.*=~ \^\[0-9\]'
+            $resolverRun | Should -Not -Match '% 2'
         }
 
         $refresh = Get-NamedJobStep -Document $document -JobName 'prepare-promotion' -StepName 'Refresh the promotion head'

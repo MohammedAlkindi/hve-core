@@ -360,6 +360,8 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         @{ Version = 'abc' }
         @{ Version = '1.2' }
         @{ Version = 'v1.2.3' }
+        @{ Version = '1.2.3-suffix' }
+        @{ Version = "1.2.3`n" }
     ) {
         { & $script:ScriptPath -Version $Version -RepoRoot $script:FakeRoot -SkipPluginGenerate } |
             Should -Throw

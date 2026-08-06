@@ -52,7 +52,7 @@
 [CmdletBinding(DefaultParameterSetName = 'Manifest')]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidatePattern('^\d+\.\d+\.\d+')]
+    [ValidatePattern('^\d+\.\d+\.\d+\z')]
     [string]$Version,
 
     [Parameter(Mandatory = $false)]
