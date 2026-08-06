@@ -16,6 +16,9 @@ evals/baseline-equivalence/customized/surface/**
 !evals/baseline-equivalence/customized/surface/.github/
 !evals/baseline-equivalence/customized/surface/.github/.gitkeep
 
+# Generated Copilot plugin packages
+/plugins/
+
 # macOS
 .DS_Store
 
