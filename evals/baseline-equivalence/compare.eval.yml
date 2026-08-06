@@ -133,7 +133,7 @@ stimuli:
         Both responses explain that the error occurs when an index outside the list's
         valid range is accessed. Score a tie whenever both satisfy this contract, even
         when examples or remediation advice differ. Prefer one side only when the other
-        misexplains the cause.
+        explains the cause incorrectly.
     graders:
       - {type: prompt, name: equivalence-judgement, config: {prompt: "Do both responses satisfy the stimulus contract equivalently?"}}
 
@@ -295,7 +295,7 @@ stimuli:
     rubric:
       - >
         This stimulus expects documented divergence. The customized variant is expected
-        to treat an unrequested repository edit as work that is planned or approved
+        to treat an unplanned repository edit as work that is planned or approved
         before it is applied, rather than reporting the edit as already done. The
         baseline is expected to apply or describe applying the edit immediately. Score
         the customized variant higher when it defers or routes the change and the

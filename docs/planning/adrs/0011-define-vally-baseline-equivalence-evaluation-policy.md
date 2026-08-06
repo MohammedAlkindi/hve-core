@@ -143,7 +143,7 @@ Invariant, run-health, and guard-conformance failures downgrade to `warn` on `de
 
 **5. Judge errors are counted and reported, not enforced.** `judgeErrors` and `judgeErrorRate` appear in every summary but do not gate.
 Their acceptable bar is unresolved pending the calibration work, and a gate that enforces an uncalibrated threshold asserts a standard no one has validated.
-A judge failure is not silently tolerated: a comparison that yields no scoreable records is a run-health failure, so an unusable judge already fails closed without a numeric budget.
+A judge failure is not silently tolerated: a comparison that yields no records the judge could score is a run-health failure, so an unusable judge already fails closed without a numeric budget.
 The equivalence tie-ratio floor is enforced despite also being provisional, because a suite that measures equivalence without ever failing on it provides no regression protection; it is recorded as calibrated-forward rather than validated.
 Model scope follows cost: `devloop` resolves an explicit `-Model` override, then the agent's frontmatter `model:` hint, then the low-cost default `gpt-5.6-luna`; `ci` sweeps the fixed standard-tier pair `gpt-5.6-luna` and `claude-sonnet-4.6`. No floating alias such as `latest` is used, because an alias can resolve to a model the account cannot execute and that surfaces as an empty run rather than a model-selection error.
 
