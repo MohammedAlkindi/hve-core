@@ -3,7 +3,7 @@ title: MCP Server Configuration
 description: Optional configuration for Model Context Protocol servers used by HVE Core agents
 sidebar_position: 7
 author: Microsoft
-ms.date: 2026-06-27
+ms.date: 2026-08-02
 ms.topic: how-to
 keywords:
   - mcp
@@ -19,7 +19,7 @@ estimated_reading_time: 8
 Some HVE Core agents use Model Context Protocol (MCP) servers to integrate with external services. MCP configuration is optional; agents that depend on MCP tools indicate when the required server is unavailable. The current installer flow and generated workspace template cover five servers: context7, microsoft-docs, ado, github, and figma.
 
 > [!TIP]
-> The HVE Core installer skill auto-generates MCP configuration with curated servers and guides you through choosing the right installation method (peer clone, submodule, git-ignored, and others). Install the [HVE Core Installer](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-installer) extension and ask any agent "help me customize hve-core installation" for guided setup. The sections below cover manual MCP configuration.
+> The `hve-core-installer` skill included with HVE Core can generate MCP configuration with curated servers and guide you through peer clone, submodule, git-ignored, and other installation methods. Ask an agent to use the skill for guided setup. The sections below cover manual MCP configuration.
 
 ## Overview
 
@@ -39,14 +39,13 @@ Configuring both is unnecessary unless you work across platforms. If you use oth
 
 ## Agent MCP Dependencies
 
-| Agent / Prompt         | MCP Servers Used         | Notes                           |
-|------------------------|--------------------------|---------------------------------|
-| ado-prd-to-wit         | ado, microsoft-docs      | ADO work item creation          |
-| github-backlog-manager | github                   | GitHub backlog management       |
-| task-researcher        | context7, microsoft-docs | Documentation lookup (optional) |
-| task-planner           | context7, microsoft-docs | Documentation lookup (optional) |
-| rpi-agent              | Varies by subagent       | Delegates to specialized agents |
-| dt-figma-export        | figma                    | DT artifact export to FigJam    |
+| Agent, Prompt, or Skill | MCP Servers Used          | Notes                                       |
+|-------------------------|---------------------------|---------------------------------------------|
+| ado-prd-to-wit          | ado, microsoft-docs       | ADO work item creation                      |
+| github-backlog-manager  | github                    | GitHub backlog management                   |
+| rpi-research            | context7, microsoft-docs  | Documentation lookup when available         |
+| RPI Agent               | Varies by activated skill | Coordinates the applicable RPI phase skills |
+| dt-figma-export         | figma                     | DT artifact export to FigJam                |
 
 Agents without MCP dependencies work without any MCP configuration.
 

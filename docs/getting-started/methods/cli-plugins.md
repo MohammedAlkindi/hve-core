@@ -1,27 +1,25 @@
 ---
-title: Copilot CLI Plugins
-description: Install HVE Core agents, prompts, and skills as Copilot CLI plugins
+title: Copilot CLI Plugin
+description: Register an HVE Core catalog ref and install the complete hve-core plugin
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-06-27
+ms.date: 2026-08-02
 ms.topic: how-to
 ---
 
-Install HVE Core collections as Copilot CLI plugins for terminal-based
-AI-assisted development workflows. The plugin names below mirror the current
-collection IDs published by the repository's plugin output.
+Install the complete HVE Core component set as a Copilot CLI plugin for terminal-based AI-assisted development workflows.
 
 ## Prerequisites
 
 * GitHub Copilot CLI installed and authenticated
-* Git symlink support enabled (Windows: Developer Mode +
-  `git config --global core.symlinks true`)
 
 ## Register hve-core as a Plugin Marketplace
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core
+copilot plugin marketplace add microsoft/hve-core#<ref>
 ```
+
+The Git ref after `#` selects the marketplace catalog. The catalog entry's `source.ref` pins the matching immutable `plugins-v<version>` plugin snapshot. Stable and PreRelease catalogs both use the marketplace name `hve-core`, so keep one active registration at a time and replace it when changing catalog refs.
 
 ## Browse Available Plugins
 
@@ -29,42 +27,13 @@ Type `/plugin` in a Copilot CLI chat session to browse available plugins.
 
 ## Install a Plugin
 
-Choose **one** of the following plugins to install. Each command installs a
-different collection from the hve-core marketplace.
-
-For the core Research, Plan, Implement, Review lifecycle:
+Install `hve-core` from the registered marketplace through `/plugin`. The plugin includes the complete active HVE Core component set, including the Research, Plan, Implement, Review lifecycle.
 
 ```bash
 copilot plugin install hve-core@hve-core
 ```
 
-For the full bundle (includes everything in `hve-core` plus all additional
-collections):
-
-```bash
-copilot plugin install hve-core-all@hve-core
-```
-
-> [!TIP]
-> `hve-core-all` is a superset of `hve-core`. Install one or the other, not
-> both. If you are unsure which to pick, start with `hve-core-all` for the
-> complete experience.
-
-## Available Plugins
-
-| Plugin           | Description                                                                                                                                                               |
-|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| hve-core         | Research, Plan, Implement, Review lifecycle                                                                                                                               |
-| github           | GitHub issue management                                                                                                                                                   |
-| ado              | Azure DevOps integration                                                                                                                                                  |
-| coding-standards | Language-specific coding guidelines                                                                                                                                       |
-| project-planning | PRDs, BRDs, ADRs, architecture diagrams                                                                                                                                   |
-| data-science     | Data specs, notebooks, dashboards                                                                                                                                         |
-| design-thinking  | Design thinking coaching and methodology                                                                                                                                  |
-| security         | Security and incident response                                                                                                                                            |
-| installer        | Installer skill for guided workspace setup and MCP auto-configuration ([Extension](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-installer)) |
-| experimental     | Experimental and preview artifacts                                                                                                                                        |
-| hve-core-all     | Full HVE Core bundle                                                                                                                                                      |
+Use the [migration guide](../package-migration) if you previously registered or installed a retired package identity.
 
 ## Plugin Contents
 
@@ -74,11 +43,13 @@ Each plugin includes:
 |--------------|---------------|----------------------------------------------------|
 | Agents       | Yes           | Custom chat agents for specialized workflows       |
 | Commands     | Yes           | Task prompts accessible via the CLI                |
-| Skills       | Yes           | Self-contained skill packages (hve-core-all only)  |
+| Skills       | Yes           | Self-contained skill packages                      |
 | Instructions | No            | Included for `#file:` references, not auto-applied |
 
-Artifacts are symlinked from the plugin directory to the source repository,
-enabling zero-copy installation.
+Each plugin is a self-contained tree of regular files and real directories.
+Artifacts are copied from the source repository during generation, so a plugin
+installs the same way on every operating system and needs no symbolic link
+support.
 
 ## Limitations
 
@@ -116,21 +87,22 @@ After installing a plugin, agents and named commands are available in your CLI s
 
 CLI plugins provide two distinct interaction patterns:
 
-| Mode          | Command                  | Behavior                                                     |
-|---------------|--------------------------|--------------------------------------------------------------|
-| Named Command | `/git-commit`            | Executes a predefined workflow, then returns to default mode |
-| Agent Mode    | `/agent Task Researcher` | Switches to the agent for open-ended conversation            |
+| Mode          | Command            | Behavior                                                     |
+|---------------|--------------------|--------------------------------------------------------------|
+| Named Command | `/git-commit`      | Executes a predefined workflow, then returns to default mode |
+| Skill         | `/rpi-research`    | Activates one reusable RPI phase capability                  |
+| Agent Mode    | `/agent RPI Agent` | Switches to the coordinated RPI lifecycle                    |
 
 Named commands (prompts) run a specific workflow and produce structured output. Agent mode enables freeform conversation with a specialized agent until you exit.
 
 > [!IMPORTANT]
-> The CLI does not support prompts that switch to a custom agent directly.
-> Prompts like `/task-research` are designed to run within a specific agent
-> context. To use them, first switch to the agent, then run the prompt:
+> The CLI does not switch to a custom agent on behalf of an agent-bound
+> prompt. Select `RPI Agent` when you want lifecycle coordination, or invoke a
+> direct phase skill such as `/rpi-research`:
 >
 > ```text
-> /agent Task Researcher
-> /task-research topic="API authentication patterns"
+> /agent RPI Agent
+> Research API authentication patterns before deciding whether planning is ready.
 > ```
 >
 > Prompts that do not require an agent context (e.g., `/git-commit`,
@@ -138,40 +110,36 @@ Named commands (prompts) run a specific workflow and produce structured output. 
 
 ### Example: Research Workflow
 
-Switch to the agent first, then run the prompt:
+Invoke the Research phase skill directly:
 
 ```text
-> /agent Task Researcher
-Switched to Task Researcher
-> /task-research topic="API authentication patterns"
-[Agent executes research workflow, creates research document]
+> /rpi-research topic="API authentication patterns"
+[Skill executes the research workflow and creates a research document]
 ```
 
-Continue with follow-up questions in the same agent context:
+Continue with follow-up questions in the same session:
 
 ```text
 > What are common API authentication patterns for REST APIs?
 [Research conversation continues]
 > How do OAuth2 and API keys compare for microservices?
 [Follow-up within same agent context]
-> /exit
 ```
 
 ### Available Agents
 
 After installing the hve-core plugin, these agents are available via `/agent <name>`:
 
-* Task Researcher - deep research and technical investigation
-* Task Planner - implementation planning with phased execution
-* Task Implementor - code changes following plans
-* Memory - persistent context across sessions
+* RPI Agent - coordinates Research, Plan, Implement, Review, and Follow-up
+* Documentation - audits, authors, and validates documentation
 
 For the complete list, run `/help` in a CLI session to see all available commands and agents.
 
 ### When to Use Each Mode
 
 * Use **named commands** (`/git-commit-message`, `/git-merge`) directly from default mode for workflows that do not require a custom agent.
-* Use **agent mode** (`/agent <name>`) first, then run agent-specific prompts (`/task-research`, `/task-plan`) for structured workflows that need agent context.
+* Use direct skills (`/rpi-research`, `/rpi-plan`, `/rpi-implement`, `/rpi-review`) for one bounded RPI responsibility.
+* Use **agent mode** with `/agent RPI Agent` for lifecycle coordination.
 * Stay in **agent mode** for exploratory conversations, follow-up questions, or tasks that don't fit a predefined prompt.
 
 ---

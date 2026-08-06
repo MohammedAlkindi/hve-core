@@ -69,12 +69,15 @@ jobs:
           # @github/copilot-linuxmusl-arm64 and @github/copilot-linuxmusl-x64
           # added in v1.0.63) use a non-SPDX proprietary license
           # (LicenseRef-bad-see-license-in-license.md); it is GitHub's own
-          # CLI toolchain, deliberately used in beval.yml.
+          # CLI toolchain, pulled transitively via @github/copilot-sdk by the
+          # vally copilot-sdk executor used to run the eval suites.
           # pkg:npm/hve-core is the private root package (never published to npm).
           # pkg:pypi/certifi uses MPL-2.0 (Mozilla CA bundle).
           # pkg:pypi/charset-normalizer is MIT licensed but some older wheel
           # metadata declares a compound SPDX expression; the action treats
           # compound expressions as a mismatch against allow-licenses.
+          # pkg:pypi/tqdm reports MIT AND MPL-2.0 in the submitted moderation
+          # graph; the action treats the compound expression as a mismatch.
           # pkg:pypi/shapely declares a compound SPDX expression
           # (BSD-3-Clause AND LGPL-2.1-only); shapely's distributed code is
           # BSD-3-Clause and the LGPL component refers to bundled GEOS headers.
@@ -122,6 +125,7 @@ jobs:
             pkg:pypi/idna,
             pkg:pypi/safetensors,
             pkg:pypi/regex,
+            pkg:pypi/tqdm,
             pkg:npm/dompurify,
             pkg:npm/lunr-languages,
             pkg:npm/%40github/copilot,
