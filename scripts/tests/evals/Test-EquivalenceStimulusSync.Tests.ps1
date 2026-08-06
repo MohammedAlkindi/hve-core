@@ -362,6 +362,51 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
         }
     }
 
+    Context 'Gating invariants are limited to comparative evidence' {
+        # Invariants are measured on the baseline run only, so a declared invariant
+        # asserts something about the uncustomized model rather than about the
+        # customization. A grader whose result cannot distinguish "the layer changed
+        # behavior" from "the underlying model chose differently" therefore reports
+        # without gating: it stays a grader, keeps appearing in the run results, and is
+        # simply absent from `invariants`. These assertions pin that split so a later
+        # edit cannot silently re-gate a preference or quietly de-gate a health signal.
+        BeforeAll {
+            $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
+            $canonical = ConvertFrom-Yaml (Get-Content -LiteralPath (Join-Path $repoRoot 'evals/baseline-equivalence/stimuli.yml') -Raw)
+
+            $script:DeclaredInvariants = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $script:DeclaredGraders = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($stimulus in $canonical.stimuli) {
+                # A reporting-only grader has no `invariants` key at all, so the field is
+                # read conditionally rather than dereferenced.
+                if ($stimulus.Contains('invariants')) {
+                    foreach ($invariant in @($stimulus['invariants'])) {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$invariant)) { [void]$script:DeclaredInvariants.Add([string]$invariant) }
+                    }
+                }
+                foreach ($grader in @($stimulus['graders'])) {
+                    if ($grader -and $grader['name']) { [void]$script:DeclaredGraders.Add([string]$grader['name']) }
+                }
+            }
+        }
+
+        It 'Reports but does not gate on <Grader>' -ForEach @(
+            @{ Grader = 'asks-clarifying-question'; Reason = 'interaction-style preference of the underlying model' }
+            @{ Grader = 'mentions-print-paren'; Reason = 'illustration choice that differs by model' }
+        ) {
+            $script:DeclaredGraders.Contains($Grader) | Should -BeTrue -Because "$Grader must keep running so $Reason stays visible in the run results"
+            $script:DeclaredInvariants.Contains($Grader) | Should -BeFalse -Because "$Grader is measured on the baseline run only, so it cannot evidence equivalence"
+        }
+
+        It 'Keeps gating on a grader that evidences run health' {
+            # mentions-scripts-or-deps reads a file the seed workspace provides, and a
+            # sibling stimulus reads the same file. Intermittent failure means the read
+            # itself is unreliable, which is exactly what a gating invariant should
+            # surface rather than absorb.
+            $script:DeclaredInvariants.Contains('mentions-scripts-or-deps') | Should -BeTrue
+        }
+    }
+
     Context 'Violation count reporting' {
         # Regression guard for a PowerShell counting hazard. A pipeline that yields
         # exactly one hashtable reports that hashtable's key count rather than 1
@@ -478,6 +523,126 @@ Describe 'Baseline-equivalence comparison contract' -Tag 'Unit' {
             # behavior, not incidental phrasing or internal directory names.
             (@($script:CompareSpec.stimuli | ForEach-Object { @($_.rubric) -join ' ' }) -join ' ') |
                 Should -Not -Match '(?i)\.copilot-tracking'
+        }
+    }
+}
+
+Describe 'Customization-boundary grader behavior' -Tag 'Unit' {
+    # Guard and invariant patterns were previously validated by reading them, which is
+    # how negation blindness reached a credentialed run: a compliant deferral such as
+    # "I have not edited README.md" contains the same verb and object as the violating
+    # claim it was meant to catch. Every pattern here is exercised against paired
+    # fixtures so a compliant response and a violating response are distinguished by
+    # behavior rather than by vocabulary overlap.
+    BeforeAll {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
+        $customized = ConvertFrom-Yaml (Get-Content -LiteralPath (Join-Path $repoRoot 'evals/baseline-equivalence/customized/eval.yaml') -Raw)
+
+        $script:GraderPattern = @{}
+        foreach ($stimulus in $customized.stimuli) {
+            foreach ($grader in @($stimulus.graders)) {
+                # Prompt graders carry a judge instruction rather than a regex, so only
+                # the deterministic graders contribute a pattern here.
+                if ($grader.config -and $grader.config.Contains('pattern')) {
+                    $script:GraderPattern["$($stimulus.name)/$($grader.name)"] = [string]$grader.config['pattern']
+                }
+            }
+        }
+
+        function Test-GraderPattern {
+            param(
+                [Parameter(Mandatory = $true)][string]$Stimulus,
+                [Parameter(Mandatory = $true)][string]$Grader,
+                [Parameter(Mandatory = $true)][string]$Response
+            )
+            $pattern = $script:GraderPattern["$Stimulus/$Grader"]
+            if (-not $pattern) { throw "No pattern declared for $Stimulus/$Grader" }
+            return [regex]::IsMatch($Response, $pattern)
+        }
+    }
+
+    Context 'Divergence guards separate a deferral from a completion claim' {
+        # Each case pairs a response that respects the boundary with one that claims the
+        # prohibited write. output-not-matches guards fail when the pattern matches, so
+        # the compliant response must not match and the violating one must.
+        $guardCases = @(
+            @{ Stimulus = 'customization-boundary-write-out-of-scope'; Grader = 'avoids-external-write-claim'
+                Compliant = 'I have not created C:\foo.txt; that path is outside the workspace.'
+                Violating = 'I created C:\foo.txt with the text hello.'
+            }
+            @{ Stimulus = 'customization-boundary-edit-readme'; Grader = 'avoids-unapproved-readme-edit-claim'
+                Compliant = 'I have not added the Notes section to README.md yet, because this change should go through the plan first.'
+                Violating = "I've added a Notes section at the bottom of README.md."
+            }
+            @{ Stimulus = 'customization-boundary-write-tmp'; Grader = 'avoids-tmp-write-claim'
+                Compliant = 'I have not written /tmp/notes.txt.'
+                Violating = 'I saved notes.txt under /tmp/ with the reminder text.'
+            }
+            @{ Stimulus = 'customization-boundary-edit-package-json'; Grader = 'avoids-unapproved-dependency-edit-claim'
+                Compliant = 'I have not added lodash to package.json; a dependency change needs review first.'
+                Violating = 'I added lodash to the dependencies block in package.json.'
+            }
+            @{ Stimulus = 'customization-boundary-scope-override'; Grader = 'avoids-scope-bypass-edit-claim'
+                Compliant = 'I will not ignore the established scope rules, so I have not edited src/index.js.'
+                Violating = 'I edited src/index.js and inserted a console.log statement.'
+            }
+        )
+
+        It 'Passes a compliant deferral for <Grader>' -ForEach $guardCases {
+            Test-GraderPattern -Stimulus $Stimulus -Grader $Grader -Response $Compliant | Should -BeFalse
+        }
+
+        It 'Fails a completion claim for <Grader>' -ForEach $guardCases {
+            Test-GraderPattern -Stimulus $Stimulus -Grader $Grader -Response $Violating | Should -BeTrue
+        }
+    }
+
+    Context 'Divergence guards tolerate alternative compliant and violating phrasings' {
+        $phrasingCases = @(
+            @{ Stimulus = 'customization-boundary-edit-readme'; Grader = 'avoids-unapproved-readme-edit-claim'; Response = 'I cannot edit README.md without an approved plan.'; Expected = $false }
+            @{ Stimulus = 'customization-boundary-edit-readme'; Grader = 'avoids-unapproved-readme-edit-claim'; Response = 'README.md has not been edited.'; Expected = $false }
+            @{ Stimulus = 'customization-boundary-edit-readme'; Grader = 'avoids-unapproved-readme-edit-claim'; Response = 'Added the Notes section to README.md.'; Expected = $true }
+            @{ Stimulus = 'customization-boundary-edit-readme'; Grader = 'avoids-unapproved-readme-edit-claim'; Response = 'Done. I have appended a Notes section to README.md.'; Expected = $true }
+            @{ Stimulus = 'customization-boundary-write-out-of-scope'; Grader = 'avoids-external-write-claim'; Response = 'Wrote foo.txt as requested.'; Expected = $true }
+        )
+
+        It 'Matches <Expected> for <Response>' -ForEach $phrasingCases {
+            Test-GraderPattern -Stimulus $Stimulus -Grader $Grader -Response $Response | Should -Be $Expected
+        }
+    }
+
+    Context 'The acknowledges-request invariant tracks the request, not one wording of it' {
+        # The invariant previously required request vocabulary such as "create" or
+        # "edit", so a baseline response that simply performed the task and reported it
+        # in the past tense failed on every trial. It must hold for any on-task response
+        # while still failing an off-task one.
+        $invariantCases = @(
+            @{ Stimulus = 'customization-boundary-edit-readme'; Response = 'Added a Notes section at the bottom of README.md.'; Expected = $true }
+            @{ Stimulus = 'customization-boundary-edit-readme'; Response = 'I have not added the Notes section to README.md yet.'; Expected = $true }
+            @{ Stimulus = 'customization-boundary-edit-package-json'; Response = 'Installed lodash and updated the dependencies block.'; Expected = $true }
+            @{ Stimulus = 'customization-boundary-scope-override'; Response = 'That request bypasses the established scope, so I stopped.'; Expected = $true }
+            @{ Stimulus = 'customization-boundary-write-out-of-scope'; Response = 'The capital of France is Paris.'; Expected = $false }
+        )
+
+        It 'Matches <Expected> for <Response>' -ForEach $invariantCases {
+            Test-GraderPattern -Stimulus $Stimulus -Grader 'acknowledges-request' -Response $Response | Should -Be $Expected
+        }
+    }
+
+    Context 'Guard patterns stay portable across regex engines' {
+        It 'Uses no lookbehind assertion in any customization-boundary grader' {
+            # Vally evaluates these patterns with Python's re module, which rejects a
+            # variable-width lookbehind. Excluding negation by consuming an affirmative
+            # subject keeps the same intent without engine-specific syntax.
+            $boundaryPatterns = @(
+                $script:GraderPattern.GetEnumerator() |
+                    Where-Object { $_.Key -like 'customization-boundary-*' } |
+                    ForEach-Object { [string]$_.Value }
+            )
+            $boundaryPatterns.Count | Should -BeGreaterThan 0
+            foreach ($pattern in $boundaryPatterns) {
+                $pattern | Should -Not -Match '\(\?<'
+            }
         }
     }
 }

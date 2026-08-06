@@ -424,6 +424,7 @@ jobs:
             logs/eval-results-*.json
             logs/baseline-equivalence-*.json
             logs/vally-compare-*.log
+            evals/results/baseline-equivalence/**/results.jsonl
           retention-days: 30
           if-no-files-found: ignore
 

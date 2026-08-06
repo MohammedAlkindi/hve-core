@@ -885,7 +885,6 @@ if ($MyInvocation.InvocationName -ne '.') {
             foreach ($diagnostic in @($baselineTally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
 
             $codeB = Invoke-VallyCommand -Arguments $evalCustomized
-            if ($codeB -ne 0) { $runHealthFailures++ }
 
             $aRunDir = $baselineRunDir
             $bRunDir = Resolve-LatestRunDir -OutputDir $bDir
@@ -922,6 +921,15 @@ if ($MyInvocation.InvocationName -ne '.') {
             }
             else {
                 Write-Host "   Divergence guards: no signal from the customized run" -ForegroundColor Yellow
+                # A nonzero exit is only run-health evidence when no guard signal
+                # survived. `vally eval` exits nonzero whenever any grader on any trial
+                # fails, and those failures are already counted precisely as invariant
+                # and guard failures. Counting the exit code as well would make
+                # runHealthFailures nonzero on every run that has a single expected
+                # grader failure, so the equivalence gate could never report pass. The
+                # baseline path already treats its exit code this way; this keeps the
+                # customized path symmetric.
+                if ($codeB -ne 0) { $runHealthFailures++ }
             }
             # Guard coverage is reconciled the same way as invariants. One passing guard
             # elsewhere must not stand in for a stimulus whose guard never produced a

@@ -497,6 +497,97 @@ stimuli:
     }
 }
 
+Describe 'Customized run exit code and guard signal' -Tag 'Unit' {
+    # `vally eval` exits nonzero whenever any grader on any trial fails, and those
+    # failures are already counted precisely as invariant and guard failures. Counting
+    # the exit code as run health too made runHealthFailures nonzero on every real run,
+    # so the equivalence gate could never report pass no matter how the guards behaved.
+    # The exit code is run-health evidence only when no guard signal survived.
+    BeforeEach {
+        $script:GuardRepoRoot = Join-Path $TestDrive 'guard-repo'
+        $guardRoot = Join-Path $script:GuardRepoRoot 'evals/baseline-equivalence'
+        New-Item -ItemType Directory -Path (Join-Path $guardRoot 'customized/workspace') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:GuardRepoRoot '.github/skills') -Force | Out-Null
+        $agentsDir = Join-Path $script:GuardRepoRoot '.github/agents/hve-core'
+        New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $agentsDir 'rpi-agent.agent.md') -Encoding UTF8 -Value "---`nname: RPI Agent`n---`n`nStub agent."
+        New-Item -ItemType Directory -Path (Join-Path $guardRoot 'seed-workspace') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $guardRoot 'seed-workspace/README.md') -Encoding UTF8 -Value '# seed'
+
+        Set-Content -LiteralPath (Join-Path $guardRoot 'compare.eval.yml') -Encoding UTF8 -Value @'
+name: stub-compare
+type: capability
+stimuli:
+  - name: guarded-stimulus
+    prompt: "Stub prompt."
+    tags: {category: baseline-equivalence, policy: documented-divergence}
+    rubric:
+      - Score the customized variant higher on documented divergence; score a tie otherwise.
+'@
+
+        # One stimulus declaring one invariant and one guard, both of which the stub
+        # reports as passing. Any residual failure therefore comes from the exit code.
+        Set-Content -LiteralPath (Join-Path $guardRoot 'stimuli.yml') -Encoding UTF8 -Value @'
+name: stub-stimuli
+stimuli:
+  - name: guarded-stimulus
+    prompt: "Stub prompt."
+    invariants: [stub-invariant]
+    customized_required: [stub-guard]
+    tags: {category: baseline-equivalence, policy: documented-divergence}
+'@
+
+        $script:GuardOutputPath = Join-Path $script:GuardRepoRoot 'logs/summary.json'
+        Set-Alias -Name vally -Value (Join-Path $PSScriptRoot 'fixtures/stub-vally.ps1') -Scope Global
+        $env:STUB_VALLY_MODE = 'graded-nonzero'
+        $env:STUB_VALLY_COMPARE_MODE = 'pass'
+        $env:STUB_VALLY_GRADED_STIMULUS = 'guarded-stimulus'
+        $env:STUB_VALLY_GRADED_PASSING = 'stub-invariant,stub-guard'
+    }
+
+    AfterEach {
+        Remove-Item Alias:vally -Force -ErrorAction SilentlyContinue
+        Remove-Item Env:STUB_VALLY_MODE, Env:STUB_VALLY_COMPARE_MODE, Env:STUB_VALLY_GRADED_STIMULUS, Env:STUB_VALLY_GRADED_PASSING -ErrorAction SilentlyContinue
+    }
+
+    It 'Does not count a nonzero customized exit as run health when guards reported' {
+        & $script:ScriptPath `
+            -Agent 'rpi-agent' `
+            -Tier 'ci' `
+            -RepoRoot $script:GuardRepoRoot `
+            -OutputPath $script:GuardOutputPath `
+            -NoBaselineCache *> $null
+
+        $summary = Get-Content -LiteralPath $script:GuardOutputPath -Raw | ConvertFrom-Json
+        $summary.runHealthFailures | Should -Be 0
+        $summary.divergenceGuardFailures | Should -Be 0
+        $summary.divergenceGuardsEvaluated | Should -BeGreaterThan 0
+    }
+
+    It 'Still counts a nonzero customized exit as run health when no guard reported' {
+        # Removing the guard declaration leaves the gate with no signal, so the exit
+        # code is the only remaining evidence about the run and must be honored.
+        Set-Content -LiteralPath (Join-Path $script:GuardRepoRoot 'evals/baseline-equivalence/stimuli.yml') -Encoding UTF8 -Value @'
+name: stub-stimuli
+stimuli:
+  - name: guarded-stimulus
+    prompt: "Stub prompt."
+    invariants: [stub-invariant]
+    tags: {category: baseline-equivalence, policy: equivalent}
+'@
+
+        & $script:ScriptPath `
+            -Agent 'rpi-agent' `
+            -Tier 'ci' `
+            -RepoRoot $script:GuardRepoRoot `
+            -OutputPath $script:GuardOutputPath `
+            -NoBaselineCache *> $null
+
+        $summary = Get-Content -LiteralPath $script:GuardOutputPath -Raw | ConvertFrom-Json
+        $summary.runHealthFailures | Should -BeGreaterThan 0
+    }
+}
+
 Describe 'Get-InvariantFailureCount' -Tag 'Unit' {
     BeforeAll {
         . $script:ScriptPath

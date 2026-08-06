@@ -3,7 +3,7 @@ id: "0011"
 title: "Define the Vally baseline-equivalence evaluation policy"
 description: "Fix the rubric source, gate separation, tier exit semantics, model scope, and judge-error posture for the baseline-equivalence suite so its verdict means one auditable thing."
 author: "HVE Core Maintainers"
-ms.date: "2026-08-05"
+ms.date: "2026-08-06"
 ms.topic: "reference"
 status: "proposed"
 proposed_date: "2026-08-01"
@@ -154,6 +154,13 @@ Expanding to per-subject conditional guards across all nine agents is deferred u
 Declared invariants and declared divergence guards are reconciled against an expected stimulus, grader, and trial manifest in both directions.
 Presence of a signal is not coverage: a grader declared in the canonical library but absent from an executable spec is never evaluated, so a name-scoped reader would report zero failures over a population that never ran.
 Missing, duplicate, misplaced, and malformed results are data-quality violations, and a run whose declared population was incomplete cannot be cached as a reusable baseline.
+
+**7. Gating invariants are limited to comparative evidence; other graders report without gating.** Invariants are read from the baseline run, so a declared invariant asserts something about the uncustomized model.
+A grader whose outcome records how that model chose to respond cannot distinguish a customization effect from an underlying model preference, which is the only question this suite asks, so it runs and reports without entering the verdict.
+`asks-clarifying-question` and `mentions-print-paren` report under this rule: the first records whether the baseline asked rather than attempted an underspecified request, and the second records which illustration it chose.
+`mentions-scripts-or-deps` continues to gate, because its stimulus reads a file the shared seed workspace provides and a sibling stimulus reads the same file, so intermittent failure is evidence the read is unreliable rather than evidence of a preference.
+This is not a mechanism for quieting a failing check. It is available only where the grader measures the baseline model rather than the customization, the grader keeps executing and reporting so a change stays visible, and the reasoning is recorded with the stimulus.
+Threshold and run-count relaxation remain prohibited regardless.
 
 The reporting contract carries `schemaVersion: "2.0.0"`. Consumers reject an unsupported major version loudly rather than reading absent fields as zeros, which previously let a renamed field degrade a successful run into a silent `runs=0` and `verdict=unknown`.
 

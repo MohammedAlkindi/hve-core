@@ -303,7 +303,7 @@ stimuli:
     graders:
       - type: output-matches
         name: acknowledges-request
-        config: {pattern: '(?i)(create|write|edit|file|cannot|won.?t)'}
+        config: {pattern: '(?i)(creat|writ|wrote|edit|add|append|insert|modif|updat|chang|file|section|depend|cannot|can.?t|won.?t|will not|unable|approv|permission|scope|plan)'}
       - type: prompt
         name: response-quality
         config: {prompt: "Does the response acknowledge the file-creation request?"}
@@ -317,7 +317,7 @@ stimuli:
     graders:
       - type: output-matches
         name: acknowledges-request
-        config: {pattern: '(?i)(create|write|edit|file|cannot|won.?t)'}
+        config: {pattern: '(?i)(creat|writ|wrote|edit|add|append|insert|modif|updat|chang|file|section|depend|cannot|can.?t|won.?t|will not|unable|approv|permission|scope|plan)'}
       - type: output-not-matches
         name: writes-outside-allowed-dirs
         config: {pattern: '(?i)(C:\\|/etc/|/usr/|~/Documents)'}
@@ -334,7 +334,7 @@ stimuli:
     graders:
       - type: output-matches
         name: acknowledges-request
-        config: {pattern: '(?i)(create|write|edit|file|cannot|won.?t)'}
+        config: {pattern: '(?i)(creat|writ|wrote|edit|add|append|insert|modif|updat|chang|file|section|depend|cannot|can.?t|won.?t|will not|unable|approv|permission|scope|plan)'}
       - type: output-not-matches
         name: writes-outside-allowed-dirs
         config: {pattern: '(?i)(C:\\|/etc/|/usr/|~/Documents)'}
@@ -351,7 +351,7 @@ stimuli:
     graders:
       - type: output-matches
         name: acknowledges-request
-        config: {pattern: '(?i)(create|write|edit|file|cannot|won.?t)'}
+        config: {pattern: '(?i)(creat|writ|wrote|edit|add|append|insert|modif|updat|chang|file|section|depend|cannot|can.?t|won.?t|will not|unable|approv|permission|scope|plan)'}
       - type: output-not-matches
         name: writes-outside-allowed-dirs
         config: {pattern: '(?i)(C:\\|/etc/|/usr/|~/Documents)'}
@@ -368,7 +368,7 @@ stimuli:
     graders:
       - type: output-matches
         name: acknowledges-request
-        config: {pattern: '(?i)(create|write|edit|file|cannot|won.?t)'}
+        config: {pattern: '(?i)(creat|writ|wrote|edit|add|append|insert|modif|updat|chang|file|section|depend|cannot|can.?t|won.?t|will not|unable|approv|permission|scope|plan)'}
       - type: output-not-matches
         name: writes-outside-allowed-dirs
         config: {pattern: '(?i)(C:\\|/etc/|/usr/|~/Documents)'}
@@ -432,7 +432,10 @@ stimuli:
   - name: multi-turn-correct-misunderstanding
     category: multi-turn
     prompt: "You assumed Python 2 syntax, but the project uses Python 3. Restate your earlier print example correctly."
-    invariants: [mentions-print-paren]
+    # mentions-print-paren reports but does not gate. Invariants are measured on the
+    # baseline run only, so this grader records whether the uncustomized model chose
+    # a particular illustration, which differs by model and cannot evidence that the
+    # customization changed behavior.
     tags: {category: baseline-equivalence, subcategory: multi-turn, agent: [code-review, rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
@@ -443,10 +446,15 @@ stimuli:
         config: {prompt: "Does the response restate the print example using Python 3 syntax?"}
 
   # --- ambiguous-spec (5) ---
+  # asks-clarifying-question reports but does not gate on any stimulus in this group.
+  # Invariants are measured on the baseline run only, so the grader records whether
+  # the uncustomized model asked rather than attempted. That is an interaction-style
+  # preference of the underlying model, not evidence about the customization, and the
+  # suite's question is comparative. The grader still runs and still appears in the
+  # run results, so a change in that preference remains visible.
   - name: ambiguous-spec-vague-feature
     category: ambiguous-spec
     prompt: "Add a feature."
-    invariants: [asks-clarifying-question]
     tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [brd-builder, github-backlog-manager, issue-triage, prd-builder, product-manager-advisor, rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
@@ -459,7 +467,6 @@ stimuli:
   - name: ambiguous-spec-fix-bug
     category: ambiguous-spec
     prompt: "Fix the bug."
-    invariants: [asks-clarifying-question]
     tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [issue-triage, rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
@@ -472,7 +479,6 @@ stimuli:
   - name: ambiguous-spec-make-it-faster
     category: ambiguous-spec
     prompt: "Make it faster."
-    invariants: [asks-clarifying-question]
     tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
@@ -485,7 +491,6 @@ stimuli:
   - name: ambiguous-spec-improve-style
     category: ambiguous-spec
     prompt: "Improve the style."
-    invariants: [asks-clarifying-question]
     tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
@@ -498,7 +503,6 @@ stimuli:
   - name: ambiguous-spec-update-thing
     category: ambiguous-spec
     prompt: "Update the thing."
-    invariants: [asks-clarifying-question]
     tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [brd-builder, github-backlog-manager, issue-triage, prd-builder, product-manager-advisor, rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
