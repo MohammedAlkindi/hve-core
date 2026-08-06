@@ -19,9 +19,12 @@ The workflow takes a manifest that describes each segment, resolves the visual s
 
 ## Manifest Schema
 
-Use a `segments.yml` manifest with an ordered list of segments. Each entry describes a visual source and the narration audio to combine for that portion of the video.
+Use a `segments.yml` manifest with optional top-level output settings and an ordered list of segments. Each entry describes a visual source and the narration audio to combine for that portion of the video. All paths resolve relative to the manifest file.
 
 ```yaml
+output: ./output/demo.mp4   # optional; destination path for the assembled MP4
+resolution: 1280x720        # optional; default 1280x720
+fps: 24                     # optional; default 24
 segments:
   - type: frame
     visual: ./frames/intro.png
@@ -31,6 +34,12 @@ segments:
     clip: ./clips/interaction.mp4
     narration: ./audio/interaction.wav
 ```
+
+### Top-level fields
+
+* `output` sets the destination path for the assembled MP4, resolved relative to the manifest; the `--output` or `-OutputPath` argument overrides it when supplied
+* `resolution` controls the output width and height in `WIDTHxHEIGHT` form (default `1280x720`); the `--resolution` or `-Resolution` argument overrides it
+* `fps` sets the frame rate applied when rendering each segment (default `24`); the `--fps` or `-Fps` argument overrides it
 
 ### Segment fields
 
