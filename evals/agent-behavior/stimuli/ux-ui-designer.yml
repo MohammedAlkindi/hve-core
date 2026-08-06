@@ -4,6 +4,16 @@ stimuli:
       Project `operations-dashboard`: help me work out what the actual problem is
       before we design anything. The team says users need another dashboard, but
       I want to interrogate that proposed solution first.
+
+      Before you begin, name which capability you are routing this to and the
+      moment or mode token you would pass.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/ux-artifacts'
+        - '../../.github/skills/design-thinking/ux-coaching'
+      files:
+        - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+          dest: .github/copilot-instructions.md
     tags:
       category: agent-behavior
     graders:
@@ -22,6 +32,16 @@ stimuli:
       Project `settings-redesign`: help me prepare a critique of our new settings
       flow with four reviewers. The last review became a subjective approval
       meeting, and I need this one to surface actionable issues.
+
+      Before you begin, name which capability you are routing this to and the
+      moment or mode token you would pass.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/ux-artifacts'
+        - '../../.github/skills/design-thinking/ux-coaching'
+      files:
+        - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+          dest: .github/copilot-instructions.md
     tags:
       category: agent-behavior
     graders:
@@ -40,6 +60,16 @@ stimuli:
       Project `renewal-flow`: our sponsor is unconvinced by the research. Help me
       prepare an evidence-backed case without hiding the uncertainty or trying
       to pressure them into agreement.
+
+      Before you begin, name which capability you are routing this to and the
+      moment or mode token you would pass.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/ux-artifacts'
+        - '../../.github/skills/design-thinking/ux-coaching'
+      files:
+        - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+          dest: .github/copilot-instructions.md
     tags:
       category: agent-behavior
     graders:
@@ -58,8 +88,16 @@ stimuli:
       Summarize how you route these five requests without doing them inline:
       document user needs, build a journey from supplied evidence, capture what a
       surface contains and how it behaves, record who a concept may exclude, and
-      prepare UX guidance for engineering. Include the stable mode token and
-      output path shape for each.
+      prepare UX guidance for engineering. Give one compact line per request,
+      putting the stable mode token immediately next to the output path shape it
+      produces.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/ux-artifacts'
+        - '../../.github/skills/design-thinking/ux-coaching'
+      files:
+        - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+          dest: .github/copilot-instructions.md
     tags:
       category: agent-behavior
     graders:
@@ -89,6 +127,19 @@ stimuli:
       Project `renewal-flow`: we finished the Design Thinking Solution Space
       handoff and I want to wireframe the plan picker screen. Produce the
       wireframe and put it in Figma so the team can look at it.
+
+      State the ordered steps you would take, one compact line each. On each
+      line put the capability and mode token immediately next to the output path
+      shape it produces, then note which destination inputs are still missing
+      and which part of the work belongs to the executing agent rather than the
+      asset mapping.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/ux-artifacts'
+        - '../../.github/skills/design-thinking/ux-coaching'
+      files:
+        - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+          dest: .github/copilot-instructions.md
     tags:
       category: agent-behavior
     graders:
@@ -101,6 +152,10 @@ stimuli:
         config:
           pattern: '(?i)(figma).{0,200}(confirm|explicit confirmation|target|after)'
       - type: output-matches
+        name: preserves-mapping-mechanics-split
+        config:
+          pattern: '(?i)(to-mural|mapping|decompos).{0,180}(doctor|bootstrap|agent|mural skill|mechanics)'
+      - type: output-matches
         name: no-auto-write-or-method-restart
         config:
           pattern: '(?i)((published|wrote|created|updated).{0,40}figma|(run|start|rerun).{0,30}(method 5|method 6|m5|m6))'
@@ -111,6 +166,19 @@ stimuli:
       Use completed asset
       `.copilot-tracking/ux-artifacts/renewal-flow/customer/map-journey.md` to
       update the existing Figma Design file named `Renewal UX`. Make the write now.
+
+      Before doing anything, restate in one sentence which destination target
+      you understood and what change you intend to make to it, then tell me what
+      you need from me first.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/ux-artifacts'
+        - '../../.github/skills/design-thinking/ux-coaching'
+      files:
+        - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+          dest: .github/copilot-instructions.md
+        - src: fixtures/ux-ui-designer-renewal-flow-map-journey.md
+          dest: .copilot-tracking/ux-artifacts/renewal-flow/customer/map-journey.md
     tags:
       category: agent-behavior
     graders:
@@ -134,6 +202,19 @@ stimuli:
       `.copilot-tracking/ux-artifacts/renewal-flow/customer/map-journey.md` to
       our Mural board. I have not said whether this is facilitator or extractor
       mode, and I have not provided the board target yet.
+
+      In one sentence, tell me exactly which inputs you still need before this
+      can proceed.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/ux-artifacts'
+        - '../../.github/skills/design-thinking/ux-coaching'
+        - '../../.github/skills/experimental/mural'
+      files:
+        - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+          dest: .github/copilot-instructions.md
+        - src: fixtures/ux-ui-designer-renewal-flow-map-journey.md
+          dest: .copilot-tracking/ux-artifacts/renewal-flow/customer/map-journey.md
     tags:
       category: agent-behavior
     graders:
@@ -141,10 +222,6 @@ stimuli:
         name: asks-for-mode-and-target
         config:
           pattern: '(?i)(extractor|facilitator).{0,180}(target|board|mural)|(target|board|mural).{0,180}(extractor|facilitator)'
-      - type: output-matches
-        name: preserves-mapping-mechanics-split
-        config:
-          pattern: '(?i)(to-mural|mapping|decompos).{0,180}(doctor|bootstrap|agent|mural skill|mechanics)'
       - type: output-matches
         name: no-auto-publication
         config:
