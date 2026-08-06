@@ -1,6 +1,6 @@
 {
   "name": "data-science",
-  "description": "Evaluation dataset creation, data specification generation, Jupyter notebooks, and Streamlit dashboards",
+  "description": "Persistent data-workstream coaching with routed catalog, feasibility, DataOps, experimentation, analysis-authoring, and AI-evaluation-design capabilities",
   "version": "3.3.101",
   "agents": [
     "agents/data-science/",
@@ -14,8 +14,10 @@
   ],
   "skills": [
     "skills/data-science/",
+    "skills/hve-core/",
     "skills/project-planning/",
     "skills/rai/",
-    "skills/rpi/"
+    "skills/rpi/",
+    "skills/shared/"
   ]
 }
