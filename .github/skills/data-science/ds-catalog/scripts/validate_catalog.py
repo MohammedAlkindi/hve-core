@@ -10,8 +10,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
+import math
+import re
 import sys
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -22,21 +26,48 @@ EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_ERROR = 2
 
+# Operational bound checked before any catalog content is read.
+MAX_INPUT_BYTES = 5 * 1024 * 1024
+MERGE_TAG = "tag:yaml.org,2002:merge"
+RFC3339_DATE_TIME_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
+
+# Three-colour depth-first search states used for lineage cycle detection.
+_WHITE = 0
+_GREY = 1
+_BLACK = 2
+
 
 class CatalogValidationError(ValueError):
     """Raised when a catalog violates the DS_CATALOG_V1 contract."""
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
-    """YAML loader that rejects duplicate mapping keys."""
+    """Loader rejecting aliases, anchors, tags, merge keys, and duplicate keys."""
+
+    def compose_node(
+        self, parent: yaml.nodes.Node | None, index: Any
+    ) -> yaml.nodes.Node:
+        """Reject alias, anchor, and explicit-tag events before composition."""
+        event = self.peek_event()
+        if isinstance(event, yaml.AliasEvent):
+            raise CatalogValidationError("YAML aliases are not permitted")
+        if getattr(event, "anchor", None) is not None:
+            raise CatalogValidationError("YAML anchors are not permitted")
+        if getattr(event, "tag", None) is not None:
+            raise CatalogValidationError("YAML explicit tags are not permitted")
+        return super().compose_node(parent, index)
 
 
 def _construct_unique_mapping(
     loader: UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
 ) -> dict[str, Any]:
-    """Construct a mapping while rejecting duplicate keys."""
+    """Construct a mapping while rejecting merge keys and duplicate keys."""
     mapping: dict[str, Any] = {}
     for key_node, value_node in node.value:
+        if key_node.tag == MERGE_TAG:
+            raise CatalogValidationError("YAML merge keys are not permitted")
         key = loader.construct_object(key_node, deep=deep)
         if not isinstance(key, str):
             raise CatalogValidationError("YAML keys must be strings")
@@ -46,9 +77,104 @@ def _construct_unique_mapping(
     return mapping
 
 
+def _reject_tagged_node(
+    loader: UniqueKeyLoader, tag_suffix: str, node: yaml.nodes.Node
+) -> Any:
+    """Reject any node carrying a tag without a registered safe constructor."""
+    raise CatalogValidationError("YAML explicit tags are not permitted")
+
+
 UniqueKeyLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
 )
+UniqueKeyLoader.add_multi_constructor("", _reject_tagged_node)
+
+
+def _sanitize_yaml_error(error: yaml.YAMLError) -> str:
+    """Describe a YAML failure by position only, never by source content."""
+    mark = getattr(error, "problem_mark", None) or getattr(error, "context_mark", None)
+    if mark is None:
+        return f"invalid YAML ({type(error).__name__})"
+    return (
+        f"invalid YAML ({type(error).__name__}) at line {mark.line + 1} "
+        f"column {mark.column + 1}"
+    )
+
+
+def _skill_root() -> Path:
+    """Return the skill root that owns the bundled schema."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_input_path(path: Path, allowed_roots: Sequence[Path]) -> Path:
+    """Return a resolved input path contained by one permitted root."""
+    segments = str(path).replace("\\", "/").split("/")
+    if any(segment == ".." for segment in segments):
+        raise CatalogValidationError("input path cannot contain '..' segments")
+    resolved = path.resolve()
+    for root in allowed_roots:
+        if resolved.is_relative_to(root.resolve()):
+            return resolved
+    raise CatalogValidationError("input path resolves outside the permitted roots")
+
+
+def read_catalog_text(path: Path, allowed_roots: Sequence[Path] | None = None) -> str:
+    """Read a size-bounded catalog file from a permitted root."""
+    roots = tuple(allowed_roots) if allowed_roots else (Path.cwd(), _skill_root())
+    resolved = _resolve_input_path(path, roots)
+    if resolved.stat().st_size > MAX_INPUT_BYTES:
+        raise CatalogValidationError(
+            f"catalog exceeds the {MAX_INPUT_BYTES} byte input limit"
+        )
+    return resolved.read_text(encoding="utf-8")
+
+
+def _assert_json_compatible(value: Any, path: str = "$") -> None:
+    """Reject YAML-native values outside the JSON data model."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            raise CatalogValidationError(f"{path} must be a finite number")
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _assert_json_compatible(item, f"{path}[{index}]")
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise CatalogValidationError(f"{path} has a non-string key")
+            _assert_json_compatible(item, f"{path}.{key}")
+        return
+    if isinstance(value, dt.date):
+        raise CatalogValidationError(f"{path} timestamp must be a quoted string")
+    raise CatalogValidationError(
+        f"{path} contains non-JSON YAML value {type(value).__name__}"
+    )
+
+
+def _is_rfc3339_date_time(value: Any) -> bool:
+    """Return True when a string value is a strict RFC 3339 timestamp."""
+    if not isinstance(value, str):
+        return True
+    if RFC3339_DATE_TIME_PATTERN.match(value) is None:
+        return False
+    normalized = f"{value[:-1]}+00:00" if value[-1] in "Zz" else value
+    try:
+        dt.datetime.fromisoformat(normalized)
+    except ValueError:
+        return False
+    return True
+
+
+def build_format_checker() -> FormatChecker:
+    """Return a format checker restricted to RFC 3339 date-time."""
+    if "date-time" in FormatChecker.checkers:
+        return FormatChecker(formats=["date-time"])
+    checker = FormatChecker(formats=[])
+    checker.checks("date-time")(_is_rfc3339_date_time)
+    return checker
 
 
 def extract_frontmatter(markdown: str) -> str:
@@ -64,13 +190,14 @@ def extract_frontmatter(markdown: str) -> str:
 
 
 def parse_catalog(markdown: str) -> dict[str, Any]:
-    """Parse catalog frontmatter with duplicate-key protection."""
+    """Parse catalog frontmatter under the constrained loader."""
     try:
         parsed = yaml.load(extract_frontmatter(markdown), Loader=UniqueKeyLoader)
     except yaml.YAMLError as error:
-        raise CatalogValidationError(f"invalid YAML: {error}") from error
+        raise CatalogValidationError(_sanitize_yaml_error(error)) from error
     if not isinstance(parsed, dict):
         raise CatalogValidationError("catalog frontmatter must be an object")
+    _assert_json_compatible(parsed)
     return parsed
 
 
@@ -80,9 +207,48 @@ def load_schema(skill_root: Path) -> dict[str, Any]:
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
+def lineage_cycle_ids(entities: list[dict[str, Any]]) -> list[str]:
+    """Return entity IDs on a lineage cycle using a three-colour search.
+
+    Runs in O(V+E). A grey node reached again is a back edge, so every entity
+    on the current path from that node onward participates in a cycle.
+    """
+    graph = {
+        entity["id"]: list(entity["lineage"]["derived_from"]) for entity in entities
+    }
+    colour = dict.fromkeys(graph, _WHITE)
+    on_cycle: set[str] = set()
+
+    for root in graph:
+        if colour[root] != _WHITE:
+            continue
+        colour[root] = _GREY
+        path = [root]
+        stack: list[tuple[str, Iterator[str]]] = [(root, iter(graph[root]))]
+        while stack:
+            node, children = stack[-1]
+            descended = False
+            for child in children:
+                if child not in colour:
+                    continue
+                if colour[child] == _GREY:
+                    on_cycle.update(path[path.index(child) :])
+                elif colour[child] == _WHITE:
+                    colour[child] = _GREY
+                    path.append(child)
+                    stack.append((child, iter(graph[child])))
+                    descended = True
+                    break
+            if not descended:
+                colour[node] = _BLACK
+                path.pop()
+                stack.pop()
+    return sorted(on_cycle)
+
+
 def validate_catalog(data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
     """Return structural and semantic catalog errors."""
-    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    validator = Draft202012Validator(schema, format_checker=build_format_checker())
     errors = [error.message for error in sorted(validator.iter_errors(data), key=str)]
     if errors:
         return errors
@@ -106,6 +272,10 @@ def validate_catalog(data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
                 )
         if entity["id"] in entity["lineage"]["derived_from"]:
             errors.append(f"entity {entity['id']} cannot derive from itself")
+
+    cycles = lineage_cycle_ids(entities)
+    if cycles:
+        errors.append("entity lineage is cyclic: " + ", ".join(cycles))
 
     for relationship in relationships:
         for endpoint in ("from", "to"):
@@ -144,12 +314,10 @@ def validate_catalog(data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
         ),
         "entities_classified": classified,
         "relationships_confirmed": sum(
-            relationship["confidence"] == "confirmed"
-            for relationship in relationships
+            relationship["confidence"] == "confirmed" for relationship in relationships
         ),
         "relationships_inferred": sum(
-            relationship["confidence"] == "inferred"
-            for relationship in relationships
+            relationship["confidence"] == "inferred" for relationship in relationships
         ),
     }
     for field, expected_value in expected.items():
@@ -167,17 +335,21 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(catalog_path: Path) -> int:
-    """Validate one catalog and print a JSON result."""
-    skill_root = Path(__file__).resolve().parent.parent
+def run(catalog_path: Path, allowed_roots: Sequence[Path] | None = None) -> int:
+    """Validate one catalog and print a JSON result.
+
+    Operational failures report on stderr with EXIT_ERROR. Validation failures
+    report on stdout with EXIT_FAILURE.
+    """
     try:
-        markdown = catalog_path.read_text(encoding="utf-8")
+        markdown = read_catalog_text(catalog_path, allowed_roots)
         data = parse_catalog(markdown)
-        errors = validate_catalog(data, load_schema(skill_root))
+        schema = load_schema(_skill_root())
     except (OSError, CatalogValidationError, json.JSONDecodeError) as error:
-        print(json.dumps({"valid": False, "errors": [str(error)]}, indent=2))
+        print(f"validate_catalog: {error}", file=sys.stderr)
         return EXIT_ERROR
 
+    errors = validate_catalog(data, schema)
     print(json.dumps({"valid": not errors, "errors": errors}, indent=2))
     return EXIT_FAILURE if errors else EXIT_SUCCESS
 

@@ -8,8 +8,10 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import re
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -22,17 +24,24 @@ EXIT_ERROR = 2
 BEGIN_MARKER = "<!-- BEGIN FEASIBILITY-STUDY-INTERCHANGE -->"
 END_MARKER = "<!-- END FEASIBILITY-STUDY-INTERCHANGE -->"
 BLOCK_PATTERN = re.compile(
-    re.escape(BEGIN_MARKER)
-    + r"\s*```yaml\s*(.*?)\s*```\s*"
-    + re.escape(END_MARKER),
+    re.escape(BEGIN_MARKER) + r"\s*```yaml\s*(.*?)\s*```\s*" + re.escape(END_MARKER),
     re.DOTALL,
 )
-PROHIBITED_YAML_PATTERN = re.compile(
-    r"(^|[\s\[{,])(?:&[A-Za-z0-9_-]+|\*[A-Za-z0-9_-]+|<<\s*:|![^\s]+)",
-    re.MULTILINE,
+
+# A study allocates a requirement only when an item identity or a narrative
+# heading is itself an FR or NFR reference. Prose citations remain valid.
+ALLOCATED_REQUIREMENT_PATTERN = re.compile(r"^(?:FR|NFR)-[0-9]{3,}$")
+REQUIREMENT_HEADING_PATTERN = re.compile(
+    r"^#{1,6}\s+((?:FR|NFR)-[0-9]{3,})(?::|\s|$)", re.MULTILINE
 )
-ALLOCATED_REQUIREMENT_PATTERN = re.compile(r"\b(?:FR|NFR)-[0-9]{3,}\b")
 NARRATIVE_ANCHOR_PATTERN = re.compile(r"^###\s+(FS-[0-9]{3,})(?::|\s|$)", re.MULTILINE)
+
+# Operational bound checked before any study content is read.
+MAX_INPUT_BYTES = 5 * 1024 * 1024
+MERGE_TAG = "tag:yaml.org,2002:merge"
+RFC3339_DATE_TIME_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
 
 
 class FeasibilityValidationError(ValueError):
@@ -40,15 +49,30 @@ class FeasibilityValidationError(ValueError):
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
-    """YAML loader that rejects duplicate mapping keys."""
+    """Loader rejecting aliases, anchors, tags, merge keys, and duplicate keys."""
+
+    def compose_node(
+        self, parent: yaml.nodes.Node | None, index: Any
+    ) -> yaml.nodes.Node:
+        """Reject alias, anchor, and explicit-tag events before composition."""
+        event = self.peek_event()
+        if isinstance(event, yaml.AliasEvent):
+            raise FeasibilityValidationError("YAML aliases are not permitted")
+        if getattr(event, "anchor", None) is not None:
+            raise FeasibilityValidationError("YAML anchors are not permitted")
+        if getattr(event, "tag", None) is not None:
+            raise FeasibilityValidationError("YAML explicit tags are not permitted")
+        return super().compose_node(parent, index)
 
 
 def _construct_unique_mapping(
     loader: UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
 ) -> dict[str, Any]:
-    """Construct a mapping while rejecting duplicate keys."""
+    """Construct a mapping while rejecting merge keys and duplicate keys."""
     mapping: dict[str, Any] = {}
     for key_node, value_node in node.value:
+        if key_node.tag == MERGE_TAG:
+            raise FeasibilityValidationError("YAML merge keys are not permitted")
         key = loader.construct_object(key_node, deep=deep)
         if not isinstance(key, str):
             raise FeasibilityValidationError("YAML keys must be strings")
@@ -58,9 +82,79 @@ def _construct_unique_mapping(
     return mapping
 
 
+def _reject_tagged_node(
+    loader: UniqueKeyLoader, tag_suffix: str, node: yaml.nodes.Node
+) -> Any:
+    """Reject any node carrying a tag without a registered safe constructor."""
+    raise FeasibilityValidationError("YAML explicit tags are not permitted")
+
+
 UniqueKeyLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
 )
+UniqueKeyLoader.add_multi_constructor("", _reject_tagged_node)
+
+
+def _sanitize_yaml_error(error: yaml.YAMLError) -> str:
+    """Describe a YAML failure by position only, never by source content."""
+    mark = getattr(error, "problem_mark", None) or getattr(error, "context_mark", None)
+    if mark is None:
+        return f"invalid YAML ({type(error).__name__})"
+    return (
+        f"invalid YAML ({type(error).__name__}) at line {mark.line + 1} "
+        f"column {mark.column + 1}"
+    )
+
+
+def _skill_root() -> Path:
+    """Return the skill root that owns the bundled schema."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_input_path(path: Path, allowed_roots: Sequence[Path]) -> Path:
+    """Return a resolved input path contained by one permitted root."""
+    segments = str(path).replace("\\", "/").split("/")
+    if any(segment == ".." for segment in segments):
+        raise FeasibilityValidationError("input path cannot contain '..' segments")
+    resolved = path.resolve()
+    for root in allowed_roots:
+        if resolved.is_relative_to(root.resolve()):
+            return resolved
+    raise FeasibilityValidationError("input path resolves outside the permitted roots")
+
+
+def read_study_text(path: Path, allowed_roots: Sequence[Path] | None = None) -> str:
+    """Read a size-bounded study file from a permitted root."""
+    roots = tuple(allowed_roots) if allowed_roots else (Path.cwd(), _skill_root())
+    resolved = _resolve_input_path(path, roots)
+    if resolved.stat().st_size > MAX_INPUT_BYTES:
+        raise FeasibilityValidationError(
+            f"study exceeds the {MAX_INPUT_BYTES} byte input limit"
+        )
+    return resolved.read_text(encoding="utf-8")
+
+
+def _is_rfc3339_date_time(value: Any) -> bool:
+    """Return True when a string value is a strict RFC 3339 timestamp."""
+    if not isinstance(value, str):
+        return True
+    if RFC3339_DATE_TIME_PATTERN.match(value) is None:
+        return False
+    normalized = f"{value[:-1]}+00:00" if value[-1] in "Zz" else value
+    try:
+        dt.datetime.fromisoformat(normalized)
+    except ValueError:
+        return False
+    return True
+
+
+def build_format_checker() -> FormatChecker:
+    """Return a format checker restricted to RFC 3339 date-time."""
+    if "date-time" in FormatChecker.checkers:
+        return FormatChecker(formats=["date-time"])
+    checker = FormatChecker(formats=[])
+    checker.checks("date-time")(_is_rfc3339_date_time)
+    return checker
 
 
 def extract_profile_yaml(markdown: str) -> str:
@@ -70,17 +164,16 @@ def extract_profile_yaml(markdown: str) -> str:
         raise FeasibilityValidationError(
             "study must contain exactly one named FEASIBILITY-STUDY-INTERCHANGE block"
         )
-    yaml_text = blocks[0]
-    if PROHIBITED_YAML_PATTERN.search(yaml_text):
-        raise FeasibilityValidationError(
-            "profile YAML cannot use anchors, aliases, merge keys, or custom tags"
-        )
-    return yaml_text
+    return blocks[0]
 
 
 def _assert_json_compatible(value: Any, path: str = "$") -> None:
     """Reject YAML-native values outside the JSON data model."""
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            raise FeasibilityValidationError(f"{path} must be a finite number")
         return
     if isinstance(value, list):
         for index, item in enumerate(value):
@@ -92,8 +185,8 @@ def _assert_json_compatible(value: Any, path: str = "$") -> None:
                 raise FeasibilityValidationError(f"{path} has a non-string key")
             _assert_json_compatible(item, f"{path}.{key}")
         return
-    if isinstance(value, (dt.date, dt.datetime)):
-        raise FeasibilityValidationError(f"{path} timestamp must be quoted")
+    if isinstance(value, dt.date):
+        raise FeasibilityValidationError(f"{path} timestamp must be a quoted string")
     raise FeasibilityValidationError(
         f"{path} contains non-JSON YAML value {type(value).__name__}"
     )
@@ -104,7 +197,7 @@ def parse_profile(markdown: str) -> dict[str, Any]:
     try:
         parsed = yaml.load(extract_profile_yaml(markdown), Loader=UniqueKeyLoader)
     except yaml.YAMLError as error:
-        raise FeasibilityValidationError(f"invalid YAML: {error}") from error
+        raise FeasibilityValidationError(_sanitize_yaml_error(error)) from error
     if not isinstance(parsed, dict):
         raise FeasibilityValidationError("profile block must parse to an object")
     _assert_json_compatible(parsed)
@@ -114,9 +207,7 @@ def parse_profile(markdown: str) -> dict[str, Any]:
 def load_schema(skill_root: Path) -> dict[str, Any]:
     """Load the local profile schema."""
     schema_path = (
-        skill_root
-        / "assets"
-        / "feasibility-study-interchange-1.0.0.schema.json"
+        skill_root / "assets" / "feasibility-study-interchange-1.0.0.schema.json"
     )
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
@@ -147,11 +238,34 @@ def _find_cycles(parents: dict[str, str | None]) -> list[str]:
     return sorted(cycles)
 
 
+def requirement_allocation_errors(
+    items: list[dict[str, Any]], markdown: str
+) -> list[str]:
+    """Return errors for items or headings that allocate a requirement identity.
+
+    Allocation is keyed on the item's own declared reference. A requirement
+    identifier merely cited in prose is an upstream citation, not an allocation.
+    """
+    errors = []
+    for item in items:
+        display_ref = item["display_ref"]
+        if ALLOCATED_REQUIREMENT_PATTERN.match(display_ref):
+            errors.append(
+                f"{display_ref} cannot allocate an FR or NFR identifier as its "
+                "own display_ref"
+            )
+    for heading_ref in REQUIREMENT_HEADING_PATTERN.findall(markdown):
+        errors.append(
+            f"narrative heading cannot allocate FR or NFR identifier {heading_ref}"
+        )
+    return errors
+
+
 def validate_profile(
     data: dict[str, Any], markdown: str, schema: dict[str, Any]
 ) -> list[str]:
     """Return structural, semantic, and Markdown-linkage errors."""
-    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    validator = Draft202012Validator(schema, format_checker=build_format_checker())
     errors = [error.message for error in sorted(validator.iter_errors(data), key=str)]
     if errors:
         return errors
@@ -163,9 +277,7 @@ def validate_profile(
 
     concept_ids = [study["study_id"], *(item["item_id"] for item in items)]
     relation_ids = [
-        relation["relation_id"]
-        for item in items
-        for relation in item["relations"]
+        relation["relation_id"] for item in items for relation in item["relations"]
     ]
     current_revision_ids = [
         study["study_revision_id"],
@@ -305,8 +417,7 @@ def validate_profile(
         errors.append(
             "unknown narrative anchors: " + ", ".join(sorted(unknown_anchors))
         )
-    if ALLOCATED_REQUIREMENT_PATTERN.search(markdown):
-        errors.append("feasibility studies cannot allocate FR or NFR identifiers")
+    errors.extend(requirement_allocation_errors(items, markdown))
     return errors
 
 
@@ -319,17 +430,21 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(study_path: Path) -> int:
-    """Validate one study and print a JSON result."""
-    skill_root = Path(__file__).resolve().parent.parent
+def run(study_path: Path, allowed_roots: Sequence[Path] | None = None) -> int:
+    """Validate one study and print a JSON result.
+
+    Operational failures report on stderr with EXIT_ERROR. Validation failures
+    report on stdout with EXIT_FAILURE.
+    """
     try:
-        markdown = study_path.read_text(encoding="utf-8")
+        markdown = read_study_text(study_path, allowed_roots)
         data = parse_profile(markdown)
-        errors = validate_profile(data, markdown, load_schema(skill_root))
+        schema = load_schema(_skill_root())
     except (OSError, FeasibilityValidationError, json.JSONDecodeError) as error:
-        print(json.dumps({"valid": False, "errors": [str(error)]}, indent=2))
+        print(f"validate_feasibility: {error}", file=sys.stderr)
         return EXIT_ERROR
 
+    errors = validate_profile(data, markdown, schema)
     print(json.dumps({"valid": not errors, "errors": errors}, indent=2))
     return EXIT_FAILURE if errors else EXIT_SUCCESS
 
