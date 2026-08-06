@@ -123,32 +123,53 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
             $script:Summary.tier | Should -Be 'ci'
         }
 
-        It 'Plans commands for three nightly models' {
-            $script:Summary.plannedCommands.Count | Should -Be 9
+        It 'Plans commands for two ci models' {
+            $script:Summary.plannedCommands.Count | Should -Be 6
         }
 
-        It 'Selects gpt-5.5 as the primary nightly model' {
-            $script:Summary.model | Should -Be 'gpt-5.5'
+        It 'Selects gpt-5.6-luna as the primary ci model' {
+            $script:Summary.model | Should -Be 'gpt-5.6-luna'
         }
 
         It 'Gives every model its own customized skill directory' {
             # The sweep materializes a surface per model. Reusing the first model's
-            # directory for the later two would evaluate them against a surface they
+            # directory for the second would evaluate it against a surface it
             # did not build, so the comparison would not be attributable to the model.
             $customized = @($script:Summary.plannedCommands | Where-Object { $_ -match 'customized/eval\.yaml' })
-            $customized.Count | Should -Be 3
-            foreach ($model in @('gpt-5.5', 'claude-opus-4.6', 'claude-sonnet-latest')) {
+            $customized.Count | Should -Be 2
+            foreach ($model in @('gpt-5.6-luna', 'claude-sonnet-4.6')) {
                 $line = @($customized | Where-Object { $_ -match "--model $([regex]::Escape($model)) " })
                 $line.Count | Should -Be 1
                 $line[0] | Should -Match "--skill-dir [^ ]*$([regex]::Escape($model))[\\/][^ ]*customized-skill-dir"
             }
         }
 
-        It 'Uses three distinct customized skill directories' {
+        It 'Uses distinct customized skill directories' {
             $skillDirs = @($script:Summary.plannedCommands |
                     Where-Object { $_ -match 'customized/eval\.yaml' } |
                     ForEach-Object { ($_ -split '--skill-dir ')[1] })
-            ($skillDirs | Sort-Object -Unique).Count | Should -Be 3
+            ($skillDirs | Sort-Object -Unique).Count | Should -Be 2
+        }
+
+        It 'Pins an explicit sonnet version rather than a floating alias' {
+            # `claude-sonnet-latest` produced no trajectories in CI. A floating alias
+            # can resolve to a model the account cannot execute, which surfaces as an
+            # empty run rather than as a model-selection error.
+            ($script:Summary.plannedCommands -join "`n") | Should -Not -Match 'claude-sonnet-latest'
+        }
+
+        It 'Passes the canonical comparison spec to every compare command' {
+            # Without --eval-spec, vally compare falls back to the rubric embedded in
+            # the baseline trajectory and then to a general preference rubric. A
+            # preference judge picks a winner between two runs of the same
+            # configuration, so the tie ratio would measure judge tie-breaking rather
+            # than equivalence.
+            $compare = @($script:Summary.plannedCommands | Where-Object { $_ -match '^vally compare ' })
+            $compare.Count | Should -Be 2
+            foreach ($line in $compare) {
+                $line | Should -Match '--eval-spec evals/baseline-equivalence/compare\.eval\.yml'
+                $line | Should -Match '--judge-model claude-haiku-4\.5'
+            }
         }
     }
 
@@ -207,7 +228,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
             ($summary.plannedCommands -join "`n") | Should -Match 'gpt-5-mini'
         }
 
-        It 'Ignores the override for the nightly tier' {
+        It 'Ignores the override for the ci tier' {
             & $script:ScriptPath `
                 -Agent 'rpi-agent' `
                 -Tier 'ci' `
@@ -217,7 +238,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
                 -WhatIf *> $null
 
             $summary = Get-Content -LiteralPath $script:OutputPath -Raw | ConvertFrom-Json
-            $summary.model | Should -Be 'gpt-5.5'
+            $summary.model | Should -Be 'gpt-5.6-luna'
         }
     }
 
@@ -398,6 +419,25 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         New-Item -ItemType Directory -Path $script:StubSeedDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $script:StubSeedDir 'README.md') -Encoding UTF8 -Value '# Stub seed'
 
+        # The driver resolves the comparison contract before any model-backed work, so
+        # the stub repo carries one. Its absence is a hard failure by design: without
+        # it, `vally compare` would fall back to a preference rubric that cannot
+        # measure equivalence.
+        Set-Content -LiteralPath (Join-Path $baselineRoot 'compare.eval.yml') -Encoding UTF8 -Value @'
+name: stub-compare
+type: capability
+defaults:
+  executor: copilot-sdk
+stimuli:
+  - name: stub-stimulus
+    prompt: "Stub prompt."
+    tags: {category: baseline-equivalence, policy: equivalent}
+    rubric:
+      - Score a tie when both responses satisfy the same contract.
+    graders:
+      - {type: prompt, name: equivalence-judgement, config: {prompt: "Equivalent?"}}
+'@
+
         $script:StubOutputPath = Join-Path $script:StubRepoRoot 'logs/summary.json'
         $stubVally = Join-Path $PSScriptRoot 'fixtures/stub-vally.ps1'
         Set-Alias -Name vally -Value $stubVally -Scope Global
@@ -409,7 +449,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
         Remove-Item Env:STUB_VALLY_COMPARE_MODE -ErrorAction SilentlyContinue
     }
 
-    It 'Counts each failed empty compare once across nightly models' {
+    It 'Counts each failed empty compare once across ci models' {
         & $script:ScriptPath `
             -Agent 'rpi-agent' `
             -Tier 'ci' `
@@ -417,7 +457,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (stubbed nightly run)' -Tag 'Unit' {
             -OutputPath $script:StubOutputPath *> $null
 
         $summary = Get-Content -LiteralPath $script:StubOutputPath -Raw | ConvertFrom-Json
-        $summary.runHealthFailures | Should -Be 3
+        $summary.runHealthFailures | Should -Be 2
         $summary.runs | Should -Be 0
         $summary.verdict | Should -Be 'fail'
         $LASTEXITCODE | Should -Be 1

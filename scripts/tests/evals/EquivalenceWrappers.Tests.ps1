@@ -28,6 +28,33 @@ BeforeAll {
 
         return $resultsRoot
     }
+
+    function script:New-DriverCompareSpec {
+        <#
+        .SYNOPSIS
+            Seeds the comparison contract the driver resolves before any run.
+        #>
+        param(
+            [Parameter(Mandatory)][string]$RepoRoot
+        )
+
+        $specDir = Join-Path $RepoRoot 'evals/baseline-equivalence'
+        New-Item -ItemType Directory -Path $specDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $specDir 'compare.eval.yml') -Encoding utf8NoBOM -Value @'
+name: fixture-compare
+type: capability
+defaults:
+  executor: copilot-sdk
+stimuli:
+  - name: fixture-stimulus
+    prompt: "Fixture prompt."
+    tags: {category: baseline-equivalence, policy: equivalent}
+    rubric:
+      - Score a tie when both responses satisfy the same contract.
+    graders:
+      - {type: prompt, name: equivalence-judgement, config: {prompt: "Equivalent?"}}
+'@
+    }
 }
 
 Describe 'New-EquivalenceDashboard.ps1' -Tag 'Unit' {
@@ -104,6 +131,11 @@ Describe 'Invoke-BaselineEquivalence.ps1' -Tag 'Unit' {
             New-Item -ItemType Directory -Path (Join-Path $script:Surface '.github/agents') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $script:Surface '.github/agents/bar.agent.md') -Value 'seed' -Encoding utf8NoBOM
 
+            # The driver resolves the comparison contract before any model-backed work,
+            # so every synthetic repository needs one. Without it `vally compare` would
+            # fall back to a preference rubric that cannot measure equivalence.
+            New-DriverCompareSpec -RepoRoot $script:DriverRepo
+
             $script:SummaryPath = Join-Path $TestDrive 'driver-summary.json'
             & $script:DriverScript `
                 -Agent 'rpi-agent' `
@@ -127,6 +159,7 @@ Describe 'Invoke-BaselineEquivalence.ps1' -Tag 'Unit' {
         BeforeAll {
             $script:DriverRepoEmpty = Join-Path $TestDrive 'driver-repo-empty'
             New-Item -ItemType Directory -Path $script:DriverRepoEmpty -Force | Out-Null
+            New-DriverCompareSpec -RepoRoot $script:DriverRepoEmpty
 
             $script:SummaryPathEmpty = Join-Path $TestDrive 'driver-summary-empty.json'
             & $script:DriverScript `

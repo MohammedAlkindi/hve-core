@@ -1162,6 +1162,7 @@ exit 0
                 -VallyCommand $script:StubPath `
                 -EquivalenceDriverPath $driverPath `
                 -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
                 -SkipInputModeration `
                 -SkipOutputModeration *> $null
         }
@@ -1225,6 +1226,7 @@ exit 0
                 -VallyCommand $script:StubPath `
                 -EquivalenceDriverPath $driverPath `
                 -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
                 -SkipInputModeration `
                 -SkipOutputModeration *> $null
         }
@@ -1291,6 +1293,7 @@ exit 0
                 -VallyCommand $script:StubPath `
                 -EquivalenceDriverPath $driverPath `
                 -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
                 -EquivalenceTier ci `
                 -SkipInputModeration `
                 -SkipOutputModeration *> $null
@@ -1354,6 +1357,7 @@ exit 3
                 -VallyCommand $script:StubPath `
                 -EquivalenceDriverPath $driverPath `
                 -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
                 -EquivalenceTier ci `
                 -SkipInputModeration `
                 -SkipOutputModeration *> $null
@@ -1420,6 +1424,7 @@ exit 0
                 -VallyCommand $script:StubPath `
                 -EquivalenceDriverPath $driverPath `
                 -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
                 -EquivalenceTier devloop `
                 -SkipInputModeration `
                 -SkipOutputModeration *> $null
@@ -1490,6 +1495,7 @@ exit 0
                 -VallyCommand $script:StubPath `
                 -EquivalenceDriverPath $driverPath `
                 -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
                 -EquivalenceTier devloop `
                 -SkipInputModeration `
                 -SkipOutputModeration *> $null
@@ -1556,6 +1562,7 @@ exit 0
                 -VallyCommand $script:StubPath `
                 -EquivalenceDriverPath $driverPath `
                 -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
                 -EquivalenceTier devloop `
                 -SkipInputModeration `
                 -SkipOutputModeration *> $null
@@ -2161,11 +2168,13 @@ stimuli:
         $summary.perArtifact[0].status | Should -Be 'advisory-fail'
     }
 
-    It 'Treats a tag-resolved baseline-equivalence spec as advisory even on a hard vally failure' {
-        # Per DD-01 the equivalence corpus is advisory at PR tier. Its stimuli are
-        # tag-resolved into the authoritative path and run at a perfect-score
-        # threshold against a small model, so a hard vally failure (exit 1) on a
-        # single grader must surface as advisory rather than gate the build.
+    It 'Excludes a baseline-equivalence spec from the generic run plan' {
+        # Stage 1 measures the equivalence corpus only through the dedicated harness,
+        # which runs the full canonical population against a materialized customization
+        # surface. Generic dispatch previously re-ran the same specs under a tag filter,
+        # producing partial and zero-stimulus runs that reported success but could not
+        # evidence equivalence. The spec must now be skipped entirely rather than run
+        # and downgraded to advisory.
         $spec = @'
 name: baseline-equivalence-stimuli
 stimuli:
@@ -2189,14 +2198,13 @@ stimuli:
             -VallyCommand $script:StubPath `
             -SkipInputModeration `
             -SkipOutputModeration *> $null
-        $LASTEXITCODE | Should -Be 0
 
         $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
         $summary.totals.failedSpecs | Should -Be 0
-        $summary.perSpec[0].status | Should -Be 'advisory-fail'
-        $summary.perSpec[0].isAdvisory | Should -BeTrue
-        $summary.perArtifact[0].status | Should -Be 'advisory-fail'
-        $summary.perArtifact[0].isAdvisory | Should -BeTrue
+        # The artifact still counts as covered, so the run does not fail for missing
+        # coverage. It simply performs no generic baseline-equivalence execution.
+        @($summary.perSpec | Where-Object { $_.specPath -match 'baseline-equivalence' }) | Should -BeNullOrEmpty
+        $summary.totals.specs | Should -Be 0
     }
 }
 
@@ -2240,6 +2248,67 @@ stimuli:
     It 'Falls back to the full set when the tag filter matches no stimulus' {
         $map = Get-SpecStimulusAdvisoryMap -SpecPath $script:MixedSpec -TagFilter 'agent=does-not-exist'
         $map.Keys.Count | Should -Be 3
+    }
+}
+
+Describe 'Stage 1 equivalence dispatch boundary' -Tag 'Unit' {
+    # The dispatcher schedules the dedicated baseline-equivalence harness and also
+    # builds the generic Vally run plan. Both paths previously consumed backlinks
+    # directly: the harness treated every backlinked agent as an equivalence subject,
+    # and the generic plan re-ran the same specs as tag-filtered advisory evals. With
+    # list-form backlinks now expanding correctly, an unbounded dispatcher would
+    # schedule nine subjects against a corpus whose guards encode one agent's contract.
+    BeforeAll {
+        $script:DispatcherSource = Get-Content -LiteralPath (Resolve-Path (Join-Path $PSScriptRoot '../../evals/Invoke-VallyEvals.ps1')).Path -Raw
+    }
+
+    It 'Declares an explicit stage 1 equivalence subject default' {
+        $script:DispatcherSource | Should -Match "EquivalenceSubject\s*=\s*@\(\s*'rpi-agent'\s*\)"
+    }
+
+    It 'Gates changed-artifact equivalence dispatch on the subject list' {
+        $script:DispatcherSource | Should -Match 'EquivalenceSubjects -contains \$artifactId'
+    }
+
+    It 'Gates dependency-promoted equivalence dispatch on the subject list' {
+        # Instruction, skill, and subagent changes promote parent agents through the
+        # manifest. Without this gate the promotion path would reintroduce every
+        # backlinked agent as an equivalence subject.
+        $script:DispatcherSource | Should -Match 'EquivalenceSubjects -notcontains \$slug'
+    }
+
+    It 'Excludes baseline-equivalence specs from the generic run plan' {
+        $script:DispatcherSource | Should -Match 'equivalenceRunKeys'
+        $script:DispatcherSource | Should -Match "match '\(\^\|/\)baseline-equivalence/"
+    }
+}
+
+Describe 'Stage 1 equivalence subject selection' -Tag 'Unit' {
+    # Exercises the selection rule itself rather than the script text, so a future
+    # refactor that keeps the constant but drops the filter still fails.
+    BeforeAll {
+        $script:Subjects = @('rpi-agent')
+        $script:Backlinked = @(
+            'brd-builder', 'code-review', 'dependency-reviewer', 'documentation',
+            'github-backlog-manager', 'issue-triage', 'prd-builder',
+            'product-manager-advisor', 'rpi-agent'
+        )
+    }
+
+    It 'Selects exactly one subject from the full backlinked set' {
+        $selected = @($script:Backlinked | Where-Object { $script:Subjects -contains $_ })
+        $selected.Count | Should -Be 1
+        $selected[0] | Should -Be 'rpi-agent'
+    }
+
+    It 'Rejects a compound slug that a regressed parser could produce' {
+        # 'documentation rpi-agent' was the observed corruption. It must not match the
+        # subject list even though it contains the subject name as a substring.
+        $script:Subjects -contains 'documentation rpi-agent' | Should -BeFalse
+    }
+
+    It 'Preserves every backlink record for stage 2 indexing' {
+        $script:Backlinked.Count | Should -Be 9
     }
 }
 

@@ -39,10 +39,15 @@
     Optional explicit model id for the `devloop` tier. When supplied it overrides the
     agent's frontmatter `model:` hint and the built-in default, letting callers pin a
     cheaper model for advisory runs. Ignored for the `ci` tier, which always runs its
-    fixed model array.
+    fixed model array of `gpt-5.6-luna` and `claude-sonnet-4.6`.
 
 .PARAMETER ComparisonJudgeModel
     Model used as the `vally compare` judge. Defaults to `claude-haiku-4.5`.
+
+.PARAMETER ComparisonSpecPath
+    Repository-relative path to the comparison-judging contract passed to
+    `vally compare --eval-spec`. Defaults to
+    `evals/baseline-equivalence/compare.eval.yml`.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the result of `git rev-parse --show-toplevel`, falling
@@ -89,12 +94,20 @@ param(
     [Parameter(Mandatory = $false)]
     [string]$OutputPath,
 
-    # The comparison judge was previously pinned inside compare.eval.yml. That file is
-    # retired, so the pin lives here where it is visible to any operator reading the
-    # invocation rather than buried in a spec the driver rendered at run time.
+    # The comparison judge is pinned here where it is visible to any operator reading
+    # the invocation rather than buried in a spec the driver rendered at run time.
     [Parameter(Mandatory = $false)]
     [ValidateNotNullOrEmpty()]
     [string]$ComparisonJudgeModel = 'claude-haiku-4.5',
+
+    # Comparison judging reads the stimulus rubric. Without this spec, vally falls back
+    # to the rubric embedded in the baseline trajectory and then to a general-purpose
+    # preference rubric that asks which response is better. Preference judging cannot
+    # measure equivalence, because two runs of one configuration still produce
+    # different text and the judge still picks a winner.
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
+    [string]$ComparisonSpecPath = 'evals/baseline-equivalence/compare.eval.yml',
 
     [Parameter(Mandatory = $false)]
     [switch]$NoBaselineCache
@@ -191,12 +204,52 @@ function Resolve-ModelList {
     )
 
     if ($Tier -eq 'ci') {
-        return @('gpt-5.5', 'claude-opus-4.6', 'claude-sonnet-latest')
+        # Two standard-tier models rather than a premium sweep. `gpt-5.5` carried a
+        # 7.5x cost multiplier for no measured gain in cross-vendor signal, and
+        # `claude-sonnet-latest` produced no trajectories at all, so a floating alias
+        # is pinned to an explicit version that the suite has actually executed.
+        return @('gpt-5.6-luna', 'claude-sonnet-4.6')
     }
 
     if ($ModelOverride) { return @($ModelOverride) }
     if ($Hint) { return @($Hint) }
     return @('gpt-5.6-luna')
+}
+
+function Get-DiagnosticSample {
+    <#
+    .SYNOPSIS
+        Reduces a diagnostic list to distinct messages with occurrence counts.
+    .DESCRIPTION
+        The summary caps how many diagnostics it records so a large run cannot produce
+        an unbounded artifact. Applying that cap to the raw list truncates by position,
+        so one high-volume category can consume every slot and hide the categories that
+        follow it. A run where invariant failures filled the cap reported no judge-error
+        diagnostic at all even though every judge call had failed.
+
+        Collapsing repeats first keeps one entry per distinct message and carries the
+        repeat count, so the cap bounds the number of distinct categories rather than
+        the number of occurrences.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$Diagnostics,
+        [Parameter(Mandatory = $false)]
+        [int]$Max = 50
+    )
+
+    $grouped = @($Diagnostics | Group-Object | Sort-Object -Property Count -Descending)
+    $sample = foreach ($group in ($grouped | Select-Object -First $Max)) {
+        if ($group.Count -gt 1) { "$($group.Name) (x$($group.Count))" } else { $group.Name }
+    }
+    $sample = @($sample)
+    if ($grouped.Count -gt $Max) {
+        $sample += "... $($grouped.Count - $Max) further distinct diagnostic(s) omitted."
+    }
+    return $sample
 }
 
 function New-DryRunSummary {
@@ -477,6 +530,8 @@ function Get-PlannedCommands {
         [string]$RunId,
         [Parameter(Mandatory)]
         [string]$JudgeModel,
+        [Parameter(Mandatory)]
+        [string]$ComparisonSpec,
         [string]$BaselineWorkspacePath,
         [string]$BaselineSkillDirPath,
         [string]$CustomizedWorkspacePath
@@ -493,7 +548,7 @@ function Get-PlannedCommands {
         $customizedSkillArg = '"' + $customizedSkillDirPath + '"'
         $plan.Add("vally eval --eval-spec evals/baseline-equivalence/baseline/eval.yaml --model $model --output-dir $aDir --workspace $baselineWorkspaceArg --skill-dir $baselineSkillArg")
         $plan.Add("vally eval --eval-spec evals/baseline-equivalence/customized/eval.yaml --model $model --output-dir $bDir --workspace $customizedWorkspaceArg --skill-dir $customizedSkillArg")
-        $plan.Add("vally compare --judge-model $JudgeModel --baseline <resolved baseline run> --treatment <resolved customized run> --output <compare jsonl path>")
+        $plan.Add("vally compare --eval-spec $ComparisonSpec --judge-model $JudgeModel --baseline <resolved baseline run> --treatment <resolved customized run> --output <compare jsonl path>")
     }
     return $plan.ToArray()
 }
@@ -557,6 +612,14 @@ if ($MyInvocation.InvocationName -ne '.') {
         $models = @(Resolve-ModelList -Tier $Tier -Hint $modelHint -ModelOverride $Model)
         $primaryModel = $models[0]
 
+        # The comparison contract is resolved before any model-backed work so a missing
+        # or moved spec fails immediately rather than after a full executor sweep has
+        # already been paid for.
+        $comparisonSpecFullPath = Join-Path $resolvedRoot $ComparisonSpecPath
+        if (-not (Test-Path -LiteralPath $comparisonSpecFullPath -PathType Leaf)) {
+            throw "Comparison spec not found at '$ComparisonSpecPath'. `vally compare` would fall back to a preference rubric that cannot measure equivalence."
+        }
+
         $outputRoot = Join-Path $resolvedRoot 'evals/results/baseline-equivalence'
         $runId = (Get-Date -AsUTC).ToString('yyyyMMddTHHmmssfffZ')
 
@@ -576,6 +639,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         Write-Host "Baseline equivalence: agent=$Agent tier=$Tier model(s)=$($models -join ',')" -ForegroundColor Cyan
         Write-Host "   Summary output:  $OutputPath" -ForegroundColor DarkGray
         Write-Host "   Results root:    $outputRoot" -ForegroundColor DarkGray
+        Write-Host "   Comparison spec: $ComparisonSpecPath (judge $ComparisonJudgeModel)" -ForegroundColor DarkGray
         Write-Host "   Run id:          $runId" -ForegroundColor DarkGray
 
         # Baseline reuse is keyed on the inputs that would change baseline behavior. A
@@ -603,7 +667,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         Write-Host "   Vally version:   $vallyVersion" -ForegroundColor DarkGray
 
         $customizedWorkspacePath = $workspaceRoot
-        $plannedCommands = Get-PlannedCommands -Models $models -OutputRoot $outputRoot -RunId $runId -JudgeModel $ComparisonJudgeModel -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath
+        $plannedCommands = Get-PlannedCommands -Models $models -OutputRoot $outputRoot -RunId $runId -JudgeModel $ComparisonJudgeModel -ComparisonSpec $ComparisonSpecPath -BaselineWorkspacePath '' -BaselineSkillDirPath '' -CustomizedWorkspacePath $customizedWorkspacePath
 
         if ($WhatIfPreference) {
             Write-Host "Dry-run mode: skipping live SDK calls." -ForegroundColor Yellow
@@ -743,14 +807,11 @@ if ($MyInvocation.InvocationName -ne '.') {
             # always present and the per-agent value arrives through --param. An agent
             # that writes no tracking artifacts is exempt and reports as such, because a
             # vacuous guard that passed silently would repeat the defect this replaced.
-            $scopeResolution = Resolve-AgentScopePattern -RepoRoot $resolvedRoot -Agent $Agent
-            if ($scopeResolution.Exempt) {
-                Write-Host "   Scope guard: exempt (agent '$Agent' declares no tracking scope)" -ForegroundColor DarkGray
-            }
-            else {
-                Write-Host "   Scope guard: .copilot-tracking/$($scopeResolution.Scope)" -ForegroundColor DarkGray
-            }
-
+            # The customization-boundary guards assert that the customized run does not
+            # claim it performed a prohibited write. They are declared inline per
+            # stimulus and need no per-agent parameter. Resolve-AgentScopePattern is
+            # retained for the stage 2 subject-aware guard work rather than invoked here,
+            # because a parameter no spec consumes would report a guard that never ran.
             $evalBaseline = @(
                 'eval',
                 '--eval-spec', 'evals/baseline-equivalence/baseline/eval.yaml',
@@ -765,8 +826,7 @@ if ($MyInvocation.InvocationName -ne '.') {
                 '--model', $model,
                 '--output-dir', $bDir,
                 '--workspace', $workspaceRoot,
-                '--skill-dir', $customizedSkillDirForModel,
-                '--param', "SCOPE_PATTERN=$($scopeResolution.Pattern)"
+                '--skill-dir', $customizedSkillDirForModel
             )
 
             if ($baselineReused) {
@@ -879,12 +939,13 @@ if ($MyInvocation.InvocationName -ne '.') {
             }
             else {
                 $compareJsonlPath = Join-Path $resolvedRoot "logs/vally-compare-$model-$runId.jsonl"
-                # The judge is pinned explicitly. It was previously carried only by
-                # compare.eval.yml, so deleting that file without naming a judge here
-                # would silently fall back to a Vally default and change what the
-                # comparison measures without any recorded decision.
+                # The judge and its rubric are both pinned explicitly. Omitting
+                # --eval-spec would fall back to the rubric embedded in the baseline
+                # trajectory, and then to a general preference rubric, which measures
+                # which response is better rather than whether behavior was unchanged.
                 $compareArgs = @(
                     'compare',
+                    '--eval-spec', $comparisonSpecFullPath,
                     '--judge-model', $ComparisonJudgeModel,
                     '--baseline', $aRunDir,
                     '--treatment', $bRunDir,
@@ -980,7 +1041,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             runHealthFailures        = $runHealthFailures
             divergenceGuardFailures  = $divergenceGuardFailures
             divergenceGuardsEvaluated = $divergenceGuardsEvaluated
-            failedDivergenceGuards   = @($failedDivergenceGuards | Select-Object -First 50)
+            failedDivergenceGuards   = @(Get-DiagnosticSample -Diagnostics $failedDivergenceGuards -Max 50)
             dataQualityViolations    = $dataQualityViolations
             judgeErrors              = $totalJudgeErrors
             judgeErrorRate           = if (($totalRuns + $totalJudgeErrors) -gt 0) { [math]::Round($totalJudgeErrors / ($totalRuns + $totalJudgeErrors), 6) } else { 0.0 }
@@ -988,7 +1049,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             equivalentTies           = $totalEquivalentTies
             divergenceTrials         = $totalDivergence
             tieRatio                 = if ($totalEquivalent -gt 0) { [math]::Round($totalEquivalentTies / $totalEquivalent, 4) } else { 0.0 }
-            dataQualityDiagnostics   = @($dataQualityDiagnostics | Select-Object -First 50)
+            dataQualityDiagnostics   = @(Get-DiagnosticSample -Diagnostics $dataQualityDiagnostics -Max 50)
             equivalenceGate          = $gates.EquivalenceGate
             documentedDivergenceGate = $gates.DocumentedDivergenceGate
             verdict                  = $verdict

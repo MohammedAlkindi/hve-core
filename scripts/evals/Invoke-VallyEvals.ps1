@@ -116,6 +116,15 @@ param(
     [ValidateSet('devloop','ci')]
     [string]$EquivalenceTier = 'devloop',
     [switch]$EnableBaselineEquivalence,
+
+    # Stage 1 subject boundary. Backlinks identify which agents a stimulus relates to,
+    # but they do not define a valid equivalence population: the corpus and its
+    # customization-boundary guards encode the RPI agent's contract, so scoring another
+    # agent against them would fail for reasons unrelated to equivalence. Repaired
+    # list-form backlinks therefore stay indexing evidence. Stage 2 replaces this
+    # default with a subject-aware resolver once per-subject guards exist.
+    [Parameter(Mandatory = $false)]
+    [string[]]$EquivalenceSubject = @('rpi-agent'),
     [switch]$FailFast,
     [switch]$SkipInputModeration,
     [switch]$SkipOutputModeration,
@@ -481,6 +490,8 @@ if (-not $EquivalenceDriverPath) {
 
 $equivalenceSpecs = @{}
 
+$script:EquivalenceSubjects = @($EquivalenceSubject)
+
 # Resolve covering specs per artifact, then delegate run-plan keying to the
 # VallyRunner helper so the tag-aware runKey logic stays unit-testable.
 $artifactDescriptors = [System.Collections.Generic.List[hashtable]]::new()
@@ -498,9 +509,11 @@ foreach ($artifact in $artifacts) {
     })
 
     if ($EnableBaselineEquivalence -and $artifactKind -eq 'agent' -and $specs.Count -gt 0) {
-        $equivKey = "equivalence:$artifactId"
-        if (-not $equivalenceSpecs.ContainsKey($equivKey)) {
-            $equivalenceSpecs[$equivKey] = $artifactId
+        if ($script:EquivalenceSubjects -contains $artifactId) {
+            $equivKey = "equivalence:$artifactId"
+            if (-not $equivalenceSpecs.ContainsKey($equivKey)) {
+                $equivalenceSpecs[$equivKey] = $artifactId
+            }
         }
     }
 }
@@ -509,6 +522,20 @@ $runPlan        = Get-VallySpecRunPlan -Artifact $artifactDescriptors.ToArray() 
 $uniqueSpecRuns = $runPlan.uniqueSpecRuns
 $artifactPlan   = $runPlan.artifactPlan
 $missingSpecs   = $runPlan.missingSpecs
+
+# The baseline-equivalence corpus is measured only by the dedicated harness, which
+# runs the full canonical population against a materialized customization surface.
+# Running the same specs through generic dispatch produced tag-filtered partial runs,
+# and zero-stimulus runs that still reported success, neither of which can evidence
+# equivalence. Execution is dropped after the run plan is built so the specs still
+# count as coverage; removing them earlier would report an artifact covered only by
+# this corpus as having no covering spec.
+$equivalenceRunKeys = @($uniqueSpecRuns.Keys | Where-Object {
+        ($uniqueSpecRuns[$_].specRel -replace '\\', '/') -match '(^|/)baseline-equivalence/'
+    })
+foreach ($equivalenceRunKey in $equivalenceRunKeys) {
+    $uniqueSpecRuns.Remove($equivalenceRunKey)
+}
 
 if ($missingSpecs.Count -gt 0) {
     foreach ($m in $missingSpecs) {
@@ -851,6 +878,7 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
     }
     foreach ($slug in $manifestAffected) {
         if ([string]::IsNullOrWhiteSpace($slug)) { continue }
+        if ($script:EquivalenceSubjects -notcontains $slug) { continue }
         $equivKey = "equivalence:$slug"
         if (-not $equivalenceSpecs.ContainsKey($equivKey)) {
             $equivalenceSpecs[$equivKey] = $slug

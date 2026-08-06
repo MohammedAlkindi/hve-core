@@ -3,7 +3,7 @@ id: "0011"
 title: "Define the Vally baseline-equivalence evaluation policy"
 description: "Fix the rubric source, gate separation, tier exit semantics, model scope, and judge-error posture for the baseline-equivalence suite so its verdict means one auditable thing."
 author: "HVE Core Maintainers"
-ms.date: "2026-08-03"
+ms.date: "2026-08-05"
 ms.topic: "reference"
 status: "proposed"
 proposed_date: "2026-08-01"
@@ -106,9 +106,14 @@ Those answers were spread across a driver, a parser, and a CI dispatcher, and in
 
 Chosen option: **Option C**, because the policy questions are coupled. Separating the gates without fixing the rubric source leaves the verdict reproducible only by accident, and renaming tiers without defining which failures may be advisory leaves the exit policy ambiguous at the moment it matters most.
 
-The decision has five parts.
+The decision has six parts.
 
-**1. The rubric is Vally's embedded comparison default, and the judge model is pinned on the invocation.** `vally compare` treats `--eval-spec` as an optional override of its embedded rubric. The driver deliberately does not pass it, so the rubric source is the tool default rather than a repository file that could drift from it. The judge model is passed explicitly as `--judge-model`, defaulting to `claude-haiku-4.5`, so the pin is visible in the command rather than buried in a spec.
+**1. The comparison rubric is an explicit repository contract, and the judge model is pinned on the invocation.** `vally compare` treats `--eval-spec` as an optional override of its embedded rubric.
+Relying on that default proved unsound: the embedded rubric asks which response is better, and two runs of one configuration still differ in wording, so the judge picks winners even when customization changed nothing.
+Measured against a preference judge, the tie ratio reports judge tie-breaking propensity rather than equivalence.
+The driver therefore passes `--eval-spec evals/baseline-equivalence/compare.eval.yml`, a contract carrying one rubric entry per canonical stimulus: `equivalent` entries instruct a tie when both variants satisfy the same behavioral contract despite differing wording, and `documented-divergence` entries state the expected direction and an explicit tie condition.
+Deterministic validation rejects any missing, duplicated, unknown, or policy-mismatched entry before a run is paid for.
+The judge model is passed explicitly as `--judge-model`, defaulting to `claude-haiku-4.5`, so both the rubric and the judge are visible in the command.
 
 **2. Two gates are evaluated and reported independently.** The equivalence gate asks whether behavior that should not change stayed the same, reading the tie ratio over the equivalent-policy population only.
 The documented-divergence gate asks whether declared customization guards held, reading per-guard conformance from the customized run. The `verdict` is the worse of the two.
@@ -122,6 +127,11 @@ The floor is `tieRatio >= 0.80`, inherited from the tie-ratio heuristic the Vall
 It is provisional and is calibrated together with the configured trial count, because the two interact: at `runs: 5` across 35 equivalent stimuli the denominator is 175 trials, so the floor tolerates at most 35 non-tie trials and each trial moves the ratio by roughly half a percent.
 Reducing the run count shrinks the denominator and makes the same floor materially more volatile, so neither value may be changed alone.
 
+Two different acts must not be confused. Lowering the floor or the trial count to make a failing run pass is prohibited: it would remove the regression protection the gate exists to provide.
+Revalidating the floor against evidence is a separate, legitimate act, and it is now owed.
+The floor was inherited from an era when the judge received an explicit equivalence rubric; that rubric was lost in the 0.10-to-0.11 migration and the floor was not revisited, so the threshold and the statistic it reads were decoupled.
+Restoring the contract restores the statistic the floor assumes, and the first clean run under the restored contract is the evidence that should inform whether `0.80` is retained, revalidated, or replaced. Until that evidence exists, the value stands unchanged.
+
 An empty equivalent population is a structural failure rather than a below-floor statistical result.
 A ratio computed from zero trials is not a low score; it is the absence of the measurement the gate exists to make, and reporting it as a statistical miss would send diagnosis toward the customization instead of the configuration that emptied the population.
 
@@ -132,8 +142,14 @@ An incomplete comparison cannot evidence equivalence regardless of who ran it, a
 Invariant, run-health, and guard-conformance failures downgrade to `warn` on `devloop` and `fail` on `ci`. A run that evaluated no divergence guards fails closed, because no signal is not conformance.
 
 **5. Judge errors are counted and reported, not enforced.** `judgeErrors` and `judgeErrorRate` appear in every summary but do not gate.
-Their acceptable bar is unresolved pending the calibration work, and a gate that enforces an uncalibrated threshold asserts a standard no one has validated. The equivalence tie-ratio floor is enforced despite also being provisional, because a suite that measures equivalence without ever failing on it provides no regression protection; it is recorded as calibrated-forward rather than validated.
-Model scope follows cost: `devloop` resolves an explicit `-Model` override, then the agent's frontmatter `model:` hint, then the low-cost default `gpt-5.6-luna`; `ci` sweeps a fixed three-model array.
+Their acceptable bar is unresolved pending the calibration work, and a gate that enforces an uncalibrated threshold asserts a standard no one has validated.
+A judge failure is not silently tolerated: a comparison that yields no scoreable records is a run-health failure, so an unusable judge already fails closed without a numeric budget.
+The equivalence tie-ratio floor is enforced despite also being provisional, because a suite that measures equivalence without ever failing on it provides no regression protection; it is recorded as calibrated-forward rather than validated.
+Model scope follows cost: `devloop` resolves an explicit `-Model` override, then the agent's frontmatter `model:` hint, then the low-cost default `gpt-5.6-luna`; `ci` sweeps the fixed standard-tier pair `gpt-5.6-luna` and `claude-sonnet-4.6`. No floating alias such as `latest` is used, because an alias can resolve to a model the account cannot execute and that surfaces as an empty run rather than a model-selection error.
+
+**6. Stage 1 measures one subject; the multi-agent sweep is staged behind it.** The corpus backlinks nine agents, but its customization-boundary stimuli and their guards encode the RPI agent's contract, so scoring another agent against them would fail for reasons unrelated to equivalence.
+Backlinks therefore identify related artifacts rather than authorize equivalence subjects: the dedicated harness runs `rpi-agent` only, and the corpus is excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus runs that reported success without evidencing anything.
+Expanding to per-subject conditional guards across all nine agents is deferred until one clean run under the restored comparison contract exists, so the expansion multiplies a measurement that has been shown to work rather than one that has not.
 
 Declared invariants and declared divergence guards are reconciled against an expected stimulus, grader, and trial manifest in both directions.
 Presence of a signal is not coverage: a grader declared in the canonical library but absent from an executable spec is never evaluated, so a name-scoped reader would report zero failures over a population that never ran.

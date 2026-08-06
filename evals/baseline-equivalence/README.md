@@ -28,12 +28,20 @@ evals/baseline-equivalence/
 ├── customized/
 │   ├── eval.yaml       # executable spec for the materialized agent run (adds customized_required / customized_disallow)
 │   └── variant.yaml    # RPI Agent variant metadata
+├── compare.eval.yml    # comparison-judging contract: one rubric per canonical stimulus
 ├── stimuli.yml         # 40 prompts across 8 subcategories at 5 per subcategory
 ```
 
-The baseline and customized specs are self-contained vally `eval` documents. The PowerShell driver invokes each spec in turn with `vally eval --eval-spec` and then joins the two run directories with `vally compare --judge-model <model> --baseline <baseline-run-dir> --treatment <customized-run-dir> --output <path>.jsonl`.
+The baseline and customized specs are self-contained vally `eval` documents. The PowerShell driver invokes each spec in turn with `vally eval --eval-spec` and then joins the two run directories with `vally compare --eval-spec evals/baseline-equivalence/compare.eval.yml --judge-model <model> --baseline <baseline-run-dir> --treatment <customized-run-dir> --output <path>.jsonl`.
 
-Comparison uses Vally's embedded default rubric. The judge model is pinned explicitly on the compare invocation by the driver's `-ComparisonJudgeModel` parameter, so the pin is visible in the command rather than buried in a spec file.
+Comparison judging reads `compare.eval.yml`, supplied explicitly through `--eval-spec`. Without it, `vally compare` falls back to the rubric
+embedded in the baseline trajectory and then to a general-purpose preference rubric that asks which response is better. Preference judging cannot
+measure equivalence: two runs of one configuration still differ in wording, so the judge keeps picking winners and the tie ratio reports judge
+tie-breaking rather than behavioral sameness. Each entry in the contract states the behavioral contract instead: `equivalent` stimuli instruct a tie
+when both variants satisfy it, and `documented-divergence` stimuli state the expected direction and an explicit tie condition. The judge model is
+pinned separately through the driver's `-ComparisonJudgeModel` parameter, so both the rubric and the judge are visible in the command.
+
+The contract is validated deterministically before any model-backed run. A missing, duplicated, unknown, or policy-mismatched entry fails `npm run ci:eval:lint:schema` and the Pester sync suite rather than silently changing what the tie ratio measures.
 
 ## How to Run
 
@@ -43,7 +51,7 @@ The PowerShell driver at [scripts/evals/Invoke-BaselineEquivalence.ps1](../../sc
 # devloop (default): single primary model, advisory verdict, always exits 0
 npm run ci:eval:equivalence -- -Agent rpi-agent -Tier devloop
 
-# ci: three-model sweep, authoritative verdict, exits non-zero on fail
+# ci: two-model sweep (gpt-5.6-luna, claude-sonnet-4.6), authoritative verdict, exits non-zero on fail
 npm run ci:eval:equivalence -- -Agent rpi-agent -Tier ci
 
 # Dry run: print planned vally commands and emit a placeholder summary without SDK calls
@@ -52,11 +60,17 @@ npm run ci:eval:equivalence -- -Agent rpi-agent -WhatIf
 
 The former `pr` and `nightly` tier names are rejected with a migration message rather than aliased, because they carried different exit policies and a silent alias would let a stale caller select the wrong one.
 
+`rpi-agent` is the only equivalence subject. The corpus backlinks nine agents, but its customization-boundary stimuli and guards encode the RPI
+agent's contract, so another agent would fail them for reasons unrelated to equivalence. Those backlinks identify related artifacts for indexing;
+they do not select subjects. The corpus is also excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus
+runs that reported success without measuring anything. Extending coverage to the remaining agents requires per-subject conditional guards and is
+deferred until one clean run under the restored comparison contract exists.
+
 The driver writes a machine-readable summary to `logs/baseline-equivalence-summary.json` and per-environment trajectories under `evals/results/`. The trajectory directories are gitignored.
 
 ### Driver output contract
 
-Each `vally compare --judge-model <model> --baseline <baseline-run-dir> --treatment <customized-run-dir> --output <path>.jsonl` invocation writes one or more typed `type: "comparison"` records to `logs/vally-compare-<model>-<runId>.jsonl` (a console `.log` capture of the same invocation is kept alongside for troubleshooting, at the paths listed in `compareLogs`).
+Each `vally compare --eval-spec evals/baseline-equivalence/compare.eval.yml --judge-model <model> --baseline <baseline-run-dir> --treatment <customized-run-dir> --output <path>.jsonl` invocation writes one or more typed `type: "comparison"` records to `logs/vally-compare-<model>-<runId>.jsonl` (a console `.log` capture of the same invocation is kept alongside for troubleshooting, at the paths listed in `compareLogs`).
 `Measure-CompareTrials` in [scripts/evals/lib/EquivalenceParsing.psm1](../../scripts/evals/lib/EquivalenceParsing.psm1) reads that JSONL, tallies each non-errored trial's `winner` (`baseline` / `treatment` / `tie`), and carries forward the record's `summary` statistics (signed mean score, 95% confidence interval, win rate).
 The driver aggregates one JSONL per model into a single JSON summary; the summary is the contract every downstream consumer reads. It carries `schemaVersion: "2.0.0"`, and consumers reject an unsupported major version rather than reading absent fields as zeros.
 The compare invocation deliberately omits `--fail-on-regression` so `Get-EquivalenceGateResults` remains the single equivalence authority instead of double-counting the same regression signal.
@@ -115,8 +129,11 @@ Onboarding a new agent (for example `security-planner`) does not require harness
    instructions, its subagents, `copilot-instructions.md`, and only the skills that agent actually references. Two different agents therefore
    produce different customized environments, which is the property the comparison depends on. The baseline runs against the same shared seed project but no agent or
    customization surface, and is cached and reused across agents, keyed on model, Vally version, and a content hash covering the baseline spec plus the seed.
-2. The scope-language guard is derived automatically. `Resolve-AgentScopePattern` reads the first `.copilot-tracking/<scope>` reference in the agent body and passes it to the customized run as `--param SCOPE_PATTERN=...`. An agent that references no tracking directory is reported as exempt in the run output rather than silently passing a guard that asserts nothing.
-3. Add per-agent divergence graders inline in [customized/eval.yaml](customized/eval.yaml) (`customized_required` / `customized_disallow` graders attached to the relevant stimuli) for any behavior the derived scope pattern cannot capture.
+2. Divergence guards are declared inline per stimulus. Each `customization-boundary` stimulus names the specific completion claim its subject must
+   not make, so a guard is satisfiable by prompt-appropriate behavior rather than by incidental vocabulary. `Resolve-AgentScopePattern` remains
+   available in [scripts/evals/lib/EquivalenceEnvironment.psm1](../../scripts/evals/lib/EquivalenceEnvironment.psm1) for the deferred per-subject
+   guard work, but stage 1 supplies no derived guard parameter, because a parameter no spec consumes would report a guard that never ran.
+3. Add per-agent divergence graders inline in [customized/eval.yaml](customized/eval.yaml) (`customized_required` / `customized_disallow` graders attached to the relevant stimuli) for any behavior the shared guards cannot capture.
 
 The driver resolves the agent's frontmatter `model:` hint automatically. No new PowerShell, no new stimulus library, and no new judge prompt are required unless the agent's domain materially differs from the existing corpus.
 
@@ -124,7 +141,10 @@ Persona loading remains outside Vally's flag surface. The agent file and `copilo
 
 ## Agent Coverage
 
-Any agent in `.github/agents/` can be run without being registered anywhere. The driver materializes the target agent's surface into an isolated workspace and derives its scope-language guard from the agent body at run time, so there is no onboarding list to join and no per-agent harness code to add. An agent that references no tracking directory is reported as exempt in the run output rather than silently passing a guard that asserts nothing.
+Any agent in `.github/agents/` can be materialized without being registered anywhere. The driver copies the target agent's surface into an isolated
+workspace at run time, so there is no onboarding list to join and no per-agent harness code to add. Stage 1 nevertheless evaluates `rpi-agent`
+alone, because the customization-boundary guards encode that agent's contract; running another subject against them would report a failure the
+run did not contain. Per-subject conditional guards are the deferred work that turns materialization into meaningful multi-agent coverage.
 
 What does vary per agent is stimulus backlinking. Most stimuli are shared corpus prompts that any agent runs; a subset carries an explicit `tags.agent` backlink marking it as characteristic of that agent's domain. Those backlinks are the only per-agent data in this suite, and they are counted from [stimuli.yml](stimuli.yml):
 
@@ -182,9 +202,14 @@ Trajectory invariants live at the spec level (not per stimulus) and apply across
 
 The customization layer is allowed to differ from the baseline only in ways the suite declares. Those declarations live in [stimuli.yml](stimuli.yml)
 as `customized_required` and `customized_disallow` guards, mirrored into [customized/eval.yaml](customized/eval.yaml) and enforced by the
-synchronization check. On the `customization-boundary` stimuli the guards are the `routes-through-rpi-lifecycle` requirement and the per-agent
-`scope-language` pattern; `writes-outside-allowed-dirs` is a shared invariant asserting neither environment names an out-of-scope filesystem
-location. Anything outside those declarations that diverges from baseline is treated as a regression, not a feature.
+synchronization check. On the `customization-boundary` stimuli each guard names the specific completion claim the customized variant must not make,
+such as `avoids-external-write-claim` or `avoids-scope-bypass-edit-claim`; `writes-outside-allowed-dirs` is a shared invariant asserting neither
+environment names an out-of-scope filesystem location. Anything outside those declarations that diverges from baseline is treated as a regression,
+not a feature.
+
+Guards assert observable behavior rather than vocabulary. An earlier revision required RPI lifecycle wording and the agent's tracking directory name
+on every response, including replies to prompts as small as writing one temporary file. Every declared guard failed on every trial while the
+responses themselves were on-topic, so the gate reported a customization failure that the runs did not contain.
 
 This framing is intentional. The suite is not a free-form quality grader; it asks the narrow question "does customization change anything beyond what we said it would?" Curated allowances keep the question crisp.
 

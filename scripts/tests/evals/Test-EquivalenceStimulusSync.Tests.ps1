@@ -389,3 +389,95 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
         }
     }
 }
+
+Describe 'Baseline-equivalence comparison contract' -Tag 'Unit' {
+    # These assertions run against the real repository files rather than a fixture.
+    # The comparison contract is what `vally compare --eval-spec` judges against, so
+    # drift between it and the canonical library silently changes what the tie ratio
+    # measures without failing any other check.
+    BeforeAll {
+        $script:RepoRootPath = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
+        $script:CanonicalSpec = ConvertFrom-Yaml (Get-Content -LiteralPath (Join-Path $script:RepoRootPath 'evals/baseline-equivalence/stimuli.yml') -Raw)
+        $script:CompareSpec = ConvertFrom-Yaml (Get-Content -LiteralPath (Join-Path $script:RepoRootPath 'evals/baseline-equivalence/compare.eval.yml') -Raw)
+        $script:CanonicalNames = @($script:CanonicalSpec.stimuli | ForEach-Object { [string]$_.name })
+        $script:CompareNames = @($script:CompareSpec.stimuli | ForEach-Object { [string]$_.name })
+
+        $script:CanonicalByName = @{}
+        foreach ($stimulus in $script:CanonicalSpec.stimuli) {
+            $script:CanonicalByName[[string]$stimulus.name] = $stimulus
+        }
+        $script:CompareByName = @{}
+        foreach ($stimulus in $script:CompareSpec.stimuli) {
+            $script:CompareByName[[string]$stimulus.name] = $stimulus
+        }
+    }
+
+    Context 'Population synchronization' {
+        It 'Covers every canonical stimulus exactly once' {
+            $missing = @($script:CanonicalNames | Where-Object { $_ -notin $script:CompareNames })
+            $unknown = @($script:CompareNames | Where-Object { $_ -notin $script:CanonicalNames })
+            $duplicates = @($script:CompareNames | Group-Object | Where-Object { $_.Count -gt 1 })
+
+            $missing | Should -BeNullOrEmpty
+            $unknown | Should -BeNullOrEmpty
+            $duplicates | Should -BeNullOrEmpty
+            $script:CompareNames.Count | Should -Be $script:CanonicalNames.Count
+        }
+
+        It 'Matches the canonical prompt for every stimulus' {
+            # Comparison pairs match on stimulus name plus trial index. A drifted prompt
+            # would judge the pair against a contract the variants never received.
+            $drift = foreach ($name in $script:CompareNames) {
+                if ([string]$script:CompareByName[$name].prompt -ne [string]$script:CanonicalByName[$name].prompt) { $name }
+            }
+            @($drift) | Should -BeNullOrEmpty
+        }
+
+        It 'Matches the canonical comparison policy for every stimulus' {
+            $drift = foreach ($name in $script:CompareNames) {
+                $canonicalPolicy = [string]$script:CanonicalByName[$name].tags['policy']
+                if ([string]$script:CompareByName[$name].tags['policy'] -ne $canonicalPolicy) { $name }
+            }
+            @($drift) | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'Rubric syntax and semantics' {
+        It 'Declares a non-empty top-level rubric for every stimulus' {
+            # Vally 0.11 comparison mode reads the top-level `rubric`. An empty or absent
+            # rubric silently falls back to the built-in default, which asks which
+            # response is better rather than whether the contract was equally satisfied.
+            $missing = foreach ($stimulus in $script:CompareSpec.stimuli) {
+                if (-not $stimulus.rubric -or @($stimulus.rubric).Count -lt 1) { [string]$stimulus.name }
+            }
+            @($missing) | Should -BeNullOrEmpty
+        }
+
+        It 'Instructs a tie for every equivalent-policy stimulus' {
+            $equivalent = @($script:CompareSpec.stimuli | Where-Object { [string]$_.tags['policy'] -eq 'equivalent' })
+            $equivalent.Count | Should -BeGreaterThan 0
+            foreach ($stimulus in $equivalent) {
+                (@($stimulus.rubric) -join ' ') | Should -Match '(?i)\btie\b'
+            }
+        }
+
+        It 'States an expected direction and tie condition for every documented-divergence stimulus' {
+            $divergence = @($script:CompareSpec.stimuli | Where-Object { [string]$_.tags['policy'] -eq 'documented-divergence' })
+            $divergence.Count | Should -Be 5
+            foreach ($stimulus in $divergence) {
+                $text = (@($stimulus.rubric) -join ' ')
+                $text | Should -Match '(?i)documented divergence'
+                $text | Should -Match '(?i)score the customized variant higher'
+                $text | Should -Match '(?i)score a tie'
+            }
+        }
+
+        It 'Does not require internal tracking vocabulary in any rubric' {
+            # The prior divergence guards failed every trial because they demanded
+            # lifecycle wording on trivial prompts. The comparison contract must judge
+            # behavior, not incidental phrasing or internal directory names.
+            (@($script:CompareSpec.stimuli | ForEach-Object { @($_.rubric) -join ' ' }) -join ' ') |
+                Should -Not -Match '(?i)\.copilot-tracking'
+        }
+    }
+}
