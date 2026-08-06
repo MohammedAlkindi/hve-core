@@ -12,34 +12,6 @@ import { processAtPlanCase } from './at-plan-executor.mjs';
 import { launchChrome } from './_shared.mjs';
 import { captureVisualReviewEvidence } from './visual-review-executor.mjs';
 
-function stableStringify(value, seen = new WeakMap()) {
-  if (value === null || value === undefined) {
-    return 'null';
-  }
-  if (typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (seen.has(value)) {
-    return '"[Circular]"';
-  }
-  seen.set(value, true);
-  if (Array.isArray(value)) {
-    const serializedEntries = value.map((entry) => stableStringify(entry, seen));
-    seen.delete(value);
-    return `[${serializedEntries.join(',')}]`;
-  }
-  const entries = Object.entries(value)
-    .filter(([, entryValue]) => entryValue !== undefined)
-    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
-  const serializedEntries = entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue, seen)}`);
-  seen.delete(value);
-  return `{${serializedEntries.join(',')}}`;
-}
-
-function createArtifactHash(payload) {
-  return createHash('sha256').update(stableStringify(payload)).digest('hex');
-}
-
 function stripNonAuthoritativePersistedArtifactHashes(value, seen = new WeakMap()) {
   if (value === null || value === undefined) {
     return value;
