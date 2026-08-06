@@ -7,30 +7,31 @@
 .SYNOPSIS
     Resolves an exact version for a release branch promotion.
 .DESCRIPTION
-    Applies the repository's odd-minor PreRelease and even-minor Stable version
-    rules to explicit channel versions and a caller-supplied release class.
+    Applies two deterministic next-minor rules. A PreRelease promotion reads only
+    the current PreRelease version and advances to the next odd minor with patch
+    zero. A Stable promotion derives the next even minor from the promoted
+    PreRelease version with patch zero, and uses the current Stable version only
+    to reject a candidate that does not advance the Stable line.
 .PARAMETER Channel
     Channel receiving the promotion.
 .PARAMETER CurrentPreReleaseVersion
-    Current numeric PreRelease version.
-.PARAMETER CurrentStableVersion
-    Current numeric Stable version.
+    Current numeric PreRelease version. Required for PreRelease.
 .PARAMETER PromotedSourceVersion
-    Version associated with the promoted source. Required for Stable.
-.PARAMETER ReleaseClass
-    Conventional release class resolved by the calling workflow.
+    Numeric version associated with the promoted source. Required for Stable.
+.PARAMETER CurrentStableVersion
+    Current numeric Stable version. Required for Stable and used only as an
+    advancement guard.
 .PARAMETER AsJson
     Emit a compressed JSON object instead of a PowerShell object.
 .EXAMPLE
     ./Resolve-ReleasePromotionVersion.ps1 -Channel PreRelease `
-        -CurrentPreReleaseVersion 3.3.101 -CurrentStableVersion 3.2.2
+        -CurrentPreReleaseVersion 3.3.101
 .EXAMPLE
     ./Resolve-ReleasePromotionVersion.ps1 -Channel Stable `
-        -CurrentPreReleaseVersion 3.3.102 -CurrentStableVersion 3.2.2 `
-        -PromotedSourceVersion 3.3.102 -ReleaseClass minor -AsJson
+        -PromotedSourceVersion 3.5.0 -CurrentStableVersion 3.2.2 -AsJson
 .NOTES
     This script performs no repository or network access. Promotion workflows
-    own commit classification and supply the current branch state.
+    supply the current branch state.
 #>
 
 [CmdletBinding()]
@@ -39,21 +40,17 @@ param(
     [ValidateSet('PreRelease', 'Stable')]
     [string]$Channel,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$CurrentPreReleaseVersion,
-
-    [Parameter(Mandatory = $true)]
-    [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$CurrentStableVersion,
 
     [Parameter(Mandatory = $false)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$PromotedSourceVersion,
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet('patch', 'minor', 'major')]
-    [string]$ReleaseClass = 'patch',
+    [ValidatePattern('^\d+\.\d+\.\d+$')]
+    [string]$CurrentStableVersion,
 
     [Parameter(Mandatory = $false)]
     [switch]$AsJson
@@ -67,8 +64,17 @@ function Resolve-ReleasePromotionVersion {
     <#
     .SYNOPSIS
         Resolves and validates the next channel version.
+    .PARAMETER Channel
+        Channel receiving the promotion.
+    .PARAMETER CurrentPreReleaseVersion
+        Current PreRelease version. Required for PreRelease.
+    .PARAMETER PromotedSourceVersion
+        Version associated with the promoted source. Required for Stable.
+    .PARAMETER CurrentStableVersion
+        Current Stable version. Required for Stable and used only as an
+        advancement guard.
     .OUTPUTS
-        [pscustomobject] The resolved version and its inputs.
+        [pscustomobject] The resolved version and its channel inputs.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -77,119 +83,73 @@ function Resolve-ReleasePromotionVersion {
         [ValidateSet('PreRelease', 'Stable')]
         [string]$Channel,
 
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
         [version]$CurrentPreReleaseVersion,
-
-        [Parameter(Mandatory = $true)]
-        [version]$CurrentStableVersion,
 
         [Parameter(Mandatory = $false)]
         [AllowNull()]
         [version]$PromotedSourceVersion,
 
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('patch', 'minor', 'major')]
-        [string]$ReleaseClass
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [version]$CurrentStableVersion
     )
 
-    if ($CurrentPreReleaseVersion.Minor % 2 -eq 0) {
-        throw "PreRelease baseline must have an odd minor: $CurrentPreReleaseVersion"
-    }
-    if ($CurrentStableVersion.Minor % 2 -ne 0) {
-        throw "Stable baseline must have an even minor: $CurrentStableVersion"
-    }
+    $preReleaseInput = $null
+    $promotedInput = $null
+    $stableInput = $null
 
     if ($Channel -eq 'PreRelease') {
-        if ($ReleaseClass -eq 'major') {
-            $nextMajor = [Math]::Max(
-                $CurrentPreReleaseVersion.Major,
-                $CurrentStableVersion.Major
-            ) + 1
-            $candidate = [version]::new($nextMajor, 1, 0)
+        if ($null -eq $CurrentPreReleaseVersion) {
+            throw 'CurrentPreReleaseVersion is required for PreRelease resolution'
         }
-        elseif (
-            $CurrentPreReleaseVersion.Major -lt $CurrentStableVersion.Major -or
-            (
-                $CurrentPreReleaseVersion.Major -eq $CurrentStableVersion.Major -and
-                $CurrentPreReleaseVersion.Minor -le $CurrentStableVersion.Minor
-            )
-        ) {
-            $candidate = [version]::new(
-                $CurrentStableVersion.Major,
-                $CurrentStableVersion.Minor + 1,
-                0
-            )
-        }
-        else {
-            $candidate = [version]::new(
-                $CurrentPreReleaseVersion.Major,
-                $CurrentPreReleaseVersion.Minor,
-                $CurrentPreReleaseVersion.Build + 1
-            )
+        if ($CurrentPreReleaseVersion.Minor % 2 -eq 0) {
+            throw "PreRelease baseline must have an odd minor: $CurrentPreReleaseVersion"
         }
 
-        if ($candidate.Minor % 2 -eq 0 -or $candidate -le $CurrentStableVersion) {
-            throw "Resolved PreRelease version must be odd-minor and greater than Stable: $candidate"
-        }
+        $candidate = [version]::new(
+            $CurrentPreReleaseVersion.Major,
+            $CurrentPreReleaseVersion.Minor + 2,
+            0
+        )
+
+        $preReleaseInput = $CurrentPreReleaseVersion.ToString(3)
     }
     else {
         if ($null -eq $PromotedSourceVersion) {
             throw 'PromotedSourceVersion is required for Stable resolution'
         }
+        if ($null -eq $CurrentStableVersion) {
+            throw 'CurrentStableVersion is required for Stable resolution'
+        }
         if ($PromotedSourceVersion.Minor % 2 -eq 0) {
             throw "Stable promotion source must have an odd minor: $PromotedSourceVersion"
         }
-        if ($PromotedSourceVersion -le $CurrentStableVersion) {
-            throw "Stable promotion source must be greater than the Stable baseline"
+        if ($CurrentStableVersion.Minor % 2 -ne 0) {
+            throw "Stable baseline must have an even minor: $CurrentStableVersion"
         }
 
-        switch ($ReleaseClass) {
-            'patch' {
-                $candidate = [version]::new(
-                    $CurrentStableVersion.Major,
-                    $CurrentStableVersion.Minor,
-                    $CurrentStableVersion.Build + 1
-                )
-            }
-            'minor' {
-                if ($PromotedSourceVersion.Major -ne $CurrentStableVersion.Major) {
-                    throw 'A cross-major Stable promotion requires ReleaseClass major'
-                }
-                $nextMinor = [Math]::Max(
-                    $CurrentStableVersion.Minor + 2,
-                    $PromotedSourceVersion.Minor + 1
-                )
-                if ($nextMinor % 2 -ne 0) {
-                    $nextMinor++
-                }
-                $candidate = [version]::new($CurrentStableVersion.Major, $nextMinor, 0)
-            }
-            'major' {
-                $nextMajor = [Math]::Max(
-                    $CurrentStableVersion.Major + 1,
-                    $PromotedSourceVersion.Major
-                )
-                $candidate = [version]::new($nextMajor, 0, 0)
-            }
+        $candidate = [version]::new(
+            $PromotedSourceVersion.Major,
+            $PromotedSourceVersion.Minor + 1,
+            0
+        )
+
+        if ($candidate -le $CurrentStableVersion) {
+            throw "Resolved Stable version must be greater than the Stable baseline: $candidate"
         }
 
-        if ($candidate.Minor % 2 -ne 0 -or $candidate -le $CurrentStableVersion) {
-            throw "Resolved Stable version must be even-minor and greater than its baseline: $candidate"
-        }
+        $promotedInput = $PromotedSourceVersion.ToString(3)
+        $stableInput = $CurrentStableVersion.ToString(3)
     }
 
     return [pscustomobject]@{
-        Version                   = $candidate.ToString(3)
-        Channel                   = $Channel
-        ReleaseClass              = $ReleaseClass
-        CurrentPreReleaseVersion  = $CurrentPreReleaseVersion.ToString(3)
-        CurrentStableVersion      = $CurrentStableVersion.ToString(3)
-        PromotedSourceVersion     = if ($null -eq $PromotedSourceVersion) {
-            $null
-        }
-        else {
-            $PromotedSourceVersion.ToString(3)
-        }
+        Version                  = $candidate.ToString(3)
+        Channel                  = $Channel
+        CurrentPreReleaseVersion = $preReleaseInput
+        PromotedSourceVersion    = $promotedInput
+        CurrentStableVersion     = $stableInput
     }
 }
 
@@ -200,13 +160,18 @@ function Resolve-ReleasePromotionVersion {
 if ($MyInvocation.InvocationName -ne '.') {
     $result = Resolve-ReleasePromotionVersion `
         -Channel $Channel `
-        -CurrentPreReleaseVersion ([version]$CurrentPreReleaseVersion) `
-        -CurrentStableVersion ([version]$CurrentStableVersion) `
-        -PromotedSourceVersion $(
-            if ($PromotedSourceVersion) { [version]$PromotedSourceVersion }
-            else { $null }
+        -CurrentPreReleaseVersion $(
+            if ([string]::IsNullOrWhiteSpace($CurrentPreReleaseVersion)) { $null }
+            else { [version]$CurrentPreReleaseVersion }
         ) `
-        -ReleaseClass $ReleaseClass
+        -PromotedSourceVersion $(
+            if ([string]::IsNullOrWhiteSpace($PromotedSourceVersion)) { $null }
+            else { [version]$PromotedSourceVersion }
+        ) `
+        -CurrentStableVersion $(
+            if ([string]::IsNullOrWhiteSpace($CurrentStableVersion)) { $null }
+            else { [version]$CurrentStableVersion }
+        )
 
     if ($AsJson) {
         $result | ConvertTo-Json -Compress

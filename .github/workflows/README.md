@@ -62,7 +62,7 @@ The validation jobs in `pr-validation.yml` feed the `pr-validation-success` aggr
 
 release-stable.yml jobs: prepare-promotion, open-promotion-pr
 
-release-stable-publish.yml jobs: release-please, sync-release-pr, validate-release, close-milestone, extension-provenance, plugin-package-release, plugin-snapshot-production, generate-dependency-sbom, upload-plugin-packages, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
+release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-pr, validate-release, close-milestone, extension-provenance, plugin-package-release, plugin-snapshot-production, generate-dependency-sbom, upload-plugin-packages, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
 
 release-prerelease-prepare.yml jobs: prepare-promotion, open-promotion-pr
 
@@ -75,15 +75,26 @@ upload-plugin-packages, verify-provenance, publish-release, main-catalog-sync
 
 `release-prerelease-prepare.yml` maintains the reviewed, target-based `main` to
 `release/prerelease` promotion head. `release-stable.yml` starts from an
-explicit published PreRelease tag and maintains the reviewed, target-based
-`release/prerelease` to `release/stable` promotion head. It resolves that
-tag's commit, verifies the matching immutable plugin snapshot evidence, and
-uses only that commit for classification and promotion even when the branch
-tip is newer. Recovery dispatch requires the published `prerelease-tag` and
-selects the `default`, `minor`, or `major` release class. Neither preparation
-workflow runs release-please, creates a tag, or packages release assets.
+explicit published PreRelease tag and maintains one reviewed promotion head
+scoped to that tag:
+`release-promotion--release-prerelease--to--release-stable--<source-tag>`.
+It resolves the tag commit, verifies matching immutable plugin snapshot
+evidence, and uses only that commit for promotion even when
+the branch tip is newer. Same-tag reruns reapply selected-source package and
+catalog content before Stable version projection; different tags cannot share
+promotion history. Recovery dispatch requires the published `prerelease-tag`.
+Neither
+preparation workflow runs release-please, creates a tag, or packages assets.
 
 Release-please owns the managed Stable release PR and draft Stable release.
+
+Before Stable release-please runs, a read-only trigger job validates the exact
+managed head or the full tag-scoped promotion grammar. Promotion mode
+revalidates the selected release, source commit, manifest, ancestry, snapshot
+evidence, pull-request head containment, and live Stable intent. Managed mode
+requires the consumed `release-as` to be absent. Both modes serialize against
+`release/stable`; exact branch writers, required review, merge-commit policy,
+and immutable tags remain repository-policy controls.
 
 Merging the same-repository managed Stable release PR runs release-please in
 tag-only mode with the Stable config. It creates the draft
@@ -113,6 +124,22 @@ the release tag, validates the committed release catalog, and creates the immuta
 `plugins-v<version>` snapshot.
 
 PreRelease uses an odd-minor version and Stable uses an even-minor version. Each promotion writes the exact release intent that release-please consumes on its target branch.
+
+### Release Version Allocation
+
+Ordinary version allocation is branch-owned and does not classify commits or
+select an automatic patch, minor, or major release class. PreRelease reads its
+current `release/prerelease` version and returns the same major, minor plus
+two, and patch zero. Stable reads the promoted PreRelease version and returns
+the promoted major, promoted minor plus one, and patch zero. Current Stable
+state only rejects a candidate that does not advance it.
+
+The ordinary sequence is `3.3.101` to `3.5.0` to `3.6.0`. Matching plugin
+packages use the identical channel version. A major-line transition and a
+Stable patch or hotfix each require a separate explicit manifest and
+release-state decision. Odd/even minor parity remains repository policy
+aligned with VS Code Marketplace guidance and behavior, rather than a
+requirement of `MAJOR.MINOR.PATCH` syntax.
 
 Final publication mints a release GitHub App token and atomically runs
 `gh release edit --prerelease --draft=false`; the resulting published event

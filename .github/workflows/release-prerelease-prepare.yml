@@ -27,11 +27,9 @@ permissions:
 env:
     SOURCE_BRANCH: main
     BASE_BRANCH: release/prerelease
-    STABLE_BRANCH: release/stable
     PROMOTION_HEAD: release-promotion--main--to--release-prerelease
     TARGET_CONFIG: release-please-prerelease-config.json
     TARGET_MANIFEST: .release-please-prerelease-manifest.json
-    STABLE_MANIFEST: .release-please-manifest.json
 
 jobs:
     prepare-promotion:
@@ -54,11 +52,8 @@ jobs:
         outputs:
             promote: ${{ steps.promote.outputs.promote }}
             version: ${{ steps.resolve.outputs.version }}
-            release-class: ${{ steps.classify.outputs.release-class }}
             source-sha: ${{ steps.state.outputs.source-sha }}
             prerelease-baseline: ${{ steps.state.outputs.prerelease-baseline }}
-            stable-baseline: ${{ steps.read-stable-baseline.outputs.stable-baseline }}
-            stable-baseline-source: ${{ steps.read-stable-baseline.outputs.baseline-source }}
         steps:
             - name: Generate GitHub App Token
               id: app-token
@@ -79,8 +74,8 @@ jobs:
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
 
-            # Full history: baseline reads and commit classification cover the
-            # whole promoted range across main and both release branches.
+            # Full history: the promotion merges the whole range between main
+            # and the target branch, which shallow history cannot express.
             - name: Checkout promotion working tree
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -155,83 +150,16 @@ jobs:
                     echo "prerelease-baseline=$PRERELEASE_BASELINE"
                   } >> "$GITHUB_OUTPUT"
 
-            # Once release/stable exists it is the only Stable baseline
-            # authority: a fetch or manifest read failure aborts instead of
-            # falling back to the checked-in seed.
-            - name: Read Stable baseline
-              id: read-stable-baseline
-              if: ${{ steps.state.outputs.continue == 'true' }}
-              run: |
-                  set -euo pipefail
-                  cd "$GITHUB_WORKSPACE/promotion"
-
-                  if git ls-remote --exit-code --heads origin "$STABLE_BRANCH" >/dev/null 2>&1; then
-                    git fetch --no-tags origin "+refs/heads/$STABLE_BRANCH:refs/remotes/origin/$STABLE_BRANCH"
-                    STABLE_BASELINE=$(git show "refs/remotes/origin/$STABLE_BRANCH:$STABLE_MANIFEST" | jq -r '.["."] // ""')
-                    BASELINE_SOURCE="$STABLE_BRANCH"
-                  else
-                    STABLE_BASELINE=$(jq -r '.["."] // ""' "$STABLE_MANIFEST")
-                    BASELINE_SOURCE="checked-in seed on $SOURCE_BRANCH"
-                  fi
-
-                  if ! printf '%s' "$STABLE_BASELINE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-                    echo "::error::Stable baseline from $BASELINE_SOURCE is not MAJOR.MINOR.PATCH"
-                    exit 1
-                  fi
-                  STABLE_MINOR=$(printf '%s' "$STABLE_BASELINE" | cut -d. -f2)
-                  if (( STABLE_MINOR % 2 != 0 )); then
-                    echo "::error::Stable baseline $STABLE_BASELINE from $BASELINE_SOURCE has an odd minor"
-                    exit 1
-                  fi
-
-                  {
-                    echo "stable-baseline=$STABLE_BASELINE"
-                    echo "baseline-source=$BASELINE_SOURCE"
-                  } >> "$GITHUB_OUTPUT"
-                  echo "Stable baseline $STABLE_BASELINE resolved from $BASELINE_SOURCE"
-
-            - name: Classify promoted commits
-              id: classify
-              if: ${{ steps.state.outputs.continue == 'true' }}
-              run: |
-                  set -euo pipefail
-                  cd "$GITHUB_WORKSPACE/promotion"
-
-                  RANGE="refs/remotes/origin/$BASE_BRANCH..refs/remotes/origin/$SOURCE_BRANCH"
-
-                  # Release metadata commits carry generated changelog bodies, so
-                  # they never classify a promotion.
-                  SUBJECTS=$(git log -E --invert-grep --grep='^chore\((main|release[^)]*)\)!?: ' --format='%s' "$RANGE")
-                  BODIES=$(git log -E --invert-grep --grep='^chore\((main|release[^)]*)\)!?: ' --format='%B' "$RANGE")
-
-                  breaking_headers=$(printf '%s\n' "$SUBJECTS" | grep -Ec '^[a-zA-Z]+(\([^)]*\))?!: ' || true)
-                  breaking_footers=$(printf '%s\n' "$BODIES" | grep -Ec '^BREAKING[ -]CHANGE(\([^)]*\))?: ' || true)
-
-                  # PreRelease advances its own patch line unless a breaking
-                  # change forces the next major line.
-                  if [ "$breaking_headers" -ne 0 ] || [ "$breaking_footers" -ne 0 ]; then
-                    RELEASE_CLASS='major'
-                  else
-                    RELEASE_CLASS='patch'
-                  fi
-
-                  echo "release-class=$RELEASE_CLASS" >> "$GITHUB_OUTPUT"
-                  echo "Promoted commits classified as $RELEASE_CLASS"
-
             - name: Resolve exact PreRelease version
               id: resolve
               if: ${{ steps.state.outputs.continue == 'true' }}
               env:
                   PRERELEASE_BASELINE: ${{ steps.state.outputs.prerelease-baseline }}
-                  STABLE_BASELINE: ${{ steps.read-stable-baseline.outputs.stable-baseline }}
-                  RELEASE_CLASS: ${{ steps.classify.outputs.release-class }}
               run: |
                   set -euo pipefail
                   RESOLVED=$(pwsh -NoProfile -File "$GITHUB_WORKSPACE/scripts/release/Resolve-ReleasePromotionVersion.ps1" \
                       -Channel PreRelease \
                       -CurrentPreReleaseVersion "$PRERELEASE_BASELINE" \
-                      -CurrentStableVersion "$STABLE_BASELINE" \
-                      -ReleaseClass "$RELEASE_CLASS" \
                       -AsJson)
 
                   VERSION=$(printf '%s' "$RESOLVED" | jq -r '.Version // ""')
@@ -239,14 +167,51 @@ jobs:
                     echo "::error::Resolved PreRelease version $VERSION is not MAJOR.MINOR.PATCH"
                     exit 1
                   fi
-                  VERSION_MINOR=$(printf '%s' "$VERSION" | cut -d. -f2)
-                  if (( VERSION_MINOR % 2 == 0 )); then
-                    echo "::error::Resolved PreRelease version $VERSION has an even minor"
-                    exit 1
-                  fi
 
                   echo "version=$VERSION" >> "$GITHUB_OUTPUT"
                   echo "Promoting $SOURCE_BRANCH to $BASE_BRANCH as $VERSION"
+
+            # Read-only pre-flight before any promotion branch mutation or
+            # release intent write: an already occupied tag or GitHub release
+            # is immutable, so release-please could never issue this candidate.
+            - name: Validate candidate release identity is unoccupied
+              if: ${{ steps.state.outputs.continue == 'true' }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  VERSION: ${{ steps.resolve.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  cd "$GITHUB_WORKSPACE/promotion"
+
+                  for candidate_ref in "refs/tags/hve-core-v$VERSION" "refs/tags/plugins-v$VERSION"; do
+                    # A transport or authentication failure aborts under set -e
+                    # instead of reporting the identity as available.
+                    OCCUPIED=$(git ls-remote origin "$candidate_ref")
+                    if [ -n "$OCCUPIED" ]; then
+                      echo "::error::Candidate release identity $candidate_ref already exists"
+                      exit 1
+                    fi
+                  done
+
+                  # Only an explicit not-found response proves the release
+                  # identity is free. A success means it is occupied, and every
+                  # auth, rate-limit, or transport outcome fails closed.
+                  set +e
+                  PROBE=$(gh api --include "/repos/$REPOSITORY/releases/tags/hve-core-v$VERSION" 2>&1)
+                  PROBE_EXIT=$?
+                  set -e
+                  if [ "$PROBE_EXIT" -eq 0 ]; then
+                    echo "::error::A GitHub release already exists for hve-core-v$VERSION"
+                    exit 1
+                  fi
+                  if ! printf '%s\n' "$PROBE" | grep -Eq '^HTTP/[0-9.]+ 404|\(HTTP 404\)'; then
+                    STATUS_LINE=$(printf '%s\n' "$PROBE" | grep -m1 -E '^HTTP/[0-9.]+ [0-9]{3}' || true)
+                    echo "::error::Release lookup for hve-core-v$VERSION returned no explicit not-found result: ${STATUS_LINE:-no HTTP status}"
+                    exit 1
+                  fi
+
+                  echo "Release identity hve-core-v$VERSION and plugins-v$VERSION is unoccupied"
 
             - name: Refresh the promotion head
               id: promote
@@ -378,10 +343,7 @@ jobs:
                   BASE_BRANCH: release/prerelease
                   SOURCE_BRANCH: main
                   SOURCE_SHA: ${{ needs.prepare-promotion.outputs.source-sha }}
-                  RELEASE_CLASS: ${{ needs.prepare-promotion.outputs.release-class }}
                   PRERELEASE_BASELINE: ${{ needs.prepare-promotion.outputs.prerelease-baseline }}
-                  STABLE_BASELINE: ${{ needs.prepare-promotion.outputs.stable-baseline }}
-                  STABLE_BASELINE_SOURCE: ${{ needs.prepare-promotion.outputs.stable-baseline-source }}
               run: |
                   set -euo pipefail
                   TITLE="chore(release): promote ${SOURCE_BRANCH} to ${BASE_BRANCH} as ${VERSION}"
@@ -392,9 +354,7 @@ jobs:
                   | Input | Value |
                   |-------|-------|
                   | Source commit | \`${SOURCE_SHA}\` |
-                  | Release class | \`${RELEASE_CLASS}\` |
                   | PreRelease baseline | \`${PRERELEASE_BASELINE}\` |
-                  | Stable baseline | \`${STABLE_BASELINE}\` (from ${STABLE_BASELINE_SOURCE}) |
                   | Exact release intent | \`${VERSION}\` |
 
                   Target-owned changelog, release-please config, and manifest come from

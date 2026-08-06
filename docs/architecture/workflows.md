@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-08-04
+ms.date: 2026-08-05
 ms.topic: overview
 ---
 
@@ -219,6 +219,22 @@ their channel. A promotion merge selects PR-only mode. A managed PR merge
 selects tag-only mode and creates the draft `hve-core-v<version>` release at
 that managed merge commit.
 
+### Release Version Allocation
+
+Ordinary version allocation is branch-owned. PreRelease reads the current
+`release/prerelease` version and returns the same major, minor plus two, and
+patch zero. Stable reads the promoted PreRelease version and returns the
+promoted major, promoted minor plus one, and patch zero. Current Stable state
+only rejects a candidate that does not advance it. The ordinary sequence is
+`3.3.101` to `3.5.0` to `3.6.0`.
+
+No commit classification or automatic patch, minor, or major release class
+participates in ordinary allocation. Matching plugin packages use the identical
+channel version. A major-line transition, or a Stable patch or hotfix, requires
+a separate explicit manifest and release-state decision. Odd/even minor parity
+is repository policy aligned with VS Code Marketplace guidance and behavior,
+not a requirement of `MAJOR.MINOR.PATCH` syntax.
+
 ### Release Channel Jobs
 
 | Workflow                     | Jobs                                                                                                                                                                                                                                                                                                             |
@@ -323,6 +339,10 @@ Lifecycle labels are disclosure and governance metadata. Channel selection does 
 |-------------|--------------------|------------------|
 | Stable      | Even minor (1.2.0) | Main listing     |
 | Pre-release | Odd minor (1.3.0)  | Pre-release flag |
+
+VS Code selects the highest available numeric extension version. Users opted
+into PreRelease can temporarily receive a higher Stable version and remain
+eligible for a later, higher PreRelease version.
 
 ## npm Script Mapping
 

@@ -54,10 +54,10 @@ flowchart TD
     end
 ```
 
-| Channel    | Promotion head                                              | Managed head                                   | Promotion mode | Managed mode |
-|------------|-------------------------------------------------------------|------------------------------------------------|----------------|--------------|
-| PreRelease | `release-promotion--main--to--release-prerelease`           | `release-please--branches--release/prerelease` | PR-only        | Tag-only     |
-| Stable     | `release-promotion--release-prerelease--to--release-stable` | `release-please--branches--release/stable`     | PR-only        | Tag-only     |
+| Channel    | Promotion head                                                            | Managed head                                   | Promotion mode | Managed mode |
+|------------|---------------------------------------------------------------------------|------------------------------------------------|----------------|--------------|
+| PreRelease | `release-promotion--main--to--release-prerelease`                         | `release-please--branches--release/prerelease` | PR-only        | Tag-only     |
+| Stable     | `release-promotion--release-prerelease--to--release-stable--<source-tag>` | `release-please--branches--release/stable`     | PR-only        | Tag-only     |
 
 ### PreRelease Flow
 
@@ -95,17 +95,18 @@ above that version.
 ### Stable Flow
 
 1. A published PreRelease event runs `Stable Release Preparation`. A recovery
-    dispatch must provide the published `hve-core-v<version>` PreRelease tag
-    and may select the `default`, `minor`, or `major` release class.
-2. The workflow refreshes the target-based promotion head from
-    `release/stable`, resolves and validates the selected published tag and its
-    matching `plugins-v<version>` evidence, merges only that tag commit,
-    restores Stable-owned release state, writes the exact `release-as`, and
-    opens a reviewed PR. Newer commits on `release/prerelease` are excluded.
+    dispatch must provide the published `hve-core-v<version>` PreRelease tag.
+2. The workflow derives a promotion head from the validated source tag,
+    refreshes it from `release/stable`, validates matching
+    `plugins-v<version>` evidence, and merges only that tag commit. It restores
+    selected-source package and catalog content, projects Stable version
+    fields, writes the exact `release-as`, and opens a reviewed PR. Newer
+    `release/prerelease` commits and other selected tags are excluded.
 3. Review `PR Validation Success`, the even-minor intent, and the promoted
     tree. Merge the promotion PR. This merge creates no tag or GitHub release.
-4. `Stable Release Publish` runs release-please in PR-only mode against
-    `release/stable` and opens or updates the managed Stable PR.
+4. `Stable Release Publish` revalidates the tag-scoped merged head and current
+    Stable intent in a read-only job, then runs release-please in PR-only mode
+    and opens or updates the managed Stable PR.
 5. Review the managed version, changelog, manifest, and immutable plugin
     locator. The future `plugins-v<stable-version>` locator does not exist yet
     by design. Postprocessing removes the consumed `release-as`.
@@ -143,37 +144,44 @@ merges, so tag-only publication does not depend on stale intent.
 Promotion preparation determines the exact channel version before
 release-please opens its managed PR:
 
-| Channel    | Promoted commits                                        | Exact result                         |
-|------------|---------------------------------------------------------|--------------------------------------|
-| PreRelease | Breaking change                                         | Next approved major odd-minor line   |
-| PreRelease | Other changelog-visible change                          | Patch on the current odd-minor line  |
-| Stable     | Breaking change                                         | Major                                |
-| Stable     | Feature                                                 | Next even minor                      |
-| Stable     | Other changelog-visible change                          | Patch on the current even-minor line |
-| Stable     | Dispatch with explicit `minor` or `major` release class | Selected even-minor or major intent  |
+| Channel    | Ordinary allocation input            | Exact result                                        |
+|------------|--------------------------------------|-----------------------------------------------------|
+| PreRelease | Current `release/prerelease` version | Same major, minor plus two, patch zero              |
+| Stable     | Promoted PreRelease version          | Promoted major, promoted minor plus one, patch zero |
+
+For example, the ordinary sequence is `3.3.101` to `3.5.0` to `3.6.0`.
+PreRelease reads only `release/prerelease`. Stable derives its candidate from
+the promoted PreRelease version; the current Stable version only rejects a
+candidate that does not advance it. Matching plugin packages use the identical
+channel version.
 
 > [!NOTE]
-> Stable releases must have an even minor version number (e.g., `1.0`, `1.2`). Odd minor versions (e.g., `1.1`, `1.3`) are reserved for PreRelease. The promotion and publication workflows enforce this convention.
+> Stable releases use an even minor version number (for example, `1.2.0`), and
+> PreRelease releases use an odd minor version number (for example, `1.3.0`).
+> This parity is repository policy aligned with VS Code Marketplace guidance
+> and behavior. It is not a requirement of `MAJOR.MINOR.PATCH` syntax.
 
-Release metadata commits are excluded from Stable classification. If no
-changelog-visible commit exists, preparation fails with an explicit no-release
-diagnostic rather than manufacturing a version.
+Ordinary release allocation has no commit classification and no automatic
+patch, minor, or major release class. Stable has no release-class recovery
+dispatch. A major-line transition or a Stable patch or hotfix requires a
+separate explicit manifest and release-state decision.
 
 ## For Contributors
 
-Write commits using conventional commit format. This enables automated changelog generation and version bumping.
+Write commits using conventional commit format to support clear changelog
+entries. Commit type does not select the release version.
 
 ```bash
-# Features (triggers minor version bump)
+# Feature changelog entry
 git commit -m "feat: add new prompt for code review"
 
-# Bug fixes (triggers patch version bump)
+# Fix changelog entry
 git commit -m "fix: resolve parsing error in instruction files"
 
-# Documentation (no version bump, appears in changelog)
+# Documentation changelog entry
 git commit -m "docs: update installation guide"
 
-# Breaking changes (triggers major version bump)
+# Breaking-change changelog entry
 git commit -m "feat!: redesign configuration schema"
 ```
 
@@ -207,10 +215,10 @@ The promotion and managed release PR are separate review boundaries. When ready 
 1. Review the `release/prerelease` to `release/stable` promotion PR and its
     `PR Validation Success` check. Auto-merge is intentionally disabled.
 2. Confirm the head is
-    `release-promotion--release-prerelease--to--release-stable`, the source is
-    the selected published PreRelease tag commit with matching snapshot
-    evidence, and the proposed version is even-minor. A newer branch tip must
-    not enter the promotion.
+    `release-promotion--release-prerelease--to--release-stable--<source-tag>`,
+    the suffix matches the selected published PreRelease tag, the source commit
+    has matching snapshot evidence, and the proposed version is even-minor. A
+    newer branch tip or another selected tag must not enter the promotion.
 3. Merge the promotion and verify it creates no tag. Confirm the resulting
     `Stable Release Publish` run opens the managed PR in PR-only mode.
 4. Review the managed PR on `release/stable`, including its changelog, version
@@ -269,6 +277,13 @@ Publish the extension after merging a Release PR that includes extension-relevan
 * Updated extension metadata or documentation
 
 Documentation-only releases may not require an extension publish.
+
+### Client Version Selection
+
+VS Code selects the highest available numeric extension version. A user opted
+into PreRelease can therefore temporarily receive a higher Stable version and
+remains eligible for a later, higher PreRelease version. Channel parity guides
+repository release policy; it does not prevent that normal client behavior.
 
 ## Version Quick Reference
 

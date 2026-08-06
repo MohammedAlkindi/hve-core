@@ -718,6 +718,16 @@ Describe 'Pre-release preparation and publication' -Tag 'Unit' {
         $committedState = @($steps | Where-Object { $_ -match 'STALE_INTENT' })
         $committedState | Should -HaveCount 1
         $committedState[0] | Should -Match 'release-please-prerelease-config\.json still carries release-as'
+
+        # Parity cannot detect an always-bump-patch fallback, so exact intent
+        # equality and its retirement carry the PreRelease release identity.
+        $intent = Get-NamedJobStep -Document $script:PreReleaseDocument -JobName 'sync-release-pr' -StepName 'Update committed version fields and retire the promotion intent'
+        $intentRun = [string]$intent['run']
+        $intentRun | Should -Match ([regex]::Escape('CONFIG="$RELEASE_REPO/release-please-prerelease-config.json"'))
+        $intentRun | Should -Match '\[ "\$INTENT" != "\$VERSION" \]'
+        $intentRun | Should -Match 'but the managed release is \$VERSION'
+        $intentRun | Should -Match ([regex]::Escape('del(.packages["."]["release-as"])'))
+        $intentRun | Should -Match ([regex]::Escape('.release-please-prerelease-manifest.json'))
     }
 
     It 'Removed the explicit source resolution and custom draft creation path' {
@@ -787,9 +797,12 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $promotion[0] | Should -Match '--head "\$HEAD_BRANCH"'
         $promotion[0] | Should -Match '--base "\$BASE_BRANCH"'
         $job = $script:PrepareDocument['jobs']['open-promotion-pr']
-        [string]$job['steps'][1]['env']['HEAD_BRANCH'] | Should -BeExactly 'release-promotion--release-prerelease--to--release-stable'
+        [string]$job['steps'][1]['env']['HEAD_BRANCH'] | Should -BeExactly '${{ needs.prepare-promotion.outputs.promotion-head }}'
         [string]$job['steps'][1]['env']['BASE_BRANCH'] | Should -BeExactly 'release/stable'
         [string]$job['steps'][1]['env']['SOURCE_BRANCH'] | Should -BeExactly 'release/prerelease'
+        [string]$job['steps'][1]['env']['SOURCE_TAG'] | Should -BeExactly '${{ needs.prepare-promotion.outputs.source-tag }}'
+        $promotion[0] | Should -Match 'EXPECTED_HEAD="\$PROMOTION_HEAD_PREFIX--\$SOURCE_TAG"'
+        $promotion[0] | Should -Match '\[ "\$HEAD_BRANCH" != "\$EXPECTED_HEAD" \]'
         (Get-WorkflowText -Name 'release-stable.yml') | Should -Not -Match 'gh pr merge'
         (Get-WorkflowText -Name 'release-stable.yml') | Should -Not -Match '--auto'
     }
@@ -819,6 +832,9 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $stateRun | Should -Match 'release-promotion--'
         $stateRun | Should -Match '\$SOURCE_MANIFEST'
         $stateRun | Should -Match ([regex]::Escape('^hve-core-v[0-9]+\.[0-9]+\.[0-9]+$'))
+        $stateRun | Should -Match '\[\[ .*SOURCE_TAG.*=~ \^hve-core-v'
+        $stateRun | Should -Not -Match 'SOURCE_TAG.*\|\s*grep'
+        [string]$prepare['outputs']['promotion-head'] | Should -BeExactly '${{ steps.state.outputs.promotion-head }}'
         $stateRun | Should -Match ([regex]::Escape('+refs/tags/$SOURCE_TAG:refs/tags/$SOURCE_TAG'))
         $stateRun | Should -Match ([regex]::Escape('refs/tags/$SOURCE_TAG^{commit}'))
         $stateRun | Should -Match ([regex]::Escape('git show "$SOURCE_SHA:$SOURCE_MANIFEST"'))
@@ -828,13 +844,29 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $stateRun | Should -Not -Match 'SOURCE_SHA=\$\(git rev-parse "refs/remotes/origin/\$SOURCE_BRANCH"\)'
         $stateRun | Should -Not -Match 'plugins-v\$VERSION|hve-core-v\$VERSION'
 
-        $classify = Get-NamedJobStep -Document $script:PrepareDocument -JobName 'prepare-promotion' -StepName 'Classify promoted commits'
-        [string]$classify['env']['SOURCE_SHA'] | Should -BeExactly '${{ steps.state.outputs.source-sha }}'
-        [string]$classify['run'] | Should -Match ([regex]::Escape('RANGE="refs/remotes/origin/$BASE_BRANCH..$SOURCE_SHA"'))
+        # Commit classification and its release-class dispatch are gone: the
+        # promoted source version alone selects the next even minor.
+        @($script:PrepareDocument['jobs']['prepare-promotion']['steps'] |
+                Where-Object { [string]$_['name'] -eq 'Classify promoted commits' }) | Should -HaveCount 0
+        $stablePreparation | Should -Not -Match 'Classify promoted commits'
+        $stablePreparation | Should -Not -Match 'release-class|release_class|release class'
+        [string[]]@($script:PrepareDocument['on']['workflow_dispatch']['inputs'].Keys) | Should -Be @('prerelease-tag')
+        $prepare['outputs'].Contains('release-class') | Should -BeFalse
 
         $resolver = Get-NamedJobStep -Document $script:PrepareDocument -JobName 'prepare-promotion' -StepName 'Resolve exact Stable version'
-        [string]$resolver['run'] | Should -Match 'Resolve-ReleasePromotionVersion\.ps1'
-        [string]$resolver['run'] | Should -Match '-Channel Stable'
+        foreach ($name in @('SOURCE_VERSION', 'STABLE_BASELINE')) {
+            $resolver['env'].Contains($name) | Should -BeTrue
+        }
+        $resolverRun = [string]$resolver['run']
+        $resolverRun | Should -Match 'Resolve-ReleasePromotionVersion\.ps1'
+        $resolverRun | Should -Match '-Channel Stable'
+        $resolverRun | Should -Match ([regex]::Escape('-PromotedSourceVersion "$SOURCE_VERSION"'))
+        $resolverRun | Should -Match ([regex]::Escape('-CurrentStableVersion "$STABLE_BASELINE"'))
+        $resolverRun | Should -Not -Match '-CurrentPreReleaseVersion|-ReleaseClass'
+        # Canonical syntax still guards the resolved value, but the same-run
+        # parity recheck is gone because the resolver owns that contract.
+        $resolverRun | Should -Match ([regex]::Escape('^[0-9]+\.[0-9]+\.[0-9]+$'))
+        $resolverRun | Should -Not -Match '% 2'
     }
 
     # release-please's json extra-files updater writes bare version values and
@@ -870,21 +902,81 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         @($script:PublishDocument['on']['pull_request']['types']) | Should -Be @('closed')
         @($script:PublishDocument['on']['pull_request']['branches']) | Should -Be @('release/stable')
 
-        $guard = [string]$script:PublishDocument['jobs']['release-please']['if']
+        $validationJob = $script:PublishDocument['jobs']['validate-trigger']
+        $validationJob | Should -Not -BeNullOrEmpty
+        [string]$validationJob['permissions']['contents'] | Should -BeExactly 'read'
+        $guard = [string]$validationJob['if']
         $guard | Should -Match 'github\.event\.pull_request\.merged == true'
         $guard | Should -Match "github\.event\.pull_request\.base\.ref == 'release/stable'"
         $guard | Should -Match 'head\.repo\.full_name == github\.repository'
-        $guard | Should -Match "head\.ref == 'release-promotion--release-prerelease--to--release-stable'"
+        $guard | Should -Match 'release-promotion--release-prerelease--to--release-stable--hve-core-v'
         $guard | Should -Match "head\.ref == 'release-please--branches--release/stable'"
+
+        @($script:PublishDocument['jobs']['release-please']['needs']) | Should -Be @('validate-trigger')
+        [string]$validationJob['outputs']['mode'] | Should -BeExactly '${{ steps.identity.outputs.mode }}'
+        [string]$validationJob['outputs']['source-tag'] | Should -BeExactly '${{ steps.identity.outputs.source-tag }}'
+        [string]$validationJob['outputs']['source-sha'] | Should -BeExactly '${{ steps.source.outputs.source-sha }}'
+        $identity = Get-NamedJobStep -Document $script:PublishDocument -JobName 'validate-trigger' -StepName 'Validate merged head identity'
+        [string]$identity['run'] | Should -Match 'release-promotion--release-prerelease--to--release-stable--\(hve-core-v\[0-9\]'
+        [string]$identity['run'] | Should -Match '\[ "\$HEAD_REF" = "\$MANAGED_HEAD" \]'
 
         $configFile = [string](Get-NamedJobStep -Document $script:PublishDocument -JobName 'release-please' -StepName 'Run release-please')['with']['config-file']
         $configFile | Should -BeExactly 'release-please-config.json'
 
         $release = Get-NamedJobStep -Document $script:PublishDocument -JobName 'release-please' -StepName 'Run release-please'
         [string]$release['with']['skip-github-release'] |
-            Should -BeExactly "`${{ github.event.pull_request.head.ref != 'release-please--branches--release/stable' }}"
+            Should -BeExactly "`${{ needs.validate-trigger.outputs.mode != 'managed' }}"
         [string]$release['with']['skip-github-pull-request'] |
-            Should -BeExactly "`${{ github.event.pull_request.head.ref == 'release-please--branches--release/stable' }}"
+            Should -BeExactly "`${{ needs.validate-trigger.outputs.mode == 'managed' }}"
+
+        [string]$script:PublishDocument['concurrency']['group'] | Should -BeExactly '${{ github.workflow }}-release/stable'
+        $script:PublishDocument['concurrency']['cancel-in-progress'] | Should -BeFalse
+
+        $sourceGate = Get-NamedJobStep -Document $script:PublishDocument -JobName 'validate-trigger' -StepName 'Validate selected promotion source and intent'
+        $sourceGateRun = [string]$sourceGate['run']
+        $sourceGateRun | Should -Match 'refs/pull/\$PR_NUMBER/head'
+        $sourceGateRun | Should -Match 'refs/tags/\$SOURCE_TAG\^\{commit\}'
+        $sourceGateRun | Should -Match 'git merge-base --is-ancestor "\$SOURCE_SHA" "refs/remotes/pull/\$PR_NUMBER/head"'
+        $sourceGateRun | Should -Match 'plugin-release-evidence\.json'
+        $sourceGateRun | Should -Match 'CANDIDATE=.*release-please-config\.json'
+        $sourceGateRun | Should -Not -Match 'plugins-v\$CANDIDATE|hve-core-v\$CANDIDATE'
+
+        $managedGate = Get-NamedJobStep -Document $script:PublishDocument -JobName 'validate-trigger' -StepName 'Validate managed release intent was consumed'
+        [string]$managedGate['run'] | Should -Match 'release-as'
+        [string]$managedGate['run'] | Should -Match '\[ -n "\$INTENT" \]'
+
+        # Parity cannot detect an always-bump-patch fallback, so exact intent
+        # equality and its retirement carry the Stable release identity.
+        $intent = Get-NamedJobStep -Document $script:PublishDocument -JobName 'sync-release-pr' -StepName 'Update committed version fields and retire the promotion intent'
+        $intentRun = [string]$intent['run']
+        $intentRun | Should -Match ([regex]::Escape('CONFIG="$RELEASE_REPO/release-please-config.json"'))
+        $intentRun | Should -Match '\[ "\$INTENT" != "\$VERSION" \]'
+        $intentRun | Should -Match 'but the managed release is \$VERSION'
+        $intentRun | Should -Match ([regex]::Escape('del(.packages["."]["release-as"])'))
+
+        $publicationState = Get-NamedJobStep -Document $script:PublishDocument -JobName 'validate-release' -StepName 'Verify release version and committed state'
+        [string]$publicationState['run'] | Should -Match 'release-please-config\.json still carries release-as'
+    }
+
+    It 'Scopes Stable promotion heads to the validated selected tag' {
+        $prepare = $script:PrepareDocument['jobs']['prepare-promotion']
+        $script:PrepareDocument['env'].Contains('PROMOTION_HEAD') | Should -BeFalse
+        [string]$script:PrepareDocument['env']['PROMOTION_HEAD_PREFIX'] |
+            Should -BeExactly 'release-promotion--release-prerelease--to--release-stable'
+        [string]$prepare['outputs']['promotion-head'] | Should -BeExactly '${{ steps.state.outputs.promotion-head }}'
+
+        $state = Get-NamedJobStep -Document $script:PrepareDocument -JobName 'prepare-promotion' -StepName 'Resolve promotion state'
+        $stateRun = [string]$state['run']
+        $stateRun | Should -Match 'PROMOTION_HEAD="\$PROMOTION_HEAD_PREFIX--\$SOURCE_TAG"'
+        $stateRun | Should -Match 'jq -r --arg head "\$PROMOTION_HEAD"'
+        $stateRun | Should -Match 'gh pr list .*--limit 100'
+        $stateRun | Should -Match 'promotion-head=\$PROMOTION_HEAD'
+
+        $refresh = Get-NamedJobStep -Document $script:PrepareDocument -JobName 'prepare-promotion' -StepName 'Refresh the promotion head'
+        [string]$refresh['env']['PROMOTION_HEAD'] | Should -BeExactly '${{ steps.state.outputs.promotion-head }}'
+        [string]$refresh['env']['SOURCE_TAG'] | Should -BeExactly '${{ steps.state.outputs.source-tag }}'
+        [string]$refresh['run'] | Should -Match 'EXPECTED_HEAD="\$PROMOTION_HEAD_PREFIX--\$SOURCE_TAG"'
+        [string]$refresh['run'] | Should -Match 'refs/heads/\$PROMOTION_HEAD'
     }
 
     It 'Proves the Stable release commit is the merged commit contained in release/stable' {
@@ -1267,6 +1359,26 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         foreach ($name in @('EVENT_NAME', 'EVENT_TAG', 'MANUAL_VERSION', 'REPOSITORY')) {
             $resolve['env'].Contains($name) | Should -BeTrue
         }
+
+        # Manual dispatch and the automatic release event reach the same channel
+        # parity gate, so neither path can publish the wrong minor.
+        [string]$job['if'] | Should -Match "github\.event_name == 'workflow_dispatch'"
+        [string]$job['if'] | Should -Match 'github\.event\.release\.prerelease == true'
+        $validate = @($job['steps'] | Where-Object { [string]$_['id'] -eq 'validate' })[0]
+        [string]$validate['run'] | Should -Match 'PUBLISH_MINOR % 2 == 0'
+        [string]$validate['run'] | Should -Match 'requires odd minor version'
+        [string]$document['jobs']['package']['with']['channel'] | Should -BeExactly 'PreRelease'
+
+        $stable = Get-WorkflowDocument -Name 'release-marketplace-stable.yml'
+        $stableJob = $stable['jobs']['normalize-version']
+        [string]$stableJob['permissions']['contents'] | Should -BeExactly 'read'
+        [string]$stableJob['if'] | Should -Match "github\.event_name == 'workflow_dispatch'"
+        [string]$stableJob['if'] | Should -Match 'github\.event\.release\.prerelease == false'
+        $normalize = @($stableJob['steps'] | Where-Object { [string]$_['id'] -eq 'normalize' })[0]
+        [string]$normalize['run'] | Should -Match 'PUBLISH_MINOR % 2 == 1'
+        [string]$normalize['run'] | Should -Match 'requires even minor version'
+        $discover = @($stable['jobs']['discover']['steps'] | Where-Object { [string]$_['id'] -eq 'discover' })[0]
+        [string]$discover['run'] | Should -Match "-Channel 'Stable'"
     }
 }
 
@@ -1282,27 +1394,71 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
             Source = 'main'
             Base = 'release/prerelease'
             Head = 'release-promotion--main--to--release-prerelease'
+            HeadVariable = 'PROMOTION_HEAD'
+            RestoreSource = $false
             Config = 'release-please-prerelease-config.json'
             Manifest = '.release-please-prerelease-manifest.json'
+            Channel = 'PreRelease'
+            ResolverStep = 'Resolve exact PreRelease version'
+            ResolverInput = '-CurrentPreReleaseVersion "$PRERELEASE_BASELINE"'
+            ForbiddenResolverInput = '-PromotedSourceVersion'
+            StableState = $false
         }
         @{
             Workflow = 'release-stable.yml'
             Source = 'release/prerelease'
             Base = 'release/stable'
             Head = 'release-promotion--release-prerelease--to--release-stable'
+            HeadVariable = 'PROMOTION_HEAD_PREFIX'
+            RestoreSource = $true
             Config = 'release-please-config.json'
             Manifest = '.release-please-manifest.json'
+            Channel = 'Stable'
+            ResolverStep = 'Resolve exact Stable version'
+            ResolverInput = '-CurrentStableVersion "$STABLE_BASELINE"'
+            ForbiddenResolverInput = '-CurrentPreReleaseVersion'
+            StableState = $true
         }
     ) {
         $document = Get-WorkflowDocument -Name $Workflow
         [string]$document['env']['SOURCE_BRANCH'] | Should -BeExactly $Source
         [string]$document['env']['BASE_BRANCH'] | Should -BeExactly $Base
-        [string]$document['env']['PROMOTION_HEAD'] | Should -BeExactly $Head
+        [string]$document['env'][$HeadVariable] | Should -BeExactly $Head
         [string]$document['env']['TARGET_CONFIG'] | Should -BeExactly $Config
         [string]$document['env']['TARGET_MANIFEST'] | Should -BeExactly $Manifest
 
         $text = Get-WorkflowText -Name $Workflow
         $text | Should -Not -Match 'gh pr merge|--auto|push --force|ref=refs/tags/'
+
+        # Commit classification and the cross-channel baseline read are gone;
+        # each lane resolves from the branch state it already owns.
+        $text | Should -Not -Match 'Classify promoted commits'
+        $text | Should -Not -Match 'release-class|release_class|release class'
+        $prepareOutputs = $document['jobs']['prepare-promotion']['outputs']
+        foreach ($removed in @('release-class', 'stable-baseline-source')) {
+            $prepareOutputs.Contains($removed) | Should -BeFalse
+        }
+
+        $resolver = Get-NamedJobStep -Document $document -JobName 'prepare-promotion' -StepName $ResolverStep
+        $resolverRun = [string]$resolver['run']
+        $resolverRun | Should -Match "-Channel $Channel"
+        $resolverRun | Should -Match ([regex]::Escape($ResolverInput))
+        $resolverRun | Should -Not -Match ([regex]::Escape($ForbiddenResolverInput))
+
+        if ($StableState) {
+            [string]$document['env']['SOURCE_MANIFEST'] | Should -BeExactly '.release-please-prerelease-manifest.json'
+            [string]$prepareOutputs['stable-baseline'] | Should -BeExactly '${{ steps.state.outputs.stable-baseline }}'
+            [string](Get-NamedJobStep -Document $document -JobName 'prepare-promotion' -StepName 'Resolve promotion state')['run'] |
+                Should -Match 'STABLE_BASELINE=\$\(git show "refs/remotes/origin/\$BASE_BRANCH:\$TARGET_MANIFEST"'
+        }
+        else {
+            foreach ($removed in @('SOURCE_MANIFEST', 'STABLE_BRANCH', 'STABLE_MANIFEST')) {
+                $document['env'].Contains($removed) | Should -BeFalse
+            }
+            $prepareOutputs.Contains('stable-baseline') | Should -BeFalse
+            $text | Should -Not -Match 'STABLE_BASELINE|STABLE_BRANCH|STABLE_MANIFEST|stable-baseline|release/stable|Read Stable baseline'
+        }
+
         $refresh = Get-NamedJobStep -Document $document -JobName 'prepare-promotion' -StepName 'Refresh the promotion head'
         $run = [string]$refresh['run']
         $run | Should -Match 'merge_ref "refs/remotes/origin/\$BASE_BRANCH" theirs'
@@ -1312,11 +1468,60 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
         $run | Should -Match '-SkipManifest'
         $run | Should -Match '-SkipPluginGenerate'
         $run | Should -Match 'release-as'
-        $run | Should -Not -Match 'git checkout .*package\.json'
+        if ($RestoreSource) {
+            $run | Should -Match 'git checkout "\$SOURCE_SHA" --'
+            $run | Should -Match 'package\.json package-lock\.json'
+            $run | Should -Match 'extension/templates/package\.template\.json'
+            $run | Should -Match '\.github/plugin/marketplace\.json'
+            $run.IndexOf('merge_ref "$SOURCE_SHA"', [System.StringComparison]::Ordinal) |
+                Should -BeLessThan $run.IndexOf('git checkout "$SOURCE_SHA"', [System.StringComparison]::Ordinal)
+            $run.IndexOf('git checkout "$SOURCE_SHA"', [System.StringComparison]::Ordinal) |
+                Should -BeLessThan $run.IndexOf('Update-VersionFiles.ps1', [System.StringComparison]::Ordinal)
+        }
+        else {
+            $run | Should -Not -Match 'git checkout .*package\.json'
+        }
         $run.IndexOf('merge_ref "$SOURCE_SHA"', [System.StringComparison]::Ordinal) |
             Should -BeLessThan $run.IndexOf('Update-VersionFiles.ps1', [System.StringComparison]::Ordinal)
         $run.IndexOf('Update-VersionFiles.ps1', [System.StringComparison]::Ordinal) |
             Should -BeLessThan $run.IndexOf('release-as', [System.StringComparison]::Ordinal)
+    }
+
+    # An occupied tag or GitHub release is immutable, so release-please could
+    # never issue that candidate. The probe therefore runs read-only, before any
+    # branch mutation or release-intent write, and fails closed.
+    It 'Proves the candidate release identity is unoccupied before mutating <Workflow>' -ForEach @(
+        @{ Workflow = 'release-prerelease-prepare.yml' }
+        @{ Workflow = 'release-stable.yml' }
+    ) {
+        $document = Get-WorkflowDocument -Name $Workflow
+        $probe = Get-NamedJobStep -Document $document -JobName 'prepare-promotion' -StepName 'Validate candidate release identity is unoccupied'
+        [string]$probe['if'] | Should -BeExactly "`${{ steps.state.outputs.continue == 'true' }}"
+        [string]$probe['env']['GH_TOKEN'] | Should -BeExactly '${{ github.token }}'
+        [string]$probe['env']['REPOSITORY'] | Should -BeExactly '${{ github.repository }}'
+        [string]$probe['env']['VERSION'] | Should -BeExactly '${{ steps.resolve.outputs.version }}'
+
+        $run = [string]$probe['run']
+        $run | Should -Match 'set -euo pipefail'
+        $run | Should -Match ([regex]::Escape('cd "$GITHUB_WORKSPACE/promotion"'))
+        $run | Should -Match ([regex]::Escape('"refs/tags/hve-core-v$VERSION" "refs/tags/plugins-v$VERSION"'))
+        $run | Should -Match ([regex]::Escape('git ls-remote origin "$candidate_ref"'))
+        $run | Should -Match ([regex]::Escape('gh api --include "/repos/$REPOSITORY/releases/tags/hve-core-v$VERSION"'))
+
+        # Only an explicit not-found proves availability; success means occupied
+        # and every other outcome is an error rather than a pass.
+        $run | Should -Match 'PROBE_EXIT=\$\?'
+        $run | Should -Match '\[ "\$PROBE_EXIT" -eq 0 \]'
+        $run | Should -Match 'HTTP 404'
+        $run | Should -Match 'no explicit not-found result'
+
+        foreach ($forbidden in @('gh release ', 'ref=refs/tags/', 'git tag', 'git push', '--force', '--method', '-X POST', '-X PATCH', '-X DELETE')) {
+            $run | Should -Not -Match ([regex]::Escape($forbidden))
+        }
+
+        $names = [string[]]@($document['jobs']['prepare-promotion']['steps'] | ForEach-Object { [string]$_['name'] })
+        [array]::IndexOf($names, 'Validate candidate release identity is unoccupied') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Refresh the promotion head'))
     }
 
     It 'Synchronizes main from validated PreRelease snapshots and never from Stable' {
@@ -1360,6 +1565,21 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
         [string]$monotonic['if'] | Should -Match "release-main-catalog-sync--v"
         [string]$monotonic['run'] | Should -Match 'CANDIDATE=.*package\.json'
         [string]$monotonic['run'] | Should -Match 'main already carries'
+
+        $stableMonotonic = Get-NamedJobStep -Document $prValidation -JobName 'gate-completeness-check' -StepName 'Validate Stable promotion intent advances release/stable'
+        [string]$stableMonotonic['if'] | Should -Match "github\.event\.pull_request\.base\.ref == 'release/stable'"
+        [string]$stableMonotonic['if'] | Should -Match 'release-promotion--release-prerelease--to--release-stable--hve-core-v'
+        [string]$stableMonotonic['run'] | Should -Match 'CANDIDATE=.*release-please-config\.json'
+        [string]$stableMonotonic['run'] | Should -Match 'BASELINE=.*\.release-please-manifest\.json'
+        [string]$stableMonotonic['run'] | Should -Match 'already contained in release/stable'
+        [string]$stableMonotonic['run'] | Should -Not -Match 'plugins-v\$CANDIDATE|hve-core-v\$CANDIDATE'
+        # A separate-run gate re-derives parity and advancement from the pull
+        # request head, independently of the preparation run that proposed them.
+        [string]$stableMonotonic['run'] | Should -Match 'SOURCE_MINOR % 2 == 0'
+        [string]$stableMonotonic['run'] | Should -Match 'CANDIDATE_MINOR % 2 != 0'
+        [string]$stableMonotonic['run'] | Should -Match 'has an odd minor'
+        [string]$stableMonotonic['run'] | Should -Match 'sort -V \| tail -1'
+        [string]$stableMonotonic['run'] | Should -Match 'release/stable already carries \$BASELINE'
     }
 
     It 'Requires complete immutable snapshot evidence in every catalog consumer' {
@@ -1373,6 +1593,11 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
                 Document = $script:PrepareDocument
                 Job = 'prepare-promotion'
                 Step = 'Resolve promotion state'
+            }
+            @{
+                Document = $script:PublishDocument
+                Job = 'validate-trigger'
+                Step = 'Validate selected promotion source and intent'
             }
         )
 
@@ -1512,6 +1737,10 @@ Describe 'Catalog release ref and plugin locator consistency' -Tag 'Unit' {
         $stableState = [string](Get-NamedJobStep -Document $stable -JobName 'validate-release' -StepName 'Verify release version and committed state')['run']
         $stableState | Should -Match '"\.release-please-manifest\.json'
         $stableState | Should -Not -Match 'release-please-prerelease-manifest\.json'
+        # Final publication is an independent boundary: it rejects an odd minor
+        # even though preparation already resolved an even one.
+        $stableState | Should -Match 'MINOR % 2 != 0'
+        $stableState | Should -Match 'has an odd minor'
 
         $mainSync = Get-WorkflowDocument -Name 'release-main-catalog-sync.yml'
         $mainUpdate = [string](Get-NamedJobStep -Document $mainSync -JobName 'sync-catalog' -StepName 'Update the main catalog')['run']

@@ -2,7 +2,7 @@
 title: Extension Packaging Guide
 description: Developer guide for packaging and publishing the HVE Core VS Code extension
 author: Microsoft
-ms.date: 2026-08-04
+ms.date: 2026-08-05
 ms.topic: reference
 ---
 
@@ -89,6 +89,15 @@ Stable performs the same identity and ancestry checks on `release/stable`,
 packages from the release tag, publishes the immutable snapshot, and publishes
 the release with an App token. The resulting event triggers Stable Marketplace
 publication. Stable does not synchronize metadata back to `main`.
+
+For ordinary promotions, PreRelease reads `release/prerelease` and returns the
+same major, minor plus two, and patch zero. Stable reads the promoted
+PreRelease version and returns its major, its minor plus one, and patch zero.
+The ordinary sequence is `3.3.101` to `3.5.0` to `3.6.0`. Current Stable state
+only rejects a non-advancing candidate. Neither channel classifies commits or
+automatically selects a patch, minor, or major release class. Matching plugin
+packages use the identical channel version. A major-line transition or Stable
+patch or hotfix needs a separate explicit manifest and release-state decision.
 
 ## Packaging Pipeline Overview
 
@@ -303,6 +312,14 @@ Promotion preparation writes an exact `release-as` for the intended even-minor
 or odd-minor version. Release-please consumes that intent in its managed PR,
 and postprocessing removes it before merge.
 
+Ordinary release allocation uses the channel formulas rather than commit
+classification. PreRelease advances from its current branch version by two
+minor values and resets patch to zero. Stable advances from the promoted
+PreRelease version by one minor value and resets patch to zero; current Stable
+state only guards against non-advancement. A major-line transition or Stable
+patch or hotfix remains a separate explicit manifest and release-state
+decision.
+
 Each managed PR synchronizes `package.json`, `package-lock.json`,
 `extension/templates/package.template.json`, `.github/plugin/marketplace.json`,
 the channel manifest, and `CHANGELOG.md` on its release branch.
@@ -336,7 +353,7 @@ pwsh ./scripts/extension/Package-Extension.ps1 -Version "1.1.0"
 
 The extension supports dual-channel publishing to VS Code Marketplace with separate stable and pre-release tracks.
 
-### EVEN/ODD Versioning Strategy
+### Even/Odd Versioning Policy
 
 | Minor Version     | Channel    | Example      | Active Lifecycle Labels             |
 |-------------------|------------|--------------|-------------------------------------|
@@ -344,6 +361,12 @@ The extension supports dual-channel publishing to VS Code Marketplace with separ
 | ODD (1, 3, 5...)  | PreRelease | 1.1.0, 1.3.0 | `stable`, `preview`, `experimental` |
 
 Users can switch between channels in VS Code via the "Switch to Pre-Release Version" button on the extension page.
+
+Odd/even minor parity is repository policy aligned with VS Code Marketplace
+guidance and behavior, not a requirement of `MAJOR.MINOR.PATCH` syntax. VS Code
+selects the highest available numeric extension version. Users opted into
+PreRelease can temporarily receive a higher Stable version and remain eligible
+for a later, higher PreRelease version.
 
 ### Pre-Release Packaging
 
