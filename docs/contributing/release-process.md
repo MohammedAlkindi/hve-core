@@ -212,12 +212,7 @@ again.
       version metadata to the occupied odd-minor baseline. Then run the
       input-free **Pre-Release Promotion Preparation** workflow dispatch. It
       calculates the following odd-minor candidate from the reviewed baseline.
-    * For Stable, publish the next valid odd-minor PreRelease through the normal
-            reviewed path. Publication starts **Stable Release Preparation**
-            automatically. Inspect that run's outcome, including any no-op notice. If
-            the run did not start or failed, dispatch the workflow manually with the
-            published `hve-core-v<version>` PreRelease tag. A successful preparation
-            calculates the following even-minor candidate from the selected source.
+    * For Stable, publish the next valid odd-minor PreRelease through the normal reviewed path. Publication starts **Stable Release Preparation** automatically. Inspect that run's outcome, including any no-op notice. If the run did not start or failed, dispatch the workflow manually with the published `hve-core-v<version>` PreRelease tag. A successful preparation calculates the following even-minor candidate from the selected source.
 
 Record the provenance finding and reviewed state change with the release. An
 authentication, transport, rate-limit, or ambiguous lookup failure is not an
