@@ -161,23 +161,7 @@ stimuli:
           negate: true
 ```
 
-### Class 3: code-implementor
-
-Agents that generate, modify, or produce runnable code as their primary output.
-
-**Members (5):** eval-dataset-creator, gen-data-spec, gen-jupyter-notebook, gen-streamlit-dashboard, test-streamlit-dashboard
-
-**Required Graders:**
-
-* `source-edit-present` - Validates the agent writes or edits code files (pattern: `` (?i)(```|created|modified|edited|file:.*\.(py|cs|ts|js)) ``).
-* `lint-invocation` - Validates the agent mentions or runs lint commands before completion (pattern: `(?i)(npm run lint|ruff|pylint|eslint|validation|format)`).
-* `scope-respect` - Validates writes stay within the files or output directories documented by the agent and stimulus.
-
-**Optional Graders:**
-
-* `header-present` - When an agent declares a response header, validates that prefix.
-
-### Class 4: workitem-manager
+### Class 3: workitem-manager
 
 Agents that convert user requests, PRDs, or triage input into work item drafts (ADO, GitHub, Jira).
 
@@ -223,7 +207,7 @@ stimuli:
           negate: true
 ```
 
-### Class 5: planner-coach
+### Class 4: planner-coach
 
 Agents that sequence work, plan tasks, coach the user through a process, or orchestrate multi-phase workflows.
 
@@ -268,11 +252,7 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 | documentation                | planner-coach    | light     | [.github/agents/hve-core/documentation.agent.md](../../.github/agents/hve-core/documentation.agent.md)                                               |
 | dt-coach                     | planner-coach    | light     | [.github/agents/design-thinking/dt-coach.agent.md](../../.github/agents/design-thinking/dt-coach.agent.md)                                           |
 | dt-learning-tutor            | planner-coach    | light     | [.github/agents/design-thinking/dt-learning-tutor.agent.md](../../.github/agents/design-thinking/dt-learning-tutor.agent.md)                         |
-| eval-dataset-creator         | code-implementor | light     | [.github/agents/data-science/eval-dataset-creator.agent.md](../../.github/agents/data-science/eval-dataset-creator.agent.md)                         |
 | experiment-designer          | planner-coach    | light     | [.github/agents/experimental/experiment-designer.agent.md](../../.github/agents/experimental/experiment-designer.agent.md)                           |
-| gen-data-spec                | code-implementor | light     | [.github/agents/data-science/gen-data-spec.agent.md](../../.github/agents/data-science/gen-data-spec.agent.md)                                       |
-| gen-jupyter-notebook         | code-implementor | light     | [.github/agents/data-science/gen-jupyter-notebook.agent.md](../../.github/agents/data-science/gen-jupyter-notebook.agent.md)                         |
-| gen-streamlit-dashboard      | code-implementor | light     | [.github/agents/data-science/gen-streamlit-dashboard.agent.md](../../.github/agents/data-science/gen-streamlit-dashboard.agent.md)                   |
 | github-backlog-manager       | workitem-manager | light     | [.github/agents/github/github-backlog-manager.agent.md](../../.github/agents/github/github-backlog-manager.agent.md)                                 |
 | issue-triage                 | workitem-manager | light     | [.github/agents/issue-triage.agent.md](../../.github/agents/issue-triage.agent.md)                                                                   |
 | jira-backlog-manager         | workitem-manager | light     | [.github/agents/jira/jira-backlog-manager.agent.md](../../.github/agents/jira/jira-backlog-manager.agent.md)                                         |
@@ -293,7 +273,6 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 | sssc-reviewer                | code-reviewer    | light     | [.github/agents/security/sssc-reviewer.agent.md](../../.github/agents/security/sssc-reviewer.agent.md)                                               |
 | supply-chain-reviewer        | code-reviewer    | light     | [.github/agents/security/supply-chain-reviewer.agent.md](../../.github/agents/security/supply-chain-reviewer.agent.md)                               |
 | system-architecture-reviewer | research-writer  | light     | [.github/agents/project-planning/system-architecture-reviewer.agent.md](../../.github/agents/project-planning/system-architecture-reviewer.agent.md) |
-| test-streamlit-dashboard     | code-implementor | light     | [.github/agents/data-science/test-streamlit-dashboard.agent.md](../../.github/agents/data-science/test-streamlit-dashboard.agent.md)                 |
 | ux-ui-designer               | research-writer  | light     | [.github/agents/project-planning/ux-ui-designer.agent.md](../../.github/agents/project-planning/ux-ui-designer.agent.md)                             |
 
 The maintained stimulus inventory totals 62 agents: 40 parent agents plus 22 enrolled subagents whose stimulus partials exist in [stimuli/](stimuli/). Subagents without a matching stimulus partial remain excluded from the matrix run set and are documented separately in the inventory generator and related eval research. [AGENTS.yml](AGENTS.yml) remains generator-owned and is refreshed in the generation phase.

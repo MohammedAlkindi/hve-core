@@ -197,7 +197,7 @@ stimuli:
       - type: output-matches
         name: scope-language
         config:
-          pattern: "(?i)markdownlint|artifact|directory|file\\s+name|experiment-design|skill"
+          pattern: "(?is)(artifact|directory|file\\s+name).*(experiment-design).*(methodology|MVE|hypothes|vetting)"
 
   - name: instruction-github-backlog-discovery-conformance
     prompt: |
