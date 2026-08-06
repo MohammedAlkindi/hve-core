@@ -2435,7 +2435,7 @@ stimuli:
           pattern: '(?i)(gov\.uk|ddat|engineering\s+playbook|ux|coaching)'
   - name: skill-ux-coaching-tool-trigger
     prompt: |
-      A sceptical stakeholder is unconvinced by our research and I need to make
+      A skeptical stakeholder is unconvinced by our research and I need to make
       the case. Which skill under `.github/skills/**/SKILL.md` applies and what
       does it advise?
     tags:

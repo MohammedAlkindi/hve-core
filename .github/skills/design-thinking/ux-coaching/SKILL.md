@@ -1,6 +1,6 @@
 ---
 name: ux-coaching
-description: "Coach a UX practitioner through problem framing, running a design critique, or making an evidence-backed case to a sceptical stakeholder. Use when the practitioner has a live UX task and wants to think it through rather than receive an answer."
+description: "Coach a UX practitioner through problem framing, running a design critique, or making an evidence-backed case to a skeptical stakeholder. Use when the practitioner has a live UX task and wants to think it through rather than receive an answer."
 argument-hint: "[moment=m6|m13|m14] [project=...] [subject=...]"
 license: MIT
 user-invocable: true

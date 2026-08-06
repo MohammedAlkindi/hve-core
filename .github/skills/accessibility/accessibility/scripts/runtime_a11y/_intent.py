@@ -91,9 +91,7 @@ def load_results(results_path: Path) -> dict[str, Any]:
             f"Results document is not valid JSON: {results_path}"
         ) from exc
     if not isinstance(payload, dict):
-        raise ScriptError(
-            f"Results document must be a JSON object: {results_path}"
-        )
+        raise ScriptError(f"Results document must be a JSON object: {results_path}")
     return payload
 
 
@@ -136,8 +134,7 @@ def _matching_rows(
 def _worst_outcome(rows: list[dict[str, Any]]) -> str:
     """Reduce matched rows to one outcome, worst result winning."""
     outcomes = {
-        _STATUS_TO_OUTCOME.get(str(row.get("status", "")), "cantTell")
-        for row in rows
+        _STATUS_TO_OUTCOME.get(str(row.get("status", "")), "cantTell") for row in rows
     }
     for candidate in _OUTCOME_PRECEDENCE:
         if candidate in outcomes:
@@ -303,7 +300,5 @@ def generate(
 
     destination = out_path or default_output_path(record_path, surface_id)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(document, indent=2) + "\n", encoding="utf-8"
-    )
+    destination.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     return destination, document

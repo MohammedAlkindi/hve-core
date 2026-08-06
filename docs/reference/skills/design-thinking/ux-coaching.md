@@ -1,8 +1,8 @@
 ---
 title: ux-coaching
-description: "Coach a UX practitioner through problem framing, running a design critique, or making an evidence-backed case to a sceptical stakeholder. Use when the practitioner has a live UX task and wants to think it through rather than receive an answer."
+description: "Coach a UX practitioner through problem framing, running a design critique, or making an evidence-backed case to a skeptical stakeholder. Use when the practitioner has a live UX task and wants to think it through rather than receive an answer."
 sidebar_position: 6
-ms.date: 2026-08-04
+ms.date: 2026-08-05
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -17,7 +17,7 @@ ms.date: 2026-08-04
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Coach a UX practitioner through problem framing, running a design critique, or making an evidence-backed case to a sceptical stakeholder. Use when the practitioner has a live UX task and wants to think it through rather than receive an answer.
+Coach a UX practitioner through problem framing, running a design critique, or making an evidence-backed case to a skeptical stakeholder. Use when the practitioner has a live UX task and wants to think it through rather than receive an answer.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it
@@ -28,7 +28,7 @@ Use this skill when a UX practitioner is at one of three practice moments and wa
 |--------|----------------------------------------------------------------------------------------------------------------------------------------------------|
 | `m6`   | The stated problem may not be the real problem, and the framing needs to be tested against current experience, user needs, and stated assumptions. |
 | `m13`  | A design needs a structured critique, and the practitioner wants the review to surface issues rather than approval.                                |
-| `m14`  | Evidence exists, but a sceptical stakeholder is not persuaded, and the case needs to rest on evidence quality rather than rhetoric.                |
+| `m14`  | Evidence exists, but a skeptical stakeholder is not persuaded, and the case needs to rest on evidence quality rather than rhetoric.                |
 
 The skill assumes no Design Thinking experience and makes no runtime call into the Design Thinking coaching skills. Its guidance is grounded in GOV.UK Service Manual, the DDaT capability framework, and the ISE Engineering Playbook.
 

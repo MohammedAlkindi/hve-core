@@ -76,7 +76,7 @@ Do not repeat the critique question, reviewer selection, feedback framing, categ
 
 ### M14 stakeholder advocacy
 
-Route to `ux-coaching` with `moment=m14`, `project`, and `subject` when the practitioner asks to make an evidence-backed case to an unconvinced stakeholder, understand the real objection, defend a recommendation honestly, or prepare for a sceptical conversation.
+Route to `ux-coaching` with `moment=m14`, `project`, and `subject` when the practitioner asks to make an evidence-backed case to an unconvinced stakeholder, understand the real objection, defend a recommendation honestly, or prepare for a skeptical conversation.
 
 Do not repeat the objection, accountability, evidence-strength, uncertainty, or next-action work M14 owns. When the coaching output is complete, return control to the user. Do not create a deck, journey, asset, or forced handoff.
 
