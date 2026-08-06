@@ -117,6 +117,8 @@ const PHRASE_ALLOWLIST = {
         /\b(common|easy|classic|usual|interface|design|prompt|mockup|fidelity)\W+trap\b/i,
         /\b(keyboard|focus|tab|mouse|character[- ]key)\s+trap\b/i,
         /\bno\s+keyboard\s+trap\b/i,
+        /\bdoes\s+not\s+trap\s+the\s+keyboard\b/i,
+        /\bthe\s+trap\s+symptom\b/i,
         /\bfocus[- ]trap\b/i,
         /\btrap\s+(focus|pages?|the\s+user|zone)\b/i,
         /\b(break|order)\s+or\s+trap\b/i,
