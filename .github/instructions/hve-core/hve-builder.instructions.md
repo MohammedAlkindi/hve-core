@@ -198,7 +198,7 @@ The Agent Skills specification defines the portable skill fields; hosts add thei
 * Refer to a prompt whose frontmatter omits `name:` by its `<name>.prompt.md` filename, because the host derives the slash command from the filename stem in that case.
 * Reserve file paths for a skill's own bundled resources (relative to its root), for caller-defined tracking or evidence output locations, and for frontmatter wiring such as `agents:`, `agent:`, and `applyTo`.
 * Never hard-code a skill's `SKILL.md` path to load it; the skill root differs across distributions. Name the skill and let progressive disclosure load it.
-* Never hard-code a path into another skill's directory. Cross-skill references name the target skill and the section or reference wanted, so resolution stays correct across repository, extension, and plugin distributions. `npm run lint:skill-path-scope` enforces this.
+* Never hard-code a path into another skill's directory. Cross-skill references name the target skill and the section or reference wanted, so resolution stays correct across repository, extension, and plugin distributions.
 
 ### Handling an Unavailable Reference
 
