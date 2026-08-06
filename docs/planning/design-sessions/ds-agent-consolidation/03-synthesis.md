@@ -8,7 +8,7 @@ ms.topic: reference
 ---
 
 > [!WARNING]
-> **Superseded.** These themes predate six of the seven findings in [the research record](02-research).
+> **Superseded.** These themes predate six of the seven findings in [the research record](./02-research.md).
 >
 > Use [the consolidated design](data-workstream-coach-design) for the current design.
 

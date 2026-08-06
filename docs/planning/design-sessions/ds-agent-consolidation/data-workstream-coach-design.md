@@ -847,10 +847,10 @@ This document is self-contained. The companions below hold the reasoning and evi
 
 | Artifact                                                     | Contents                                                                          |
 |--------------------------------------------------------------|-----------------------------------------------------------------------------------|
-| [Research record](02-research)                               | Seven findings, six corrected assumptions, full cross-repository capability sweep |
+| [Research record](./02-research.md)                          | Seven findings, six corrected assumptions, full cross-repository capability sweep |
 | [Data engineering standards](02b-data-engineering-standards) | CSE DataOps and testing standards extract with implications                       |
-| [Skill architecture](05-skill-architecture)                  | Skill cut derivation, agent shape reasoning, adversarial review responses         |
-| [Contract record](06-contracts)                              | Contract derivations with design notes                                            |
+| [Skill architecture](./05-skill-architecture.md)             | Skill cut derivation, agent shape reasoning, adversarial review responses         |
+| [Contract record](./06-contracts.md)                         | Contract derivations with design notes                                            |
 
 ### Superseded
 

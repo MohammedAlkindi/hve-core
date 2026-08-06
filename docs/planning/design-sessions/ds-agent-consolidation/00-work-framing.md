@@ -107,7 +107,7 @@ Backs and deepens `experiment-designer`, which stays general-purpose. CSE model-
 
 ## What Is Open
 
-Five of the seven contracts identified in review are now resolved in [the contract record](06-contracts):
+Five of the seven contracts identified in review are now resolved in [the contract record](./06-contracts.md):
 
 | Item                  | Resolution                                                                                                                                                               |
 |-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

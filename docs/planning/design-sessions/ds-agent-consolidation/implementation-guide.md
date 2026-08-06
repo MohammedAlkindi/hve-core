@@ -10,7 +10,7 @@ ms.topic: reference
 > [!WARNING]
 > **Superseded.** This document describes a six-phase planner with three skills and `backlog-templates` registration. All three were replaced in later design rounds.
 >
-> Use [the work framing](00-work-framing) as the entry point. See [the skill architecture](05-skill-architecture) for the current skill cut and agent shape.
+> Use [the work framing](./00-work-framing.md) as the entry point. See [the skill architecture](./05-skill-architecture.md) for the current skill cut and agent shape.
 >
 > Retained for the standards extracts in sections 4 through 7, which remain accurate.
 

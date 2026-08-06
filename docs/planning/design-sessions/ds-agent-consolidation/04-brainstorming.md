@@ -8,7 +8,7 @@ ms.topic: reference
 ---
 
 > [!WARNING]
-> **Partially superseded.** The skill cut here was replaced in [the skill architecture](05-skill-architecture). Encoding decisions and the CSE asset enumeration remain accurate and are carried forward into the consolidated design.
+> **Partially superseded.** The skill cut here was replaced in [the skill architecture](./05-skill-architecture.md). Encoding decisions and the CSE asset enumeration remain accurate and are carried forward into the consolidated design. Encoding decisions and the CSE asset enumeration remain accurate and are carried forward into the consolidated design.
 >
 > Use [the consolidated design](data-workstream-coach-design) for the current design.
 
@@ -203,7 +203,7 @@ Two customer deliverables, one state file, one conditional handoff.
 
 ### R3: The telemetry, privacy, and drift seam
 
-Examining `telemetry-foundations` and `privacy-standards` together revealed a three-way boundary, not the two-way one first assumed.
+Examining `telemetry-foundations` and `privacy-standards` together revealed a boundary among three concerns, not the two first assumed.
 
 | Concern                                                             | Owner                            | `ds-drift` relationship                            |
 |---------------------------------------------------------------------|----------------------------------|----------------------------------------------------|
@@ -224,7 +224,7 @@ Examining `telemetry-foundations` and `privacy-standards` together revealed a th
 | `model.inference.duration`          | histogram  | `s`  | Serving latency                             |
 | `data.feature.distribution.shift`   | gauge      | `1`  | Distribution drift score                    |
 
-**Cardinality trap:** drift monitoring is dense with tempting dimensions (per-column, per-feature, per-source, per-tier). `ds-drift` needs a hard rule permitting only bounded dimensions such as `source`, `tier`, and `validation_rule`, never per-record or per-feature-value.
+**Cardinality pitfall:** drift monitoring is dense with tempting dimensions (per-column, per-feature, per-source, per-tier). `ds-drift` needs a hard rule permitting only bounded dimensions such as `source`, `tier`, and `validation_rule`, never per-record or per-feature-value.
 
 ### R4: Catalog and privacy inventory overlap
 
