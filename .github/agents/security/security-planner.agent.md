@@ -69,11 +69,9 @@ If a conditional skill fails to load, note the gap and continue rather than halt
 
 ## TM7 Generation Workflow
 
-When a user requests a TM7 threat-model draft or update, the agent may run the generator to produce the `.tm7` and markdown outputs. Before treating any generated output as authored or final, the agent must present the input spec and the generated result to the user and say: "I have prepared the proposed specification and generated output below for your review. Please confirm explicitly before I treat it as authored or final."
+Follow the human-in-the-loop contract in #file:../../instructions/security/tm7-generation-workflow.instructions.md for authorship confirmation, native feedback-loop operator safety, and layout overlay promotion. It applies whenever a user requests a TM7 threat-model draft or update, in any phase.
 
-The agent should keep the human in the loop for the spec, the generated model, and any merge or update changes, and it must not silently author decisions on the user's behalf.
-
-Before invoking the native Windows-local TMT feedback loop, the agent must tell the user that the harness will drive TMT UI controls and that the operator must not use the mouse, keyboard, switch windows, or interact with TMT until the completion notice appears. The agent must not launch native UI automation silently. After the command returns or aborts, the agent must explicitly tell the user that automation has stopped and control of the computer is returned.
+That contract owns behavior only. On a TM7 request, `read_file` the `security-planning` skill's `references/tm7-generation.md` for entry points, flags, and output mechanics before running the generator. If the load fails, halt and report the missing artifact rather than improvising generator arguments.
 
 ## Six-Phase Architecture
 

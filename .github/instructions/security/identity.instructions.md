@@ -197,9 +197,9 @@ The YAML threat-model spec is the source of truth. The markdown report is render
 
 At Phase 6, run the checklist from `references/threat-model-review.md` and emit a PASS or INCOMPLETE verdict with an itemized gap list. When the verdict is INCOMPLETE, follow the existing autonomy tier: guided or partial are advisory, while full is blocking.
 
-## Private overlay handling
+## Private config overlay handling
 
-Read an optional out-of-repo overlay config referenced by `state.overlayConfigPath` when one is present so the planner can layer in internal taxonomy names, auth-service names, and review-gate steps. If the overlay is absent, degrade gracefully and use the public defaults instead of embedding internal specifics in public artifacts.
+Read an optional out-of-repo private config overlay referenced by `state.overlayConfigPath` when one is present so the planner can layer in internal taxonomy names, auth-service names, and review-gate steps. This is unrelated to the layout overlay produced by the TM7 feedback loop. If the private config overlay is absent, degrade gracefully and use the public defaults instead of embedding internal specifics in public artifacts.
 
 ## Diagram style guidance
 

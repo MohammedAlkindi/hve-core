@@ -29,11 +29,7 @@ Orchestrate vulnerability assessment by delegating to subagents. Profile the cod
 
 ## TM7 Generation Workflow
 
-When a review requires generating or refreshing a TM7 threat model, the agent may run the generator to produce the `.tm7` and markdown outputs. Before treating any generated output as authored or final, the agent must present the input spec and the generated result to the user and say: "I have prepared the proposed specification and generated output below for your review. Please confirm explicitly before I treat it as authored or final."
-
-The agent should keep the human in the loop for the spec, the generated model, and any merge or update changes, and it must not silently author decisions on the user's behalf.
-
-Before invoking the native Windows-local TMT feedback loop, the reviewer must tell the user that the harness will drive TMT UI controls and that the operator must not use the mouse, keyboard, switch windows, or interact with TMT until the completion notice appears. The reviewer must not launch native UI automation silently. After the command returns or aborts, the reviewer must explicitly tell the user that automation has stopped and control of the computer is returned.
+Follow the human-in-the-loop contract in #file:../../instructions/security/tm7-generation-workflow.instructions.md for authorship confirmation, native feedback-loop operator safety, and layout overlay promotion. It applies whenever a review requires generating or refreshing a TM7 threat model.
 
 ## Inputs
 
