@@ -1,15 +1,17 @@
 ---
 title: Project Planning
-description: PRDs, BRDs, ADRs, and architecture diagrams
+description: PRDs, BRDs, ADRs, architecture diagrams, and cross-tracker backlog management for Azure DevOps, GitHub, and Jira
 sidebar_position: 12
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: reference
 ---
 
-Choose this package for product, architecture, and delivery teams creating PRDs, BRDs, ADRs, and architecture diagrams.
+Choose this package for product, architecture, and delivery teams creating PRDs, BRDs, ADRs, and architecture diagrams, and for teams that manage backlogs, sprints, and issue or work-item operations in Azure DevOps, GitHub, or Jira.
 
 It brings together requirements, ADR, architecture, accessibility, privacy, Responsible AI, security, performance, and RPI planning capabilities.
+
+Backlog and work management is not split by tracker. One backlog manager, one read-only planning surface, and one execution surface resolve the backing tracker at runtime, so the same package serves Azure DevOps, GitHub, and Jira teams. GitLab merge request and pipeline workflows are available through the same package. GitHub code-scanning support lives in the Security package.
 
 Lifecycle labels are disclosure metadata. In the channel model, Stable and PreRelease have equal active content, including components labeled stable, preview, and experimental; publication cadence and source ownership can differ.
 
