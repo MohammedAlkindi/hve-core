@@ -38,6 +38,21 @@ interface PlaceholderFit {
 // that text needs. A badge rendered inside the field reduces the available
 // space, so the badge edge is the right boundary whenever one is present.
 async function measurePlaceholderFit(page: Page): Promise<PlaceholderFit> {
+  // Focus through a real click rather than a programmatic focus() inside the
+  // page.evaluate below. The SearchBar swizzle wraps the input's focus method to
+  // suppress the upstream package's index-load refocus (the WCAG 2.1.2 guard
+  // asserted in search-keyboard.spec.ts), and that guard drops any focus()
+  // issued while no user gesture is in flight. A programmatic focus() therefore
+  // leaves the field at its collapsed at-rest width, so the measurement below
+  // described a state no user ever types into. Measured on the built site: the
+  // field stays 46 CSS px under programmatic focus and expands to 144 CSS px on
+  // a real click at 250% zoom.
+  const input = page.locator('input.navbar__search-input').first();
+  if ((await input.count()) > 0) {
+    await input.click();
+    await expect(input).toBeFocused();
+  }
+
   return page.evaluate(() => {
     const input = document.querySelector<HTMLInputElement>('input.navbar__search-input');
     if (!input) {
@@ -49,11 +64,6 @@ async function measurePlaceholderFit(page: Page): Promise<PlaceholderFit> {
         badgeCount: 0,
       };
     }
-
-    // Below the theme's small breakpoint the field deliberately collapses to an
-    // icon until it receives focus, which is a legitimate responsive pattern
-    // rather than clipping. Focusing first measures the state a user types into.
-    input.focus();
 
     const rect = input.getBoundingClientRect();
     const computed = window.getComputedStyle(input);

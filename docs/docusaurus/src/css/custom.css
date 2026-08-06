@@ -523,9 +523,21 @@ html {
 
    The selected pair is declared explicitly and identically in both color modes.
    Deferring to the theme primary resolved to a light blue in dark mode, giving
-   2.19:1 against the forced white text. White on #005a9e computes to 7.10:1. */
+   2.19:1 against the forced white text. White on #005a9e computes to 7.10:1.
+
+   --search-local-highlight-color is the upstream package's own override hook:
+   its .suggestion.cursor rule reads background-color from that variable and
+   falls back to --ifm-color-primary. That rule carries four class selectors and
+   outweighs the attribute selector below, so declaring background-color here
+   alone loses the cascade and the dark-mode primary (#75b6e7) keeps painting
+   the row. Setting the variable on the selected element resolves upstream's own
+   declaration to the accessible color, so no specificity contest is needed.
+   It is scoped to the selected option rather than :root on purpose: upstream
+   also reads the same variable for unselected mark text, which would then be
+   painted #005a9e on the near-black unselected row. */
 [role='listbox'] [role='option'][aria-selected='true'],
 [class*='hitFooter'] a.search-footer-active {
+  --search-local-highlight-color: var(--hve-search-selected-bg);
   background-color: var(--hve-search-selected-bg);
   color: var(--hve-search-selected-fg);
   border-radius: 4px;

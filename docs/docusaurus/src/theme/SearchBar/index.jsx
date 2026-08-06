@@ -61,8 +61,22 @@ export default function SearchBarWrapper(props) {
     // write delay, and suppression of a repeated message. The quiet period must
     // exceed a realistic inter-keystroke interval, otherwise it elapses between
     // every character and coalesces nothing.
-    const ANNOUNCE_QUIET_MS = 300;
+    //
+    // 400 ms rather than 300 ms: the announcement a user hears must land a full
+    // quiet period after they stop typing, and the write delay is part of that
+    // wait. At 300 ms the total settle time was 360 ms, which leaves no margin
+    // over a 250 ms conformance floor once event-loop scheduling and the gap
+    // between the last keypress and the last input event are counted. 400 ms
+    // still sits far above ordinary inter-keystroke intervals, so a whole typed
+    // query continues to coalesce into one announcement.
+    const ANNOUNCE_QUIET_MS = 400;
     const ANNOUNCE_WRITE_MS = 60;
+    // Timestamp of the most recent keystroke, used to measure the quiet period
+    // against user input rather than against announcement bookkeeping.
+    let lastInputAt = 0;
+    const noteUserInput = () => {
+      lastInputAt = performance.now();
+    };
 
     const clearStatusMessage = () => {
       window.clearTimeout(announceTimer);
@@ -80,7 +94,23 @@ export default function SearchBarWrapper(props) {
       // return the same count, which is the state a user most needs announced.
       const messageKey = `${query}\u0000${message}`;
       window.clearTimeout(announceDelayTimer);
-      announceDelayTimer = window.setTimeout(() => {
+
+      // The quiet period is measured against the last keystroke, not against the
+      // last time this function ran. Restarting the timer only on entry couples
+      // the debounce to whether the message changed: a keystroke that leaves the
+      // trimmed query and the result count unchanged (typing the space in
+      // "getting started", for example) does not reach this function at all, so
+      // a timer armed by an earlier keystroke survives and expires while the
+      // user is still typing. Measured on the built site, that fired an
+      // announcement 26 ms after a keystroke instead of 300 ms after the last
+      // one. Re-checking the elapsed quiet time here makes the delay a property
+      // of user input rather than of message-change detection.
+      const flush = () => {
+        const quietFor = performance.now() - lastInputAt;
+        if (quietFor < ANNOUNCE_QUIET_MS) {
+          announceDelayTimer = window.setTimeout(flush, ANNOUNCE_QUIET_MS - quietFor);
+          return;
+        }
         if (messageKey === lastMessage) {
           return;
         }
@@ -89,7 +119,8 @@ export default function SearchBarWrapper(props) {
         announceTimer = window.setTimeout(() => {
           statusNode.textContent = message;
         }, ANNOUNCE_WRITE_MS);
-      }, ANNOUNCE_QUIET_MS);
+      };
+      announceDelayTimer = window.setTimeout(flush, ANNOUNCE_QUIET_MS);
     };
 
     const getSearchInput = () => root.querySelector('input.navbar__search-input');
@@ -391,9 +422,11 @@ export default function SearchBarWrapper(props) {
       if (input && input !== currentInput) {
         if (currentInput) {
           currentInput.removeEventListener('keydown', handleInputKeyDown, true);
+          currentInput.removeEventListener('input', noteUserInput);
         }
         currentInput = input;
         currentInput.addEventListener('keydown', handleInputKeyDown, { capture: true });
+        currentInput.addEventListener('input', noteUserInput);
         applyRefocusGuard(currentInput);
         applyBlurGuard(currentInput);
       }
@@ -572,6 +605,7 @@ export default function SearchBarWrapper(props) {
     return () => {
       if (currentInput) {
         currentInput.removeEventListener('keydown', handleInputKeyDown, true);
+        currentInput.removeEventListener('input', noteUserInput);
       }
       releaseRefocusGuard();
       releaseBlurGuard();

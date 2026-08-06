@@ -136,7 +136,7 @@ test.describe('Search', () => {
     // implementation fires a timer between every character, and faster than the
     // current value, so the current implementation coalesces the whole sequence.
     const TYPING_INTERVAL_MS = 160;
-    // The quiet period is 300 ms and the write delay is 60 ms. Compare against a
+    // The quiet period is 400 ms and the write delay is 60 ms. Compare against a
     // floor below that budget so timer resolution and event-loop scheduling
     // cannot fail an otherwise conformant run, while still sitting well above
     // the typing interval.

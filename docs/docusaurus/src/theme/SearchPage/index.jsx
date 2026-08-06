@@ -39,6 +39,39 @@ export default function SearchPageWrapper(props) {
 
     const getSearchInput = () => document.querySelector('input[name="q"]');
 
+    // WCAG 2.4.1 Bypass Blocks: the upstream search page server-renders the
+    // query field with an autofocus attribute. Autofocus moves the sequential
+    // navigation start point past every control that precedes the field in the
+    // document, and the skip-to-content link is the first of them. Measured on
+    // the built site: on this route the first Tab landed on a footer link
+    // instead of the skip link, while the same Tab on the home route reached
+    // the skip link correctly. The bypass mechanism is therefore unreachable by
+    // forward tabbing on the one route whose landmark it exists to reach.
+    //
+    // The attribute is removed rather than the focus being moved elsewhere. A
+    // user who navigated to /search/ deliberately still has the field one Tab
+    // away, and removing the attribute restores the document's natural focus
+    // order without taking focus away from anyone mid-interaction.
+    const searchField = getSearchInput();
+    if (searchField?.hasAttribute('autofocus')) {
+      searchField.removeAttribute('autofocus');
+      if (document.activeElement === searchField) {
+        // Blurring alone is not enough. Chromium keeps a sequential focus
+        // navigation starting point at the element that was last focused, so a
+        // bare blur() leaves the next Tab resuming from the search field and
+        // landing on the first control after it - measured on the built site as
+        // a footer link, with the whole page bypassed. Focusing the body moves
+        // that starting point to the beginning of the document, which is where
+        // a freshly loaded page starts and where the skip link is the first
+        // stop. The tabindex is removed immediately so the body does not become
+        // a lasting tab stop of its own.
+        searchField.blur();
+        document.body.setAttribute('tabindex', '-1');
+        document.body.focus();
+        document.body.removeAttribute('tabindex');
+      }
+    }
+
     // Results render as <article> elements (searchResultItem). Scope the count
     // to the main landmark so unrelated articles elsewhere on the page cannot
     // inflate the announced result count.
