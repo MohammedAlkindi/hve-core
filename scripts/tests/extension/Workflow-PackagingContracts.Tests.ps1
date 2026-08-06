@@ -807,7 +807,7 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         (Get-WorkflowText -Name 'release-stable.yml') | Should -Not -Match '--auto'
     }
 
-    It 'Promotes published PreRelease state without a pre-validation fanout or release-please' {
+    It 'Promotes published PreRelease state without pre-validation jobs or release-please' {
         $prepare = $script:PrepareDocument['jobs']['prepare-promotion']
         $prepare.Contains('needs') | Should -BeFalse
         @($script:PrepareDocument['jobs']['open-promotion-pr']['needs']) | Should -Be @('prepare-promotion')
