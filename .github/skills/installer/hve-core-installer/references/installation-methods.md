@@ -60,9 +60,11 @@ Any folder named `experimental` under any artifact type (agents, prompts, instru
 {
   "chat.agentFilesLocations": {
     "<PREFIX>/.github/agents/accessibility": true,
+    "<PREFIX>/.github/agents/ado": true,
     "<PREFIX>/.github/agents/coding-standards": true,
     "<PREFIX>/.github/agents/data-science": true,
     "<PREFIX>/.github/agents/design-thinking": true,
+    "<PREFIX>/.github/agents/github": true,
     "<PREFIX>/.github/agents/hve-core": true,
     "<PREFIX>/.github/agents/hve-core/subagents": true,
     "<PREFIX>/.github/agents/project-planning": true,
@@ -70,13 +72,17 @@ Any folder named `experimental` under any artifact type (agents, prompts, instru
   },
   "chat.promptFilesLocations": {
     "<PREFIX>/.github/prompts/accessibility": true,
+    "<PREFIX>/.github/prompts/ado": true,
     "<PREFIX>/.github/prompts/data-science": true,
     "<PREFIX>/.github/prompts/design-thinking": true,
+    "<PREFIX>/.github/prompts/github": true,
     "<PREFIX>/.github/prompts/hve-core": true,
     "<PREFIX>/.github/prompts/security": true
   },
   "chat.instructionsFilesLocations": {
+    "<PREFIX>/.github/instructions/ado": true,
     "<PREFIX>/.github/instructions/coding-standards": true,
+    "<PREFIX>/.github/instructions/github": true,
     "<PREFIX>/.github/instructions/hve-core": true,
     "<PREFIX>/.github/instructions/project-planning": true,
     "<PREFIX>/.github/instructions/shared": true

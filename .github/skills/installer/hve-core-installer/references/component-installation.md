@@ -112,9 +112,9 @@ Each resolved record carries `PackagePath`, `Kind`, `SourcePath`, `Maturity`, an
 
 Run the pre-write check with the resolved component list. It validates every path, reports canonical maturity, and reports component-level collisions. A file component collides on its full target path; a skill component collides on its target directory. Nothing is written.
 
-**PowerShell:** Run [scripts/collision-detection.ps1](scripts/collision-detection.ps1) with `-HveCoreBasePath`, `-TargetRoot`, `-PackageName` (`$selectedPackage`), and `-Component`.
+**PowerShell:** Run [scripts/collision-detection.ps1](../scripts/collision-detection.ps1) with `-HveCoreBasePath`, `-TargetRoot`, `-PackageName` (`$selectedPackage`), and `-Component`.
 
-**Bash:** Run [scripts/collision-detection.sh](scripts/collision-detection.sh) with the HVE-Core base path, target root, package name, and component paths as arguments, in that order.
+**Bash:** Run [scripts/collision-detection.sh](../scripts/collision-detection.sh) with the HVE-Core base path, target root, package name, and component paths as arguments, in that order.
 
 Output lines:
 
@@ -191,9 +191,9 @@ Keeping a skill keeps its whole target directory.
 
 After confirmation and collision resolution, execute the copy.
 
-**PowerShell:** Run [scripts/component-copy.ps1](scripts/component-copy.ps1) with `-HveCoreBasePath`, `-TargetRoot`, `-PackageName` (`$selectedPackage`), `-SelectionName` (`starter` or `custom`), and `-Component`. Add `-KeepExisting -Collisions <component paths>` for kept components.
+**PowerShell:** Run [scripts/component-copy.ps1](../scripts/component-copy.ps1) with `-HveCoreBasePath`, `-TargetRoot`, `-PackageName` (`$selectedPackage`), `-SelectionName` (`starter` or `custom`), and `-Component`. Add `-KeepExisting -Collisions <component paths>` for kept components.
 
-**Bash:** Run [scripts/component-copy.sh](scripts/component-copy.sh) with the HVE-Core base path, target root, package name, selection name, and component paths as arguments, in that order. Set `KEEP_EXISTING=true` and `COLLISIONS_FILE=<newline-delimited component paths>` for kept components.
+**Bash:** Run [scripts/component-copy.sh](../scripts/component-copy.sh) with the HVE-Core base path, target root, package name, selection name, and component paths as arguments, in that order. Set `KEEP_EXISTING=true` and `COLLISIONS_FILE=<newline-delimited component paths>` for kept components.
 
 Both implementations validate membership, path safety, and the existing manifest schema before the first write, and produce equivalent paths, hashes, manifests, and output.
 
@@ -260,9 +260,9 @@ When `.hve-tracking.json` already exists, Phase 7 operates in upgrade mode.
 
 At Phase 7 start, check for an existing manifest.
 
-**PowerShell:** Run [scripts/upgrade-detection.ps1](scripts/upgrade-detection.ps1) with `-HveCoreBasePath` and optional `-TargetRoot`.
+**PowerShell:** Run [scripts/upgrade-detection.ps1](../scripts/upgrade-detection.ps1) with `-HveCoreBasePath` and optional `-TargetRoot`.
 
-**Bash:** Run [scripts/upgrade-detection.sh](scripts/upgrade-detection.sh) with the HVE-Core base path and optional target root as arguments.
+**Bash:** Run [scripts/upgrade-detection.sh](../scripts/upgrade-detection.sh) with the HVE-Core base path and optional target root as arguments.
 
 Output keys: `UPGRADE_MODE`, and when a manifest exists, `INSTALLED_VERSION`, `SOURCE_VERSION`, `VERSION_CHANGED`, `INSTALLED_PACKAGE`, `INSTALLED_PROFILE`, and `INSTALLED_COMPONENTS`. `INSTALLED_PACKAGE` is the recorded `selection.package`, and is emitted as an empty value when a schema version 2 manifest records none. An unsupported `schemaVersion` fails with clean-reinstall guidance.
 
@@ -289,9 +289,9 @@ Checking file status...
 
 Compare current files against the manifest.
 
-**PowerShell:** Run [scripts/file-status-check.ps1](scripts/file-status-check.ps1) with optional `-TargetRoot`.
+**PowerShell:** Run [scripts/file-status-check.ps1](../scripts/file-status-check.ps1) with optional `-TargetRoot`.
 
-**Bash:** Run [scripts/file-status-check.sh](scripts/file-status-check.sh) with an optional target root argument.
+**Bash:** Run [scripts/file-status-check.sh](../scripts/file-status-check.sh) with an optional target root argument.
 
 Each line reports one tracked file:
 
@@ -373,9 +373,9 @@ After user decision, update the manifest:
 
 Eject operates on a component. Every file of that component is marked `ejected`, stays on disk, and becomes owned by the user. Later copies skip ejected files and preserve their manifest entries.
 
-**PowerShell:** Run [scripts/eject.ps1](scripts/eject.ps1) with `-Component` and optional `-TargetRoot`.
+**PowerShell:** Run [scripts/eject.ps1](../scripts/eject.ps1) with `-Component` and optional `-TargetRoot`.
 
-**Bash:** Run [scripts/eject.sh](scripts/eject.sh) with the component path and optional target root as arguments.
+**Bash:** Run [scripts/eject.sh](../scripts/eject.sh) with the component path and optional target root as arguments.
 
 ### Upgrade Completion
 

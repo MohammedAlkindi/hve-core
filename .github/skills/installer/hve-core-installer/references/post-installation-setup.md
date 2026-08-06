@@ -77,17 +77,15 @@ After the gitignore checkpoint (for **any** installation method), present MCP co
 
 Some HVE-Core capabilities integrate with external services via MCP (Model Context Protocol):
 
-| Capability         | MCP Server               | Purpose                              |
-|--------------------|--------------------------|--------------------------------------|
-| backlog-plan       | ado, github              | Read-only backlog planning           |
-| backlog-execute    | ado, github              | Backlog creation and updates         |
-| functional-planner | ado                      | PRD-to-work-item hierarchy planning  |
-| rpi-research       | context7, microsoft-docs | Documentation lookup                 |
-| dt-coach           | figma                    | FigJam board export for DT artifacts |
+| Capability             | MCP Server               | Purpose                              |
+|------------------------|--------------------------|--------------------------------------|
+| ado-prd-to-wit         | ado                      | Azure DevOps work items              |
+| github-backlog-manager | github                   | GitHub backlog management            |
+| rpi-research           | context7, microsoft-docs | Documentation lookup                 |
+| dt-coach               | figma                    | FigJam board export for DT artifacts |
 
-⚠️ Backlog commands resolve the tracker at runtime, so configure the server matching
-   the tracker you use. Jira and GitLab use environment variables instead of MCP; see
-   the Credential Setup section of the jira or gitlab skill to configure them.
+⚠️ Jira agents (jira-backlog-manager, jira-prd-to-wit) use environment variables
+   instead of MCP. Run /jira-setup in Copilot Chat to configure Jira credentials.
 
 Would you like to configure MCP servers? (yes/no)
 ```
