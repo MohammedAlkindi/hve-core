@@ -5,7 +5,7 @@ description: Minimum Viable Experiment domain knowledge covering definition, typ
 
 ## Source
 
-This is HVE Core original coaching material. It is not derived from the Microsoft CSE engineering playbook. For CSE model-experimentation conventions, see [model-experimentation.md](model-experimentation.md).
+This is HVE Core original coaching material. It is not derived from the Microsoft CSE engineering playbook. For ML environments, reproducibility, experiment tracking, model evaluation, abstractions, and production-readiness conventions, use `ml-experimentation`.
 
 ## What is an MVE
 

@@ -192,6 +192,185 @@ class TestScanStdin:
         assert report["findings"][0]["source"] == scan_sensitive_content.STDIN_SOURCE
 
 
+class TestScanDataMode:
+    @pytest.mark.parametrize(
+        ("content", "category", "confidence"),
+        [
+            ("columns: [ssn]", "sensitive_column_name", "high"),
+            ("- name: patientId", "sensitive_column_name", "warn"),
+            ("customer_id varchar(40)", None, None),
+            ("Server=db;Initial Catalog=orders;User Id=app;Password=secret", "connection_string", "high"),
+            ("url: jdbc:postgresql://db/orders", "jdbc_odbc_uri", "high"),
+            ("url: postgres://user:secret@db/orders", "db_uri_with_credentials", "high"),
+            ("AccountKey=YWJjZGVmZ2hpamtsbW5vcHFyc3R1", "storage_key", "high"),
+            ("Authorization: Bearer abcdefghijklmnop", "bearer_token", "high"),
+            ("national_insurance: AB123456C", "uk_national_insurance", "warn"),
+            ("sin: 046 454 286", "canadian_sin", "warn"),
+            ("phone: +442079460958", "international_phone", "warn"),
+            (
+                "url: https://acct.blob.core.windows.net/c?sp=r&se=2030-01-01&sig=secret",
+                "sas_token",
+                "high",
+            ),
+        ],
+    )
+    def test_given_data_rule_when_data_mode_then_expected_finding(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        content: str,
+        category: str | None,
+        confidence: str | None,
+    ) -> None:
+        # Arrange
+        target = tmp_path / "data.txt"
+        target.write_text(content + "\n", encoding="utf-8")
+
+        # Act
+        exit_code, report = _invoke(["--data", str(target)], capsys)
+
+        # Assert
+        categories = {finding["category"] for finding in report["findings"]}
+        if category is None:
+            assert exit_code == scan_sensitive_content.EXIT_SUCCESS
+            assert categories == set()
+        else:
+            assert category in categories
+            expected_exit = (
+                scan_sensitive_content.EXIT_FAILURE
+                if confidence == "high"
+                else scan_sensitive_content.EXIT_SUCCESS
+            )
+            assert exit_code == expected_exit
+
+    def test_given_sample_table_when_data_mode_then_warns_without_blocking(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # Arrange
+        target = tmp_path / "catalog.md"
+        target.write_text(
+            "## Sample rows\n\n| id | value |\n|----|-------|\n| 1 | synthetic |\n",
+            encoding="utf-8",
+        )
+
+        # Act
+        exit_code, report = _invoke(["--data", str(target)], capsys)
+
+        # Assert
+        assert exit_code == scan_sensitive_content.EXIT_SUCCESS
+        assert any(finding["category"] == "sample_row" for finding in report["findings"])
+        assert report["summary"]["warn"] >= 1
+
+    def test_given_data_only_content_when_default_mode_then_preserves_empty_result(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # Arrange
+        target = tmp_path / "adr.md"
+        target.write_text("columns: [ssn]\nurl: jdbc:postgresql://db/orders\n", encoding="utf-8")
+
+        # Act
+        exit_code, report = _invoke([str(target)], capsys)
+
+        # Assert
+        assert exit_code == scan_sensitive_content.EXIT_SUCCESS
+        assert report["summary"] == {"high": 0, "warn": 0, "total": 0}
+
+
+class TestScanDenylist:
+    def test_given_denylist_when_term_differs_by_case_then_blocks_without_leak(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # Arrange
+        denylist = tmp_path / "terms.txt"
+        denylist.write_text("Contoso-Blue\n\ncontoso-blue\n", encoding="utf-8")
+        target = tmp_path / "artifact.md"
+        target.write_text("Tenant: CONTOSO-BLUE\n", encoding="utf-8")
+
+        # Act
+        exit_code, report = _invoke(
+            ["--denylist", str(denylist), str(target)], capsys
+        )
+
+        # Assert
+        assert exit_code == scan_sensitive_content.EXIT_FAILURE
+        denylist_findings = [
+            finding
+            for finding in report["findings"]
+            if finding["category"] == "denylist_term"
+        ]
+        assert len(denylist_findings) == 1
+        assert "contoso-blue" not in json.dumps(report).lower()
+
+    def test_given_denylist_and_other_modes_when_scanned_then_rules_form_union(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # Arrange
+        denylist = tmp_path / "terms.txt"
+        denylist.write_text("tenant-seven\n", encoding="utf-8")
+        target = tmp_path / "artifact.md"
+        target.write_text(
+            "tenant-seven\ncolumns: [dob]\nhttp://localhost/admin\n",
+            encoding="utf-8",
+        )
+
+        # Act
+        _, report = _invoke(
+            ["--public", "--data", "--denylist", str(denylist), str(target)],
+            capsys,
+        )
+
+        # Assert
+        categories = {finding["category"] for finding in report["findings"]}
+        assert {"denylist_term", "sensitive_column_name", "internal_url"} <= categories
+
+    @pytest.mark.parametrize("kind", ["missing", "directory", "invalid-utf8"])
+    def test_given_invalid_denylist_when_scanned_then_returns_error(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        kind: str,
+    ) -> None:
+        # Arrange
+        denylist = tmp_path / "terms.txt"
+        if kind == "directory":
+            denylist.mkdir()
+        elif kind == "invalid-utf8":
+            denylist.write_bytes(b"\xff\xfe")
+
+        # Act
+        exit_code, report = _invoke(["--denylist", str(denylist)], capsys)
+
+        # Assert
+        assert exit_code == scan_sensitive_content.EXIT_ERROR
+        assert report == {}
+
+
+class TestScanPerformance:
+    def test_given_long_benign_input_when_data_mode_then_completes_without_findings(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # Arrange
+        target = tmp_path / "large.txt"
+        target.write_text(("ordinary catalog context " * 20000) + "\n", encoding="utf-8")
+
+        # Act
+        exit_code, report = _invoke(["--data", str(target)], capsys)
+
+        # Assert
+        assert exit_code == scan_sensitive_content.EXIT_SUCCESS
+        assert report["summary"] == {"high": 0, "warn": 0, "total": 0}
+
+
 class TestScanPathTraversal:
     @pytest.mark.parametrize(
         "adversarial",
