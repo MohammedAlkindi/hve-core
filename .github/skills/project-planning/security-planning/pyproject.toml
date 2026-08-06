@@ -4,20 +4,20 @@ version = "0.0.0"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml==6.0.3",
-    "defusedxml>=0.7",
+    "defusedxml==0.7.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0",
-    "pytest-mock>=3.14",
+    "pytest-cov>=6.0",
     "ruff>=0.15",
 ]
 fuzz = [
     "atheris>=3.0",
 ]
 windows = [
-    "pillow>=11.2.1 ; platform_system == 'Windows'",
+    "pillow>=11.3.0 ; platform_system == 'Windows'",
     "pywinauto>=0.6.8 ; platform_system == 'Windows'",
 ]
 

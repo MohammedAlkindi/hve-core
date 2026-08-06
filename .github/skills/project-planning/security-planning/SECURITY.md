@@ -3,7 +3,7 @@ title: Security Planning Skill Security Model
 description: STRIDE threat model for the TM7 generation and native feedback runtime that parses untrusted specs, template XML, local screenshots, UI Automation traces, and overlay evidence with human-review gates
 author: microsoft/hve-core
 ms.topic: reference
-ms.date: 2026-07-16
+ms.date: 2026-08-05
 estimated_reading_time: 8
 keywords:
   - security
@@ -12,7 +12,6 @@ keywords:
   - tm7
   - security-planning
 ---
-<!-- markdownlint-disable-file -->
 # Security Planning Skill Security Model
 
 This document records the STRIDE threat model for the TM7 generation and native feedback runtime in the security-planning skill. The runtime now includes the generator, the native Microsoft Threat Modeling Tool validator, local UI Automation interaction, screenshot capture, evidence persistence, and overlay replay. The model is organized by trust bucket around the executable surfaces that the runtime directly touches: TMT process automation and UI Automation (B1), local screenshot and evidence capture (B2), and overlay and evidence path handling (B3). Each bucket enumerates all six STRIDE categories with the mitigations that address them. Assets and adversaries are enumerated first, and enterprise readiness gaps appear at the end. The runtime writes redacted evidence bundles under a local evidence root with `manifest.json`, `status.json`, `action.log`, and per-run screenshots/UIA/summaries folders, writes iteration-scoped candidate models and `overlay.yaml` files under `iterations/00-baseline` and `iterations/01` through `iterations/03`, emits pending overlay outputs for human review, and never rewrites the canonical baseline or auto-promotes overlays to `approved`.
@@ -25,13 +24,13 @@ The highest-risk behavior is running a local executable against a threat-model a
 
 ### Security Posture Overview
 
-| Dimension          | Value                                                                                                                                |
-|--------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| Runtime surface    | Local Python generator, native TMT validation harness, Windows UI Automation, screenshot capture, and evidence/overlay handling      |
-| Trust buckets      | B1 TMT process automation and UI Automation; B2 local screenshots and evidence capture; B3 overlay-manifest and output path handling |
-| Credentials        | None handled or persisted by the runtime; no network egress is expected                                                              |
-| Network egress     | None                                                                                                                                 |
-| Open residual gaps | 8 (executable trust, UIA ambiguity, evidence disclosure, evidence tampering, overlay tampering, path confinement, visual-score over-trust, automation stalls)          |
+| Dimension          | Value                                                                                                                                                         |
+|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Runtime surface    | Local Python generator, native TMT validation harness, Windows UI Automation, screenshot capture, and evidence/overlay handling                               |
+| Trust buckets      | B1 TMT process automation and UI Automation; B2 local screenshots and evidence capture; B3 overlay-manifest and output path handling                          |
+| Credentials        | None handled or persisted by the runtime; no network egress is expected                                                                                       |
+| Network egress     | None                                                                                                                                                          |
+| Open residual gaps | 10 (executable trust, UIA ambiguity, evidence disclosure, evidence tampering, overlay tampering, path confinement, visual-score over-trust, automation stalls, marked-workspace deletion, local assembly loading) |
 
 ## Contents
 
@@ -49,11 +48,11 @@ The highest-risk behavior is running a local executable against a threat-model a
 
 ### Components
 
-1. `scripts/generate_tm7.py` — loads and validates the input spec, selects a template profile, emits deterministic `.tm7` content, and replays a validated overlay when requested.
-2. `scripts/validate_tm7_with_tmt.py` — discovers the local TMT executable, enforces the pinned version, launches the native UI, runs validation and feedback-loop modes, and writes redacted evidence bundles.
-3. `scripts/tm7_visual_feedback.py` — evaluates geometry metrics, derives overlay candidates, ranks them deterministically, and evaluates convergence and semantic regression.
-4. `assets/schemas/` — defines the overlay and evidence-manifest contracts that constrain replay and evidence output.
-5. Generated evidence and overlays — `manifest.json`, `status.json`, iteration bundles, screenshots, UIA snapshots, and pending overlay output written for human review.
+1. `scripts/generate_tm7.py`: loads and validates the input spec, selects a template profile, emits deterministic `.tm7` content, and replays a validated overlay when requested.
+2. `scripts/validate_tm7_with_tmt.py`: discovers the local TMT executable, enforces the pinned version, launches the native UI, runs validation and feedback-loop modes, and writes redacted evidence bundles.
+3. `scripts/tm7_visual_feedback.py`: evaluates geometry metrics, derives overlay candidates, ranks them deterministically, and evaluates convergence and semantic regression.
+4. `assets/schemas/`: defines the overlay and evidence-manifest contracts that constrain replay and evidence output.
+5. Generated evidence and overlays: `manifest.json`, `status.json`, iteration bundles, screenshots, UIA snapshots, and pending overlay output written for human review.
 
 ### Data Flow
 
@@ -122,14 +121,14 @@ flowchart TD
 
 ## Adversaries
 
-| Id    | Adversary                                                                                               | In-scope mitigations                                                                              |
-|-------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| ADV-a | Attacker supplies a forged or spoofed executable path to redirect the harness to an unintended binary   | Path validation, executable metadata checks, pinned version, harness-owned process tracking       |
-| ADV-b | Attacker causes UI Automation to select the wrong window or pane, or to interact with unrelated content | Explicit surface identity checks, fail-closed selection, bounded timeouts    |
-| ADV-c | Attacker causes a hang, modal loop, or resource exhaustion in TMT or the harness                        | Bounded timeouts, modal detection, clean shutdown, retry boundaries, evidence flush on exit       |
-| ADV-d | Attacker or operator discloses sensitive model content through screenshots or UIA traces                | Redaction of text evidence, local-only evidence handling, window-scoped capture, no network egress                   |
-| ADV-e | Attacker tampers with overlay manifests, fingerprints, or output paths                                  | Deterministic manifest fingerprints, path confinement, strict schema validation, pending approval |
-| ADV-f | Operator over-trusts a visual score or pending overlay without semantic review                          | Human approval before promotion, semantic regression checks, no automatic promotion               |
+| Id    | Adversary                                                                                               | In-scope mitigations                                                                               |
+|-------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| ADV-a | Attacker supplies a forged or spoofed executable path to redirect the harness to an unintended binary   | Path validation, executable metadata checks, pinned version, harness-owned process tracking        |
+| ADV-b | Attacker causes UI Automation to select the wrong window or pane, or to interact with unrelated content | Explicit surface identity checks, fail-closed selection, bounded timeouts                          |
+| ADV-c | Attacker causes a hang, modal loop, or resource exhaustion in TMT or the harness                        | Bounded timeouts, modal detection, clean shutdown, retry boundaries, evidence flush on exit        |
+| ADV-d | Attacker or operator discloses sensitive model content through screenshots or UIA traces                | Text-evidence redaction, local-only evidence handling, window-handle-isolated capture, no network egress |
+| ADV-e | Attacker tampers with overlay manifests, fingerprints, or output paths                                  | Deterministic manifest fingerprints, path confinement, strict schema validation, pending approval  |
+| ADV-f | Operator over-trusts a visual score or pending overlay without semantic review                          | Human approval before promotion, semantic regression checks, no automatic promotion                |
 
 ## Bucket B1: TMT process automation and UI Automation
 
@@ -159,11 +158,11 @@ flowchart TD
 
 ### Risk Rating
 
-| Threat                                                                                  | Likelihood | Impact | Residual Risk | Status                                                                                            |
-|-----------------------------------------------------------------------------------------|------------|--------|---------------|---------------------------------------------------------------------------------------------------|
-| Executable discovery or path spoofing causes the harness to launch the wrong binary     | Low        | High   | Medium        | Mitigated (absolute installation roots, Authenticode publisher check, pinned version, deterministic selection) (G-SPF-1)                          |
-| UI Automation selects an unrelated window or pane                                       | Medium     | Medium | Medium        | Mitigated (explicit surface identity checks, fail-closed behavior) (G-TAM-1) |
-| TMT hangs, modal loops, or resource exhaustion stops the run or leaves partial evidence | Medium     | Medium | Medium        | Mitigated (timeouts, modal handling, bounded iterations) (G-DOS-1)                                |
+| Threat                                                                                  | Likelihood | Impact | Residual Risk | Status                                                                                                                   |
+|-----------------------------------------------------------------------------------------|------------|--------|---------------|--------------------------------------------------------------------------------------------------------------------------|
+| Executable discovery or path spoofing causes the harness to launch the wrong binary     | Low        | High   | Medium        | Mitigated (absolute installation roots, Authenticode publisher check, pinned version, deterministic selection) (G-SPF-1) |
+| UI Automation selects an unrelated window or pane                                       | Medium     | Medium | Medium        | Mitigated (explicit surface identity checks, fail-closed behavior) (G-TAM-1)                                             |
+| TMT hangs, modal loops, or resource exhaustion stops the run or leaves partial evidence | Medium     | Medium | Medium        | Mitigated (timeouts, modal handling, bounded iterations) (G-DOS-1)                                                       |
 
 ## Bucket B2: Local screenshots and evidence capture
 
@@ -181,7 +180,7 @@ flowchart TD
 
 ### Information Disclosure
 
-* Screenshot and UIA capture can reveal the model content and layout. Screenshots cover the whole Threat Modeling Tool window rather than the diagram pane alone, so anything the tool displays is captured. The runtime reduces disclosure risk through text redaction, window-scoped rather than full-screen capture, and local-only storage.
+* Screenshot and UIA capture can reveal the model content and layout. Screenshots cover the whole Threat Modeling Tool window rather than the diagram pane alone, so anything the tool displays is captured. Redaction applies to text evidence only; captured pixels are never redacted, and this document does not claim otherwise. Capture is refused unless the host can address a single native window handle, so a desktop-region capture that could include an unrelated application is never persisted. Where isolation is unavailable, capture is disabled, and a run that requires complete evidence fails closed rather than continuing without it. Evidence remains local-only.
 
 ### Denial of Service
 
@@ -193,10 +192,10 @@ flowchart TD
 
 ### Risk Rating
 
-| Threat                                                     | Likelihood | Impact | Residual Risk | Status                                                                                  |
-|------------------------------------------------------------|------------|--------|---------------|-----------------------------------------------------------------------------------------|
-| Screenshots or UIA traces expose sensitive model content   | Medium     | Medium | Medium        | Partially mitigated (redaction of text evidence, window-scoped rather than full-screen capture, local-only evidence) (G-INF-1)               |
-| Evidence files are replaced or tampered with after capture | Medium     | Medium | Medium        | Mitigated (deterministic manifests, local ownership, explicit status updates) (G-TAM-2) |
+| Threat                                                     | Likelihood | Impact | Residual Risk | Status                                                                                                                         |
+|------------------------------------------------------------|------------|--------|---------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Screenshots or UIA traces expose sensitive model content   | Medium     | Medium | Medium        | Partially mitigated (text-evidence redaction, window-handle-isolated capture that is refused when isolation is unavailable, local-only evidence) (G-INF-1) |
+| Evidence files are replaced or tampered with after capture | Medium     | Medium | Medium        | Mitigated (deterministic manifests, local ownership, explicit status updates) (G-TAM-2)                                        |
 
 ## Bucket B3: Overlay manifest and output path handling
 
@@ -226,26 +225,28 @@ flowchart TD
 
 ### Risk Rating
 
-| Threat                                                                                                                 | Likelihood | Impact | Residual Risk | Status                                                                                        |
-|------------------------------------------------------------------------------------------------------------------------|------------|--------|---------------|-----------------------------------------------------------------------------------------------|
-| Overlay or manifest tampering changes the replay contract or the evidence metadata                                     | Medium     | Medium | Medium        | Mitigated (strict schema, required complete invalidation fingerprints, path confinement, pending approval) (G-TAM-3)        |
-| A path traversal or output-escape bug writes evidence or overlay content outside the intended local evidence directory | Low        | Medium | Low           | Mitigated (path validation and confinement) (G-EOP-1)                                        |
-| Visual scores or pending overlays are treated as equivalent to a semantic approval                                     | Medium     | High   | Medium        | Mitigated (semantic regression checks, no automatic promotion, human review gate) (G-REP-1) |
+| Threat                                                                                                                 | Likelihood | Impact | Residual Risk | Status                                                                                                               |
+|------------------------------------------------------------------------------------------------------------------------|------------|--------|---------------|----------------------------------------------------------------------------------------------------------------------|
+| Overlay or manifest tampering changes the replay contract or the evidence metadata                                     | Medium     | Medium | Medium        | Mitigated (strict schema, required complete invalidation fingerprints, path confinement, pending approval) (G-TAM-3) |
+| A path traversal or output-escape bug writes evidence or overlay content outside the intended local evidence directory | Low        | Medium | Low           | Mitigated (path validation and confinement) (G-EOP-1)                                                                |
+| Visual scores or pending overlays are treated as equivalent to a semantic approval                                     | Medium     | High   | Medium        | Mitigated (semantic regression checks, no automatic promotion, human review gate) (G-REP-1)                          |
 
 ## Enterprise Readiness Gaps
 
 The following residual gaps should be tracked before the runtime is treated as fully enterprise-ready for broad, policy-governed usage.
 
-| Id        | Gap                                                                                                                                                                         | Severity | Status                                                                |
-|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|-----------------------------------------------------------------------|
-| G-SPF-1   | Executable discovery selects from absolute installation roots and requires a valid Authenticode signature from the accepted publisher, but the harness still trusts the local installation it finds, so operators must confirm the discovered binary and pinned version.                        | Spoofing-High   | Open; requires operator review and a trusted installation path        |
-| G-TAM-1   | UI Automation can still target an unintended window or pane when the surface identity is ambiguous, so strict mode must remain fail-closed.                                 | Tampering-Med   | Open; requires surface identification discipline and human inspection |
-| G-INF-1   | Screenshots capture the whole Threat Modeling Tool window, and UIA traces carry model text, so evidence bundles must stay local and redacted by policy.                                                  | InfoDisc-Med    | Open; requires policy-driven redaction and retention controls         |
-| G-TAM-2   | Evidence files can still be modified or replaced after capture if the local environment is compromised, so bundle integrity checks remain important.                        | Tampering-Med   | Open; requires integrity and access controls                          |
-| G-TAM-3   | Overlay and manifest tampering remain a practical risk when untrusted files are replayed, so strict schema and fingerprint validation must stay mandatory.                  | Tampering-Med   | Open; requires review of overlay provenance and path origin           |
-| G-EOP-1   | Output-path handling should remain confined to the runtime-owned evidence directory and reject traversal or escape attempts.                                                | EoP-Med         | Open; requires path-confinement validation and monitoring             |
-| G-REP-1   | Visual scores and pending overlays are not semantic approval signals, so the workflow must continue to require human review before any promotion.                           | Repudiation-High | Open; requires explicit review and promotion process                  |
-| G-DOS-1   | TMT or UI Automation can still hit a modal or resource exhaustion state, so the runtime must continue to enforce bounded timeouts and stop conditions.                      | DoS-Med          | Open; requires runtime monitoring and operator response               |
+| Id      | Gap                                                                                                                                                                                                                                                                      | Severity         | Status                                                                |
+|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|-----------------------------------------------------------------------|
+| G-SPF-1 | Executable discovery selects from absolute installation roots and requires a valid Authenticode signature from the accepted publisher, but the harness still trusts the local installation it finds, so operators must confirm the discovered binary and pinned version. | Spoofing-High    | Open; requires operator review and a trusted installation path        |
+| G-TAM-1 | UI Automation can still target an unintended window or pane when the surface identity is ambiguous, so strict mode must remain fail-closed.                                                                                                                              | Tampering-Med    | Open; requires surface identification discipline and human inspection |
+| G-INF-1 | Screenshots capture the whole Threat Modeling Tool window and UIA traces carry model text. Text evidence is redacted; captured pixels are not, so retention and handling of screenshots is a policy control rather than a runtime one.                                 | InfoDisc-Med     | Open; requires retention and handling controls for pixel evidence     |
+| G-TAM-2 | Evidence files can still be modified or replaced after capture if the local environment is compromised, so bundle integrity checks remain important.                                                                                                                     | Tampering-Med    | Open; requires integrity and access controls                          |
+| G-TAM-3 | Overlay and manifest tampering remain a practical risk when untrusted files are replayed, so strict schema and fingerprint validation must stay mandatory.                                                                                                               | Tampering-Med    | Open; requires review of overlay provenance and path origin           |
+| G-EOP-1 | Output-path handling should remain confined to the runtime-owned evidence directory and reject traversal or escape attempts.                                                                                                                                             | EoP-Med          | Open; requires path-confinement validation and monitoring             |
+| G-REP-1 | Visual scores and pending overlays are not semantic approval signals, so the workflow must continue to require human review before any promotion.                                                                                                                        | Repudiation-High | Open; requires explicit review and promotion process                  |
+| G-DOS-1 | TMT or UI Automation can still hit a modal or resource exhaustion state, so the runtime must continue to enforce bounded timeouts and stop conditions.                                                                                                                   | DoS-Med          | Open; requires runtime monitoring and operator response               |
+| G-EOP-2 | Recursive workspace deletion is restricted to a directory the harness created and marked itself, so an operator-supplied `--workspace-root` is treated as a parent only. The marker is a local file and offers no protection against a compromised host.                 | EoP-Med          | Open; requires local file-system integrity                            |
+| G-SPF-2 | The PowerShell fidelity probe loads a .NET assembly from the discovered TMT installation to deserialize a model. The assembly is verified as signed by the accepted publisher before loading, but loading any local assembly executes publisher code in-process.          | Spoofing-Med     | Open; requires a trusted installation and operator confirmation       |
 
 ## References
 

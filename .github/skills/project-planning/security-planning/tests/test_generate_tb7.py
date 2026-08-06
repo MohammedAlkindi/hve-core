@@ -37,7 +37,11 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def test_generate_tb7_appends_manifest_and_threat_types(tmp_path: Path) -> None:
+def test_given_threat_and_mitigation_when_generated_then_manifest_and_types_appended(
+    tmp_path: Path,
+) -> None:
+    """Generation must write project manifest metadata and append the threat type."""
+    # Arrange
     spec_path = tmp_path / "spec.yaml"
     output_path = tmp_path / "generated.tb7"
     spec = {
@@ -66,6 +70,7 @@ def test_generate_tb7_appends_manifest_and_threat_types(tmp_path: Path) -> None:
     }
     _write_spec(spec_path, spec)
 
+    # Act
     subprocess.run(
         [
             sys.executable,
@@ -81,6 +86,7 @@ def test_generate_tb7_appends_manifest_and_threat_types(tmp_path: Path) -> None:
         text=True,
     )
 
+    # Assert
     root = ET.parse(output_path).getroot()
     manifest = root.find("Manifest")
     assert manifest is not None
@@ -99,9 +105,11 @@ def test_generate_tb7_appends_manifest_and_threat_types(tmp_path: Path) -> None:
     assert len(threat_types) == 1 + len(source_threat_types)
 
 
-def test_generate_tb7_uses_deterministic_uuid_ids_and_no_stock_collisions(
+def test_given_multiple_threats_when_generated_then_ids_are_deterministic_and_unique(
     tmp_path: Path,
 ) -> None:
+    """Generated threat ids must be UUID5-derived and must not collide with stock."""
+    # Arrange
     spec_path = tmp_path / "spec.yaml"
     output_path = tmp_path / "generated.tb7"
     spec = {
@@ -123,6 +131,7 @@ def test_generate_tb7_uses_deterministic_uuid_ids_and_no_stock_collisions(
     }
     _write_spec(spec_path, spec)
 
+    # Act
     subprocess.run(
         [
             sys.executable,
@@ -138,6 +147,7 @@ def test_generate_tb7_uses_deterministic_uuid_ids_and_no_stock_collisions(
         text=True,
     )
 
+    # Assert
     root = ET.parse(output_path).getroot()
     source_root = ET.parse(SOURCE_TEMPLATE_PATH).getroot()
     stock_ids = {
@@ -160,7 +170,11 @@ def test_generate_tb7_uses_deterministic_uuid_ids_and_no_stock_collisions(
     assert generated_ids[-2:] == expected_ids
 
 
-def test_generate_tb7_matches_native_schema_order_and_parses(tmp_path: Path) -> None:
+def test_given_generated_template_when_parsed_then_order_matches_native_schema(
+    tmp_path: Path,
+) -> None:
+    """Appended threat types must follow the native element and metadata order."""
+    # Arrange
     spec_path = tmp_path / "spec.yaml"
     output_path = tmp_path / "generated.tb7"
     spec = {
@@ -176,6 +190,7 @@ def test_generate_tb7_matches_native_schema_order_and_parses(tmp_path: Path) -> 
     }
     _write_spec(spec_path, spec)
 
+    # Act
     subprocess.run(
         [
             sys.executable,
@@ -191,6 +206,7 @@ def test_generate_tb7_matches_native_schema_order_and_parses(tmp_path: Path) -> 
         text=True,
     )
 
+    # Assert
     root = ET.parse(output_path).getroot()
     threat_types = _iter_threat_types(root)
     appended = threat_types[-1]
@@ -219,7 +235,11 @@ def test_generate_tb7_matches_native_schema_order_and_parses(tmp_path: Path) -> 
         assert child.findtext("AttributeType") is not None
 
 
-def test_generate_tb7_uses_non_contradictory_generation_filter(tmp_path: Path) -> None:
+def test_given_threat_when_generated_then_generation_filter_is_not_contradictory(
+    tmp_path: Path,
+) -> None:
+    """The emitted generation filter must be satisfiable rather than self-excluding."""
+    # Arrange
     spec_path = tmp_path / "spec.yaml"
     output_path = tmp_path / "generated.tb7"
     spec = {
@@ -235,6 +255,7 @@ def test_generate_tb7_uses_non_contradictory_generation_filter(tmp_path: Path) -
     }
     _write_spec(spec_path, spec)
 
+    # Act
     subprocess.run(
         [
             sys.executable,
@@ -250,6 +271,7 @@ def test_generate_tb7_uses_non_contradictory_generation_filter(tmp_path: Path) -
         text=True,
     )
 
+    # Assert
     root = ET.parse(output_path).getroot()
     threat_type = next(
         child
@@ -261,9 +283,11 @@ def test_generate_tb7_uses_non_contradictory_generation_filter(tmp_path: Path) -
     assert generation_filter == "source is 'ROOT'"
 
 
-def test_generate_tb7_resolves_mitigations_and_citations_into_supported_values(
+def test_given_mitigations_and_citations_when_generated_then_resolved_into_values(
     tmp_path: Path,
 ) -> None:
+    """Mitigation names and citation codes must resolve into the metadata values."""
+    # Arrange
     spec_path = tmp_path / "spec.yaml"
     output_path = tmp_path / "generated.tb7"
     spec = {
@@ -288,6 +312,7 @@ def test_generate_tb7_resolves_mitigations_and_citations_into_supported_values(
     }
     _write_spec(spec_path, spec)
 
+    # Act
     subprocess.run(
         [
             sys.executable,
@@ -303,6 +328,7 @@ def test_generate_tb7_resolves_mitigations_and_citations_into_supported_values(
         text=True,
     )
 
+    # Assert
     root = ET.parse(output_path).getroot()
     appended = _iter_threat_types(root)[-1]
     properties = appended.find("PropertiesMetaData")

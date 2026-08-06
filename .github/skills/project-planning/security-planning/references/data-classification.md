@@ -1,7 +1,7 @@
 ---
 title: Data Classification and Retention Guidance
 description: Public-safe taxonomy hints for asset classification, sensitivity, and retention metadata in threat-model specs.
-ms.date: 2026-07-07
+ms.date: 2026-08-05
 ms.topic: reference
 ---
 

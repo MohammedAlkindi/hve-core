@@ -208,10 +208,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         spec = load_spec(args.spec)
-        # Profiles ship with the package, so they are resolved from the package
-        # root exactly as generate_tm7 resolves them. Deriving the directory
-        # from the spec location instead made an external spec resolve a
-        # different profile than the TM7 generator chose for the same input.
+        # Profiles ship with the package, so they resolve from the package root
+        # exactly as generate_tm7 resolves them. Deriving the directory from the
+        # spec location would let an external spec select a different profile
+        # than the TM7 generator chose for the same input.
         template_dir = Path(__file__).resolve().parent.parent
         profile = resolve_profile(spec, None, template_dir)
         profile["name"] = spec.get("template_profile") or "sdl_core_generic"
@@ -222,6 +222,12 @@ def main() -> int:
         return EXIT_SUCCESS
     except GenerationError as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    except KeyboardInterrupt:
+        print("\nInterrupted by user", file=sys.stderr)
+        return 130
+    except BrokenPipeError:
+        sys.stderr.close()
         return EXIT_ERROR
 
 

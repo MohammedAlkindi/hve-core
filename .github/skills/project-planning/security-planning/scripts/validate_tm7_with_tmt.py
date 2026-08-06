@@ -23,18 +23,14 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 from typing import Any, Callable, Iterable, Iterator
 from urllib.parse import urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
 
 import generate_tm7
+import tm7_threat_contract
 import tm7_visual_feedback
-
-try:
-    from defusedxml import ElementTree as DefusedET
-except ImportError:  # pragma: no cover - locked project installs defusedxml
-    DefusedET = None
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +43,8 @@ EXIT_AUTOMATION_TIMEOUT = 5
 EXIT_UNEXPECTED_MODAL = 6
 EXIT_MISSING_FEEDBACK_EVIDENCE = 7
 EXIT_FEEDBACK_NON_CONVERGENCE = 8
+# SIGINT convention: 128 + signal number.
+EXIT_INTERRUPTED = 130
 
 DEFAULT_PINNED_VERSION = "7.3.51110.1"
 # Executable trust is anchored to the signing publisher, not to install
@@ -56,13 +54,38 @@ ACCEPTED_PUBLISHER_CN = "CN=Microsoft Corporation"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_MAX_ITERATIONS = 3
 EVIDENCE_SCHEMA_VERSION = 1
-MODEL_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model"
-ABSTRACT_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts"
-ARRAYS_NS = "http://schemas.microsoft.com/2003/10/Serialization/Arrays"
-KNOWLEDGE_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.KnowledgeBase"
-SERIALIZATION_NS = "http://schemas.microsoft.com/2003/10/Serialization/"
-XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
-XSD_NS = "http://www.w3.org/2001/XMLSchema"
+# Stop reasons where the run captured trustworthy evidence and simply found no
+# automated layout improvement. Only these publish a rules-empty overlay seed
+# for a reviewer to build on. A correctness stop such as semantic-regression,
+# an incomplete capture, or an environment failure must not, because the model
+# or the evidence behind it is itself in question and inviting layout rules
+# against it would misdirect the review.
+OVERLAY_SEED_STOP_REASONS = frozenset(
+    {"repeated-defect-no-improvement", "max-iterations"}
+)
+# Every status the feedback loop assigns to a run is a member of this set, and
+# each member is a distinct operator action. An outcome outside the set is
+# reported as harness-error rather than collapsed into unexpected-modal, which
+# would send an operator looking for a dialog that never appeared.
+FEEDBACK_STOP_REASONS = frozenset(
+    {
+        "automated-ready-pending-human",
+        "repeated-defect-no-improvement",
+        "max-iterations",
+        "evidence-incomplete",
+        "semantic-regression",
+        "candidate-generation-failed",
+        "overlay-validation-failed",
+        "tmt-unavailable",
+        "skipped",
+        "version-mismatch",
+        "automation-timeout",
+        "unexpected-modal",
+        "harness-error",
+    }
+)
+MODEL_NS = tm7_threat_contract.MODEL_NS
+KNOWLEDGE_NS = tm7_threat_contract.KNOWLEDGE_NS
 LICENSE_MODAL_TITLE = "MICROSOFT LICENSE TERMS WINDOW"
 TEMPLATE_CONVERSION_MODAL_TITLE = "Threat Model Conversion Confirmation"
 SENSITIVE_KEY = re.compile(
@@ -71,18 +94,16 @@ SENSITIVE_KEY = re.compile(
     r"private[_-]?key|signature|sig",
     re.IGNORECASE,
 )
-# Sensitive names carry their value in several inline shapes. The value run must
-# stop at a separator, otherwise a `key=value; next=...` pair swallows the rest
-# of the string and a header form leaves the real secret behind. The previous
-# pattern matched only `authorization`, `bearer`, and `token`, and its `\S+`
-# consumed just one token, so `Authorization: Bearer <jwt>` redacted the word
-# "Bearer" and published the JWT.
+# Sensitive names carry their value in several inline shapes. The value run stops
+# at a separator so a `key=value; next=...` pair does not swallow the rest of the
+# string. The key and the value are each optionally quoted so the JSON shape
+# `"password": "hunter2"` is covered as well as the bare and header forms.
 SENSITIVE_VALUE = re.compile(
-    r"(?i)\b("
+    r"(?i)(['\"]?\b(?:"
     r"authorization|client[_-]?secret|password|passwd|token|api[_-]?key|"
     r"secret|credential|account[_-]?key|shared[_-]?access[_-]?key|"
     r"private[_-]?key|sig|signature"
-    r")\b(\s*[:=]\s*)(?:bearer\s+)?[^\s;,&\"']+",
+    r")\b['\"]?)(\s*[:=]\s*)['\"]?(?:bearer\s+)?[^\s;,&\"']+['\"]?",
     re.IGNORECASE,
 )
 # A bare bearer or basic credential can appear without a preceding key name.
@@ -267,10 +288,74 @@ class EvidenceBundle:
         _emit_operator_notice(f"Action PASS {name} duration_seconds={duration:.3f}")
 
     def path(self, relative: str) -> Path:
-        """Resolve an evidence path and create its parent."""
-        output = self.evidence_dir / relative
+        """Resolve a confined evidence path and create its parent.
+
+        The relative reference is confined to the evidence directory before any
+        directory is created. An absolute path or a traversal segment would
+        otherwise let a caller-influenced name write outside the bundle, and the
+        parent mkdir would materialize that location on disk.
+
+        Args:
+            relative: Path relative to the evidence root.
+
+        Returns:
+            Resolved path inside the evidence directory.
+
+        Raises:
+            HarnessFailure: If the reference escapes the evidence directory.
+        """
+        output = self._confine(relative)
         output.parent.mkdir(parents=True, exist_ok=True)
         return output
+
+    def _confine(self, relative: str) -> Path:
+        """Resolve a relative reference strictly inside the evidence root."""
+        candidate = PurePath(relative)
+        if candidate.is_absolute() or PureWindowsPath(relative).is_absolute():
+            raise HarnessFailure(
+                f"Evidence path must be relative to the evidence directory: {relative}",
+                EXIT_ERROR,
+            )
+        root = self.evidence_dir.resolve()
+        resolved = (root / relative).resolve()
+        if resolved != root and root not in resolved.parents:
+            raise HarnessFailure(
+                f"Evidence path escapes the evidence directory: {relative}",
+                EXIT_ERROR,
+            )
+        return resolved
+
+    def write_json(self, relative: str, values: Any) -> Path:
+        """Write a redacted JSON document to a confined evidence path.
+
+        Args:
+            relative: Path relative to the evidence root.
+            values: Document to redact and serialize.
+
+        Returns:
+            The written path.
+        """
+        path = self.path(relative)
+        path.write_text(
+            json.dumps(self._redact_value(values), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return path
+
+    def redact(self, values: Any) -> Any:
+        """Redact a document destined for a caller-declared output path.
+
+        Confinement does not apply to a path the operator named on the command
+        line, but redaction does: the document is built from the same run data
+        as the confined sinks.
+
+        Args:
+            values: Document to redact.
+
+        Returns:
+            The redacted document.
+        """
+        return self._redact_value(values)
 
     def write_uia_tree(self, tree_text: str, filename: str) -> Path:
         """Write a redacted UI Automation tree snapshot."""
@@ -312,20 +397,25 @@ class EvidenceBundle:
     def cleanup_workspace(self, workspace_dir: Path | None) -> None:
         """Remove a harness-owned workspace, surfacing any deletion failure.
 
-        Recursive deletion previously ran against whatever path it was handed
-        with `ignore_errors=True`, so an operator-supplied `--workspace-root`
-        pointing at a real directory would be removed and any failure to do so
-        would pass unnoticed. Deletion is now refused unless the directory
-        carries the ownership marker this harness wrote itself.
+        Deletion is refused unless the directory carries the ownership marker
+        this harness wrote into a directory it created itself.
         """
         _remove_owned_workspace(workspace_dir)
 
 
 WORKSPACE_OWNER_MARKER = ".tm7-harness-owned"
+WORKSPACE_CHILD_NAME = "tm7-harness-workspace"
 
 
 def mark_workspace_owned(workspace_dir: Path) -> Path:
-    """Create a harness-owned workspace and record its ownership marker."""
+    """Record the ownership marker inside a harness-created workspace.
+
+    Args:
+        workspace_dir: Directory this harness created for its own working copies.
+
+    Returns:
+        Path to the ownership marker file.
+    """
     workspace_dir.mkdir(parents=True, exist_ok=True)
     marker = workspace_dir / WORKSPACE_OWNER_MARKER
     marker.write_text(
@@ -335,8 +425,53 @@ def mark_workspace_owned(workspace_dir: Path) -> Path:
     return marker
 
 
+def prepare_owned_workspace(workspace_root: Path | None, evidence_dir: Path) -> Path:
+    """Create a fresh harness-owned workspace beneath a caller-supplied parent.
+
+    A caller-supplied root is treated as a parent directory only. The harness
+    creates, marks, and later deletes a child directory it made itself, so no
+    pre-existing caller directory can acquire the deletion marker.
+
+    Args:
+        workspace_root: Optional parent directory supplied by the operator.
+        evidence_dir: Resolved evidence root used when no parent is supplied.
+
+    Returns:
+        Path to the newly created, harness-owned workspace directory.
+
+    Raises:
+        HarnessFailure: If the workspace cannot be created.
+    """
+    parent = (
+        Path(workspace_root).resolve()
+        if workspace_root is not None
+        else evidence_dir / "workspace"
+    )
+    workspace = parent / WORKSPACE_CHILD_NAME
+    if workspace.exists():
+        _remove_owned_workspace(workspace)
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+        workspace.mkdir(parents=False, exist_ok=False)
+    except OSError as exc:
+        raise HarnessFailure(
+            f"Unable to create harness workspace {workspace}: {exc}",
+            EXIT_ERROR,
+        ) from exc
+    mark_workspace_owned(workspace)
+    return workspace
+
+
 def _remove_owned_workspace(workspace_dir: Path | None) -> None:
-    """Delete a workspace only when this harness marked it as its own."""
+    """Delete a workspace only when this harness marked it as its own.
+
+    Traversal never descends into a symlink or Windows directory junction, so a
+    reparse point placed inside the workspace cannot expose its target to
+    deletion regardless of interpreter version.
+
+    Args:
+        workspace_dir: Candidate workspace directory, or None.
+    """
     if workspace_dir is None or not workspace_dir.exists():
         return
     if not (workspace_dir / WORKSPACE_OWNER_MARKER).is_file():
@@ -346,11 +481,7 @@ def _remove_owned_workspace(workspace_dir: Path | None) -> None:
         )
         return
     errors: list[str] = []
-
-    def _record(_function: Any, path: str, exc_info: Any) -> None:
-        errors.append(f"{path}: {exc_info[1]}")
-
-    shutil.rmtree(workspace_dir, onerror=_record)
+    _remove_tree_without_following_links(workspace_dir, errors)
     if errors:
         # Cleanup failure leaves working copies of the model on disk, so it is
         # reported rather than silently swallowed.
@@ -358,6 +489,36 @@ def _remove_owned_workspace(workspace_dir: Path | None) -> None:
             f"Workspace cleanup did not complete for {workspace_dir}: "
             + "; ".join(errors[:5])
         )
+
+
+def _remove_tree_without_following_links(target: Path, errors: list[str]) -> None:
+    """Recursively delete a directory without descending through reparse points.
+
+    Args:
+        target: Directory to delete.
+        errors: Accumulator for per-path failure messages.
+    """
+    try:
+        entries = list(os.scandir(target))
+    except OSError as exc:
+        errors.append(f"{target}: {exc}")
+        return
+    for entry in entries:
+        entry_path = Path(entry.path)
+        try:
+            if entry.is_dir(follow_symlinks=False) and not entry.is_symlink():
+                _remove_tree_without_following_links(entry_path, errors)
+            elif entry.is_dir(follow_symlinks=False):
+                # A directory symlink or junction is unlinked, never traversed.
+                os.rmdir(entry_path)
+            else:
+                os.unlink(entry_path)
+        except OSError as exc:
+            errors.append(f"{entry_path}: {exc}")
+    try:
+        os.rmdir(target)
+    except OSError as exc:
+        errors.append(f"{target}: {exc}")
 
 
 def configure_logging(verbose: bool = False) -> None:
@@ -432,6 +593,58 @@ def _read_windows_file_version(path: Path) -> str | None:
     return ".".join(str(part) for part in parts)
 
 
+def _powershell_hosts() -> list[str]:
+    """Return absolute PowerShell host paths, never bare command names.
+
+    CreateProcess resolves a bare application name against the calling process
+    directory and the current working directory before System32, so a host
+    planted beside a repository checkout could become the trust oracle.
+
+    Returns:
+        Absolute paths to available PowerShell hosts, in preference order.
+    """
+    hosts: list[str] = []
+    resolved_pwsh = shutil.which("pwsh")
+    if resolved_pwsh:
+        candidate = Path(resolved_pwsh)
+        if candidate.is_absolute() and candidate.is_file():
+            hosts.append(str(candidate))
+    system_root = os.environ.get("SystemRoot") or r"C:\Windows"
+    windows_powershell = (
+        Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    )
+    if windows_powershell.is_file():
+        hosts.append(str(windows_powershell))
+    return hosts
+
+
+def _minimal_child_environment(candidate_path: Path) -> dict[str, str]:
+    """Return the smallest environment the Authenticode probe needs.
+
+    Developer environments routinely carry credentials such as `GITHUB_TOKEN`
+    and `AZURE_*`, so only the variables the host itself requires are forwarded.
+
+    Args:
+        candidate_path: Executable whose signature is being inspected.
+
+    Returns:
+        Environment mapping for the child process.
+    """
+    passthrough = (
+        "SystemRoot",
+        "SystemDrive",
+        "windir",
+        "PATHEXT",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
+        "TEMP",
+        "TMP",
+    )
+    child_env = {name: os.environ[name] for name in passthrough if os.environ.get(name)}
+    child_env["TMT_CANDIDATE_PATH"] = str(candidate_path)
+    return child_env
+
+
 def _authenticode_subject(path: Path) -> tuple[str, str] | None:
     """Return the Authenticode (status, subject) for a file, or None.
 
@@ -441,6 +654,12 @@ def _authenticode_subject(path: Path) -> tuple[str, str] | None:
     some constrained environments while PowerShell 7 succeeds. None means the
     signature could not be established, which callers treat as untrusted rather
     than as a pass.
+
+    Args:
+        path: Executable to inspect.
+
+    Returns:
+        Tuple of signature status and certificate subject, or None.
     """
     if platform.system() != "Windows":
         return None
@@ -449,16 +668,14 @@ def _authenticode_subject(path: Path) -> tuple[str, str] | None:
         "Write-Output $s.Status; "
         "Write-Output $s.SignerCertificate.Subject"
     )
-    child_env = {**os.environ, "TMT_CANDIDATE_PATH": str(path)}
-    for host in ("pwsh", "powershell.exe"):
+    child_env = _minimal_child_environment(path)
+    for host in _powershell_hosts():
         try:
-            completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            completed = subprocess.run(  # noqa: S603 - absolute argv, no shell
                 [
                     host,
                     "-NoProfile",
                     "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
                     "-Command",
                     script,
                 ],
@@ -470,12 +687,31 @@ def _authenticode_subject(path: Path) -> tuple[str, str] | None:
             )
         except (OSError, subprocess.SubprocessError):
             continue
-        lines = [
-            line.strip() for line in completed.stdout.splitlines() if line.strip()
-        ]
+        lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
         if completed.returncode == 0 and len(lines) >= 2:
             return (lines[0], lines[1])
     return None
+
+
+def _subject_common_names(subject: str) -> set[str]:
+    """Return the lowercased CN relative distinguished names from a subject.
+
+    A substring test over the whole distinguished name accepts any subject that
+    merely contains the publisher string in another position, such as
+    `CN=Contoso, O=Microsoft Corporation Partner`.
+
+    Args:
+        subject: Certificate subject distinguished name.
+
+    Returns:
+        Set of lowercased CN component values.
+    """
+    names: set[str] = set()
+    for component in subject.split(","):
+        key, separator, value = component.partition("=")
+        if separator and key.strip().lower() == "cn":
+            names.add(value.strip().lower())
+    return names
 
 
 def is_trusted_tmt_executable(path: Path) -> bool:
@@ -483,7 +719,14 @@ def is_trusted_tmt_executable(path: Path) -> bool:
 
     Newest modification time is not a trust signal. A decoy dropped into an
     otherwise allowed root would win on mtime alone, so acceptance requires a
-    valid Authenticode signature naming the accepted publisher.
+    valid Authenticode signature whose parsed CN component exactly matches the
+    accepted publisher.
+
+    Args:
+        path: Executable to evaluate.
+
+    Returns:
+        True when the executable is validly signed by the accepted publisher.
     """
     signature = _authenticode_subject(path)
     if signature is None:
@@ -491,17 +734,18 @@ def is_trusted_tmt_executable(path: Path) -> bool:
     status, subject = signature
     if status != "Valid":
         return False
-    return ACCEPTED_PUBLISHER_CN.lower() in subject.lower()
+    expected = ACCEPTED_PUBLISHER_CN.split("=", 1)[1].strip().lower()
+    return expected in _subject_common_names(subject)
 
 
 def discover_tmt_application() -> TmtDiscovery:
     """Discover TMT across ClickOnce and conventional installation roots.
 
-    Roots are absolute and derived from expanded environment locations. An
-    empty or missing variable previously produced a relative root, so a
-    `./Apps/2.0` directory beside the working directory could contribute
-    candidates. Selection is deterministic over trusted, pinned-version
-    candidates and never falls back to newest modification time.
+    Roots are absolute and derived from expanded environment locations. An empty
+    or missing variable contributes no root, so a relative `./Apps/2.0`
+    directory beside the working directory cannot supply candidates. Selection
+    is deterministic over trusted, pinned-version candidates and never falls
+    back to newest modification time.
     """
     if platform.system() != "Windows":
         return TmtDiscovery(path=None, source="non-windows")
@@ -575,17 +819,28 @@ def sha256_file(path: Path) -> str:
 
 
 def _parse_xml(path: Path) -> ET.Element:
-    data = path.read_bytes()
-    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
-        raise HarnessFailure(
-            "TM7 input contains DTD or entity declarations",
-            EXIT_ERROR,
-        )
+    """Parse a TM7 file under the single shared fail-closed XML policy.
+
+    Args:
+        path: TM7 file to parse.
+
+    Returns:
+        Parsed root element.
+
+    Raises:
+        HarnessFailure: If the file cannot be read or is unsafe to parse.
+    """
     try:
-        if DefusedET is not None:
-            return DefusedET.fromstring(data)
-        return ET.fromstring(data)
-    except ET.ParseError as exc:
+        data = tm7_threat_contract.read_bounded_bytes(
+            path, tm7_threat_contract.MAX_MODEL_BYTES
+        )
+    except tm7_threat_contract.InputTooLargeError as exc:
+        raise HarnessFailure(f"TM7 input is too large: {exc}", EXIT_ERROR) from exc
+    except OSError as exc:
+        raise HarnessFailure(f"Unable to read TM7 input: {exc}", EXIT_ERROR) from exc
+    try:
+        return tm7_threat_contract.parse_hardened_xml_bytes(data)
+    except tm7_threat_contract.UnsafeXmlError as exc:
         raise HarnessFailure(f"Unable to parse TM7 input: {exc}", EXIT_ERROR) from exc
 
 
@@ -890,8 +1145,36 @@ def build_uia_tree(window: Any) -> str:
     return "\n".join(lines) + "\n"
 
 
+def screenshot_isolation_available() -> bool:
+    """Report whether the host can capture one window without its occluders.
+
+    Pixels cannot be redacted after the fact, so a capture that may include an
+    overlapping application is a disclosure the evidence bundle cannot repair.
+    Capture is therefore permitted only where Pillow can address a specific
+    native window handle, which requires Windows and the ``window`` keyword
+    that Pillow exposes on that platform alone.
+
+    Returns:
+        True when window-isolated capture is available.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        from PIL import ImageGrab
+    except Exception:
+        return False
+    return "window" in inspect.signature(ImageGrab.grab).parameters
+
+
 def capture_window_screenshot(window: Any, output_path: Path) -> None:
-    """Capture only the TMT window to avoid unrelated desktop content."""
+    """Capture only the TMT window, or refuse rather than risk disclosure."""
+    if not screenshot_isolation_available():
+        raise HarnessFailure(
+            "Screenshot capture is disabled: this host cannot isolate a single "
+            "window, and a desktop-region capture could persist unrelated "
+            "application content that redaction cannot remove",
+            EXIT_VALIDATION_FAILURE,
+        )
     handle = int(getattr(window, "handle", 0))
     if not handle:
         raise HarnessFailure(
@@ -939,6 +1222,37 @@ def capture_diagnostic_screenshot(
     try:
         capture_window_screenshot(window, output_path)
     except HarnessFailure as exc:
+        bundle.write_action_log(str(exc))
+
+
+def _capture_or_skip(
+    window: Any,
+    output_path: Path,
+    *,
+    bundle: EvidenceBundle,
+    require_feedback_evidence: bool,
+) -> None:
+    """Capture a surface screenshot, or fail closed when evidence is required.
+
+    Strict mode treats a host that cannot isolate a window as an evidence
+    failure rather than silently producing a bundle with no screenshots. A
+    non-strict run records the reason and continues, because the portable
+    geometry gates do not depend on pixels.
+
+    Args:
+        window: Target window to capture.
+        output_path: Confined destination inside the evidence bundle.
+        bundle: Evidence bundle receiving the action log entry.
+        require_feedback_evidence: Whether the run demands complete evidence.
+
+    Raises:
+        HarnessFailure: If capture fails while evidence is required.
+    """
+    try:
+        capture_window_screenshot(window, output_path)
+    except HarnessFailure as exc:
+        if require_feedback_evidence:
+            raise
         bundle.write_action_log(str(exc))
 
 
@@ -1076,10 +1390,18 @@ def _control_rectangle(
 
 
 def read_expected_surfaces(model_path: Path) -> list[SurfaceDescriptor]:
-    """Parse drawing surface descriptors from a TM7 model."""
-    parser = DefusedET.parse if DefusedET is not None else ET.parse
-    tree = parser(model_path)
-    root = tree.getroot()
+    """Parse drawing surface descriptors from a TM7 model.
+
+    Args:
+        model_path: TM7 model to inspect.
+
+    Returns:
+        Surface descriptors discovered in the model.
+
+    Raises:
+        HarnessFailure: If the model cannot be read or is unsafe to parse.
+    """
+    root = _parse_xml(model_path)
     surfaces: list[SurfaceDescriptor] = []
     surface_elements = [
         element
@@ -1148,11 +1470,9 @@ def select_surface_tab(
         if _normalize_name(name) == _normalize_name(surface.surface_name):
             matches.append(candidate)
     if len(matches) == 1:
-        # `matches` already holds the resolved control for both the SurfaceTab
-        # and raw-control shapes. The previous expression indexed `tabs` by
-        # `matches.index(matches[0])`, which is always 0, so on the raw-control
-        # path every surface resolved to the first tab and all captured
-        # evidence was attributed to it.
+        # `matches` holds the resolved control for both the SurfaceTab and
+        # raw-control shapes, so it is returned directly. Indexing `tabs`
+        # instead would attribute every raw-control surface to the first tab.
         return matches[0]
     if len(matches) > 1:
         if surface.tab_index < len(matches):
@@ -1314,6 +1634,9 @@ def capture_surface_evidence(
     # Maximize before measuring so the pane rectangle and calibration reflect
     # the largest available Diagram surface.
     window_maximized = maximize_window(window)
+    # The surface id comes from spec content, so it is reduced to one safe path
+    # segment before it can name a file inside the evidence bundle.
+    surface_slug = _evidence_slug(surface.surface_id)
     try:
         diagram_pane = find_diagram_pane(window)
     except HarnessFailure:
@@ -1330,12 +1653,17 @@ def capture_surface_evidence(
                 EXIT_VALIDATION_FAILURE,
             )
         capture_scope = "window"
-        screenshot_path = bundle.path(f"screenshots/{surface.surface_id}-surface.png")
-        capture_window_screenshot(window, screenshot_path)
+        screenshot_path = bundle.path(f"screenshots/{surface_slug}-surface.png")
+        _capture_or_skip(
+            window,
+            screenshot_path,
+            bundle=bundle,
+            require_feedback_evidence=require_feedback_evidence,
+        )
         uia_snapshot = build_uia_tree(window)
         ui_path = bundle.write_uia_tree(
             uia_snapshot,
-            f"{surface.surface_id}-surface.txt",
+            f"{surface_slug}-surface.txt",
         )
         announcement = ""
         crop = None
@@ -1344,8 +1672,13 @@ def capture_surface_evidence(
             "height": _read_image_dimensions(screenshot_path)[1],
         }
     else:
-        screenshot_path = bundle.path(f"screenshots/{surface.surface_id}-surface.png")
-        capture_window_screenshot(window, screenshot_path)
+        screenshot_path = bundle.path(f"screenshots/{surface_slug}-surface.png")
+        _capture_or_skip(
+            window,
+            screenshot_path,
+            bundle=bundle,
+            require_feedback_evidence=require_feedback_evidence,
+        )
         screenshot_dimensions = {
             "width": _read_image_dimensions(screenshot_path)[0],
             "height": _read_image_dimensions(screenshot_path)[1],
@@ -1385,7 +1718,7 @@ def capture_surface_evidence(
         uia_snapshot = build_uia_tree(diagram_pane)
         ui_path = bundle.write_uia_tree(
             uia_snapshot,
-            f"{surface.surface_id}-surface.txt",
+            f"{surface_slug}-surface.txt",
         )
         announcement = read_canvas_announcement(diagram_pane)
 
@@ -1405,9 +1738,7 @@ def capture_surface_evidence(
             horizontal_positions = (
                 [0.0, 100.0] if scroll_extent_ratio_x > 1.0 else [0.0]
             )
-            vertical_positions = (
-                [0.0, 100.0] if scroll_extent_ratio_y > 1.0 else [0.0]
-            )
+            vertical_positions = [0.0, 100.0] if scroll_extent_ratio_y > 1.0 else [0.0]
             positions = list(
                 dict.fromkeys(
                     (horizontal_value, vertical_value)
@@ -1437,7 +1768,7 @@ def capture_surface_evidence(
                     )
                     tile_path = bundle.path(
                         "screenshots/"
-                        f"{surface.surface_id}-tile-"
+                        f"{surface_slug}-tile-"
                         f"{int(horizontal_value):03d}-"
                         f"{int(vertical_value):03d}.png"
                     )
@@ -1459,11 +1790,11 @@ def capture_surface_evidence(
                 }
                 stitched_preview_path = str(
                     bundle.path(
-                        f"screenshots/{surface.surface_id}-stitched-preview.png"
+                        f"screenshots/{surface_slug}-stitched-preview.png"
                     ).relative_to(bundle.evidence_dir)
                 )
                 preview_path = bundle.path(
-                    f"screenshots/{surface.surface_id}-stitched-preview.png"
+                    f"screenshots/{surface_slug}-stitched-preview.png"
                 )
                 tile_paths = [
                     bundle.evidence_dir / relative_tile
@@ -2432,26 +2763,16 @@ def _publish_upgraded_model(source: Path, destination: Path) -> None:
 
 def _write_tm7_root_atomic(root: ET.Element, destination: Path) -> None:
     temporary = destination.with_name(f".{destination.name}.compose.tmp")
-    namespace_map = ET._namespace_map.copy()
     try:
-        ET.register_namespace("", MODEL_NS)
-        ET.register_namespace("a", ARRAYS_NS)
-        ET.register_namespace("b", KNOWLEDGE_NS)
-        ET.register_namespace("d2p1", ABSTRACT_NS)
-        ET.register_namespace("i", XSI_NS)
-        ET.register_namespace("z", SERIALIZATION_NS)
-        root.set("xmlns:c", XSD_NS)
-        ET.ElementTree(root).write(
-            temporary,
-            encoding="utf-8",
-            xml_declaration=True,
-        )
+        with tm7_threat_contract.tm7_serialization_namespaces(root):
+            ET.ElementTree(root).write(
+                temporary,
+                encoding="utf-8",
+                xml_declaration=True,
+            )
         _parse_xml(temporary)
         os.replace(temporary, destination)
     finally:
-        root.attrib.pop("xmlns:c", None)
-        ET._namespace_map.clear()
-        ET._namespace_map.update(namespace_map)
         temporary.unlink(missing_ok=True)
 
 
@@ -2850,8 +3171,7 @@ def _build_layout_calibration_contract(
         and resolved_screenshot_dimensions["height"] > 0
     )
     crop_measured = (
-        resolved_crop_dimensions["width"] > 0
-        and resolved_crop_dimensions["height"] > 0
+        resolved_crop_dimensions["width"] > 0 and resolved_crop_dimensions["height"] > 0
     )
     consistent = (
         pane_measured
@@ -2903,13 +3223,69 @@ def _build_layout_calibration_contract(
         "confidence": {
             "pane_measured": pane_measured,
             "scroll_interface_found": bool(
-                payload.get("scroll_tiles")
-                or payload.get("scroll_coverage_complete")
+                payload.get("scroll_tiles") or payload.get("scroll_coverage_complete")
             ),
             "consistent": consistent,
             "failure_reason": failure_reason,
         },
     }
+
+
+def derive_render_scale(
+    uia_text: str,
+    model_rects: dict[str, tuple[float, float, float, float]],
+) -> float | None:
+    """Measure the zoom TMT applied, by comparing drawn size to model size.
+
+    TMT renders the model faithfully but not at 1:1; a real run measured a
+    uniform 1.5x. The pane rectangle is therefore screen pixels while every
+    layout metric is model units, so comparing the two directly understates
+    how much of the canvas the diagram consumes and hides content that is
+    drawn past the right edge.
+
+    Node names are the only stable join between the UIA tree and the model,
+    and the ratio is taken from widths and heights rather than positions so
+    that scroll offset and the toolbar band cancel out. Returns ``None`` when
+    too few nodes match or the samples disagree, so callers fall back to
+    treating the pane as model units rather than trusting a bad scale.
+    """
+    rendered: dict[str, tuple[float, float]] = {}
+    for line in uia_text.splitlines():
+        parts = line.split("|")
+        if len(parts) < 8:
+            continue
+        _, control_type, automation_id, name = parts[:4]
+        if control_type != "Custom" or automation_id:
+            continue
+        try:
+            left, top, right, bottom = (float(value) for value in parts[4:8])
+        except ValueError:
+            continue
+        width, height = right - left, bottom - top
+        if width > 0.0 and height > 0.0:
+            rendered[name] = (width, height)
+
+    ratios: list[float] = []
+    for name, (model_left, model_top, model_right, model_bottom) in model_rects.items():
+        drawn = rendered.get(name)
+        if drawn is None:
+            continue
+        model_width = model_right - model_left
+        model_height = model_bottom - model_top
+        if model_width > 0.0:
+            ratios.append(drawn[0] / model_width)
+        if model_height > 0.0:
+            ratios.append(drawn[1] / model_height)
+
+    if len(ratios) < 4:
+        return None
+    ratios.sort()
+    median = ratios[len(ratios) // 2]
+    if median <= 0.0:
+        return None
+    if max(abs(ratio - median) for ratio in ratios) > 0.05 * median:
+        return None
+    return median
 
 
 def _derive_feedback_surface_metrics(
@@ -3118,6 +3494,45 @@ def _derive_feedback_surface_metrics(
             if isinstance(raw_viewport, list) and len(raw_viewport) == 4
             else (0.0, 0.0, float(viewport.width), float(viewport.height))
         )
+        # The captured pane is screen pixels while every layout metric is in
+        # model units. Divide by the measured zoom so "does the diagram fit"
+        # and "how much canvas does it fill" are asked in one coordinate
+        # space. Without this the pane looks 1.5x wider than it is, so content
+        # drawn past the right edge is reported as fitting.
+        render_scale: float | None = None
+        uia_relative_path = str(payload.get("uia_path", "") or "")
+        if uia_relative_path and not raw_viewport:
+            uia_file = bundle.evidence_dir / uia_relative_path
+            try:
+                uia_text = uia_file.read_text(encoding="utf-8")
+            except OSError:
+                uia_text = ""
+            if uia_text:
+                model_rects_by_name = {
+                    str(element.get("name", "")): (
+                        float((element.get("position") or {}).get("left", 0.0) or 0.0),
+                        float((element.get("position") or {}).get("top", 0.0) or 0.0),
+                        float((element.get("position") or {}).get("left", 0.0) or 0.0)
+                        + float(
+                            (element.get("position") or {}).get("width", 0.0) or 0.0
+                        ),
+                        float((element.get("position") or {}).get("top", 0.0) or 0.0)
+                        + float(
+                            (element.get("position") or {}).get("height", 0.0) or 0.0
+                        ),
+                    )
+                    for element in semantic_elements.values()
+                    if str(element.get("name", ""))
+                    and str(element.get("kind", "")).lower() != "trust_boundary_box"
+                }
+                render_scale = derive_render_scale(uia_text, model_rects_by_name)
+        if render_scale:
+            viewport_target = (
+                viewport_target[0],
+                viewport_target[1],
+                viewport_target[2] / render_scale,
+                viewport_target[3] / render_scale,
+            )
         payload_nodes = payload_geometry.get("node_rects") or {}
         for node_id, rect in payload_nodes.items():
             candidate_rect = _coerce_rect(rect)
@@ -3429,18 +3844,27 @@ def _derive_feedback_surface_metrics(
         )
         metrics.append(metric)
 
-        surface_slug = re.sub(r"[^A-Za-z0-9._-]+", "-", surface_id).strip("-")
-        surface_dir = bundle.evidence_dir / "surfaces" / (surface_slug or "surface")
-        surface_dir.mkdir(parents=True, exist_ok=True)
-        (surface_dir / "metrics.json").write_text(
-            json.dumps(metric, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (surface_dir / "findings.json").write_text(
-            json.dumps(metric["findings"], indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        surface_slug = _evidence_slug(surface_id)
+        bundle.write_json(f"surfaces/{surface_slug}/metrics.json", metric)
+        bundle.write_json(f"surfaces/{surface_slug}/findings.json", metric["findings"])
     return metrics
+
+
+def _evidence_slug(value: str) -> str:
+    """Reduce a caller-supplied identifier to a single safe path segment.
+
+    Only alphanumerics, hyphen, and underscore survive, so the result cannot
+    form a traversal segment or an absolute path. Retaining `.` would allow an
+    id of `..` to pass through intact.
+
+    Args:
+        value: Identifier taken from spec or model content.
+
+    Returns:
+        A non-empty, traversal-free path segment.
+    """
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", value).strip("-")
+    return slug or "surface"
 
 
 def _build_feedback_overlay(
@@ -3558,6 +3982,94 @@ def _build_feedback_overlay(
         "provenance": {
             "evidence_ref": tm7_visual_feedback._normalize_path_reference(
                 str(candidate_path), field_name="provenance.evidence_ref"
+            ),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "approval_state": "pending",
+        },
+        "invalidation": {
+            "spec_fingerprint": spec_sha256,
+            "generator_profile_fingerprint": generator_profile_sha256,
+            "surface_identity_fingerprint": surface_identity_fingerprint,
+            "surface_zone_identity_fingerprint": surface_zone_identity_fingerprint,
+            "surface_flow_identity_fingerprint": surface_flow_identity_fingerprint,
+        },
+    }
+
+
+def _build_overlay_seed(
+    *,
+    spec_path: Path,
+    overlay_context: tm7_visual_feedback.OverlayContext,
+    iteration_id: int,
+    spec_sha256: str,
+    generator_profile: str,
+    generator_profile_sha256: str,
+    evidence_dir: Path,
+) -> dict[str, Any]:
+    """Build a valid overlay carrying correct fingerprints and no rules.
+
+    A stopped run publishes no populated overlay, which is deliberate: an
+    accumulated overlay looks actionable while the run itself is blocked. That
+    also left a reviewer with nothing to work from, because the five
+    invalidation fingerprints are hashes over spec bytes and sorted model
+    identity sets and cannot be authored by hand.
+
+    This seed resolves that without weakening the guard. Replaying it changes
+    no geometry, so it cannot be mistaken for a result, while its fingerprints
+    are valid so a reviewer can add rules and replay. The empty collections are
+    the signal that no automated correction was found; the run's stop reason
+    stays in status.json alongside the evidence the seed points at.
+    """
+    if not isinstance(overlay_context, tm7_visual_feedback.OverlayContext):
+        raise ValueError("overlay_context must be a valid OverlayContext")
+    if not overlay_context.surface_ids:
+        raise ValueError("overlay seed requires at least one captured surface")
+
+    surface_identity_fingerprint = tm7_visual_feedback._fingerprint(
+        {
+            "surface_ids": sorted(overlay_context.surface_ids),
+            "surface_node_ids": {
+                key: sorted(value)
+                for key, value in sorted(overlay_context.surface_node_ids.items())
+            },
+        }
+    )
+    surface_zone_identity_fingerprint = tm7_visual_feedback._fingerprint(
+        {
+            "surface_ids": sorted(overlay_context.surface_ids),
+            "surface_zone_ids": {
+                key: sorted(value)
+                for key, value in sorted(overlay_context.surface_zone_ids.items())
+            },
+        }
+    )
+    surface_flow_identity_fingerprint = tm7_visual_feedback._fingerprint(
+        {
+            "surface_ids": sorted(overlay_context.surface_ids),
+            "surface_flow_ids": {
+                key: sorted(value)
+                for key, value in sorted(overlay_context.surface_flow_ids.items())
+            },
+        }
+    )
+    return {
+        "schema_version": 2,
+        "overlay_type": "tm7_layout_overlay",
+        "model_id": str(overlay_context.model_id or spec_path.stem or "tm7-model"),
+        "overlay_id": f"overlay-seed-{iteration_id:02d}",
+        # Every captured surface is addressable, so a reviewer can author a
+        # rule for any of them without editing the fingerprinted identity.
+        "applies_to": [
+            {"surface_id": surface_id, "generator_profile": generator_profile}
+            for surface_id in sorted(overlay_context.surface_ids)
+        ],
+        "zone_rules": [],
+        "node_rules": [],
+        "connector_rules": [],
+        "surface_rules": [],
+        "provenance": {
+            "evidence_ref": tm7_visual_feedback._normalize_path_reference(
+                str(evidence_dir), field_name="provenance.evidence_ref"
             ),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "approval_state": "pending",
@@ -3932,33 +4444,45 @@ def _normalize_feedback_stop_reason(
     exit_code: int,
 ) -> str:
     """Map loop outcomes to the stable stop-reason vocabulary."""
-    if status in {
-        "automated-ready-pending-human",
-        "repeated-defect-no-improvement",
-        "max-iterations",
-        "evidence-incomplete",
-        "semantic-regression",
-        "tmt-unavailable",
-        "version-mismatch",
-        "automation-timeout",
-        "unexpected-modal",
-    }:
+    if status in FEEDBACK_STOP_REASONS:
         return status
     if status == "passed" or exit_code == EXIT_SUCCESS:
         return "automated-ready-pending-human"
-    if exit_code == EXIT_MISSING_TMT or status == "tmt-unavailable":
+    if exit_code == EXIT_MISSING_TMT:
         return "tmt-unavailable"
-    if exit_code == EXIT_VERSION_MISMATCH or status == "version-mismatch":
+    if exit_code == EXIT_VERSION_MISMATCH:
         return "version-mismatch"
-    if exit_code == EXIT_AUTOMATION_TIMEOUT or status == "automation-timeout":
+    if exit_code == EXIT_AUTOMATION_TIMEOUT:
         return "automation-timeout"
-    if exit_code == EXIT_UNEXPECTED_MODAL or status == "unexpected-modal":
+    if exit_code == EXIT_UNEXPECTED_MODAL:
         return "unexpected-modal"
     if exit_code == EXIT_MISSING_FEEDBACK_EVIDENCE or require_feedback_evidence:
         return "evidence-incomplete"
-    if status == "error":
-        return "unexpected-modal"
-    return "unexpected-modal"
+    # Every status the loop assigns is a member of the vocabulary, so reaching
+    # here means an outcome arrived from outside the loop's own assignments.
+    # Naming it harness-error keeps that honest; naming it unexpected-modal
+    # would send an operator hunting for a dialog that never appeared.
+    return "harness-error"
+
+
+def _discard_stale_overlay(overlay_output: Path, overlay_input: Path | None) -> None:
+    """Remove an overlay this run did not produce.
+
+    A run that publishes no overlay must not leave an earlier run's file at the
+    declared output path, where it reads as the current result. The declared
+    input is never removed, because a caller may point input and output at the
+    same file to iterate in place.
+
+    Args:
+        overlay_output: Declared overlay output path.
+        overlay_input: Declared overlay input path, when one was supplied.
+    """
+    if (
+        overlay_input is not None
+        and Path(overlay_input).resolve() == overlay_output.resolve()
+    ):
+        return
+    overlay_output.unlink(missing_ok=True)
 
 
 def run_feedback_loop(
@@ -3985,11 +4509,7 @@ def run_feedback_loop(
     spec_path = Path(spec_path).resolve()
     evidence_dir = Path(evidence_dir).resolve()
     overlay_output = Path(overlay_output).resolve()
-    workspace = (
-        Path(workspace_root).resolve()
-        if workspace_root is not None
-        else evidence_dir / "workspace"
-    )
+    workspace = prepare_owned_workspace(workspace_root, evidence_dir)
     bundle = EvidenceBundle(evidence_dir)
     manifest: dict[str, Any] = {
         "mode": "feedback-loop",
@@ -4025,9 +4545,16 @@ def run_feedback_loop(
     manifest["discovery_source"] = discovery.source
     bundle.write_manifest(manifest)
     if discovery.path is None:
-        status = "tmt-unavailable"
-        exit_code = EXIT_MISSING_TMT
-        message = "TMT not found; feedback loop skipped"
+        # require_tmt is the caller's declaration that a missing tool is a
+        # failure rather than an expected local condition, which distinguishes a
+        # developer machine without TMT from a CI host that must have it.
+        status = "tmt-unavailable" if require_tmt else "skipped"
+        exit_code = EXIT_MISSING_TMT if require_tmt else EXIT_SUCCESS
+        message = (
+            "TMT was not found"
+            if require_tmt
+            else "TMT not found; feedback loop skipped"
+        )
         bundle.write_status(
             _status_payload(
                 result=status,
@@ -4059,65 +4586,6 @@ def run_feedback_loop(
             evidence_dir,
         )
 
-    if workspace.exists():
-        _remove_owned_workspace(workspace)
-    mark_workspace_owned(workspace)
-
-    spec = generate_tm7.load_spec(spec_path)
-    template_dir = Path(generate_tm7.__file__).resolve().parent.parent
-    profile = generate_tm7.resolve_profile(spec, None, template_dir)
-    profile["name"] = str(spec.get("template_profile") or "sdl_core_generic")
-    default_mode = (
-        "pre-populated-comprehensive"
-        if spec.get("threats")
-        else "diagram-only-defer-to-tmt"
-    )
-    generation_mode = str(spec.get("mode") or default_mode)
-    semantic_surfaces: dict[str, dict[str, Any]] = {}
-    try:
-        generator_model = generate_tm7.build_model_from_spec(
-            spec,
-            profile,
-            generation_mode,
-        )
-        semantic_layout_model = generate_tm7.apply_layout(
-            copy.deepcopy(generator_model),
-            profile,
-        )
-        semantic_surfaces = {
-            str(surface.get("id", "")): surface
-            for surface in semantic_layout_model.get("surfaces", [])
-            if isinstance(surface, dict) and str(surface.get("id", ""))
-        }
-    except generate_tm7.GenerationError as exc:
-        generator_model = _build_fallback_generator_model(spec)
-        _emit_operator_notice(
-            f"Falling back to spec-only overlay context after generation failure: {exc}"
-        )
-    generator_context = generate_tm7._build_overlay_context(
-        spec=spec,
-        profile=profile,
-        spec_path=spec_path,
-        model=generator_model,
-    )
-    spec_sha256 = generator_context.spec_sha256
-    generator_profile = generator_context.generator_profile
-    generator_profile_sha256 = generator_context.generator_profile_sha256
-    surface_id_by_guid = {
-        generate_tm7._make_guid(f"surface:{surface_id}"): surface_id
-        for surface_id in generator_context.surface_ids
-    }
-    node_id_by_guid: dict[str, dict[str, str]] = {}
-    for surface in generator_model.get("surfaces", []):
-        surface_id = str(surface.get("id", ""))
-        node_id_by_guid[surface_id] = {
-            str(element.get("guid", "")): str(element.get("id", ""))
-            for element in surface.get("elements", [])
-            if isinstance(element, dict)
-            and str(element.get("guid", ""))
-            and str(element.get("id", ""))
-        }
-
     history: list[tm7_visual_feedback.IterationResult] = []
     baseline_summary: dict[str, Any] | None = None
     final_overlay: dict[str, Any] | None = None
@@ -4134,7 +4602,66 @@ def run_feedback_loop(
     preflight_emitted = False
     release_emitted = False
 
+    # Spec loading and generator-context construction sit inside the guarded
+    # region because a failure there can strand a traceback and an earlier run's
+    # overlay just as readily as a failure during automation.
     try:
+        spec = generate_tm7.load_spec(spec_path)
+        template_dir = Path(generate_tm7.__file__).resolve().parent.parent
+        profile = generate_tm7.resolve_profile(spec, None, template_dir)
+        profile["name"] = str(spec.get("template_profile") or "sdl_core_generic")
+        default_mode = (
+            "pre-populated-comprehensive"
+            if spec.get("threats")
+            else "diagram-only-defer-to-tmt"
+        )
+        generation_mode = str(spec.get("mode") or default_mode)
+        semantic_surfaces: dict[str, dict[str, Any]] = {}
+        try:
+            generator_model = generate_tm7.build_model_from_spec(
+                spec,
+                profile,
+                generation_mode,
+            )
+            semantic_layout_model = generate_tm7.apply_layout(
+                copy.deepcopy(generator_model),
+                profile,
+            )
+            semantic_surfaces = {
+                str(surface.get("id", "")): surface
+                for surface in semantic_layout_model.get("surfaces", [])
+                if isinstance(surface, dict) and str(surface.get("id", ""))
+            }
+        except generate_tm7.GenerationError as exc:
+            generator_model = _build_fallback_generator_model(spec)
+            _emit_operator_notice(
+                "Falling back to spec-only overlay context after generation "
+                f"failure: {exc}"
+            )
+        generator_context = generate_tm7._build_overlay_context(
+            spec=spec,
+            profile=profile,
+            spec_path=spec_path,
+            model=generator_model,
+        )
+        spec_sha256 = generator_context.spec_sha256
+        generator_profile = generator_context.generator_profile
+        generator_profile_sha256 = generator_context.generator_profile_sha256
+        surface_id_by_guid = {
+            generate_tm7._make_guid(f"surface:{surface_id}"): surface_id
+            for surface_id in generator_context.surface_ids
+        }
+        node_id_by_guid: dict[str, dict[str, str]] = {}
+        for surface in generator_model.get("surfaces", []):
+            surface_id = str(surface.get("id", ""))
+            node_id_by_guid[surface_id] = {
+                str(element.get("guid", "")): str(element.get("id", ""))
+                for element in surface.get("elements", [])
+                if isinstance(element, dict)
+                and str(element.get("guid", ""))
+                and str(element.get("id", ""))
+            }
+
         _emit_operator_notice(
             "Native TMT UI automation will control mouse/keyboard-facing "
             "application windows; do not use the mouse, keyboard, switch "
@@ -4154,9 +4681,8 @@ def run_feedback_loop(
             candidate_model_path = iteration_dir / f"candidate-{iteration_label}.tm7"
             candidate_path_for_generation: Path
             # Candidate regeneration runs the generator, which fails closed on
-            # invalid input. Letting that failure escape aborted the harness
-            # before any status was recorded, so an operator saw a traceback
-            # and no status.json at all. It is now reported as a stopped run.
+            # invalid input. That failure is reported as a stopped run so the
+            # operator gets a recorded status rather than a bare traceback.
             try:
                 if iteration_index == 0:
                     if overlay_input is None:
@@ -4176,23 +4702,21 @@ def run_feedback_loop(
                         )
                         candidate_model_path = candidate_path_for_generation
                 else:
-                    candidate_path_for_generation = (
-                        generate_tm7.generate_tm7_candidate(
-                            spec_path=spec_path,
-                            output_path=candidate_model_path,
-                            template=None,
-                            mode=None,
-                            update_path=None,
-                            overlay_path=iteration_overlay_path,
-                            threat_generation_enabled=False,
-                        )
+                    candidate_path_for_generation = generate_tm7.generate_tm7_candidate(
+                        spec_path=spec_path,
+                        output_path=candidate_model_path,
+                        template=None,
+                        mode=None,
+                        update_path=None,
+                        overlay_path=iteration_overlay_path,
+                        threat_generation_enabled=False,
                     )
+                    candidate_model_path = candidate_path_for_generation
             except generate_tm7.GenerationError as exc:
                 final_status = "candidate-generation-failed"
                 final_exit_code = EXIT_ERROR
                 final_message = f"Candidate regeneration failed: {exc}"
                 break
-                candidate_model_path = candidate_path_for_generation
 
             iteration_workspace = workspace / iteration_label
             iteration_workspace.mkdir(parents=True, exist_ok=True)
@@ -4239,7 +4763,7 @@ def run_feedback_loop(
                     final_status = (
                         "evidence-incomplete"
                         if require_feedback_evidence
-                        else "unexpected-modal"
+                        else "harness-error"
                     )
                     final_exit_code = exc.exit_code
                     final_message = str(exc)
@@ -4452,7 +4976,7 @@ def run_feedback_loop(
                             overlay_context,
                         )
                     except (ValueError, TypeError, KeyError) as exc:
-                        final_status = "unexpected-modal"
+                        final_status = "overlay-validation-failed"
                         final_exit_code = EXIT_ERROR
                         final_message = f"Overlay validation failed: {exc}"
                         break
@@ -4487,14 +5011,13 @@ def run_feedback_loop(
                         overlay_context,
                     )
                 except (ValueError, TypeError, KeyError) as exc:
-                    final_status = "unexpected-modal"
+                    final_status = "overlay-validation-failed"
                     final_exit_code = EXIT_ERROR
                     final_message = f"Overlay validation failed: {exc}"
                     break
-                iteration_overlay_path = iteration_dir / "overlay.yaml"
-                iteration_overlay_path.write_text(
-                    json.dumps(overlay_payload, indent=2, sort_keys=True),
-                    encoding="utf-8",
+                iteration_overlay_path = iteration_bundle.write_json(
+                    "overlay.yaml",
+                    overlay_payload,
                 )
                 final_overlay = overlay_payload
             iteration_index += 1
@@ -4508,7 +5031,9 @@ def run_feedback_loop(
         # without one is a broken contract rather than a quiet no-op. A stopped
         # run must not publish an overlay accumulated from an earlier iteration
         # either: that artifact looks actionable while the run itself is
-        # blocked.
+        # blocked. A stopped run still writes a rules-empty seed, which carries
+        # valid fingerprints a reviewer cannot compute by hand while changing
+        # no geometry on replay.
         if final_status == "automated-ready-pending-human":
             if final_overlay is None:
                 final_status = "evidence-incomplete"
@@ -4525,9 +5050,43 @@ def run_feedback_loop(
             else:
                 overlay_output.parent.mkdir(parents=True, exist_ok=True)
                 overlay_output.write_text(
-                    json.dumps(final_overlay, indent=2, sort_keys=True),
+                    json.dumps(bundle.redact(final_overlay), indent=2, sort_keys=True),
                     encoding="utf-8",
                 )
+        if final_status != "automated-ready-pending-human" or final_overlay is None:
+            seed_overlay = None
+            if (
+                final_status in OVERLAY_SEED_STOP_REASONS
+                and generator_context is not None
+                and generator_context.surface_ids
+            ):
+                try:
+                    seed_overlay = _build_overlay_seed(
+                        spec_path=spec_path,
+                        overlay_context=generator_context,
+                        iteration_id=iteration_index,
+                        spec_sha256=spec_sha256,
+                        generator_profile=generator_profile,
+                        generator_profile_sha256=generator_profile_sha256,
+                        evidence_dir=evidence_dir,
+                    )
+                    tm7_visual_feedback.validate_layout_overlay(
+                        seed_overlay,
+                        generator_context,
+                    )
+                except (ValueError, TypeError, KeyError):
+                    # The seed is a convenience for the reviewer, not part of
+                    # the run's verdict. Failing to build one must not change
+                    # how the run itself is reported.
+                    seed_overlay = None
+            if seed_overlay is not None:
+                overlay_output.parent.mkdir(parents=True, exist_ok=True)
+                overlay_output.write_text(
+                    json.dumps(bundle.redact(seed_overlay), indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+            else:
+                _discard_stale_overlay(overlay_output, overlay_input)
         candidate_sha256: str | None = None
         feedback_manifest_path: Path | None = None
         if final_candidate_path is not None and final_candidate_path.is_file():
@@ -4598,10 +5157,9 @@ def run_feedback_loop(
                 layout_calibration_v1=layout_calibration_v1,
             )
             tm7_visual_feedback.validate_feedback_manifest(feedback_manifest)
-            feedback_manifest_path = evidence_dir / "feedback-manifest.json"
-            feedback_manifest_path.write_text(
-                json.dumps(feedback_manifest, indent=2, sort_keys=True),
-                encoding="utf-8",
+            feedback_manifest_path = bundle.write_json(
+                "feedback-manifest.json",
+                feedback_manifest,
             )
         manifest.update(
             {
@@ -4625,6 +5183,46 @@ def run_feedback_loop(
                     }
                     for item in history
                 ],
+            }
+        )
+        bundle.write_manifest(manifest)
+        bundle.write_status(
+            _status_payload(
+                result=final_status,
+                exit_code=final_exit_code,
+                message=final_message,
+                bundle=bundle,
+                manifest=manifest,
+            )
+        )
+        return FeedbackLoopResult(
+            exit_code=final_exit_code,
+            status=final_status,
+            message=final_message,
+            evidence_dir=evidence_dir,
+            overlay_output=overlay_output,
+            workspace_dir=workspace,
+            manifest_path=bundle.manifest_path,
+        )
+    except Exception as exc:
+        # A recorded failure keeps the documented exit-code contract: an escaping
+        # exception would leave no status.json, which the operator contract
+        # reserves for a killed process, and would strand an earlier run's
+        # overlay at the output path where it reads as this run's result.
+        final_status = "harness-error"
+        final_exit_code = EXIT_ERROR
+        final_message = f"Feedback loop failed unexpectedly: {exc}"
+        _discard_stale_overlay(overlay_output, overlay_input)
+        manifest.update(
+            {
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "result": final_status,
+                "stop_reason": _normalize_feedback_stop_reason(
+                    final_status,
+                    require_feedback_evidence=require_feedback_evidence,
+                    exit_code=final_exit_code,
+                ),
+                "overlay_output": str(overlay_output),
             }
         )
         bundle.write_manifest(manifest)
@@ -4732,11 +5330,7 @@ def run_harness(
     input_model = Path(input_model).resolve()
     evidence_dir = Path(evidence_dir).resolve()
     bundle = EvidenceBundle(evidence_dir)
-    workspace = (
-        Path(workspace_root).resolve()
-        if workspace_root is not None
-        else evidence_dir / "workspace"
-    )
+    workspace = prepare_owned_workspace(workspace_root, evidence_dir)
     manifest: dict[str, Any] = {
         "mode": mode,
         "required_tmt_version": pinned_version,
@@ -4809,9 +5403,6 @@ def run_harness(
             evidence_dir,
         )
 
-    if workspace.exists():
-        _remove_owned_workspace(workspace)
-    mark_workspace_owned(workspace)
     success = False
     try:
         if mode == "upgrade-template":
@@ -4885,9 +5476,7 @@ def run_harness(
                 template_upgrade_policy=template_upgrade_policy,
                 delete_stale_threats=delete_stale_threats,
                 require_feedback_evidence=(
-                    True
-                    if mode == "calibration-smoke"
-                    else require_feedback_evidence
+                    True if mode == "calibration-smoke" else require_feedback_evidence
                 ),
             )
         manifest.update(
@@ -4999,28 +5588,37 @@ def main() -> int:
     """Run the native application harness."""
     args = create_parser().parse_args()
     configure_logging(args.verbose)
-    result = run_harness(
-        input_model=args.input_model,
-        evidence_dir=args.evidence_dir,
-        mode=args.mode,
-        comparison_model=args.comparison_model,
-        upgraded_model_output=args.upgraded_model_output,
-        require_tmt=args.require_tmt,
-        pinned_version=args.pinned_version,
-        diagnostic_override=args.diagnostic_override,
-        workspace_root=args.workspace_root,
-        timeout_seconds=args.timeout_seconds,
-        expected_threat_count=args.expected_threat_count,
-        expected_custom_type_count=args.expected_custom_type_count,
-        template_upgrade_policy=args.template_upgrade_policy,
-        delete_stale_threats=args.delete_stale_threats,
-        feedback_loop=args.feedback_loop,
-        spec_path=args.spec,
-        overlay_input=args.overlay_input,
-        overlay_output=args.overlay_output,
-        max_iterations=args.max_iterations,
-        require_feedback_evidence=args.require_feedback_evidence,
-    )
+    try:
+        result = run_harness(
+            input_model=args.input_model,
+            evidence_dir=args.evidence_dir,
+            mode=args.mode,
+            comparison_model=args.comparison_model,
+            upgraded_model_output=args.upgraded_model_output,
+            require_tmt=args.require_tmt,
+            pinned_version=args.pinned_version,
+            diagnostic_override=args.diagnostic_override,
+            workspace_root=args.workspace_root,
+            timeout_seconds=args.timeout_seconds,
+            expected_threat_count=args.expected_threat_count,
+            expected_custom_type_count=args.expected_custom_type_count,
+            template_upgrade_policy=args.template_upgrade_policy,
+            delete_stale_threats=args.delete_stale_threats,
+            feedback_loop=args.feedback_loop,
+            spec_path=args.spec,
+            overlay_input=args.overlay_input,
+            overlay_output=args.overlay_output,
+            max_iterations=args.max_iterations,
+            require_feedback_evidence=args.require_feedback_evidence,
+        )
+    except KeyboardInterrupt:
+        # An operator aborting a native run is expected, and the release notice
+        # has already fired from the harness finally block.
+        print("\nInterrupted by user", file=sys.stderr)
+        return EXIT_INTERRUPTED
+    except BrokenPipeError:
+        sys.stderr.close()
+        return EXIT_ERROR
     print(f"status={result.status} exit_code={result.exit_code} {result.message}")
     return result.exit_code
 

@@ -90,10 +90,12 @@ def _write_base_missing_flow(tmp_path: Path, flow_id: str) -> Path:
 
 
 def test_given_tb7_generation_when_filters_are_built_then_expression_is_safe() -> None:
+    # Act
     filters = generate_tb7._build_generation_filters()
+
+    # Assert
     include_text = filters.findtext("Include") or ""
     exclude_text = filters.findtext("Exclude") or ""
-
     assert include_text == "source is 'ROOT'"
     assert exclude_text == ""
     assert "and" not in include_text.lower()
@@ -102,21 +104,25 @@ def test_given_tb7_generation_when_filters_are_built_then_expression_is_safe() -
 def test_given_comprehensive_spec_when_populated_then_has_expected_count(
     complete_base: Path,
 ) -> None:
+    # Act
     result = populate_tm7_threats.populate_tm7_threats(
         COMPREHENSIVE_SPEC_PATH,
         complete_base,
         generation_state=False,
     )
 
+    # Assert
     assert result["ThreatGenerationEnabled"] is False
     assert len(result["ThreatInstances"]) == 80
     assert result["counts"]["threat_instances"] == 80
     assert result["counts"]["custom_types"] == 80
-    assert result["hashes"]["drawing_surface_list_before"] == (
-        result["hashes"]["drawing_surface_list_after"]
+    assert (
+        result["hashes"]["drawing_surface_list_before"]
+        == (result["hashes"]["drawing_surface_list_after"])
     )
-    assert result["hashes"]["knowledge_base_before"] == (
-        result["hashes"]["knowledge_base_after"]
+    assert (
+        result["hashes"]["knowledge_base_before"]
+        == (result["hashes"]["knowledge_base_after"])
     )
 
 
@@ -174,14 +180,16 @@ def test_given_non_80_threat_spec_when_populated_then_count_is_caller_controlled
 
 
 def test_given_comprehensive_spec_when_validated_then_all_mappings_resolve() -> None:
+    # Arrange
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
-
     threats = spec.get("threats") or []
     assert len(threats) == 80
 
+    # Act
     errors = tm7_threat_contract.collect_mapping_failures(spec)
 
+    # Assert
     assert errors == []
 
 
@@ -189,6 +197,7 @@ def test_given_reordered_threats_when_populated_then_output_is_deterministic(
     tmp_path: Path,
     complete_base: Path,
 ) -> None:
+    # Arrange
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
     spec["threats"] = list(reversed(spec.get("threats") or []))
@@ -199,6 +208,7 @@ def test_given_reordered_threats_when_populated_then_output_is_deterministic(
     output_path = tmp_path / "reordered.tm7"
     original_output_path = tmp_path / "original.tm7"
 
+    # Act
     result = populate_tm7_threats.populate_tm7_threats(
         spec_path,
         base_path,
@@ -212,8 +222,14 @@ def test_given_reordered_threats_when_populated_then_output_is_deterministic(
         generation_state=False,
     )
 
+    # Assert
     instance_ids = [item["id"] for item in result["ThreatInstances"]]
-    assert instance_ids == list(range(1, 81))
+    expected_ids = [
+        tm7_threat_contract.derive_threat_numeric_id(str(threat["id"]))
+        for threat in sorted(spec["threats"], key=lambda item: str(item["id"]))
+    ]
+    assert instance_ids == expected_ids
+    assert len(set(instance_ids)) == 80
     assert output_path.read_bytes() == original_output_path.read_bytes()
 
 
@@ -221,6 +237,7 @@ def test_given_non_endpoint_mapping_without_override_when_populated_then_rejecte
     tmp_path: Path,
     complete_base: Path,
 ) -> None:
+    # Arrange
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
     first_threat = next(
@@ -230,6 +247,7 @@ def test_given_non_endpoint_mapping_without_override_when_populated_then_rejecte
     spec_path = tmp_path / "invalid-topology.yaml"
     spec_path.write_text(yaml.safe_dump(spec), encoding="utf-8")
 
+    # Act and Assert
     with pytest.raises(
         populate_tm7_threats.GenerationError,
         match=r"placement_override is required",
@@ -245,6 +263,7 @@ def test_given_unknown_flow_reference_when_validated_then_reports_source_threat(
     tmp_path: Path,
     complete_base: Path,
 ) -> None:
+    # Arrange
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
     first_threat = next(
@@ -254,6 +273,7 @@ def test_given_unknown_flow_reference_when_validated_then_reports_source_threat(
     spec_path = tmp_path / "invalid-spec.yaml"
     spec_path.write_text(yaml.safe_dump(spec), encoding="utf-8")
 
+    # Act and Assert
     with pytest.raises(
         populate_tm7_threats.GenerationError,
         match=r"S-1: unknown interaction_ref missing-flow",
@@ -268,9 +288,11 @@ def test_given_unknown_flow_reference_when_validated_then_reports_source_threat(
 def test_given_output_path_matches_base_when_populated_then_refuses_in_place_write(
     tmp_path: Path,
 ) -> None:
+    # Arrange
     output_path = tmp_path / "population.tm7"
     output_path.write_text("placeholder", encoding="utf-8")
 
+    # Act and Assert
     with pytest.raises(
         populate_tm7_threats.GenerationError,
         match="Refusing to overwrite",
@@ -286,9 +308,11 @@ def test_given_output_path_matches_base_when_populated_then_refuses_in_place_wri
 def test_given_production_base_when_writing_then_missing_connectors_block_output(
     tmp_path: Path,
 ) -> None:
+    # Arrange
     output_path = tmp_path / "blocked.tm7"
     base_path = _write_base_missing_flow(tmp_path, "flow-21")
 
+    # Act and Assert
     with pytest.raises(
         populate_tm7_threats.GenerationError,
         match=r"AX-1: authored-base connector flow-21 is absent",
@@ -303,8 +327,9 @@ def test_given_production_base_when_writing_then_missing_connectors_block_output
     assert not output_path.exists()
 
 
-def test_given_comprehensive_spec_when_inspected_then_ax_1_uses_scan_target_flow(
-) -> None:
+def test_given_comprehensive_spec_when_inspected_then_ax_1_uses_scan_target_flow() -> (
+    None
+):
     # Arrange
     with COMPREHENSIVE_SPEC_PATH.open("r", encoding="utf-8") as handle:
         spec = yaml.safe_load(handle) or {}
@@ -332,14 +357,17 @@ def test_given_output_without_generation_state_when_populated_then_defaults_fals
     tmp_path: Path,
     complete_base: Path,
 ) -> None:
+    # Arrange
     output_path = tmp_path / "candidate.tm7"
 
+    # Act
     result = populate_tm7_threats.populate_tm7_threats(
         COMPREHENSIVE_SPEC_PATH,
         complete_base,
         output_path=output_path,
     )
 
+    # Assert
     assert result["ThreatGenerationEnabled"] is False
     assert output_path.exists()
 
@@ -350,6 +378,7 @@ def test_given_semantic_subtree_mutation_when_populated_then_rejected(
     monkeypatch: pytest.MonkeyPatch,
     subtree_name: str,
 ) -> None:
+    # Arrange
     base_path = complete_base
     original_serializer = populate_tm7_threats.serialize_threat_instances
 
@@ -366,6 +395,7 @@ def test_given_semantic_subtree_mutation_when_populated_then_rejected(
         mutate_subtree,
     )
 
+    # Act and Assert
     with pytest.raises(populate_tm7_threats.GenerationError, match="mutated"):
         populate_tm7_threats.populate_tm7_threats(
             COMPREHENSIVE_SPEC_PATH,
@@ -378,10 +408,12 @@ def test_given_separate_output_when_populated_then_base_bytes_remain_unchanged(
     tmp_path: Path,
     complete_base: Path,
 ) -> None:
+    # Arrange
     base_path = complete_base
     original_bytes = base_path.read_bytes()
-
     output_path = tmp_path / "candidate.tm7"
+
+    # Act
     result = populate_tm7_threats.populate_tm7_threats(
         COMPREHENSIVE_SPEC_PATH,
         base_path,
@@ -389,11 +421,12 @@ def test_given_separate_output_when_populated_then_base_bytes_remain_unchanged(
         generation_state=True,
     )
 
+    # Assert
     assert base_path.read_bytes() == original_bytes
     assert result["ThreatGenerationEnabled"] is True
-    assert result["hashes"]["base_sha256_before"] == result["hashes"][
-        "base_sha256_after"
-    ]
+    assert (
+        result["hashes"]["base_sha256_before"] == result["hashes"]["base_sha256_after"]
+    )
     xml_text = output_path.read_text(encoding="utf-8")
     assert f'xmlns="{populate_tm7_threats.MODEL_NS}"' in xml_text
     assert f'xmlns:b="{populate_tm7_threats.KNOWLEDGE_NS}"' in xml_text

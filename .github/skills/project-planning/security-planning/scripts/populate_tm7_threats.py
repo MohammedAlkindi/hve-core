@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+import tm7_threat_contract
 import yaml
 from tm7_threat_contract import (
     ThreatContractError,
@@ -29,17 +30,16 @@ from tm7_threat_contract import (
     prepare_threat_instances,
     reconcile_authored_base,
     serialize_threat_instances,
+    tm7_serialization_namespaces,
 )
 
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
-MODEL_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model"
-ABSTRACT_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts"
-ARRAYS_NS = "http://schemas.microsoft.com/2003/10/Serialization/Arrays"
-KNOWLEDGE_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.KnowledgeBase"
-SERIALIZATION_NS = "http://schemas.microsoft.com/2003/10/Serialization/"
-XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
-XSD_NS = "http://www.w3.org/2001/XMLSchema"
+# SIGINT convention: 128 + signal number.
+EXIT_INTERRUPTED = 130
+MODEL_NS = tm7_threat_contract.MODEL_NS
+KNOWLEDGE_NS = tm7_threat_contract.KNOWLEDGE_NS
+XSD_NS = tm7_threat_contract.XSD_NS
 
 
 class GenerationError(Exception):
@@ -143,42 +143,10 @@ def _find_generation_enabled(root: ET.Element) -> bool:
 
 
 def _index_model(root: ET.Element) -> dict[str, Any]:
-    flow_index: dict[str, list[tuple[int, dict[str, str]]]] = {}
-    surfaces: list[dict[str, str]] = []
-    connectors: dict[str, dict[str, str]] = {}
+    """Index the embedded KnowledgeBase threat types of a model."""
     type_ids: set[str] = set()
     type_ids_by_title: dict[str, str] = {}
     duplicate_titles: set[str] = set()
-    for surface_index, surface in enumerate(
-        root.findall("{*}DrawingSurfaceList/{*}DrawingSurfaceModel")
-    ):
-        surface_guid = _direct_text(surface, "Guid")
-        surfaces.append({"guid": surface_guid})
-        lines = next(
-            (child for child in surface if _local_name(child.tag) == "Lines"),
-            None,
-        )
-        if lines is None:
-            continue
-        for entry in lines:
-            value = next(
-                (child for child in entry if _local_name(child.tag) == "Value"),
-                None,
-            )
-            if value is None:
-                continue
-            flow_name = _display_name(value)
-            if not flow_name:
-                continue
-            connector = {
-                "drawing_surface_guid": surface_guid,
-                "flow_guid": _direct_text(value, "Guid"),
-                "source_guid": _direct_text(value, "SourceGuid"),
-                "target_guid": _direct_text(value, "TargetGuid"),
-            }
-            flow_index.setdefault(flow_name, []).append((surface_index, connector))
-            connectors[connector["flow_guid"]] = connector
-
     for threat_type in root.findall(".//{*}ThreatType"):
         type_id = _direct_text(threat_type, "Id")
         if type_id:
@@ -192,9 +160,6 @@ def _index_model(root: ET.Element) -> dict[str, Any]:
     for title in duplicate_titles:
         type_ids_by_title.pop(title, None)
     return {
-        "flow_index": flow_index,
-        "surfaces": surfaces,
-        "connectors": connectors,
         "type_ids": type_ids,
         "type_ids_by_title": type_ids_by_title,
     }
@@ -204,6 +169,14 @@ def _build_authored_base_index(
     spec: dict[str, Any],
     model_root: ET.Element,
 ) -> dict[str, Any]:
+    """Index an authored base model against the spec by stable surface identity.
+
+    An authored drawing surface is bound to its declared surface through the
+    deterministic surface GUID, never through list position, so reordering the
+    authored surfaces cannot rebind connectors to the wrong diagram. Authored
+    surfaces that match no declared surface are indexed with an empty id and are
+    ignored by reconciliation.
+    """
     index = _index_model(model_root)
     connectors: dict[str, list[dict[str, str]]] = {}
     surfaces: list[dict[str, Any]] = []
@@ -212,32 +185,35 @@ def _build_authored_base_index(
         for component in spec.get("components") or []
         if isinstance(component, dict) and component.get("id")
     }
-    declared_surfaces: list[dict[str, Any]] = []
+    declared_by_guid: dict[str, dict[str, Any]] = {}
     representations = spec.get("representations") or {}
     for group in (
         "context_diagrams",
         "functional_scenarios",
         "operational_views",
     ):
-        declared_surfaces.extend(
-            surface
-            for surface in representations.get(group) or []
-            if isinstance(surface, dict)
-        )
+        for declared in representations.get(group) or []:
+            if not isinstance(declared, dict):
+                continue
+            declared_id = _normalize_text(declared.get("id"))
+            if not declared_id:
+                raise GenerationError(
+                    "Authored-base reconciliation failed:\n"
+                    "a declared surface is missing a stable id"
+                )
+            expected_guid = _deterministic_guid(f"surface:{declared_id}")
+            if expected_guid in declared_by_guid:
+                raise GenerationError(
+                    "Authored-base reconciliation failed:\n"
+                    f"declared surface {declared_id} is defined more than once"
+                )
+            declared_by_guid[expected_guid] = declared
 
-    for surface_index, surface in enumerate(
-        model_root.findall("{*}DrawingSurfaceList/{*}DrawingSurfaceModel")
-    ):
+    for surface in model_root.findall("{*}DrawingSurfaceList/{*}DrawingSurfaceModel"):
         surface_guid = _direct_text(surface, "Guid")
-        declared_surface = (
-            declared_surfaces[surface_index]
-            if surface_index < len(declared_surfaces)
-            else {}
-        )
+        declared_surface = declared_by_guid.get(surface_guid, {})
         declared_entries = (
-            declared_surface.get("components")
-            or declared_surface.get("elements")
-            or []
+            declared_surface.get("components") or declared_surface.get("elements") or []
         )
         expected_names: dict[str, str] = {}
         for entry in declared_entries:
@@ -323,10 +299,8 @@ def _build_authored_base_index(
             )
             connectors.setdefault(flow_id or flow_name, []).append(connector)
     return {
-        "flow_index": index["flow_index"],
         "surfaces": surfaces,
         "connectors": connectors,
-        "elements": {},
         "type_ids": index["type_ids"],
         "type_ids_by_title": index["type_ids_by_title"],
     }
@@ -350,11 +324,9 @@ def _mitigation_text(spec: dict[str, Any], threat: dict[str, Any]) -> str:
     return build_mitigation_text(spec, threat)
 
 
-def _canonical_surface(
-    spec: dict[str, Any], threat: dict[str, Any]
-) -> tuple[int, str] | None:
+def _canonical_surface(spec: dict[str, Any], threat: dict[str, Any]) -> str:
+    """Return the declared surface id that carries a threat, or an empty string."""
     representations = spec.get("representations") or {}
-    surface_index = 0
     for group in (
         "context_diagrams",
         "functional_scenarios",
@@ -362,7 +334,6 @@ def _canonical_surface(
     ):
         for surface in representations.get(group) or []:
             if not isinstance(surface, dict):
-                surface_index += 1
                 continue
             members = surface.get("components") or surface.get("elements") or []
             member_ids = {
@@ -380,9 +351,8 @@ def _canonical_surface(
                 _normalize_text(threat.get("target_ref")) in member_ids
                 and _normalize_text(threat.get("interaction_ref")) in flow_ids
             ):
-                return surface_index, _normalize_text(surface.get("id"))
-            surface_index += 1
-    return None
+                return _normalize_text(surface.get("id"))
+    return ""
 
 
 def _deterministic_guid(value: str) -> str:
@@ -411,10 +381,9 @@ def _build_threat_instances(
         source_id = _normalize_text(threat.get("id"))
         interaction_ref = _normalize_text(threat.get("interaction_ref"))
         title = _normalize_text(threat.get("title"))
-        surface_match = _canonical_surface(spec, threat)
+        surface_id = _canonical_surface(spec, threat)
         interaction = None
-        if surface_match is not None:
-            surface_index, surface_id = surface_match
+        if surface_id:
             matching_connectors = authored_base_index.get("connectors", {}).get(
                 interaction_ref, []
             )
@@ -529,25 +498,18 @@ def _write_model(root: ET.Element, destination: Path) -> Path:
         delete=False,
     )
     temp_path = Path(handle.name)
-    namespace_map = ET._namespace_map.copy()
     try:
-        ET.register_namespace("", MODEL_NS)
-        ET.register_namespace("a", ARRAYS_NS)
-        ET.register_namespace("b", KNOWLEDGE_NS)
-        ET.register_namespace("d2p1", ABSTRACT_NS)
-        ET.register_namespace("i", XSI_NS)
-        ET.register_namespace("z", SERIALIZATION_NS)
-        root.set("xmlns:c", XSD_NS)
-        with handle:
-            ET.ElementTree(root).write(handle, encoding="utf-8", xml_declaration=True)
+        with tm7_serialization_namespaces(root):
+            with handle:
+                ET.ElementTree(root).write(
+                    handle,
+                    encoding="utf-8",
+                    xml_declaration=True,
+                )
         return temp_path
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
-    finally:
-        root.attrib.pop("xmlns:c", None)
-        ET._namespace_map.clear()
-        ET._namespace_map.update(namespace_map)
 
 
 def _sha256_file(path: Path) -> str:
@@ -569,8 +531,8 @@ def populate_tm7_threats(
     """Resolve and optionally write explicit threats into an existing model.
 
     ``expected_threat_count`` is an optional caller assertion. It defaults to
-    ``None`` so any internally consistent spec is accepted; the previous
-    hardcoded 80 rejected every other valid model.
+    ``None`` so any internally consistent spec is accepted; a fixed count would
+    reject every model of a different size.
     """
     spec = _load_yaml_or_json(Path(spec_path))
     mapping_failures = collect_mapping_failures(
@@ -579,8 +541,7 @@ def populate_tm7_threats(
     )
     if mapping_failures:
         raise GenerationError(
-            "Threat mapping contract validation failed:\n"
-            + "\n".join(mapping_failures)
+            "Threat mapping contract validation failed:\n" + "\n".join(mapping_failures)
         )
     model_path = Path(model_path)
     destination = Path(output_path) if output_path is not None else None
@@ -732,6 +693,12 @@ def main() -> int:
         )
     except GenerationError as exc:
         print(str(exc), file=sys.stderr)
+        return EXIT_FAILURE
+    except KeyboardInterrupt:
+        print("\nInterrupted by user", file=sys.stderr)
+        return EXIT_INTERRUPTED
+    except BrokenPipeError:
+        sys.stderr.close()
         return EXIT_FAILURE
     print(
         f"Populated {len(result['ThreatInstances'])} threat instances with "

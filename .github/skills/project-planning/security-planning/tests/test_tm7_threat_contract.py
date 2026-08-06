@@ -5,7 +5,11 @@
 from __future__ import annotations
 
 import copy
+import os
+import subprocess
 import sys
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -33,7 +37,7 @@ XXE_DOCUMENT = (
     "reader",
     ["contract", "generate_tm7", "populate", "generate_tb7"],
 )
-def test_given_entity_declaration_then_every_reader_fails_closed(
+def test_given_entity_declaration_when_parsed_then_every_reader_fails_closed(
     tmp_path: Path,
     encoding: str,
     reader: str,
@@ -63,9 +67,10 @@ def test_given_entity_declaration_then_every_reader_fails_closed(
         "generate_tb7": generate_tb7.GenerationError,
     }
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(expected[reader]):
         readers[reader]()
+
 
 TYPE_ID = "TH-test"
 GUIDS = {
@@ -145,7 +150,7 @@ def test_given_invalid_numeric_id_when_validated_then_rejected(invalid_id: str) 
     assert id_node is not None
     id_node.text = invalid_id
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(
         tm7_threat_contract.ThreatContractError,
         match="positive integer",
@@ -160,13 +165,14 @@ def test_given_missing_type_id_when_validated_then_rejected() -> None:
     assert type_node is not None
     type_node.text = None
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(tm7_threat_contract.ThreatContractError, match="required"):
         tm7_threat_contract.validate_serialized_threat_entry(entry)
 
 
-def test_given_connector_name_when_serialized_then_interaction_string_uses_name(
-) -> None:
+def test_given_connector_name_when_serialized_then_interaction_string_uses_name() -> (
+    None
+):
     # Arrange
     threat = _threat()
     threat["interaction_string"] = "Submit request over HTTPS"
@@ -182,7 +188,7 @@ def test_given_unknown_type_id_when_validated_then_rejected() -> None:
     # Arrange
     entry = _first_entry(_serialized_entries())
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(
         tm7_threat_contract.ThreatContractError,
         match="not embedded",
@@ -202,7 +208,7 @@ def test_given_bad_member_order_when_validated_then_rejected() -> None:
     value.remove(first)
     value.append(first)
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(tm7_threat_contract.ThreatContractError, match="order"):
         tm7_threat_contract.validate_serialized_threat_entry(entry)
 
@@ -214,7 +220,7 @@ def test_given_bad_dictionary_key_when_validated_then_rejected() -> None:
     assert key is not None
     key.text = "bad-key"
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(
         tm7_threat_contract.ThreatContractError,
         match="dictionary_key",
@@ -226,11 +232,13 @@ def test_given_duplicate_numeric_id_when_collection_validated_then_rejected() ->
     # Arrange
     threat_instances = _serialized_entries(2)
     entries = threat_instances.findall("{*}KeyValueOfstringThreatpc_P0_PhOB")
+    first_id = entries[0].find("{*}Value/{*}Id")
     second_id = entries[1].find("{*}Value/{*}Id")
+    assert first_id is not None
     assert second_id is not None
-    second_id.text = "1"
+    second_id.text = first_id.text
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(tm7_threat_contract.ThreatContractError, match="duplicate"):
         tm7_threat_contract.validate_serialized_threat_entries(threat_instances)
 
@@ -254,7 +262,7 @@ def test_given_duplicate_key_when_collection_validated_then_rejected() -> None:
     cloned_id.text = "2"
     entries[1].append(cloned_value)
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(tm7_threat_contract.ThreatContractError, match="duplicate"):
         tm7_threat_contract.validate_serialized_threat_entries(threat_instances)
 
@@ -266,7 +274,7 @@ def test_given_null_guid_when_validated_then_rejected() -> None:
     assert source_guid is not None
     source_guid.text = tm7_threat_contract.NULL_GUID
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(tm7_threat_contract.ThreatContractError, match="non-null"):
         tm7_threat_contract.validate_serialized_threat_entry(entry)
 
@@ -278,7 +286,7 @@ def test_given_unsupported_state_when_validated_then_rejected() -> None:
     assert state is not None
     state.text = "Unsupported"
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(tm7_threat_contract.ThreatContractError, match="unsupported"):
         tm7_threat_contract.validate_serialized_threat_entry(entry)
 
@@ -307,8 +315,7 @@ def test_given_unknown_flow_when_mapping_validated_then_rejected() -> None:
     assert failures == ["threat-01: unknown interaction_ref unknown"]
 
 
-def test_given_non_endpoint_without_override_when_validated_then_rejected(
-) -> None:
+def test_given_non_endpoint_without_override_when_validated_then_rejected() -> None:
     # Arrange
     spec = _mapping_spec()
     spec["threats"][0]["target_ref"] = "target-02"
@@ -323,8 +330,7 @@ def test_given_non_endpoint_without_override_when_validated_then_rejected(
     ]
 
 
-def test_given_reviewed_override_when_non_endpoint_validated_then_passes(
-) -> None:
+def test_given_reviewed_override_when_non_endpoint_validated_then_passes() -> None:
     # Arrange
     spec = _mapping_spec()
     spec["threats"][0]["target_ref"] = "target-02"
@@ -378,14 +384,12 @@ def test_given_portable_valid_spec_without_base_when_reconciled_then_passes() ->
     assert failures == []
 
 
-def test_given_authored_base_missing_connector_when_reconciled_then_reports_absence(
-) -> None:
+def test_given_missing_connector_when_reconciled_then_absence_is_reported() -> None:
     # Arrange
     spec = _mapping_spec()
     authored_base = {
         "connectors": {},
-        "elements": {"source-01": "source-guid", "target-01": "target-guid"},
-        "surfaces": [{"guid": "surface-01"}],
+        "surfaces": [_authored_surface("surface-01")],
     }
 
     # Act
@@ -395,21 +399,22 @@ def test_given_authored_base_missing_connector_when_reconciled_then_reports_abse
     assert failures == ["threat-01: authored-base connector flow-01 is absent"]
 
 
-def test_given_wrong_authored_surface_when_reconciled_then_reports_mismatch(
-) -> None:
+def test_given_wrong_authored_surface_when_reconciled_then_reports_mismatch() -> None:
     # Arrange
     spec = _mapping_spec()
     authored_base = {
         "connectors": {
             "flow-01": {
-                "drawing_surface_guid": "surface-02",
+                "drawing_surface_guid": "surface-guid-02",
                 "flow_guid": "flow-guid",
                 "source_guid": "source-guid",
                 "target_guid": "target-guid",
             }
         },
-        "elements": {"source-01": "source-guid", "target-01": "target-guid"},
-        "surfaces": [{"guid": "surface-01"}, {"guid": "surface-02"}],
+        "surfaces": [
+            _authored_surface("surface-01"),
+            _authored_surface("surface-02"),
+        ],
     }
 
     # Act
@@ -419,21 +424,19 @@ def test_given_wrong_authored_surface_when_reconciled_then_reports_mismatch(
     assert failures == ["threat-01: authored-base surface mismatch for flow-01"]
 
 
-def test_given_null_authored_endpoints_when_reconciled_then_reports_null_guid(
-) -> None:
+def test_given_null_authored_endpoints_when_reconciled_then_reports_null_guid() -> None:
     # Arrange
     spec = _mapping_spec()
     authored_base = {
         "connectors": {
             "flow-01": {
-                "drawing_surface_guid": "surface-01",
+                "drawing_surface_guid": "surface-guid-01",
                 "flow_guid": "flow-guid",
                 "source_guid": tm7_threat_contract.NULL_GUID,
                 "target_guid": "target-guid",
             }
         },
-        "elements": {"source-01": "source-guid", "target-01": "target-guid"},
-        "surfaces": [{"guid": "surface-01"}],
+        "surfaces": [_authored_surface("surface-01")],
     }
 
     # Act
@@ -443,21 +446,21 @@ def test_given_null_authored_endpoints_when_reconciled_then_reports_null_guid(
     assert failures == ["threat-01: authored-base connector flow-01 has null GUIDs"]
 
 
-def test_given_authored_endpoint_mismatch_when_reconciled_then_reports_identity(
-) -> None:
+def test_given_authored_endpoint_mismatch_when_reconciled_then_reports_identity() -> (
+    None
+):
     # Arrange
     spec = _mapping_spec()
     authored_base = {
         "connectors": {
             "flow-01": {
-                "drawing_surface_guid": "surface-01",
+                "drawing_surface_guid": "surface-guid-01",
                 "flow_guid": "flow-guid",
                 "source_guid": "other-source-guid",
                 "target_guid": "target-guid",
             }
         },
-        "elements": {"source-01": "source-guid", "target-01": "target-guid"},
-        "surfaces": [{"guid": "surface-01"}],
+        "surfaces": [_authored_surface("surface-01")],
     }
 
     # Act
@@ -467,6 +470,98 @@ def test_given_authored_endpoint_mismatch_when_reconciled_then_reports_identity(
     assert failures == [
         "threat-01: authored-base connector flow-01 endpoint identity mismatch"
     ]
+
+
+def test_given_reordered_authored_surfaces_when_reconciled_then_identity_binds() -> (
+    None
+):
+    """Authored order must not decide which surface a connector belongs to."""
+    # Arrange
+    spec = _mapping_spec()
+    connectors = {
+        "flow-01": [
+            {
+                "drawing_surface_guid": "surface-guid-01",
+                "flow_guid": "flow-guid",
+                "source_guid": "source-guid",
+                "target_guid": "target-guid",
+            }
+        ]
+    }
+    ordered = {
+        "connectors": connectors,
+        "surfaces": [
+            _authored_surface("surface-01"),
+            _authored_surface("surface-99"),
+        ],
+    }
+    reordered = {
+        "connectors": connectors,
+        "surfaces": list(reversed(ordered["surfaces"])),
+    }
+
+    # Act
+    ordered_failures = tm7_threat_contract.reconcile_authored_base(spec, ordered)
+    reordered_failures = tm7_threat_contract.reconcile_authored_base(spec, reordered)
+
+    # Assert
+    assert ordered_failures == []
+    assert reordered_failures == []
+
+
+def test_given_unmatched_declared_surface_when_reconciled_then_absence_is_named() -> (
+    None
+):
+    # Arrange
+    spec = _mapping_spec()
+    authored_base = {
+        "connectors": {},
+        "surfaces": [_authored_surface("surface-99")],
+    }
+
+    # Act
+    failures = tm7_threat_contract.reconcile_authored_base(spec, authored_base)
+
+    # Assert
+    assert failures == [
+        "threat-01: authored-base surface surface-01 for flow-01 is absent"
+    ]
+
+
+def test_given_duplicate_authored_surface_when_reconciled_then_duplication_fails() -> (
+    None
+):
+    # Arrange
+    spec = _mapping_spec()
+    authored_base = {
+        "connectors": {},
+        "surfaces": [
+            _authored_surface("surface-01"),
+            _authored_surface("surface-01"),
+        ],
+    }
+
+    # Act
+    failures = tm7_threat_contract.reconcile_authored_base(spec, authored_base)
+
+    # Assert
+    assert failures == [
+        "authored-base surface surface-01 is declared more than once",
+        "threat-01: authored-base connector flow-01 is absent",
+    ]
+
+
+def test_given_non_mapping_authored_base_when_reconciled_then_shape_is_rejected() -> (
+    None
+):
+    # Arrange
+    spec = _mapping_spec()
+
+    # Act
+    failures = tm7_threat_contract.reconcile_authored_base(spec, [])
+
+    # Assert
+    assert failures == ["authored base must be an index mapping"]
 
 
 def test_given_reordered_sources_when_prepared_then_numeric_ids_are_stable() -> None:
@@ -496,8 +591,189 @@ def test_given_reordered_sources_when_prepared_then_numeric_ids_are_stable() -> 
     ]
 
 
-def test_given_equivalent_threats_when_both_producers_run_then_contracts_agree(
+def _distinct_threat(source_id: str, ordinal: int) -> dict[str, object]:
+    """Return a threat whose GUID tuple is unique within a collection."""
+    threat = copy.deepcopy(_threat(source_id))
+    flow_guid = f"33333333-3333-3333-3333-{ordinal:012d}"
+    threat["flow_guid"] = flow_guid
+    threat["interaction_key"] = tm7_threat_contract.build_interaction_key(
+        str(threat["source_guid"]),
+        flow_guid,
+        str(threat["target_guid"]),
+    )
+    threat["dictionary_key"] = tm7_threat_contract.build_entry_key(
+        TYPE_ID,
+        str(threat["source_guid"]),
+        flow_guid,
+        str(threat["target_guid"]),
+    )
+    return threat
+
+
+def test_given_inserted_threat_when_prepared_then_existing_ids_are_unchanged() -> None:
+    """Adding a threat must not renumber the threats already in the model.
+
+    Numeric ids were the 1-based position in a sorted list, so inserting one
+    threat silently reassigned every id that sorted after it. Reviewers and
+    exported worksheets track threats by that visible number.
+    """
+    # Arrange
+    first = _distinct_threat("threat-aa", 1)
+    last = _distinct_threat("threat-zz", 2)
+    inserted = _distinct_threat("threat-mm", 3)
+
+    # Act
+    before = {
+        str(item["source_id"]): item["id"]
+        for item in tm7_threat_contract.prepare_threat_instances([first, last])
+    }
+    after = {
+        str(item["source_id"]): item["id"]
+        for item in tm7_threat_contract.prepare_threat_instances(
+            [first, inserted, last]
+        )
+    }
+
+    # Assert
+    assert after["threat-aa"] == before["threat-aa"]
+    assert after["threat-zz"] == before["threat-zz"]
+    assert after["threat-mm"] not in before.values()
+
+
+@pytest.mark.parametrize(
+    ("source_id", "expected_id"),
+    [
+        ("threat-01", 1806730184),
+        ("T-01", 221371277),
+        ("T-80", 964846201),
+    ],
+)
+def test_given_known_source_id_when_derived_then_the_recorded_value_is_emitted(
+    source_id: str,
+    expected_id: int,
 ) -> None:
+    """Derived ids must match recorded constants, not merely agree with themselves.
+
+    Every other id test computes its expectation by calling the same derivation,
+    so swapping the digest or the mapping would shift all of them together and
+    still pass. These constants are the only in-suite evidence that the emitted
+    identifier a reviewer or CSV export cites is the one previously published.
+    """
+    # Act
+    derived = tm7_threat_contract.derive_threat_numeric_id(source_id)
+
+    # Assert
+    assert derived == expected_id
+
+
+def test_given_fresh_process_when_id_derived_then_the_value_matches() -> None:
+    """A restarted interpreter must derive the same numeric id.
+
+    ``PYTHONHASHSEED`` randomizes the built-in ``hash`` per process, so an id
+    built on it would drift between runs while looking stable inside one test
+    session. Only a separate interpreter with a hostile seed observes that.
+    """
+    # Arrange
+    source_id = "threat-stability-probe"
+    in_process = tm7_threat_contract.derive_threat_numeric_id(source_id)
+    program = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "import tm7_threat_contract as contract; "
+        "print(contract.derive_threat_numeric_id(sys.argv[2]))"
+    )
+    environment = {**os.environ, "PYTHONHASHSEED": "12345"}
+
+    # Act
+    completed = subprocess.run(
+        [sys.executable, "-c", program, str(SCRIPTS_DIR), source_id],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=environment,
+    )
+
+    # Assert
+    assert int(completed.stdout.strip()) == in_process
+
+
+@pytest.mark.parametrize(
+    "source_id",
+    ["a", "threat-01", "T-80", "\u5a01\u80c1-\u03a9", "x" * 512, "0", "-"],
+)
+def test_given_any_source_id_when_derived_then_id_stays_in_the_interval(
+    source_id: str,
+) -> None:
+    """Derived ids must stay inside the signed 32-bit interval with 0 reserved."""
+    # Act
+    numeric_id = tm7_threat_contract.derive_threat_numeric_id(source_id)
+
+    # Assert
+    assert numeric_id != 0
+    assert (
+        tm7_threat_contract.THREAT_ID_MIN
+        <= numeric_id
+        <= tm7_threat_contract.THREAT_ID_MAX
+    )
+
+
+@pytest.mark.parametrize(
+    "numeric_id",
+    [tm7_threat_contract.THREAT_ID_MIN, tm7_threat_contract.THREAT_ID_MAX],
+)
+def test_given_interval_boundary_id_when_serialized_then_text_round_trips(
+    numeric_id: int,
+) -> None:
+    """Both interval endpoints must serialize as exact decimal text."""
+    # Arrange
+    threat = {**_threat(), "id": numeric_id, "state": "Open"}
+
+    # Act
+    value = tm7_threat_contract.serialize_threat_instance(threat)
+
+    # Assert
+    rendered = value.find(f"{{{tm7_threat_contract.KNOWLEDGE_NS}}}Id")
+    assert rendered is not None
+    assert rendered.text == str(numeric_id)
+
+
+@pytest.mark.parametrize(
+    "numeric_id",
+    [0, -1, tm7_threat_contract.THREAT_ID_MAX + 1, True, "1"],
+)
+def test_given_out_of_interval_id_when_validated_then_contract_fails(
+    numeric_id: object,
+) -> None:
+    """Ids outside the documented interval must be rejected, including booleans."""
+    # Arrange
+    threat = {**_threat(), "id": numeric_id}
+
+    # Act and Assert
+    with pytest.raises(tm7_threat_contract.ThreatContractError, match="threat id"):
+        tm7_threat_contract.validate_threat_instance(threat)
+
+
+def test_given_forced_id_collision_when_prepared_then_failure_is_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two source ids mapping to one numeric id must fail, naming both."""
+    # Arrange
+    first = _distinct_threat("threat-aa", 1)
+    second = _distinct_threat("threat-bb", 2)
+    monkeypatch.setattr(
+        tm7_threat_contract,
+        "derive_threat_numeric_id",
+        lambda source_id: 7,
+    )
+
+    # Act and Assert
+    with pytest.raises(tm7_threat_contract.ThreatContractError) as error:
+        tm7_threat_contract.prepare_threat_instances([second, first])
+    assert "threat-aa and threat-bb both derive numeric id 7" in str(error.value)
+
+
+def test_given_equivalent_threats_when_both_producers_run_then_contracts_agree() -> (
+    None
+):
     """Both TM7 producers must agree on type identity and threat properties.
 
     ``generate_tm7`` and ``populate_tm7_threats`` emit the same ThreatInstance
@@ -551,19 +827,20 @@ def test_given_authored_labels_when_reconciled_then_semantic_ids_resolve() -> No
     """Authored-base lookup must key on the stable identifier, not the label.
 
     A connector's first display attribute is its human-facing ``Name``, which the
-    generator sets from ``display_label``. Keying the authored-base index on that
-    value makes every relabelled flow unresolvable, because reconciliation looks
-    the connector up by ``interaction_ref``.
+    generator sets from ``display_label``. Resolving connectors through that value
+    makes every relabelled flow unresolvable, because reconciliation looks the
+    connector up by ``interaction_ref``.
     """
     # Arrange
     spec = _mapping_spec()
     spec["data_flows"][0]["display_label"] = "Authenticated read path"
-    authored_base = ET.fromstring(
-        """
+    surface_guid = populate_tm7_threats._deterministic_guid("surface:surface-01")
+    authored_model = ET.fromstring(
+        f"""
         <ThreatModel>
           <DrawingSurfaceList>
             <DrawingSurfaceModel>
-              <Guid>surface-01</Guid>
+              <Guid>{surface_guid}</Guid>
               <Borders>
                 <KeyValueOfguidanyType>
                   <Value>
@@ -571,10 +848,6 @@ def test_given_authored_labels_when_reconciled_then_semantic_ids_resolve() -> No
                     <Properties>
                       <anyType>
                         <DisplayName>Name</DisplayName>
-                        <Value>Source Node</Value>
-                      </anyType>
-                      <anyType>
-                        <DisplayName>SemanticId</DisplayName>
                         <Value>source-01</Value>
                       </anyType>
                     </Properties>
@@ -586,10 +859,6 @@ def test_given_authored_labels_when_reconciled_then_semantic_ids_resolve() -> No
                     <Properties>
                       <anyType>
                         <DisplayName>Name</DisplayName>
-                        <Value>Target Node</Value>
-                      </anyType>
-                      <anyType>
-                        <DisplayName>SemanticId</DisplayName>
                         <Value>target-01</Value>
                       </anyType>
                     </Properties>
@@ -605,10 +874,6 @@ def test_given_authored_labels_when_reconciled_then_semantic_ids_resolve() -> No
                         <DisplayName>Name</DisplayName>
                         <Value>Authenticated read path</Value>
                       </anyType>
-                      <anyType>
-                        <DisplayName>SemanticId</DisplayName>
-                        <Value>flow-01</Value>
-                      </anyType>
                     </Properties>
                     <SourceGuid>source-guid</SourceGuid>
                     <TargetGuid>target-guid</TargetGuid>
@@ -620,12 +885,62 @@ def test_given_authored_labels_when_reconciled_then_semantic_ids_resolve() -> No
         </ThreatModel>
         """.strip()
     )
+    authored_base = populate_tm7_threats._build_authored_base_index(
+        spec, authored_model
+    )
 
     # Act
     failures = tm7_threat_contract.reconcile_authored_base(spec, authored_base)
 
     # Assert
+    assert authored_base["surfaces"][0]["id"] == "surface-01"
     assert failures == []
+
+
+def test_given_reordered_authored_model_when_indexed_then_surfaces_keep_identity() -> (
+    None
+):
+    """Swapping authored drawing surfaces must not rebind them to other diagrams."""
+    # Arrange
+    first_guid = populate_tm7_threats._deterministic_guid("surface:surface-01")
+    second_guid = populate_tm7_threats._deterministic_guid("surface:surface-02")
+    spec = _mapping_spec()
+    spec["representations"]["context_diagrams"].append(
+        {
+            "id": "surface-02",
+            "elements": [{"id": "source-01"}, {"id": "target-01"}],
+            "flows": [],
+        }
+    )
+    reordered = ET.fromstring(
+        f"""
+        <ThreatModel>
+          <DrawingSurfaceList>
+            <DrawingSurfaceModel><Guid>{second_guid}</Guid></DrawingSurfaceModel>
+            <DrawingSurfaceModel><Guid>{first_guid}</Guid></DrawingSurfaceModel>
+          </DrawingSurfaceList>
+        </ThreatModel>
+        """.strip()
+    )
+
+    # Act
+    index = populate_tm7_threats._build_authored_base_index(spec, reordered)
+
+    # Assert
+    assert [entry["id"] for entry in index["surfaces"]] == [
+        "surface-02",
+        "surface-01",
+    ]
+
+
+def _authored_surface(surface_id: str) -> dict[str, object]:
+    """Return one authored-base surface entry in the single supported shape."""
+    ordinal = surface_id.rsplit("-", 1)[-1]
+    return {
+        "id": surface_id,
+        "guid": f"surface-guid-{ordinal}",
+        "elements": {"source-01": "source-guid", "target-01": "target-guid"},
+    }
 
 
 def _mapping_spec() -> dict[str, object]:
@@ -658,3 +973,86 @@ def _mapping_spec() -> dict[str, object]:
             }
         ],
     }
+
+
+@pytest.fixture
+def caller_namespace_registry() -> Iterator[dict[str, str]]:
+    """Register a caller-owned prefix and restore the process registry after."""
+    original = dict(ET._namespace_map)
+    ET.register_namespace("caller", "urn:caller-owned")
+    snapshot = dict(ET._namespace_map)
+    try:
+        yield snapshot
+    finally:
+        ET._namespace_map.clear()
+        ET._namespace_map.update(original)
+
+
+def test_given_prior_prefixes_when_serialization_completes_then_registry_is_restored(
+    caller_namespace_registry: dict[str, str],
+) -> None:
+    # Arrange
+    root = ET.Element("ThreatModel")
+
+    # Act
+    with tm7_threat_contract.tm7_serialization_namespaces(root):
+        active = dict(ET._namespace_map)
+
+    # Assert
+    assert active[tm7_threat_contract.MODEL_NS] == ""
+    assert active[tm7_threat_contract.ARRAYS_NS] == "a"
+    assert dict(ET._namespace_map) == caller_namespace_registry
+    assert "xmlns:c" not in root.attrib
+
+
+def test_given_exception_during_serialization_then_registry_is_still_restored(
+    caller_namespace_registry: dict[str, str],
+) -> None:
+    # Arrange
+    root = ET.Element("ThreatModel")
+
+    # Act
+    with pytest.raises(RuntimeError, match="write failed"):
+        with tm7_threat_contract.tm7_serialization_namespaces(root):
+            raise RuntimeError("write failed")
+
+    # Assert
+    assert dict(ET._namespace_map) == caller_namespace_registry
+    assert "xmlns:c" not in root.attrib
+
+
+def test_given_concurrent_serializations_when_run_then_bytes_and_registry_are_stable(
+    caller_namespace_registry: dict[str, str],
+) -> None:
+    # Arrange
+    expected = _serialize_probe_root()
+    outputs: list[str] = []
+    failures: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            for _ in range(25):
+                outputs.append(_serialize_probe_root())
+        except BaseException as exc:  # pragma: no cover - reported below
+            failures.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+
+    # Act
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # Assert
+    assert not failures
+    assert set(outputs) == {expected}
+    assert dict(ET._namespace_map) == caller_namespace_registry
+
+
+def _serialize_probe_root() -> str:
+    root = ET.Element(f"{{{tm7_threat_contract.MODEL_NS}}}ThreatModel")
+    ET.SubElement(root, f"{{{tm7_threat_contract.ARRAYS_NS}}}Item")
+    ET.SubElement(root, f"{{{tm7_threat_contract.KNOWLEDGE_NS}}}Entry")
+    with tm7_threat_contract.tm7_serialization_namespaces(root):
+        return ET.tostring(root, encoding="unicode")

@@ -424,10 +424,10 @@ def test_given_production_feedback_path_when_identity_changes_then_blocks(
     monkeypatch.setattr(
         validate_tm7_with_tmt.generate_tm7,
         "generate_tm7_candidate",
-        lambda **kwargs: Path(str(kwargs["output_path"])).write_text(
-            "candidate", encoding="utf-8"
-        )
-        or Path(str(kwargs["output_path"])),
+        lambda **kwargs: (
+            Path(str(kwargs["output_path"])).write_text("candidate", encoding="utf-8")
+            or Path(str(kwargs["output_path"]))
+        ),
     )
     monkeypatch.setattr(validate_tm7_with_tmt, "sha256_file", lambda path: "sha")
 
@@ -506,7 +506,7 @@ def test_given_regeneration_failure_when_feedback_runs_then_status_is_written(
     assert (evidence_dir / "status.json").is_file()
 
 
-def test_given_ready_status_without_overlay_then_run_does_not_report_success(
+def test_given_ready_status_without_overlay_when_run_then_success_is_not_reported(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -574,8 +574,7 @@ def test_given_ready_status_without_overlay_then_run_does_not_report_success(
 
     # Assert
     assert not (
-        result.status == "automated-ready-pending-human"
-        and not overlay_output.exists()
+        result.status == "automated-ready-pending-human" and not overlay_output.exists()
     ), "a successful run must emit its declared overlay"
     if result.status == "automated-ready-pending-human":
         assert overlay_output.is_file()
@@ -583,7 +582,7 @@ def test_given_ready_status_without_overlay_then_run_does_not_report_success(
         assert result.exit_code != validate_tm7_with_tmt.EXIT_SUCCESS
 
 
-def test_given_untrusted_newer_decoy_then_only_signed_candidate_is_selected(
+def test_given_untrusted_newer_decoy_when_discovered_then_signed_candidate_wins(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -630,7 +629,7 @@ def test_given_untrusted_newer_decoy_then_only_signed_candidate_is_selected(
     assert discovery.path != decoy_exe.resolve()
 
 
-def test_given_no_trusted_candidate_then_discovery_reports_untrusted(
+def test_given_no_trusted_candidate_when_discovered_then_source_is_untrusted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -659,6 +658,118 @@ def test_given_no_trusted_candidate_then_discovery_reports_untrusted(
 
 
 @pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        ("CN=Microsoft Corporation, O=Microsoft Corporation, C=US", True),
+        ("O=Microsoft Corporation, CN=Microsoft Corporation", True),
+        ("CN=Microsoft Corporation Partner Tools, O=Attacker Ltd", False),
+        ("CN=Attacker, O=Microsoft Corporation", False),
+        ("O=Microsoft Corporation Partner", False),
+        ("", False),
+    ],
+)
+def test_given_certificate_subject_when_evaluated_then_only_exact_cn_is_trusted(
+    monkeypatch: pytest.MonkeyPatch,
+    subject: str,
+    expected: bool,
+) -> None:
+    # Arrange
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "_authenticode_subject",
+        lambda path: ("Valid", subject),
+    )
+
+    # Act
+    trusted = validate_tm7_with_tmt.is_trusted_tmt_executable(Path("TMT7.exe"))
+
+    # Assert
+    assert trusted is expected
+
+
+def test_given_powershell_hosts_when_resolved_then_every_path_is_absolute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    decoy = tmp_path / "pwsh.exe"
+    decoy.write_bytes(b"decoy")
+    monkeypatch.chdir(tmp_path)
+
+    # Act
+    hosts = validate_tm7_with_tmt._powershell_hosts()
+
+    # Assert
+    assert all(os.path.isabs(host) for host in hosts)
+    assert str(decoy) not in hosts or Path(decoy).is_absolute()
+
+
+def test_given_probe_environment_when_built_then_caller_secrets_are_excluded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp-should-not-leak")
+    monkeypatch.setenv("AZURE_CLIENT_SECRET", "azure-should-not-leak")
+
+    # Act
+    child_env = validate_tm7_with_tmt._minimal_child_environment(Path("TMT7.exe"))
+
+    # Assert
+    assert "GITHUB_TOKEN" not in child_env
+    assert "AZURE_CLIENT_SECRET" not in child_env
+    assert child_env["TMT_CANDIDATE_PATH"] == "TMT7.exe"
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16-le", "utf-16-be", "utf-16"])
+def test_given_encoded_doctype_when_parsed_then_harness_fails_closed(
+    tmp_path: Path,
+    encoding: str,
+) -> None:
+    # Arrange
+    hostile = (
+        '<?xml version="1.0"?>'
+        "<!DOCTYPE root [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]>"
+        "<root>&xxe;</root>"
+    )
+    model = tmp_path / f"hostile-{encoding}.tm7"
+    model.write_bytes(hostile.encode(encoding))
+
+    # Act & Assert
+    with pytest.raises(validate_tm7_with_tmt.HarnessFailure):
+        validate_tm7_with_tmt._parse_xml(model)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16-le", "utf-16-be"])
+def test_given_encoded_doctype_when_reading_surfaces_then_harness_fails_closed(
+    tmp_path: Path,
+    encoding: str,
+) -> None:
+    # Arrange
+    hostile = (
+        '<?xml version="1.0"?>'
+        "<!DOCTYPE root [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]>"
+        "<root><DrawingSurfaceModel/></root>"
+    )
+    model = tmp_path / f"hostile-surfaces-{encoding}.tm7"
+    model.write_bytes(hostile.encode(encoding))
+
+    # Act & Assert
+    with pytest.raises(validate_tm7_with_tmt.HarnessFailure):
+        validate_tm7_with_tmt.read_expected_surfaces(model)
+
+
+def test_given_missing_model_when_parsed_then_harness_failure_is_raised(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    missing = tmp_path / "absent.tm7"
+
+    # Act & Assert
+    with pytest.raises(validate_tm7_with_tmt.HarnessFailure):
+        validate_tm7_with_tmt._parse_xml(missing)
+
+
+@pytest.mark.parametrize(
     ("secret", "payload"),
     [
         ("s3cr3t-value-here", "client_secret=s3cr3t-value-here"),
@@ -669,7 +780,7 @@ def test_given_no_trusted_candidate_then_discovery_reports_untrusted(
         ("SigVal123", "https://acct.blob.core.windows.net/c/b?sig=SigVal123"),
     ],
 )
-def test_given_sensitive_values_then_no_persisted_sink_leaks(
+def test_given_sensitive_values_when_persisted_then_no_sink_leaks_them(
     tmp_path: Path,
     secret: str,
     payload: str,
@@ -997,7 +1108,7 @@ def test_given_tiled_surface_evidence_when_capture_then_binds_tile_manifest(
     assert calibration_contract["crop_dimensions"] == {"width": 1200, "height": 800}
 
 
-def test_calibration_contract_uses_measurements_not_fallback_defaults(
+def test_given_measured_pane_when_calibrated_then_measurements_beat_defaults(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1089,7 +1200,7 @@ def test_calibration_contract_uses_measurements_not_fallback_defaults(
     assert contract["confidence"]["consistent"] is True
 
 
-def test_calibration_contract_marks_inconsistent_pane() -> None:
+def test_given_inconsistent_pane_when_calibrated_then_it_is_marked() -> None:
     """Reject calibration contracts when the pane or crop remains unmeasured."""
     # Arrange
     payload = {
@@ -1127,7 +1238,58 @@ def test_calibration_contract_marks_inconsistent_pane() -> None:
     assert contract["confidence"]["failure_reason"] is not None
 
 
-def test_given_feedback_overlay_without_real_rule_then_raises() -> None:
+UIA_ZOOM_SAMPLE = "\n".join(
+    [
+        "0|Pane|guid|Diagram|2|141|1963|1179",
+        "1|Custom||Alpha|654|242|885|392",
+        "2|Text||Alpha|695|305|844|328",
+        "3|Custom||Beta|1910|449|2123|599",
+        "4|Custom|FocusBorder|send data over HTTPS|768|428|1917|524",
+    ]
+)
+# Alpha model 154x100 -> drawn 231x150; Beta model 142x100 -> drawn 213x150.
+UIA_ZOOM_MODEL = {
+    "Alpha": (435.826, 64.0, 589.826, 164.0),
+    "Beta": (1272.522, 202.92, 1414.522, 302.92),
+}
+
+
+def test_given_zoomed_render_when_scale_derived_then_matches_drawn_ratio() -> None:
+    """The pane is screen pixels, so the zoom must come from drawn geometry."""
+    # Act
+    scale = validate_tm7_with_tmt.derive_render_scale(
+        UIA_ZOOM_SAMPLE,
+        UIA_ZOOM_MODEL,
+    )
+
+    # Assert
+    assert scale == pytest.approx(1.5)
+
+
+@pytest.mark.parametrize(
+    ("uia_text", "model_rects"),
+    [
+        ("", UIA_ZOOM_MODEL),
+        (UIA_ZOOM_SAMPLE, {"Absent": (0.0, 0.0, 10.0, 10.0)}),
+        (
+            UIA_ZOOM_SAMPLE,
+            {**UIA_ZOOM_MODEL, "Alpha": (0.0, 0.0, 10.0, 10.0)},
+        ),
+    ],
+)
+def test_given_unusable_samples_when_scale_derived_then_returns_none(
+    uia_text: str,
+    model_rects: dict[str, tuple[float, float, float, float]],
+) -> None:
+    """Too few or disagreeing samples must not yield a confident scale."""
+    # Act
+    scale = validate_tm7_with_tmt.derive_render_scale(uia_text, model_rects)
+
+    # Assert
+    assert scale is None
+
+
+def test_given_feedback_overlay_without_real_rule_when_validated_then_raises() -> None:
     # Arrange
     candidate = {
         "surface_id": "context",
@@ -1145,7 +1307,7 @@ def test_given_feedback_overlay_without_real_rule_then_raises() -> None:
         surface_node_ids={"context": {"trust-zone-portal"}},
     )
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="rule"):
         validate_tm7_with_tmt._build_feedback_overlay(
             spec_path=Path("spec.yaml"),
@@ -1157,6 +1319,82 @@ def test_given_feedback_overlay_without_real_rule_then_raises() -> None:
             generator_profile_sha256="def",
             candidate_path=Path("candidate.tm7"),
             ranking_key=(0, 0, 0, 0.0, "context", "trust-zone-portal", "position"),
+        )
+
+
+def test_given_stopped_run_when_seed_built_then_overlay_validates_with_no_rules() -> (
+    None
+):
+    """A stopped run must still hand a reviewer a fingerprint-valid overlay.
+
+    The five invalidation fingerprints are hashes over spec bytes and sorted
+    model identity sets, so a reviewer cannot author one by hand. Without a
+    seed a stopped run leaves no way to propose a layout correction at all.
+    """
+    # Arrange
+    overlay_context = validate_tm7_with_tmt.tm7_visual_feedback.OverlayContext(
+        model_id="demo-model",
+        spec_path=Path("spec.yaml"),
+        spec_sha256="abc",
+        generator_profile="default",
+        generator_profile_sha256="def",
+        surface_ids={"context", "operational"},
+        surface_node_ids={
+            "context": {"trust-zone-portal"},
+            "operational": {"trust-zone-ops"},
+        },
+    )
+
+    # Act
+    seed = validate_tm7_with_tmt._build_overlay_seed(
+        spec_path=Path("spec.yaml"),
+        overlay_context=overlay_context,
+        iteration_id=0,
+        spec_sha256="abc",
+        generator_profile="default",
+        generator_profile_sha256="def",
+        evidence_dir=Path("evidence"),
+    )
+    validate_tm7_with_tmt.tm7_visual_feedback.validate_layout_overlay(
+        seed,
+        overlay_context,
+    )
+
+    # Assert
+    assert seed["zone_rules"] == []
+    assert seed["node_rules"] == []
+    assert seed["connector_rules"] == []
+    assert seed["surface_rules"] == []
+    assert seed["provenance"]["approval_state"] == "pending"
+    assert {entry["surface_id"] for entry in seed["applies_to"]} == {
+        "context",
+        "operational",
+    }
+
+
+def test_given_no_captured_surface_when_seed_built_then_raises() -> None:
+    """A seed without surfaces would address nothing, so it must fail closed."""
+    # Arrange
+    overlay_context = validate_tm7_with_tmt.tm7_visual_feedback.OverlayContext(
+        model_id="demo-model",
+        spec_path=Path("spec.yaml"),
+        spec_sha256="abc",
+        generator_profile="default",
+        generator_profile_sha256="def",
+        surface_ids=set(),
+        surface_node_ids={},
+    )
+
+    # Act and Assert
+    with pytest.raises(ValueError, match="surface"):
+        validate_tm7_with_tmt._build_overlay_seed(
+            spec_path=Path("spec.yaml"),
+            overlay_context=overlay_context,
+            iteration_id=0,
+            spec_sha256="abc",
+            generator_profile="default",
+            generator_profile_sha256="def",
+            evidence_dir=Path("evidence"),
         )
 
 
@@ -1478,6 +1716,348 @@ def test_given_feedback_loop_when_stop_status_is_normalized_then_returns() -> No
     assert reason == "automated-ready-pending-human"
 
 
+def test_given_generation_failure_when_stop_status_is_normalized_then_preserved() -> (
+    None
+):
+    # Act
+    reason = validate_tm7_with_tmt._normalize_feedback_stop_reason(
+        "candidate-generation-failed",
+        require_feedback_evidence=True,
+        exit_code=validate_tm7_with_tmt.EXIT_ERROR,
+    )
+
+    # Assert
+    assert reason == "candidate-generation-failed"
+
+
+@pytest.mark.parametrize("status", sorted(validate_tm7_with_tmt.FEEDBACK_STOP_REASONS))
+def test_given_declared_stop_reason_when_normalized_then_it_is_returned_unchanged(
+    status: str,
+) -> None:
+    # Act
+    reason = validate_tm7_with_tmt._normalize_feedback_stop_reason(
+        status,
+        require_feedback_evidence=True,
+        exit_code=validate_tm7_with_tmt.EXIT_ERROR,
+    )
+
+    # Assert
+    assert reason == status
+
+
+def test_given_unmapped_status_when_normalized_then_reports_harness_error() -> None:
+    # Act
+    reason = validate_tm7_with_tmt._normalize_feedback_stop_reason(
+        "some-status-the-loop-never-assigns",
+        require_feedback_evidence=False,
+        exit_code=validate_tm7_with_tmt.EXIT_ERROR,
+    )
+
+    # Assert
+    assert reason == "harness-error"
+
+
+@pytest.mark.parametrize(
+    ("require_tmt", "expected_status", "expected_exit"),
+    [
+        (False, "skipped", validate_tm7_with_tmt.EXIT_SUCCESS),
+        (True, "tmt-unavailable", validate_tm7_with_tmt.EXIT_MISSING_TMT),
+    ],
+)
+def test_given_missing_tmt_when_feedback_loop_runs_then_require_tmt_selects_outcome(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    require_tmt: bool,
+    expected_status: str,
+    expected_exit: int,
+) -> None:
+    # Arrange
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "discover_tmt_application",
+        lambda: validate_tm7_with_tmt.TmtDiscovery(path=None),
+    )
+    spec_path = tmp_path / "spec.yaml"
+    _write_feedback_spec(spec_path)
+    evidence_dir = tmp_path / "evidence"
+
+    # Act
+    result = validate_tm7_with_tmt.run_feedback_loop(
+        baseline_model=_input_model(tmp_path),
+        spec_path=spec_path,
+        overlay_input=None,
+        overlay_output=tmp_path / "overlay.json",
+        max_iterations=1,
+        require_feedback_evidence=False,
+        evidence_dir=evidence_dir,
+        require_tmt=require_tmt,
+    )
+
+    # Assert
+    assert result.status == expected_status
+    assert result.exit_code == expected_exit
+    status_payload = json.loads((evidence_dir / "status.json").read_text("utf-8"))
+    assert status_payload["result"] == expected_status
+
+
+def test_given_unexpected_error_when_feedback_loop_runs_then_status_records_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    executable = tmp_path / "ThreatModeling.exe"
+    executable.write_bytes(b"exe")
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "discover_tmt_application",
+        lambda: validate_tm7_with_tmt.TmtDiscovery(
+            path=executable,
+            version=validate_tm7_with_tmt.DEFAULT_PINNED_VERSION,
+            source="test",
+        ),
+    )
+
+    def explode(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("disk vanished")
+
+    monkeypatch.setattr(validate_tm7_with_tmt.generate_tm7, "load_spec", explode)
+    spec_path = tmp_path / "spec.yaml"
+    _write_feedback_spec(spec_path)
+    evidence_dir = tmp_path / "evidence"
+    overlay_output = tmp_path / "overlay.json"
+    overlay_output.write_text('{"stale": true}', encoding="utf-8")
+
+    # Act
+    result = validate_tm7_with_tmt.run_feedback_loop(
+        baseline_model=_input_model(tmp_path),
+        spec_path=spec_path,
+        overlay_input=None,
+        overlay_output=overlay_output,
+        max_iterations=1,
+        require_feedback_evidence=False,
+        evidence_dir=evidence_dir,
+    )
+
+    # Assert
+    assert result.status == "harness-error"
+    assert result.exit_code == validate_tm7_with_tmt.EXIT_ERROR
+    assert not overlay_output.exists()
+    status_payload = json.loads((evidence_dir / "status.json").read_text("utf-8"))
+    assert status_payload["result"] == "harness-error"
+    manifest_payload = json.loads((evidence_dir / "manifest.json").read_text("utf-8"))
+    assert manifest_payload["stop_reason"] == "harness-error"
+
+
+def test_given_overlay_input_equals_output_when_discarded_then_the_file_is_kept(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    overlay = tmp_path / "overlay.json"
+    overlay.write_text('{"rules": []}', encoding="utf-8")
+
+    # Act
+    validate_tm7_with_tmt._discard_stale_overlay(overlay, overlay)
+
+    # Assert
+    assert overlay.exists()
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "../escape.json",
+        "nested/../../escape.json",
+        "surfaces/../../escape.json",
+        "/etc/passwd",
+        "C:\\Windows\\escape.json",
+        "\\\\server\\share\\escape.json",
+    ],
+)
+def test_given_escaping_reference_when_path_resolved_then_it_is_rejected(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    """A traversal must be refused before the parent directory is created."""
+    # Arrange
+    evidence_dir = tmp_path / "evidence"
+    bundle = validate_tm7_with_tmt.EvidenceBundle(evidence_dir)
+
+    # Act and Assert
+    with pytest.raises(validate_tm7_with_tmt.HarnessFailure):
+        bundle.path(relative)
+    assert not (tmp_path / "escape.json").exists()
+
+
+def test_given_nested_reference_when_path_resolved_then_it_stays_inside(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    evidence_dir = tmp_path / "evidence"
+    bundle = validate_tm7_with_tmt.EvidenceBundle(evidence_dir)
+
+    # Act
+    resolved = bundle.path("surfaces/context/metrics.json")
+
+    # Assert
+    assert evidence_dir.resolve() in resolved.parents
+    assert resolved.parent.is_dir()
+
+
+@pytest.mark.parametrize(
+    ("surface_id", "expected"),
+    [
+        ("..", "surface"),
+        ("../..", "surface"),
+        ("context", "context"),
+        ("a/../../b", "a-b"),
+        ("...", "surface"),
+        ("", "surface"),
+    ],
+)
+def test_given_unsafe_surface_id_when_slugged_then_no_traversal_survives(
+    surface_id: str,
+    expected: str,
+) -> None:
+    """The prior rule preserved `.`, so an id of `..` stayed a traversal segment."""
+    # Act
+    slug = validate_tm7_with_tmt._evidence_slug(surface_id)
+
+    # Assert
+    assert slug == expected
+    assert ".." not in slug
+    assert "/" not in slug and "\\" not in slug
+
+
+@pytest.mark.parametrize(
+    "secret_text",
+    [
+        '{"password": "hunter2-should-not-appear"}',
+        "password=hunter2-should-not-appear",
+        "Authorization: Bearer hunter2-should-not-appear",
+        "'client_secret': 'hunter2-should-not-appear'",
+        "https://example.invalid/x?sig=hunter2-should-not-appear",
+        "AccountKey=hunter2-should-not-appear;Other=1",
+    ],
+)
+def test_given_secret_shape_when_redacted_then_the_value_is_removed(
+    tmp_path: Path,
+    secret_text: str,
+) -> None:
+    """Pixels cannot be redacted, but every text sink must drop the value."""
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act
+    redacted = bundle._redact_text(secret_text)
+
+    # Assert
+    assert "hunter2-should-not-appear" not in redacted
+
+
+def test_given_seeded_secrets_when_run_writes_evidence_then_no_sink_leaks_it(
+    tmp_path: Path,
+) -> None:
+    """The canary must not survive in any file the bundle writes."""
+    # Arrange
+    canary = "hunter2-canary-value"
+    evidence_dir = tmp_path / "evidence"
+    bundle = validate_tm7_with_tmt.EvidenceBundle(evidence_dir)
+    payload = {
+        "password": canary,
+        "nested": {"api_key": canary, "safe": "kept"},
+        "free_text": f"Authorization: Bearer {canary}",
+        "listed": [f"client_secret={canary}"],
+    }
+
+    # Act
+    bundle.write_manifest(payload)
+    bundle.write_status(payload)
+    bundle.write_json("surfaces/context/metrics.json", payload)
+    bundle.write_uia_tree(f"password={canary}", "probe.txt")
+    bundle.write_action_log(f"token={canary}")
+
+    # Assert
+    leaked = [
+        str(path)
+        for path in evidence_dir.rglob("*")
+        if path.is_file() and canary in path.read_text(encoding="utf-8")
+    ]
+    assert leaked == []
+    assert "kept" in (evidence_dir / "manifest.json").read_text(encoding="utf-8")
+
+
+def test_given_no_window_isolation_when_capturing_then_it_is_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A desktop-region capture could persist pixels redaction cannot repair."""
+    # Arrange
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "screenshot_isolation_available",
+        lambda: False,
+    )
+
+    # Act and Assert
+    with pytest.raises(
+        validate_tm7_with_tmt.HarnessFailure,
+        match="Screenshot capture is disabled",
+    ):
+        validate_tm7_with_tmt.capture_window_screenshot(
+            object(),
+            tmp_path / "shot.png",
+        )
+    assert not (tmp_path / "shot.png").exists()
+
+
+def test_given_strict_evidence_when_capture_is_refused_then_the_run_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "screenshot_isolation_available",
+        lambda: False,
+    )
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act and Assert
+    with pytest.raises(validate_tm7_with_tmt.HarnessFailure):
+        validate_tm7_with_tmt._capture_or_skip(
+            object(),
+            bundle.path("screenshots/probe.png"),
+            bundle=bundle,
+            require_feedback_evidence=True,
+        )
+
+
+def test_given_relaxed_evidence_when_capture_is_refused_then_the_reason_is_logged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "screenshot_isolation_available",
+        lambda: False,
+    )
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act
+    validate_tm7_with_tmt._capture_or_skip(
+        object(),
+        bundle.path("screenshots/probe.png"),
+        bundle=bundle,
+        require_feedback_evidence=False,
+    )
+
+    # Assert
+    assert "Screenshot capture is disabled" in bundle.action_log_path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_given_surface_payloads_when_scored_then_persists_metrics_and_findings(
     tmp_path: Path,
 ) -> None:
@@ -1794,8 +2374,7 @@ def test_given_unbound_screenshot_guid_when_deriving_then_capture_is_incomplete(
     assert metrics[0]["capture_status"] == "incomplete"
 
 
-def test_given_clean_surfaces_when_building_manifest_then_human_review_stays_pending(
-) -> None:
+def test_given_clean_surfaces_when_manifest_built_then_review_stays_pending() -> None:
     # Arrange
     manifest = validate_tm7_with_tmt.tm7_visual_feedback.build_feedback_manifest(
         model_id="model",
@@ -1843,7 +2422,7 @@ def test_given_approved_surface_when_validating_manifest_then_it_is_rejected() -
     )
     manifest["surfaces"][0]["human_review_status"] = "approved"
 
-    # Act & Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="human_review_status must be pending"):
         validate_tm7_with_tmt.tm7_visual_feedback.validate_feedback_manifest(manifest)
 
@@ -2448,9 +3027,6 @@ def test_given_feedback_loop_when_tmt_is_unavailable_then_reports_feedback_statu
     baseline_model = tmp_path / "baseline.tm7"
     baseline_model.write_text("baseline", encoding="utf-8")
 
-    def explode() -> None:
-        raise AssertionError("discovery should not be skipped")
-
     monkeypatch.setattr(
         validate_tm7_with_tmt,
         "discover_tmt_application",
@@ -2469,6 +3045,7 @@ def test_given_feedback_loop_when_tmt_is_unavailable_then_reports_feedback_statu
         overlay_output=tmp_path / "overlay.yaml",
         max_iterations=1,
         require_feedback_evidence=True,
+        require_tmt=True,
     )
 
     # Assert
@@ -2767,7 +3344,8 @@ def test_given_raw_control_tabs_when_match_is_not_first_then_returns_actual_tab(
     assert selected is not tabs[0]
 
 
-def test_generic_diagram_tabs_are_selected_by_surface_order() -> None:
+def test_given_generic_diagram_tabs_when_selected_then_surface_order_decides() -> None:
+    # Arrange
     tabs = [
         validate_tm7_with_tmt.SurfaceTab(
             control=FakeControl("TabItem", "Diagram"),
@@ -2783,16 +3361,19 @@ def test_generic_diagram_tabs_are_selected_by_surface_order() -> None:
         tab_index=2,
     )
 
+    # Act
     selected = validate_tm7_with_tmt.select_surface_tab(
         FakeWindow("Window", 100, 100),
         surface,
         tabs,
     )
 
+    # Assert
     assert selected is tabs[2].control
 
 
-def test_tmt_document_tabs_exclude_messages_and_notes() -> None:
+def test_given_message_and_note_tabs_when_enumerated_then_they_are_excluded() -> None:
+    # Arrange
     document_tabs = [
         FakeControl("TabItem", "DocumentView, Title Diagram") for _ in range(8)
     ]
@@ -2811,13 +3392,15 @@ def test_tmt_document_tabs_exclude_messages_and_notes() -> None:
         descendants=[*document_tabs, *other_tabs],
     )
 
+    # Act
     tabs = validate_tm7_with_tmt.enumerate_surface_tabs(window)
 
+    # Assert
     assert len(tabs) == 8
     assert [tab.tab_index for tab in tabs] == list(range(8))
 
 
-def test_window_origin_rectangle_crop_returns_window_relative_bounds() -> None:
+def test_given_window_origin_when_cropped_then_bounds_are_window_relative() -> None:
     # Arrange
     class NumericRectangle:
         left = 180
@@ -2881,7 +3464,7 @@ def test_given_strict_surface_capture_when_pane_missing_then_fails(
     )
     window = FakeWindow("Window", 1000, 800)
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(validate_tm7_with_tmt.HarnessFailure):
         validate_tm7_with_tmt.capture_surface_evidence(
             window,
@@ -2892,10 +3475,11 @@ def test_given_strict_surface_capture_when_pane_missing_then_fails(
         )
 
 
-def test_scrollable_surface_captures_deduplicated_corners_and_restores(
+def test_given_scrollable_surface_when_captured_then_corners_dedupe_and_restore(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Arrange
     class ScrollInterface:
         CurrentHorizontalScrollPercent = 25.0
         CurrentVerticalScrollPercent = 40.0
@@ -2934,6 +3518,7 @@ def test_scrollable_surface_captures_deduplicated_corners_and_restores(
         tab_index=0,
     )
 
+    # Act
     payload = validate_tm7_with_tmt.capture_surface_evidence(
         window,
         bundle,
@@ -2942,6 +3527,7 @@ def test_scrollable_surface_captures_deduplicated_corners_and_restores(
         scroll_extent_ratio_y=1.5,
     )
 
+    # Assert
     assert len(payload["scroll_tiles"]) == 4
     assert scroll.positions[:4] == [
         (0.0, 0.0),
@@ -2952,10 +3538,11 @@ def test_scrollable_surface_captures_deduplicated_corners_and_restores(
     assert scroll.positions[-1] == (25.0, 40.0)
 
 
-def test_strict_scrollable_surface_without_scroll_pattern_fails(
+def test_given_no_scroll_pattern_when_strict_capture_then_it_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Arrange
     pane = FakeControl("Pane", "Diagram")
     monkeypatch.setattr(validate_tm7_with_tmt, "find_diagram_pane", lambda _: pane)
     monkeypatch.setattr(
@@ -3003,6 +3590,7 @@ def test_strict_scrollable_surface_without_scroll_pattern_fails(
         tab_index=0,
     )
 
+    # Act and Assert
     with pytest.raises(
         validate_tm7_with_tmt.HarnessFailure,
         match="scroll coverage",
@@ -3287,7 +3875,7 @@ def test_given_clean_model_when_save_is_noop_then_accepts_clean_state(
         lambda window, pattern, control_types: SaveControl(),
     )
 
-    # Act and assert
+    # Act and Assert
     validate_tm7_with_tmt.save_current_model(SaveWindow(), model, 0.01)
 
 
@@ -3413,7 +4001,7 @@ def test_given_switch_click_without_analysis_state_when_opening_then_times_out()
         descendants=[FakeControl("Button", "Switch To Analysis View")],
     )
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(
         validate_tm7_with_tmt.HarnessFailure,
         match="Analysis View was not confirmed",
@@ -3522,7 +4110,7 @@ def test_given_deleted_interaction_export_when_validated_then_fails(
         encoding="utf-8",
     )
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(
         validate_tm7_with_tmt.HarnessFailure,
         match="Deleted interactions",
@@ -3732,7 +4320,7 @@ def test_given_unknown_modal_when_captured_then_fail_closed(
         lambda current, path: path.write_bytes(b"png"),
     )
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(
         validate_tm7_with_tmt.HarnessFailure,
         match="Unexpected modal",
@@ -3993,7 +4581,7 @@ def test_given_template_prompt_when_policy_fail_then_requires_explicit_choice(
     )
     bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
 
-    # Act and assert
+    # Act and Assert
     with pytest.raises(
         validate_tm7_with_tmt.HarnessFailure,
         match="explicit template upgrade policy",
@@ -4100,10 +4688,66 @@ def test_given_probe_mode_when_successful_then_initial_evidence_is_complete(
 
     # Assert
     assert result.status == "passed"
-    assert not workspace.exists()
+    assert workspace.exists()
+    assert not (workspace / validate_tm7_with_tmt.WORKSPACE_CHILD_NAME).exists()
     assert processes and all(process.closed for process in processes)
     assert (evidence / "screenshots" / "initial-open.png").exists()
     assert (evidence / "uia" / "initial-open.txt").exists()
+
+
+def test_given_populated_workspace_root_when_run_succeeds_then_caller_content_lives(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    _patch_successful_automation(monkeypatch, tmp_path)
+    evidence = tmp_path / "evidence"
+    workspace_root = tmp_path / "operator-documents"
+    workspace_root.mkdir()
+    sentinel = workspace_root / "important.txt"
+    sentinel.write_text("operator content", encoding="utf-8")
+    nested = workspace_root / "nested"
+    nested.mkdir()
+    (nested / "deep.txt").write_text("nested content", encoding="utf-8")
+
+    # Act
+    result = validate_tm7_with_tmt.run_harness(
+        input_model=_input_model(tmp_path),
+        evidence_dir=evidence,
+        mode="probe",
+        require_tmt=True,
+        workspace_root=workspace_root,
+    )
+
+    # Assert
+    assert result.status == "passed"
+    assert sentinel.read_text(encoding="utf-8") == "operator content"
+    assert (nested / "deep.txt").read_text(encoding="utf-8") == "nested content"
+    assert not (workspace_root / validate_tm7_with_tmt.WORKSPACE_CHILD_NAME).exists()
+
+
+def test_given_junction_inside_workspace_when_cleaned_then_link_target_survives(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    workspace = tmp_path / "owned"
+    validate_tm7_with_tmt.mark_workspace_owned(workspace)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "protected.txt"
+    protected.write_text("must survive", encoding="utf-8")
+    link = workspace / "link"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory link creation is unavailable in this environment")
+
+    # Act
+    validate_tm7_with_tmt._remove_owned_workspace(workspace)
+
+    # Assert
+    assert not workspace.exists()
+    assert protected.read_text(encoding="utf-8") == "must survive"
 
 
 def test_given_calibration_smoke_when_measured_then_writes_same_run_contract(
@@ -4258,7 +4902,7 @@ def test_given_declined_template_when_reopened_then_declines_again(
     assert policies == ["decline", "decline"]
 
 
-def test_given_compare_mode_without_second_candidate_then_returns_usage_error(
+def test_given_compare_mode_without_second_candidate_when_run_then_usage_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4305,17 +4949,20 @@ def test_given_status_when_written_then_version_inventory_is_auditable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Arrange
     _patch_successful_automation(monkeypatch, tmp_path)
     evidence = tmp_path / "evidence"
 
+    # Act
     validate_tm7_with_tmt.run_harness(
         input_model=_input_model(tmp_path),
         evidence_dir=evidence,
         mode="probe",
         require_tmt=True,
     )
-    status = json.loads((evidence / "status.json").read_text(encoding="utf-8"))
 
+    # Assert
+    status = json.loads((evidence / "status.json").read_text(encoding="utf-8"))
     assert status["required_tmt_version"] == "7.3.51110.1"
     assert status["observed_tmt_version"] == "7.3.51110.1"
     assert status["evidence_schema_version"] == 1

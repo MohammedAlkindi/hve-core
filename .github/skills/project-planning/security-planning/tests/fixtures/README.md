@@ -1,7 +1,7 @@
 ---
 title: TM7 test fixtures
 description: Provenance, licensing, and maintenance rules for the TM7 test fixtures.
-ms.date: 2026-08-02
+ms.date: 2026-08-05
 ms.topic: reference
 ---
 

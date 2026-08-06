@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tm7_threat_contract import MAX_SPEC_BYTES, read_bounded_bytes
 
 LAYOUT_OVERLAY_SCHEMA_VERSION = 2
 FEEDBACK_MANIFEST_SCHEMA_VERSION = 2
@@ -350,11 +351,22 @@ def build_connector_label_layout(
     transport_text = _normalize_transport_label(transport)
     display_label = " over ".join(part for part in [label_text, transport_text] if part)
     label_lines = _wrap_label_lines(display_label)
-    left = max(float(handle[0]) + float((label_offset or (0.0, 0.0))[0]), 24.0)
-    top = max(float(handle[1]) + float((label_offset or (0.0, 0.0))[1]), 24.0)
     max_line_length = max(len(line) for line in label_lines)
     width = max(120.0, min(260.0, float(max_line_length * 8 + 16)))
     height = max(28.0, float(len(label_lines) * 24 + 8))
+    # TMT draws the label centred on the handle point, so the predicted rect
+    # is derived from the centre outwards. Anchoring the rect's top-left at
+    # the handle would displace every prediction by half the label extent and
+    # make collision avoidance optimize against geometry that is not drawn.
+    center_x = float(handle[0]) + float((label_offset or (0.0, 0.0))[0])
+    center_y = float(handle[1]) + float((label_offset or (0.0, 0.0))[1])
+    # Centre-derived rects can land left of or above the canvas origin. Clamping
+    # keeps the predicted rect on-canvas. An unclamped negative rect reaches
+    # surface extents and shifts the whole layout by an amount that depends on
+    # which connector was measured first, so the same model laid out from
+    # differently ordered inputs would not match.
+    left = max(center_x - width / 2.0, 24.0)
+    top = max(center_y - height / 2.0, 24.0)
     return {
         "display_label": display_label,
         "label_lines": label_lines,
@@ -433,43 +445,102 @@ def _segment_intersects_segment(
     return orientation_a != orientation_b and orientation_c != orientation_d
 
 
+def segment_intersects_bounds(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    left: float,
+    top: float,
+    right: float,
+    bottom: float,
+) -> bool:
+    """Return True when a closed segment meets a closed axis-aligned rectangle.
+
+    This is the single production algorithm for segment-rectangle contact. It
+    uses Liang-Barsky parametric clipping, which resolves tangent and
+    corner-grazing contact that an edge-enumeration test misses whenever the
+    contact happens away from a segment endpoint. Contact is closed on both
+    operands: a connector that runs exactly along a node border does overlap it
+    visually, so it must count as intersecting.
+
+    Callers hold rectangles in two different shapes, so they route through
+    ``rect_bounds_from_ltwh`` or ``rect_bounds_from_ltrb`` rather than
+    reimplementing the test.
+    """
+    start_x, start_y = start
+    end_x, end_y = end
+    delta_x = end_x - start_x
+    delta_y = end_y - start_y
+    # Liang-Barsky: each boundary contributes an inequality p*t <= q. A zero
+    # p means the segment is parallel to that boundary, so a negative q puts it
+    # wholly outside and no value of t can recover it.
+    directions = (-delta_x, delta_x, -delta_y, delta_y)
+    distances = (start_x - left, right - start_x, start_y - top, bottom - start_y)
+    enter = 0.0
+    exit_ = 1.0
+    for direction, distance in zip(directions, distances, strict=True):
+        if direction == 0:
+            if distance < 0:
+                return False
+            continue
+        parameter = distance / direction
+        if direction < 0:
+            enter = max(enter, parameter)
+        else:
+            exit_ = min(exit_, parameter)
+        if enter > exit_:
+            return False
+    return True
+
+
+def rect_bounds_from_ltwh(rect: dict[str, float]) -> tuple[float, float, float, float]:
+    """Adapt a left/top/width/height mapping to closed bounds."""
+    left = float(rect["left"])
+    top = float(rect["top"])
+    return (left, top, left + float(rect["width"]), top + float(rect["height"]))
+
+
+def rect_bounds_from_ltrb(
+    rect: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """Adapt a left/top/right/bottom tuple to closed bounds."""
+    return (float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3]))
+
+
 def _segment_intersects_rect(
     start: tuple[float, float],
     end: tuple[float, float],
     rect: tuple[float, float, float, float],
 ) -> bool:
-    left, top, right, bottom = rect
-    if start[0] == end[0] and start[1] == end[1]:
-        return left <= start[0] <= right and top <= start[1] <= bottom
-    if left <= start[0] <= right and top <= start[1] <= bottom:
-        return True
-    if left <= end[0] <= right and top <= end[1] <= bottom:
-        return True
-    edges = [
-        ((left, top), (right, top)),
-        ((right, top), (right, bottom)),
-        ((right, bottom), (left, bottom)),
-        ((left, bottom), (left, top)),
-    ]
-    return any(
-        _segment_intersects_segment(start, end, edge_start, edge_end)
-        for edge_start, edge_end in edges
-    )
+    return segment_intersects_bounds(start, end, *rect_bounds_from_ltrb(rect))
 
 
 def load_layout_overlay(path: Path) -> dict[str, Any]:
-    """Load a YAML or JSON overlay from disk."""
+    """Load a YAML or JSON overlay from disk.
+
+    The file size is checked before parsing so an oversized overlay cannot be
+    expanded in memory ahead of schema validation.
+
+    Args:
+        path: Overlay file to load.
+
+    Returns:
+        Parsed overlay mapping.
+
+    Raises:
+        FileNotFoundError: If the overlay does not exist.
+        InputTooLargeError: If the overlay exceeds its documented ceiling.
+        ValueError: If the overlay is not a mapping.
+    """
 
     resolved_path = Path(path)
     if not resolved_path.exists():
         raise FileNotFoundError(resolved_path)
-    with resolved_path.open("r", encoding="utf-8") as handle:
-        if resolved_path.suffix.lower() in {".yaml", ".yml"}:
-            payload = yaml.safe_load(handle)
-        elif resolved_path.suffix.lower() == ".json":
-            payload = json.load(handle)
-        else:
-            payload = yaml.safe_load(handle)
+    data = read_bounded_bytes(resolved_path, MAX_SPEC_BYTES)
+    text = data.decode("utf-8")
+    if resolved_path.suffix.lower() == ".json":
+        payload = json.loads(text)
+    else:
+        payload = yaml.safe_load(text)
     if not isinstance(payload, dict):
         raise ValueError("overlay must be a mapping")
     return payload
@@ -1348,9 +1419,7 @@ def derive_composition_metrics(surface_geometry: SurfaceGeometry) -> dict[str, A
             ordered_pairs += 1
             if (rank_b - rank_a) * (position_b - position_a) > 0.0:
                 monotonic_pairs += 1
-    rank_monotonicity_ratio = (
-        monotonic_pairs / ordered_pairs if ordered_pairs else 1.0
-    )
+    rank_monotonicity_ratio = monotonic_pairs / ordered_pairs if ordered_pairs else 1.0
 
     zone_fill_ratios: list[float] = []
     for zone_id, zone_rect in sorted(surface_geometry.zone_content_rects.items()):
@@ -1921,9 +1990,7 @@ def derive_findings(metrics: dict[str, Any], *, density: str) -> list[dict[str, 
         )
 
     if "viewport_fill_width_ratio" in metrics:
-        viewport_fill_width_ratio = float(
-            metrics.get("viewport_fill_width_ratio", 1.0)
-        )
+        viewport_fill_width_ratio = float(metrics.get("viewport_fill_width_ratio", 1.0))
         _append_metric(
             metric_name="viewport_fill_width_ratio",
             metric_value=viewport_fill_width_ratio,
@@ -2651,15 +2718,13 @@ def score_surface_layout_candidate(
 ) -> tuple[float, float, float, float, float]:
     """Score a whole-surface layout candidate using the deterministic tuple order.
 
-    The tuple declares only dimensions this function actually computes:
-    viewport fit, reverse-edge ambiguity, branch order, total edge length, and
-    semantic stability. Six further dimensions were previously declared and
-    returned as constant 0.0 - tile coverage, label collision, connector
-    crossing, unrelated node hits, boundary crossing, and whitespace. Every one
-    of them needs laid-out geometry, and a candidate carries only graph
-    topology, so they could never be computed here. Constant members also never
-    discriminate between candidates, so the stop decision was made on a score
-    that silently ignored six of the eleven dimensions it advertised.
+    The tuple declares only dimensions this function can compute from a
+    candidate: viewport fit, reverse-edge ambiguity, branch order, total edge
+    length, and semantic stability. Geometry-dependent dimensions such as tile
+    coverage, label collision, connector crossing, unrelated node hits, boundary
+    crossing, and whitespace need a laid-out surface, which a candidate does not
+    carry, so they are scored after layout rather than declared here as members
+    that could only ever be constant.
     """
     if isinstance(viewport_target, dict):
         viewport = (

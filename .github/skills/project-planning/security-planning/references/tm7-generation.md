@@ -1,15 +1,14 @@
 ---
 title: TM7 Generation Format Contract
 description: OTM-aligned input schema, mapping reference, template profile contract, and current native feedback workflow for TM7 generation.
-ms.date: 2026-07-17
+ms.date: 2026-08-05
 ms.topic: reference
 ---
 
-<!-- markdownlint-disable-file -->
 
 ## TM7 generation reference
 
-This document records the phase-validated wire facts and the current input-contract decisions for the TM7 generation extension. The content is intentionally independent of the upstream OTM schema wording and is aligned to OTM concepts for interoperability rather than copied from the upstream document.
+This document records the verified wire facts and the current input-contract decisions for the TM7 generation extension. The content is intentionally independent of the upstream OTM schema wording and is aligned to OTM concepts for interoperability rather than copied from the upstream document.
 
 ## Native TM7 visual feedback workflow
 
@@ -17,16 +16,34 @@ The skill also supports an opt-in, Windows-local feedback loop that replays a va
 
 ### Current CLI contract
 
-The current parser accepts:
+`generate_tm7.py` takes the spec as its positional argument and accepts:
 
-- `--feedback-loop` to enable the bounded native feedback loop
-- `--spec` to supply the threat-model spec used for overlay invalidation and replay
-- `--overlay-input` to replay an existing overlay payload
-- `--overlay-output` to write the final pending overlay payload
-- `--max-iterations` with a value from `1` through `3` for the number of refinement iterations after the baseline
-- `--require-feedback-evidence` to require per-surface screenshot, UIA, metrics, and findings evidence before the run is accepted
+* `-o` / `--output` for the generated `.tm7` path, defaulting to `out.tm7`
+* `--template` to select a template profile, defaulting to the spec value or `sdl_core_generic`
+* `--mode` with `pre-populated-comprehensive` or `diagram-only-defer-to-tmt`
+* `--update` to merge the generated output onto an existing TM7 model
+* `--overlay-input` to replay a validated layout overlay onto the generated model
+* `--threat-generation-enabled` to synthesize STRIDE-per-element threats and emit `ThreatGenerationEnabled=true`
 
-The native harness also requires a positional input model, `--evidence-dir`, and the pinned Microsoft Threat Modeling Tool version `7.3.51110.1`. The current implementation treats the workflow as a local UI Automation workflow that must run on Windows with an interactive desktop session. The run stops as `tmt-unavailable` on non-Windows hosts or when TMT cannot be discovered, and it reports `version-mismatch`, `automation-timeout`, or `unexpected-modal` when the runtime environment diverges from the expected harness contract.
+`validate_tm7_with_tmt.py` takes the input model as its positional argument, always requires `--evidence-dir`, and selects behavior through `--mode`:
+
+| Harness mode               | Purpose                                                                       |
+|----------------------------|-------------------------------------------------------------------------------|
+| `probe`                    | Confirm TMT is present, trusted, and at the pinned version without validating |
+| `calibration-smoke`        | Short bounded run used to calibrate capture and layout metrics                |
+| `validate`                 | Default mode; open the model in TMT and validate load fidelity                |
+| `compare-generation-state` | Compare the model against `--comparison-model` for generation drift           |
+| `upgrade-template`         | Exercise the TMT template-upgrade prompt and write `--upgraded-model-output`  |
+
+The remaining flags group as follows:
+
+* Feedback loop: `--feedback-loop`, `--spec`, `--overlay-input`, `--overlay-output`, `--max-iterations` (`1` through `3`, default `3`), and `--require-feedback-evidence` to require per-surface screenshot, UIA, metrics, and findings evidence before the run is accepted
+* Template upgrade: `--template-upgrade-policy` with `fail` (default), `decline`, or `apply`, plus `--delete-stale-threats` to drop stale threats while applying a newer template
+* Environment: `--require-tmt` to fail rather than skip when TMT is absent, `--pinned-version` (default `7.3.51110.1`), `--workspace-root` to relocate the runtime workspace, `--timeout-seconds` (default `60`), and `--diagnostic-override`
+* Expectations: `--expected-threat-count` (default `80`) and `--expected-custom-type-count`
+* `-v` / `--verbose` for debug logging
+
+The native harness requires the pinned Microsoft Threat Modeling Tool version and treats the workflow as a local UI Automation workflow that must run on Windows with an interactive desktop session. The run stops as `tmt-unavailable` on non-Windows hosts or when TMT cannot be discovered, and it reports `version-mismatch`, `automation-timeout`, or `unexpected-modal` when the runtime environment diverges from the expected harness contract.
 
 The feedback loop is operator-safe by contract: the operator should not interact with the mouse, keyboard, or windows while the harness is running. The harness announces the start of automation, surfaces baseline/refinement candidate progress, and emits a release notice once the loop completes or aborts so the operator knows the computer can be used again. The workflow may open, close, and reopen TMT more than once to complete save/reopen validation.
 
@@ -38,19 +55,42 @@ Each run writes a redacted evidence bundle rooted at the requested evidence dire
 
 The deterministic geometry gates are separate from the advisory screenshot heuristics. The current implementation treats the following geometry findings as review or warning gates:
 
-- `overlap_ratio > 0.03` becomes a review finding, while `overlap_ratio >= 0.01` becomes a warning
-- `edge_node_intersections > 2` becomes a review finding, while `edge_node_intersections > 0` becomes a warning
-- `edge_crossing_count > 2` becomes a review finding in non-dense layouts, while dense layouts warn at `>= 1`
-- `min_spacing_ratio < 0.3` becomes a review finding, while `min_spacing_ratio < 0.6` becomes a warning
-- a missing or incomplete surface capture is a review finding
+* `overlap_ratio > 0.03` becomes a review finding, while `overlap_ratio >= 0.01` becomes a warning
+* `edge_node_intersections > 2` becomes a review finding, while `edge_node_intersections > 0` becomes a warning
+* `edge_crossing_count > 2` becomes a review finding in non-dense layouts, while dense layouts warn at `>= 1`
+* `min_spacing_ratio < 0.24` becomes a review finding, while `min_spacing_ratio < 0.6` becomes a warning
+* a missing or incomplete surface capture is a review finding
 
 Screenshot heuristics are advisory. They can raise a review finding when the image analysis indicates a likely defect, but they do not override deterministic geometry gates or the human semantic review step.
 
-The loop uses the stable stop reasons `gates-cleared`, `repeated-defect-no-improvement`, `max-iterations`, `evidence-incomplete`, `semantic-regression`, `tmt-unavailable`, `version-mismatch`, `automation-timeout`, and `unexpected-modal`. A baseline run plus three refinement iterations is the maximum bounded execution. Semantic regression is evaluated against the baseline model identity and blocks promotion even when the geometry score improves.
+The loop uses the stable stop reasons `automated-ready-pending-human`, `repeated-defect-no-improvement`, `max-iterations`, `evidence-incomplete`, `semantic-regression`, `candidate-generation-failed`, `overlay-validation-failed`, `tmt-unavailable`, `skipped`, `version-mismatch`, `automation-timeout`, `unexpected-modal`, and `harness-error`. Every outcome the loop assigns is one of these reasons, and an outcome that is not is reported as `harness-error` rather than collapsed into `unexpected-modal`; a generator, overlay, or harness failure is never described as a blocking dialog. `automated-ready-pending-human` is the success reason and states exactly what it means: the automated gates are satisfied and the result is waiting for human review. It is not an approval. A baseline run plus three refinement iterations is the maximum bounded execution. Semantic regression is evaluated against the baseline model identity and blocks promotion even when the geometry score improves.
+
+When TMT is not discovered, `--require-tmt` decides the outcome: with the flag the run stops as `tmt-unavailable` with exit `3`, and without it the run stops as `skipped` with exit `0`. A run that publishes no overlay removes any file already at `--overlay-output`, so an earlier run's overlay is never mistaken for the current result. The only exception is a caller that points `--overlay-input` and `--overlay-output` at the same file.
 
 ### Overlay schema and invalidation
 
-The feedback overlay is a versioned payload with `schema_version`, `overlay_type`, `model_id`, `overlay_id`, `applies_to`, `rules`, `provenance`, and `invalidation` fields. The overlay schema accepts `position`, `relative_to`, and `keep_route_clear` rules and requires `approval_state: pending` for overlays emitted by automation. Invalidation is based on the spec fingerprint, generator-profile fingerprint, and a deterministic surface-identity fingerprint. These checks reject stale or tampered overlays before a candidate model is generated.
+The feedback overlay is a versioned payload with `schema_version`, `overlay_type`, `model_id`, `overlay_id`, `applies_to`, `provenance`, `approval_state`, and `invalidation` fields. Layout intent is carried in four named rule collections rather than one generic `rules` list:
+
+| Collection        | Governs                                                            |
+|-------------------|--------------------------------------------------------------------|
+| `zone_rules`      | Trust-boundary zone placement, sizing, and containment             |
+| `node_rules`      | Element placement within its owning zone                           |
+| `connector_rules` | Data-flow routing and handle positioning                           |
+| `surface_rules`   | Surface-wide layout settings that apply to a whole drawing surface |
+
+Overlays emitted by automation must carry `approval_state: pending`. Invalidation requires a complete fingerprint block; a partial block is rejected rather than backfilled. All five fingerprints must be present and must match:
+
+* `spec_fingerprint`
+* `generator_profile_fingerprint`
+* `surface_identity_fingerprint`
+* `surface_zone_identity_fingerprint`
+* `surface_flow_identity_fingerprint`
+
+These checks reject stale or tampered overlays before a candidate model is generated.
+
+A stopped run can also publish an overlay seed. When the loop stops for layout exhaustion, meaning `repeated-defect-no-improvement` or `max-iterations`, it writes a valid overlay to `--overlay-output` carrying correct fingerprints, `approval_state: pending`, and all four rule collections empty. The empty collections are the signal that automation found no correction to publish. A correctness stop such as `semantic-regression`, an incomplete capture, or an environment failure publishes no seed at all.
+
+Because the five fingerprints are hashes over spec bytes and sorted model identity sets, they are derived rather than authored. The seed is therefore the only practical starting point for a hand-authored or agent-authored overlay.
 
 ### Windows-local example
 
@@ -67,7 +107,133 @@ uv run --project .github/skills/project-planning/security-planning --group windo
 
 Human approval remains the external review action. The automation writes pending overlays only and keeps the canonical baseline unchanged until a reviewer explicitly promotes a result outside this loop.
 
-> This schema is an independently authored HVE-Core artifact and is not a verbatim copy of the Open Threat Model (OTM) specification. It is aligned to OTM concepts and terminology for interoperability and was informed by the OTM project maintained by IriusRisk: https://github.com/iriusrisk/OpenThreatModel. OTM is licensed under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0), https://creativecommons.org/licenses/by-sa/4.0/. Any adaptation or redistribution should preserve this attribution and apply the same CC BY-SA terms where applicable.
+### Agent-assisted visual review
+
+Deterministic metrics cannot see every layout defect. TM7 persists no connector label geometry, and UI Automation exposes no label element for a connector: the tree carries only a `FocusBorder` spanning the whole route. An agent that reads the rendered screenshots can see defects that no metric will ever score, and this section defines how that observation becomes a layout correction.
+
+Treat the protocol as a documented capability rather than a validated remedy. Its end-to-end effectiveness has not yet been demonstrated on a real defect.
+
+#### Protocol
+
+1. Run the harness with `--feedback-loop` and let it write the evidence bundle.
+2. Read `iterations/*/screenshots/*.png` alongside `feedback-manifest.json` at the evidence root and the UI Automation tree at each surface's `uia_path`.
+3. Judge the render against the defect classes no metric covers: label-on-node collision, label-on-label overlap, unreadable or truncated label text, connector routing through empty space, and visual crowding that leaves individually legible elements unreadable as a whole.
+4. Translate the observation into model coordinates using the procedure below. This is the step where the procedure succeeds or fails.
+5. Author rules into the published overlay seed, using any of `zone_rules`, `node_rules`, `connector_rules`, and `surface_rules`. Leave the `invalidation` block untouched; editing a fingerprint invalidates the overlay.
+6. Replay the edited overlay with `--overlay-input` and compare the new screenshots against the previous iteration.
+7. Stop after at most three attempts for a given surface, or earlier once the defect is resolved. This bound governs agent attempts and is counted separately from the harness's own iteration budget.
+
+#### Rule fields
+
+Each collection accepts a fixed key set, and an unknown key is rejected rather than ignored. [assets/schemas/tm7-layout-overlay.schema.json](../assets/schemas/tm7-layout-overlay.schema.json) is the authoritative schema.
+
+| Collection        | Accepted keys                                                                         |
+|-------------------|---------------------------------------------------------------------------------------|
+| `zone_rules`      | `surface_id`, `zone_id`, `region`, `label_band_height`, `lane_order`                  |
+| `node_rules`      | `surface_id`, `node_id`, `layout_role`, `absolute_position`, `relative_placement`     |
+| `connector_rules` | `surface_id`, `flow_id`, `source_port`, `target_port`, `handle_point`, `label_offset` |
+| `surface_rules`   | `surface_id`, `zone_order`, `orientation`, `viewport_target`, `outer_margin`          |
+
+Rule values are absolute model coordinates, not displacements. A translation step yields how far an element must move; the rule requires where it must end up. Read the current value from the candidate model in the iteration bundle, such as `iterations/00-baseline/candidate-00-baseline.tm7`, and add the displacement to it. For a connector, the current handle is the `HandleX` and `HandleY` pair on that flow.
+
+#### Coordinate translation
+
+`feedback-manifest.json` carries no node rectangles. Its per-surface keys are `capture_path`, `findings`, `human_review_required`, `human_review_status`, `metrics`, `surface_guid`, `surface_id`, `surface_name`, and `uia_path`; there is no `surface_geometry` key at all.
+
+Rendered rectangles come from the UI Automation tree at `uia_path`, one element per line in pipe-delimited form:
+
+```text
+8|Custom||VS Code Extension|654|242|885|392
+```
+
+The trailing four fields are left, top, right, and bottom in screen pixels, keyed by the element name that precedes them. A drawn node appears as a `Custom` row whose automation id is empty, which is the empty field between `Custom` and the name.
+
+TMT renders the model faithfully at a uniform 1.5x zoom. A least-squares fit over eight nodes measured an x scale of 1.5001 and a y scale of 1.4926 with a maximum residual of 1.1 pixels. Model coordinates are therefore recoverable as `(screen - offset) / 1.5`, and the shared offset cancels whenever two rectangles on the same surface are compared, so a displacement can be computed without ever resolving the origin.
+
+Worked example: a label whose right edge sits 60 screen pixels inside a node's left edge overlaps that node by `60 / 1.5`, which is 40 model units. Clearing it with a margin of 10 model units requires a displacement of 50 model units, not 50 pixels. State every displacement in model units, because rule values are model coordinates and a pixel figure pasted into a rule moves the element half again as far as intended.
+
+#### Connector label placement
+
+Three measured facts govern any rule that moves a connector label:
+
+* `handle_point` is the only lever that reaches the renderer. It is serialized as `HandleX` and `HandleY` on the connector.
+* `label_offset` does not reach the renderer. It feeds the generator's own placement search and shapes the predicted `label_rect`, which is never written to the model. Authoring `label_offset` alone to move a drawn label produces no visible change.
+* TMT draws each connector label centred on its handle point. It does not place the label's top-left corner there. Four labels on the `ctx-01` surface were extracted from a render screenshot and all four fit `label_centre_screen = 1.5 * handle_model + (-4.5, -3)` exactly on both axes. A competing hypothesis that labels anchor to the route midpoint was ruled out by the same measurement.
+
+To move a label, move `handle_point` by the required model displacement and predict the resulting position by assuming centring.
+
+#### Constraints
+
+* The agent proposes; it never promotes. `approval_state` stays `pending`, and human semantic review remains the authority for whether a layout is acceptable.
+* Semantic identity is immutable. A layout correction may move things; it may never add, remove, or rename an element, flow, or zone. `validate_layout_overlay` enforces this.
+* `surface_rules` may enlarge the canvas. Enlarging trades a clipped diagram for a scrolled one, and it is the only available remedy for genuine viewport overflow, so record why node and connector rules were insufficient. That rationale goes in the review record accompanying the overlay, not in the overlay itself: `provenance` accepts only `evidence_ref`, `generated_at`, and `approval_state`, and any other key is rejected.
+* An agent-authored overlay is evidence, not truth. Record which iteration and which screenshot motivated each rule.
+
+### Operator runbook
+
+#### Prerequisites
+
+Confirm all of the following before starting a feedback run. The harness stops rather than degrading when any of them is missing.
+
+* Windows with an interactive, unlocked desktop session. A remote session that disconnects, a locked workstation, or a screensaver breaks UI Automation and screen capture.
+* Microsoft Threat Modeling Tool at the pinned version, installed for the current user and launchable from the desktop.
+* The `windows` dependency group installed, because the UI Automation and capture dependencies are not in the default group.
+* The baseline model and the spec that produced it. The harness regenerates candidates from the spec, so a spec that no longer matches the model invalidates the overlay.
+* A writable evidence directory on a local disk that either does not already exist or is owned by the harness. Avoid a synced or network folder; capture and manifest writes are frequent, and the harness refuses to remove directories it did not create.
+* No already-open Threat Modeling Tool windows. The harness opens, closes, and reopens the tool, and a pre-existing window can capture the automation.
+* No unsaved work in other applications, and no scheduled task, update, or notification popup expected during the run.
+* An uninterrupted window of operator time, because the operator must not use the mouse, keyboard, or switch windows while the loop runs.
+
+Run `--mode probe` first. It confirms the tool is present, trusted, and at the pinned version without performing a validation or feedback run, and it is the cheapest way to catch an environment problem.
+
+#### While the run is active
+
+The harness drives the real TMT window. Once it announces the start of automation, do not use the mouse or keyboard and do not switch windows. The harness reports baseline and refinement candidate progress as it goes, and the loop may open, close, and reopen TMT more than once to complete save and reopen validation. Treat the release notice, emitted when the loop completes or aborts, as the signal that the machine is usable again.
+
+#### Aborting
+
+Press `Ctrl+C` in the terminal running the harness. The harness records a stopped run and writes `status.json`. Closing the TMT window by hand instead is not an abort: the harness reports `unexpected-modal` or `automation-timeout`, and the evidence bundle records a failure that did not happen for the reason it names.
+
+Because the tool may be mid-open, expect to close a stray Threat Modeling Tool window by hand after any abort and before starting another run. An aborted run leaves whatever evidence was already written in place; that partial bundle is diagnostic only and does not satisfy `--require-feedback-evidence`.
+
+#### Reading the outcome
+
+Read `status.json` at the evidence root first. It carries the stop reason and the exit code, and it is written even when the run fails, so a missing `status.json` means the process was killed before it could record an outcome.
+
+| Stop reason                      | Exit | What it means                                                                 | Operator action                                                                                          |
+|----------------------------------|------|-------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `automated-ready-pending-human`  | `0`  | Automated gates passed                                                        | Perform the human semantic review before any promotion; this is not an approval                          |
+| `repeated-defect-no-improvement` | `8`  | The same defect persisted across iterations without improvement               | Inspect the findings and the published overlay seed; the defect needs a spec, profile, or layout change  |
+| `max-iterations`                 | `8`  | The bounded iteration budget was exhausted before the gates cleared           | Review the best candidate manually; more iterations are not available by design                          |
+| `evidence-incomplete`            | `7`  | Required per-surface evidence was missing under `--require-feedback-evidence` | Check the iteration bundles for the missing capture, then rerun on a stable desktop session              |
+| `semantic-regression`            | `1`  | A candidate diverged from the baseline model identity                         | Do not promote; treat the overlay as rejected, reconcile the spec, and review the layout intent          |
+| `candidate-generation-failed`    | `2`  | Regenerating a candidate from the spec or overlay failed                      | Fix the generation error reported in `status.json`; the model and spec are untouched                     |
+| `overlay-validation-failed`      | `2`  | A produced overlay failed its own schema or fingerprint validation            | Report the validation message in `status.json`; the model and spec are untouched                         |
+| `harness-error`                  | `2`  | The harness itself failed outside the automation contract                     | Read `status.json` for the failure message; no overlay was published                                     |
+| `skipped`                        | `0`  | TMT was absent and `--require-tmt` was not set                                | None; run on a host with the pinned TMT, or pass `--require-tmt` to make absence a failure               |
+| `tmt-unavailable`                | `3`  | TMT was absent or untrusted, or the host is not Windows                       | Verify the install and rerun `--mode probe`; the harness refuses untrusted executables                   |
+| `version-mismatch`               | `4`  | The discovered TMT is not the pinned version                                  | Install the pinned version or set `--pinned-version` deliberately                                        |
+| `automation-timeout`             | `5`  | A UI Automation step exceeded `--timeout-seconds`                             | Confirm the session is unlocked and interactive, then retry; raise `--timeout-seconds` on a slow machine |
+| `unexpected-modal`               | `6`  | An unrecognized dialog blocked automation                                     | Inspect the final screenshot in the bundle, reproduce the dialog manually, dismiss its cause, then rerun |
+
+#### Evidence
+
+Every run writes a redacted bundle under `--evidence-dir`. Read `status.json` for the outcome and stop reason, `manifest.json` for the per-surface validation record, `feedback-manifest.json` for the per-surface feedback record, and `action.log` for the automation sequence. Per-iteration screenshots, UIA snapshots, summaries, and the generated candidate model live under `iterations/`. Every evidence path is confined to the evidence directory, and an identifier taken from the spec is reduced to a single safe path segment before it names a file.
+
+Redaction covers text evidence only. Screenshots are pixels and are never redacted, so treat them as the most sensitive artifact in the bundle. Capture is refused unless the host can address a single native window handle; where that is unavailable no screenshot is written, and a run under `--require-feedback-evidence` fails closed rather than continuing without one. Review a bundle before sharing it outside the machine that produced it.
+
+#### Recovery and rollback
+
+The loop never mutates the canonical baseline model or spec and never promotes an overlay, so recovery is bounded:
+
+* To discard a run entirely, delete its evidence directory and the file written to `--overlay-output`. Nothing outside those paths changed, and because generation is deterministic for a given spec and generator version, the baseline can always be regenerated from the spec rather than restored from a copy.
+* To retry a failed run, re-run the same command. Evidence directories are per-run; do not reuse one across runs you intend to compare.
+* To reuse a good layout, pass the pending overlay from `--overlay-output` back in through `--overlay-input`. If the spec or profile changed since the overlay was written, the fingerprint check rejects it and you regenerate from the baseline instead.
+* If a stray Threat Modeling Tool window or a temporary workspace survives an abort, close the window and delete the workspace directory manually. The harness only auto-removes workspaces it marked as its own.
+
+An overlay is only ever promoted by an explicit human action outside this loop. If a pending overlay was promoted and later found wrong, revert the promotion in version control; no harness flag reverses it.
+
+> This schema is an independently authored HVE-Core artifact and is not a verbatim copy of the Open Threat Model (OTM) specification. It is aligned to OTM concepts and terminology for interoperability and was informed by the OTM project maintained by IriusRisk: [OpenThreatModel](https://github.com/iriusrisk/OpenThreatModel). OTM is licensed under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0), [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Any adaptation or redistribution should preserve this attribution and apply the same CC BY-SA terms where applicable.
 
 ## Canonical input schema
 
@@ -217,6 +383,36 @@ The portable validator rejects non-endpoint placement when the override is absen
 unreviewed, or lacks a rationale. Human review remains required; automated tooling
 does not set `reviewed: true` on behalf of a reviewer.
 
+### Data flow endpoints
+
+A data flow must connect two different elements. `source_ref` and `target_ref`
+that name the same element are rejected during model construction, and the
+diagnostic names every offending flow id in sorted order.
+
+Connector anchors are derived from the two endpoint rectangles, so a
+self-referencing flow collapses to a zero-length connector. TMT stores that
+connector but draws nothing a reviewer can see or select, which silently removes
+a declared interaction from the diagram while the run still exits zero. Model a
+loop back into the same component as an explicit intermediate element, or as a
+component threat with a reviewed `placement_override`.
+
+### Layout geometry
+
+Segment-to-rectangle contact has one production algorithm. The generator holds
+rectangles as `left`/`top`/`width`/`height` mappings and the feedback loop holds
+them as `left`/`top`/`right`/`bottom` tuples; both adapt to the same bounds and
+call the same test, so published geometry and scored geometry cannot disagree.
+
+Contact is closed on both operands. A connector that runs exactly along a node
+border, or that grazes a corner partway along its length, counts as
+intersecting, because it overlaps that node visually.
+
+Whole-surface layout candidates are the cross product of orientation and
+zone-order variant. Selection returns the first candidate that satisfies the
+candidate contract and fails when none does, rather than returning the
+best-scored candidate unchecked. A surface with no trust zones yields a fallback
+candidate carrying every member of that same contract.
+
 ### Authored-base reconciliation
 
 Portable validation operates only on the threat-model specification. When an
@@ -229,15 +425,29 @@ A portable pass does not imply that an authored base is complete. Missing elemen
 missing connectors, wrong-surface connectors, and endpoint identity drift are
 authored-base reconciliation failures.
 
+#### Surface identity
+
+Reconciliation binds an authored drawing surface to its declared surface through
+the deterministic surface GUID, which is derived from the declared surface `id`.
+Authored order never participates: reordering the drawing surfaces in a base
+model cannot rebind a connector to a different diagram. A declared surface with
+no matching authored surface, and an authored base that presents the same
+declared surface twice, both fail the gate. Authored surfaces that match no
+declared surface are ignored, so a base model may carry extra diagrams.
+
+Element identity is resolved per surface. There is no cross-surface element
+fallback, so an endpoint drawn on one diagram cannot satisfy a connector on
+another.
+
 ### Native template upgrades
 
 Treat TMT's `Threat Model Conversion Confirmation` prompt as a controlled
 migration boundary. The native harness defaults to `fail` and requires one of
 three explicit policies:
 
-* `fail` — preserve the model and report that a newer template is available.
-* `decline` — open against the embedded template without changing it.
-* `apply` — apply the installed template to a harness-owned working copy.
+* `fail`: preserve the model and report that a newer template is available.
+* `decline`: open against the embedded template without changing it.
+* `apply`: apply the installed template to a harness-owned working copy.
 
 Apply a newer template to a topology-complete model with zero threat instances,
 then populate explicit threats only after the upgraded base passes save/reopen and
@@ -301,16 +511,16 @@ These rules reflect the DataContract graph verified against the Threat Modeling 
 
 * Each `DrawingSurfaceModel` carries the base fields `GenericTypeId` (`DRAWINGSURFACE`), `Guid`, `Properties`, `TypeId`, then `Borders`, `Header`, `Lines`, and a trailing `Zoom` (default `1`).
 * Every `Properties` display attribute is an `a:anyType` with a polymorphic `i:type` (`b:HeaderDisplayAttribute` or `b:StringDisplayAttribute`) in the KnowledgeBase namespace. Because `StringDisplayAttribute.Value` is typed as `object`, a present `<b:Value>` **must** carry `i:type="c:string"` (xsd:string); omitting the type hint makes the DataContract serializer reject the file with `Element Value ... cannot have child contents to be deserialized as an object`. `HeaderDisplayAttribute` uses an empty `<b:Name/>` and `<b:Value i:nil="true"/>`; `StringDisplayAttribute` sets `<b:Name>` to the property key.
-* Shapes are stored in `Borders` as a GUID-keyed dictionary of `a:KeyValueOfguidanyType` entries (in the Serialization Arrays namespace). Each `a:Value` carries a polymorphic `i:type` — `StencilRectangle` (external interactor, `GE.EI`), `StencilEllipse` (process, `GE.P`), `StencilParallelLines` (data store, `GE.DS`), or `BorderBoundary` (trust boundary box, `GE.TB.B`) — plus base fields `GenericTypeId`, `Guid`, `Properties`, `TypeId` and geometry `Height`, `Left`, `StrokeDashArray`, `StrokeThickness`, `Top`, `Width`.
+* Shapes are stored in `Borders` as a GUID-keyed dictionary of `a:KeyValueOfguidanyType` entries (in the Serialization Arrays namespace). Each `a:Value` carries a polymorphic `i:type` of `StencilRectangle` (external interactor, `GE.EI`), `StencilEllipse` (process, `GE.P`), `StencilParallelLines` (data store, `GE.DS`), or `BorderBoundary` (trust boundary box, `GE.TB.B`), plus base fields `GenericTypeId`, `Guid`, `Properties`, `TypeId` and geometry `Height`, `Left`, `StrokeDashArray`, `StrokeThickness`, `Top`, `Width`.
 * Data flows are stored in `Lines` as `a:KeyValueOfguidanyType` entries whose `a:Value` uses `i:type="Connector"` (`GE.DF`) with `SourceGuid`, `SourceX`, `SourceY`, `TargetGuid`, `TargetX`, `TargetY`, `HandleX`, `HandleY`, and `StrokeThickness`. An unconnected endpoint uses the all-zero GUID sentinel `00000000-0000-0000-0000-000000000000`.
 * The root model carries, in order, `DrawingSurfaceList`, `MetaInformation`, `Notes`, `ThreatInstances`, `ThreatGenerationEnabled`, `Validations`, `Version`, `KnowledgeBase`, and `Profile` (`<Profile><PromptedKb xmlns=""/></Profile>`).
-* The verified `Version` string is `4.3`. All `z:Id` values form a single contiguous sequence: diagram objects are numbered `i1..iN` in document order, and the embedded `KnowledgeBase` root `z:Id` is renumbered to `i(N+1)` at generation time. Because no `z:Ref` targets the KnowledgeBase root, this keeps every id unique with no model-size ceiling (the earlier fixed `i36` start capped diagrams at ~35 objects).
+* The verified `Version` string is `4.3`. All `z:Id` values form a single contiguous sequence: diagram objects are numbered `i1..iN` in document order, and the embedded `KnowledgeBase` root `z:Id` is renumbered to `i(N+1)` at generation time. Because no `z:Ref` targets the KnowledgeBase root, this keeps every id unique with no model-size ceiling. A fixed start offset would instead cap a diagram at the object count below that offset.
 
 ### Threats, the embedded KnowledgeBase, and citations
 
-A loadable `.tm7` derives its threats from an embedded DataContract KnowledgeBase, exactly as the reference file does — it does not hand-serialize threat instances.
+A loadable `.tm7` derives its threats from an embedded DataContract KnowledgeBase, exactly as the reference file does. It does not hand-serialize threat instances.
 
-* Generated output emits an **empty** `<ThreatInstances/>` and `<ThreatGenerationEnabled>false</ThreatGenerationEnabled>`, matching the loadable reference. TMT generates threats from the embedded KnowledgeBase when the model is opened.
+* With the default flags, generated output emits an empty `<ThreatInstances/>` and `<ThreatGenerationEnabled>false</ThreatGenerationEnabled>`, matching the loadable reference, and TMT generates threats from the embedded KnowledgeBase when the model is opened. This is a consequence of the flag defaults rather than a fixed property of the format; see [Mode-flag behavior](#mode-flag-behavior) for the cases that populate the element.
 * The generator embeds a verbatim DataContract `<KnowledgeBase>` from the bundled `assets/templates/default-kb.xml` asset. That asset was extracted from the genuine TMT reference export; it is Azure-flavored but includes the generic `GE.*` stencils this generator emits. Swapping in a smaller MIT SDL-core DataContract KnowledgeBase is tracked as follow-up work.
 * Per-threat STRIDE + NIST SP 800-53 (+ optional MITRE ATT&CK/CAPEC) citations are surfaced in the synchronized markdown twin (`generate_markdown.py`), which reuses the generator's deterministic threat derivation. The `threats[].citations` field in the input spec remains the source-of-truth structure for those citations.
 * The `bundled .tb7` under `assets/templates/` is a no-namespace XmlSerializer template and is NOT spliced into the `.tm7` directly; the DataContract `default-kb.xml` is the embeddable KnowledgeBase.
@@ -327,9 +537,23 @@ A loadable `.tm7` derives its threats from an embedded DataContract KnowledgeBas
 
 ## Mode-flag behavior
 
-* `pre-populated-comprehensive` is the default mode. The generator emits a full set of pre-populated threats and sets `ThreatGenerationEnabled` to avoid duplicate auto-generation in TMT.
-* `diagram-only-defer-to-tmt` emits the diagram elements and flows without pre-populating threats, leaving TMT to generate them if desired.
-* The two modes should not both populate the same threat set for the same model.
+Two independent controls decide what lands in `<ThreatInstances>`: the `--mode` flag and the `--threat-generation-enabled` flag. They are not aliases for each other and must not be treated as one control.
+
+| `--mode`                      | `--threat-generation-enabled` | `<ThreatInstances>` content                                  |
+|-------------------------------|-------------------------------|--------------------------------------------------------------|
+| `pre-populated-comprehensive` | absent (default)              | The threats declared in the spec's own `threats:` list       |
+| `pre-populated-comprehensive` | present                       | A synthesized STRIDE-per-element set derived from the model  |
+| `diagram-only-defer-to-tmt`   | absent or present             | Always empty; TMT generates threats when the model is opened |
+
+`pre-populated-comprehensive` is the default mode. In its default flag state it does not synthesize anything: it maps the spec's declared threats onto the resolved model elements and flows, and it fails closed when a declared `target_ref` resolves to no element or flow. A spec that declares no threats therefore produces an empty `<ThreatInstances/>` in either mode, which is why the bundled example template generates an empty element.
+
+The serialized `<ThreatGenerationEnabled>` field is a separate value read from `--threat-generation-enabled` when supplied, otherwise from the spec's `threat_generation_enabled` key, and it defaults to `false`. Note that the same flag name drives two consumers: it switches the generator into STRIDE synthesis, and it sets the field TMT reads to decide whether to auto-generate its own threats. Leaving it at the default keeps the generator and TMT from populating the same threat set twice.
+
+### Threat-instance identity
+
+Every spec-sourced threat must reach `<ThreatInstances>`. A threat whose `interaction_ref` resolves to no model flow, or whose flow lacks a `SourceGuid`, `FlowGuid`, or `TargetGuid`, fails generation and names every affected threat in one sorted diagnostic. The generator also reconciles the emitted instance count against the spec-sourced threat count, so a partial array cannot ship.
+
+The serialized `<Id>` member is the identifier reviewers and CSV exports cite, so it is derived rather than positional. The generator takes the SHA-256 digest of the UTF-8 bytes of the exact normalized source threat id and maps it into the closed interval `[1, 2147483647]`, which is the positive half of the signed 32-bit range TMT stores. Zero stays reserved as the unassigned sentinel. Because the identifier depends only on the source id, it survives insertion, reordering, and separate processes. Two source ids that derive the same numeric id fail generation deterministically, naming both.
 
 ## Template-profile abstraction
 
@@ -365,7 +589,7 @@ The default profile is the generic SDL/Core profile and uses the verified generi
 
 ### Reference-only profile tables
 
-The following profiles are documented as mapping-table references and are not bundled as redistributed template files because they are either domain-specific or were not confirmed as bundled MIT artifacts in the initial pass.
+The following profiles are documented as mapping-table references and are not bundled as redistributed template files because they are either domain-specific or not confirmed as bundled MIT artifacts.
 
 | Profile         | Status                       | Notes                                                                                                                                                                    |
 |-----------------|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -386,6 +610,6 @@ The extension therefore uses a vendor-neutral, standards-aligned input contract 
 
 ## Verifying TMT deserialization
 
-Generated files are validated against the Threat Modeling Tool's own assemblies rather than a hand-crafted schema. `tests/Deserialize-Tm7.ps1` locates the installed `ThreatModeling.ExternalStorage.Local.dll`, obtains the exact `DataContractSerializer` from `SerializableModelData.GetSerializer()`, and calls `ReadObject` on a target `.tm7`. The TMT assemblies are 32-bit, so the harness re-launches itself under the 32-bit Windows PowerShell host when invoked from a 64-bit process. It prints `DESERIALIZE_OK` (exit 0) on success, `DESERIALIZE_FAIL: <message>` (exit 1) on a contract mismatch, and `TMT_ASSEMBLIES_NOT_FOUND` (exit 3) when the tool is not installed.
+Generated files are validated against the Threat Modeling Tool's own assemblies rather than a hand-crafted schema. `scripts/Deserialize-Tm7.ps1` locates the installed `ThreatModeling.ExternalStorage.Local.dll`, verifies each candidate assembly carries a valid Microsoft Authenticode signature before loading it, obtains the exact `DataContractSerializer` from `SerializableModelData.GetSerializer()`, and calls `ReadObject` on a target `.tm7`. The TMT assemblies are 32-bit, so the harness re-launches itself under the 32-bit Windows PowerShell host when invoked from a 64-bit process. It prints `DESERIALIZE_OK` (exit 0) on success, `DESERIALIZE_FAIL: <message>` (exit 1) on a contract mismatch, and `TMT_ASSEMBLIES_NOT_FOUND` (exit 3) when the tool is not installed.
 
 The pytest suite drives this harness in `test_given_generated_tm7_when_deserialized_by_tmt_then_round_trips` for both generation modes and against the reference fixture. The tests skip cleanly on non-Windows hosts or when the assemblies are absent (for example, in CI) and run automatically when the tool is installed locally. Structural-parity tests additionally assert that the generated root and `DrawingSurfaceModel` member order match `tests/fixtures/tmt-reference.tm7`.

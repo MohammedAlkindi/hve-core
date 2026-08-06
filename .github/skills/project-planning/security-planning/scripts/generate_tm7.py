@@ -24,6 +24,8 @@ from xml.etree import ElementTree as ET
 import tm7_visual_feedback
 import yaml
 from tm7_threat_contract import (
+    MAX_SPEC_BYTES,
+    InputTooLargeError,
     ThreatContractError,
     UnsafeXmlError,
     build_custom_threat_type_id,
@@ -32,6 +34,7 @@ from tm7_threat_contract import (
     build_mitigation_text,
     collect_mapping_failures,
     parse_hardened_xml_bytes,
+    read_bounded_bytes,
     serialize_threat_instances,
 )
 
@@ -40,6 +43,8 @@ logger = logging.getLogger(__name__)
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_ERROR = 2
+# SIGINT convention: 128 + signal number.
+EXIT_INTERRUPTED = 130
 
 # The KnowledgeBase is pre-rendered XML, so it is substituted into the
 # serialized model as literal text. The tag and its self-closing serialization
@@ -69,7 +74,23 @@ MIN_LAYOUT_GUTTER_RATIO = 0.28
 LAYOUT_EXPANSION_LIMIT = 2.5
 MIN_LABEL_ARROWHEAD_CLEARANCE = 24.0
 MAX_LABEL_OWNERSHIP_DISTANCE = 120.0
-MAX_SURFACE_LAYOUT_CANDIDATES = 192
+# Whole-surface layout candidates are the cross product of two fixed dimensions:
+# orientation and zone-order variant. Three zone orders are produced for orders
+# longer than two, so the enumeration cannot exceed 2 x 3. The cap is asserted
+# after enumeration rather than used to truncate, so adding a third dimension
+# must raise it deliberately.
+SURFACE_LAYOUT_ORIENTATIONS = ("horizontal", "vertical")
+MAX_SURFACE_LAYOUT_CANDIDATES = 6
+# TMT draws the model at a fixed zoom rather than 1:1. A native run measured
+# every node rendering at exactly 1.500x its model size, so a pane of N screen
+# pixels only shows N / 1.5 model units. Laying out against raw pixel
+# dimensions therefore overruns the visible canvas by half again.
+TMT_RENDER_ZOOM = 1.5
+# The visible model area on a 1920x1080 Diagram pane at the zoom above. Layout
+# targets what the reviewer can actually see, so content is not placed past the
+# right edge where it is silently clipped.
+DEFAULT_VIEWPORT_WIDTH = 1920.0 / TMT_RENDER_ZOOM
+DEFAULT_VIEWPORT_HEIGHT = 1080.0 / TMT_RENDER_ZOOM
 
 MODEL_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model"
 ABSTRACT_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts"
@@ -283,11 +304,10 @@ def _resolve_layout_overlay(
         spec_path=spec_path,
         model=model,
     )
-    # The overlay must carry its own invalidation fingerprints. They were
-    # previously synthesized with `setdefault` from the same context they are
-    # then validated against, so an overlay that simply omitted the block
-    # passed validation unconditionally. The evasion was deletion, not forgery,
-    # which is why completeness is required before any comparison happens.
+    # The overlay must carry its own invalidation fingerprints. Completeness is
+    # required before any comparison, because synthesizing a missing block from
+    # the same context it is validated against would let an overlay pass by
+    # omitting the block entirely.
     required_invalidation_keys = (
         "spec_fingerprint",
         "generator_profile_fingerprint",
@@ -340,15 +360,39 @@ def load_template_profiles(base_dir: Path) -> dict[str, dict[str, Any]]:
 
 
 def load_spec(path: Path) -> dict[str, Any]:
-    """Load a threat-model spec from YAML or JSON."""
+    """Load a threat-model spec from YAML or JSON.
+
+    The file size is checked before any content is parsed so an oversized
+    document cannot be expanded in memory ahead of schema validation.
+
+    Args:
+        path: Spec file to load.
+
+    Returns:
+        Parsed spec mapping.
+
+    Raises:
+        GenerationError: If the spec is missing, oversized, unparsable, or not
+            a mapping.
+    """
     if not path.exists():
         raise GenerationError(f"Spec file not found: {path}", exit_code=EXIT_ERROR)
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            if path.suffix.lower() == ".json":
-                loaded = json.load(handle)
-            else:
-                loaded = yaml.safe_load(handle) or {}
+        data = read_bounded_bytes(path, MAX_SPEC_BYTES)
+    except InputTooLargeError as exc:
+        raise GenerationError(
+            f"Spec is too large: {exc}", exit_code=EXIT_ERROR
+        ) from exc
+    except OSError as exc:
+        raise GenerationError(
+            f"Unable to read spec: {exc}", exit_code=EXIT_ERROR
+        ) from exc
+    try:
+        text = data.decode("utf-8")
+        if path.suffix.lower() == ".json":
+            loaded = json.loads(text)
+        else:
+            loaded = yaml.safe_load(text) or {}
     except (json.JSONDecodeError, yaml.YAMLError, UnicodeDecodeError) as exc:
         raise GenerationError(
             f"Unable to parse spec: {exc}", exit_code=EXIT_ERROR
@@ -401,9 +445,7 @@ def emit_warnings(spec: dict[str, Any]) -> None:
     if not operational_views:
         logger.warning("incomplete threat model: CTM-3 missing operational views")
     if not threats or not mitigations:
-        logger.warning(
-            "incomplete threat model: CTM-4 missing threats or mitigations"
-        )
+        logger.warning("incomplete threat model: CTM-4 missing threats or mitigations")
     if not data_flows:
         logger.warning("incomplete threat model: CTM-5 missing numbered data flows")
     else:
@@ -526,6 +568,27 @@ def build_model_from_spec(
         for zone in spec.get("trust_zones") or []
         if isinstance(zone, dict)
     }
+
+    # A flow whose endpoints are the same element has no supported rendering.
+    # Anchors are derived from the two element rectangles, so a self-loop
+    # collapses to a zero-length connector that TMT stores but cannot show and
+    # that no reviewer can select. Fail here rather than publish an invisible
+    # edge that silently drops a declared interaction from the diagram.
+    self_loop_ids = sorted(
+        {
+            str(flow.get("id", "") or "~unidentified")
+            for flow in spec.get("data_flows") or []
+            if isinstance(flow, dict)
+            and str(flow.get("source_ref", ""))
+            and str(flow.get("source_ref", "")) == str(flow.get("target_ref", ""))
+        }
+    )
+    if self_loop_ids:
+        raise GenerationError(
+            "data flow endpoints must differ; self-referencing flows have no "
+            f"supported rendering: {', '.join(self_loop_ids)}",
+            exit_code=EXIT_ERROR,
+        )
 
     def _validate_zone_hierarchy(zone_id: str, *, seen: set[str] | None = None) -> None:
         if not zone_id:
@@ -1255,33 +1318,59 @@ def _analyze_surface_layout_graph(surface: dict[str, Any]) -> dict[str, Any]:
     stack_members: set[str] = set()
     sccs: list[list[str]] = []
 
-    def _strong_connect(node_id: str) -> None:
+    def _strong_connect(root_id: str) -> None:
+        """Assign strongly connected components without recursing per node.
+
+        Tarjan's algorithm is naturally recursive, but the recursion depth
+        equals the longest simple path in the flow graph. A deep enough chain of
+        elements would raise RecursionError while generating an otherwise valid
+        model, so the depth-first walk is carried on an explicit stack instead.
+        """
         nonlocal index
-        index_map[node_id] = index
-        lowlink_map[node_id] = index
+        # Each frame holds a node and how many of its neighbours it has consumed,
+        # which is the state the recursive form kept in the loop variable.
+        work: list[tuple[str, int]] = [(root_id, 0)]
+        index_map[root_id] = index
+        lowlink_map[root_id] = index
         index += 1
-        stack.append(node_id)
-        stack_members.add(node_id)
+        stack.append(root_id)
+        stack_members.add(root_id)
 
-        for neighbor_id in outgoing.get(node_id, []):
-            if neighbor_id not in index_map:
-                _strong_connect(neighbor_id)
-                lowlink_map[node_id] = min(
+        while work:
+            node_id, neighbor_position = work[-1]
+            neighbors = outgoing.get(node_id, [])
+            if neighbor_position < len(neighbors):
+                work[-1] = (node_id, neighbor_position + 1)
+                neighbor_id = neighbors[neighbor_position]
+                if neighbor_id not in index_map:
+                    index_map[neighbor_id] = index
+                    lowlink_map[neighbor_id] = index
+                    index += 1
+                    stack.append(neighbor_id)
+                    stack_members.add(neighbor_id)
+                    work.append((neighbor_id, 0))
+                elif neighbor_id in stack_members:
+                    lowlink_map[node_id] = min(
+                        lowlink_map[node_id], index_map[neighbor_id]
+                    )
+                continue
+
+            work.pop()
+            if work:
+                parent_id = work[-1][0]
+                lowlink_map[parent_id] = min(
+                    lowlink_map[parent_id],
                     lowlink_map[node_id],
-                    lowlink_map[neighbor_id],
                 )
-            elif neighbor_id in stack_members:
-                lowlink_map[node_id] = min(lowlink_map[node_id], index_map[neighbor_id])
-
-        if lowlink_map[node_id] == index_map[node_id]:
-            component: list[str] = []
-            while True:
-                popped = stack.pop()
-                stack_members.remove(popped)
-                component.append(popped)
-                if popped == node_id:
-                    break
-            sccs.append(sorted(component))
+            if lowlink_map[node_id] == index_map[node_id]:
+                component: list[str] = []
+                while True:
+                    popped = stack.pop()
+                    stack_members.remove(popped)
+                    component.append(popped)
+                    if popped == node_id:
+                        break
+                sccs.append(sorted(component))
 
     for node_id in node_ids:
         if node_id not in index_map:
@@ -1461,12 +1550,8 @@ def _analyze_surface_layout_graph(surface: dict[str, Any]) -> dict[str, Any]:
         "scc_component_ids": component_ids,
         "node_ranks": node_ranks,
         "branch_groups": branch_groups,
-        "fan_in": {
-            node_id: len(incoming.get(node_id, [])) for node_id in node_ids
-        },
-        "fan_out": {
-            node_id: len(outgoing.get(node_id, [])) for node_id in node_ids
-        },
+        "fan_in": {node_id: len(incoming.get(node_id, [])) for node_id in node_ids},
+        "fan_out": {node_id: len(outgoing.get(node_id, [])) for node_id in node_ids},
         "reverse_edge_pairs": reverse_edge_pairs,
         "return_lane_nodes": return_lane_nodes,
         "cross_zone_flow_counts": cross_zone_flow_counts,
@@ -1503,12 +1588,6 @@ def _build_surface_layout_candidates(
     if not base_zone_order:
         base_zone_order = list(zone_ids)
 
-    branch_lane_variant = bool(
-        graph.get("return_lane_nodes")
-        or any(count > 1 for count in graph.get("fan_out", {}).values())
-        or len({group for group in graph.get("branch_groups", {}).values()}) > 1
-    )
-
     def _zone_order_variants(order: list[str]) -> list[list[str]]:
         variants = [list(order)]
         if len(order) > 1:
@@ -1520,56 +1599,50 @@ def _build_surface_layout_candidates(
     candidates: list[dict[str, Any]] = []
     seen_signatures: set[tuple[Any, ...]] = set()
     zone_flow_ranks = _zone_flow_ranks(surface)
-    for orientation in ["horizontal", "vertical"]:
+    for orientation in SURFACE_LAYOUT_ORIENTATIONS:
         for zone_order in _zone_order_variants(base_zone_order):
-            placement_variants = ["rank-flow"]
-            if branch_lane_variant:
-                placement_variants.append("branch-lane")
-            for placement_variant in placement_variants:
-                if len(candidates) >= MAX_SURFACE_LAYOUT_CANDIDATES:
-                    break
-                signature = (
-                    orientation,
-                    tuple(zone_order),
-                    placement_variant,
-                )
-                if signature in seen_signatures:
-                    continue
-                seen_signatures.add(signature)
-                candidates.append(
-                    {
-                        "surface_id": str(surface.get("id", "surface")),
-                        "orientation": orientation,
-                        "zone_order": zone_order,
-                        "placement_variant": placement_variant,
-                        "node_ranks": graph.get("node_ranks", {}),
-                        "branch_groups": graph.get("branch_groups", {}),
-                        "reverse_edge_members": {
-                            node_id
-                            for node_id in graph.get("node_ranks", {})
-                            if node_id
-                            in {
-                                item[1]
-                                for item in graph.get("reverse_edge_pairs", [])
-                            }
-                        },
-                        "return_lane_nodes": set(graph.get("return_lane_nodes", set())),
-                        "fan_in": graph.get("fan_in", {}),
-                        "fan_out": graph.get("fan_out", {}),
-                        "zone_flow_ranks": zone_flow_ranks,
-                    }
-                )
-            if len(candidates) >= MAX_SURFACE_LAYOUT_CANDIDATES:
-                break
-        if len(candidates) >= MAX_SURFACE_LAYOUT_CANDIDATES:
-            break
+            signature = (orientation, tuple(zone_order))
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            candidates.append(
+                {
+                    "surface_id": str(surface.get("id", "surface")),
+                    "orientation": orientation,
+                    "zone_order": zone_order,
+                    "node_ranks": graph.get("node_ranks", {}),
+                    "branch_groups": graph.get("branch_groups", {}),
+                    "reverse_edge_members": {
+                        node_id
+                        for node_id in graph.get("node_ranks", {})
+                        if node_id
+                        in {item[1] for item in graph.get("reverse_edge_pairs", [])}
+                    },
+                    "return_lane_nodes": set(graph.get("return_lane_nodes", set())),
+                    "fan_in": graph.get("fan_in", {}),
+                    "fan_out": graph.get("fan_out", {}),
+                    "zone_flow_ranks": zone_flow_ranks,
+                }
+            )
+
+    # The enumeration is a full cross product of two fixed dimensions, so its
+    # size is bounded by construction rather than by a running cap. Assert the
+    # bound instead of silently truncating: a future dimension that makes the
+    # product grow must be a deliberate change to this constant.
+    if len(candidates) > MAX_SURFACE_LAYOUT_CANDIDATES:
+        raise GenerationError(
+            f"surface {surface.get('id', 'surface')} produced {len(candidates)} "
+            f"layout candidates, above the structural bound of "
+            f"{MAX_SURFACE_LAYOUT_CANDIDATES}",
+            exit_code=EXIT_ERROR,
+        )
 
     for candidate in candidates:
         candidate["score"] = tm7_visual_feedback.score_surface_layout_candidate(
             candidate,
             viewport_target=preferences.get(
                 "viewport_target",
-                (0.0, 0.0, 1920.0, 1080.0),
+                (0.0, 0.0, DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
             ),
         )
     return sorted(
@@ -1578,9 +1651,50 @@ def _build_surface_layout_candidates(
             candidate["score"],
             candidate["orientation"],
             tuple(candidate["zone_order"]),
-            candidate.get("placement_variant", "rank-flow"),
         ),
     )
+
+
+SURFACE_LAYOUT_CANDIDATE_MEMBERS = (
+    "surface_id",
+    "orientation",
+    "zone_order",
+    "node_ranks",
+    "branch_groups",
+    "reverse_edge_members",
+    "return_lane_nodes",
+    "fan_in",
+    "fan_out",
+    "zone_flow_ranks",
+)
+
+
+def _validate_surface_layout_candidate(
+    candidate: dict[str, Any], surface_id: str
+) -> list[str]:
+    """Return the invariant violations of one whole-surface layout candidate.
+
+    Selection validates before it commits, so a candidate missing the members
+    downstream placement reads is rejected at its origin rather than surfacing
+    as a confusing failure elsewhere or as a silently degraded layout.
+    """
+    violations: list[str] = []
+    missing = [
+        member for member in SURFACE_LAYOUT_CANDIDATE_MEMBERS if member not in candidate
+    ]
+    if missing:
+        violations.append(f"missing members {', '.join(missing)}")
+    if candidate.get("orientation") not in SURFACE_LAYOUT_ORIENTATIONS:
+        violations.append(f"unsupported orientation {candidate.get('orientation')!r}")
+    zone_order = candidate.get("zone_order")
+    if not isinstance(zone_order, list):
+        violations.append("zone_order must be a list")
+    else:
+        if any(not str(zone_id) for zone_id in zone_order):
+            violations.append("zone_order contains an unnamed zone")
+        if len(set(zone_order)) != len(zone_order):
+            violations.append("zone_order repeats a zone")
+    return [f"{surface_id}: {violation}" for violation in violations]
 
 
 def _select_surface_layout_candidate(
@@ -1589,28 +1703,47 @@ def _select_surface_layout_candidate(
     *,
     layout_overlay: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Select the best deterministic whole-surface orientation and zone order."""
+    """Select the best valid deterministic whole-surface orientation and order."""
+    surface_id = str(surface.get("id", "surface"))
     candidates = _build_surface_layout_candidates(
         surface,
         graph,
         layout_overlay=layout_overlay,
     )
     if not candidates:
-        return {
-            "surface_id": str(surface.get("id", "surface")),
-            "orientation": "horizontal",
-            "zone_order": [
-                str(zone.get("id", ""))
-                for zone in surface.get("trust_zones", [])
-                if isinstance(zone, dict) and str(zone.get("id", ""))
-            ],
-            "node_ranks": graph.get("node_ranks", {}),
-            "branch_groups": graph.get("branch_groups", {}),
-            "reverse_edge_members": set(),
-            "fan_in": graph.get("fan_in", {}),
-            "fan_out": graph.get("fan_out", {}),
-        }
-    return candidates[0]
+        # A surface with no trust zones produces no candidate. The fallback is a
+        # real candidate and carries every member of the contract, so downstream
+        # placement cannot tell it apart by shape.
+        candidates = [
+            {
+                "surface_id": surface_id,
+                "orientation": SURFACE_LAYOUT_ORIENTATIONS[0],
+                "zone_order": [
+                    str(zone.get("id", ""))
+                    for zone in surface.get("trust_zones", [])
+                    if isinstance(zone, dict) and str(zone.get("id", ""))
+                ],
+                "node_ranks": graph.get("node_ranks", {}),
+                "branch_groups": graph.get("branch_groups", {}),
+                "reverse_edge_members": set(),
+                "return_lane_nodes": set(graph.get("return_lane_nodes", set())),
+                "fan_in": graph.get("fan_in", {}),
+                "fan_out": graph.get("fan_out", {}),
+                "zone_flow_ranks": _zone_flow_ranks(surface),
+            }
+        ]
+
+    rejected: list[str] = []
+    for candidate in candidates:
+        violations = _validate_surface_layout_candidate(candidate, surface_id)
+        if not violations:
+            return candidate
+        rejected.extend(violations)
+    raise GenerationError(
+        f"no valid layout candidate for surface {surface_id}:\n"
+        + "\n".join(sorted(rejected)),
+        exit_code=EXIT_ERROR,
+    )
 
 
 def _rect_anchor(
@@ -1636,33 +1769,18 @@ def _segment_intersects_rect(
     end: tuple[float, float],
     rect: dict[str, float],
 ) -> bool:
-    """Return True when a line segment intersects an axis-aligned rectangle."""
-    x1, y1 = start
-    x2, y2 = end
-    left = rect["left"]
-    right = rect["left"] + rect["width"]
-    top = rect["top"]
-    bottom = rect["top"] + rect["height"]
+    """Return True when a line segment intersects an axis-aligned rectangle.
 
-    dx = x2 - x1
-    dy = y2 - y1
-    p = [-dx, dx, -dy, dy]
-    q = [x1 - left, right - x1, y1 - top, bottom - y1]
-    t0 = 0.0
-    t1 = 1.0
-    for index in range(4):
-        if p[index] == 0:
-            if q[index] < 0:
-                return False
-        else:
-            parameter = q[index] / p[index]
-            if p[index] < 0:
-                t0 = max(t0, parameter)
-            else:
-                t1 = min(t1, parameter)
-            if t0 > t1:
-                return False
-    return True
+    The generator holds rectangles as left/top/width/height mappings while the
+    feedback loop holds them as left/top/right/bottom tuples. Both route through
+    the one canonical algorithm so the geometry the generator publishes and the
+    geometry the feedback loop scores cannot disagree.
+    """
+    return tm7_visual_feedback.segment_intersects_bounds(
+        start,
+        end,
+        *tm7_visual_feedback.rect_bounds_from_ltwh(rect),
+    )
 
 
 def _segment_intersects_any_rect(
@@ -2038,9 +2156,9 @@ def _place_connector_label(
         )
         reverse_label_penalty = 0.0
         if reverse_lane_sign:
-            handle_axis_is_vertical = abs(
-                target_point[0] - source_point[0]
-            ) >= abs(target_point[1] - source_point[1])
+            handle_axis_is_vertical = abs(target_point[0] - source_point[0]) >= abs(
+                target_point[1] - source_point[1]
+            )
             if handle_axis_is_vertical:
                 lane_offset = rect_center[1] - candidate_handle[1]
             else:
@@ -2795,7 +2913,14 @@ def _resolve_surface_layout_preferences(
     # A measured native Diagram pane takes precedence over the synthetic
     # default so generation targets the canvas the reviewer actually sees.
     # Overlay rules still win, because they are explicit reviewer intent.
-    viewport_target = {"left": 0.0, "top": 0.0, "width": 1920.0, "height": 1080.0}
+    # Both are converted from screen pixels into model units, because TMT
+    # draws at TMT_RENDER_ZOOM rather than 1:1.
+    viewport_target = {
+        "left": 0.0,
+        "top": 0.0,
+        "width": DEFAULT_VIEWPORT_WIDTH,
+        "height": DEFAULT_VIEWPORT_HEIGHT,
+    }
     if isinstance(measured_viewport, dict):
         measured_width = float(measured_viewport.get("width", 0.0) or 0.0)
         measured_height = float(measured_viewport.get("height", 0.0) or 0.0)
@@ -2803,8 +2928,8 @@ def _resolve_surface_layout_preferences(
             viewport_target = {
                 "left": float(measured_viewport.get("left", 0.0) or 0.0),
                 "top": float(measured_viewport.get("top", 0.0) or 0.0),
-                "width": measured_width,
-                "height": measured_height,
+                "width": measured_width / TMT_RENDER_ZOOM,
+                "height": measured_height / TMT_RENDER_ZOOM,
             }
     outer_margin = 24.0
     orientation = "horizontal"
@@ -2960,8 +3085,7 @@ def _pack_zone_rects(
         if child_requirements is None or len(child_requirements) != len(child_ids):
             return even
         needed = [
-            requirement[index] + inner_padding * 2
-            for requirement in child_requirements
+            requirement[index] + inner_padding * 2 for requirement in child_requirements
         ]
         surplus = total - sum(needed)
         if surplus < 0:
@@ -3219,8 +3343,8 @@ def _assign_zone_regions(
     viewport_rect = {
         "left": float(viewport_target.get("left", 0.0)),
         "top": float(viewport_target.get("top", 0.0)),
-        "width": float(viewport_target.get("width", 1920.0)),
-        "height": float(viewport_target.get("height", 1080.0)),
+        "width": float(viewport_target.get("width", DEFAULT_VIEWPORT_WIDTH)),
+        "height": float(viewport_target.get("height", DEFAULT_VIEWPORT_HEIGHT)),
     }
     if viewport_rect["width"] < 240 or viewport_rect["height"] < 240:
         raise GenerationError(
@@ -3438,8 +3562,7 @@ def _assign_zone_regions(
                         MAX_NODE_HEIGHT + inner_padding,
                         max(
                             140.0,
-                            100.0
-                            + 24.0 * max(1, math.ceil(direct_node_count / 2)),
+                            100.0 + 24.0 * max(1, math.ceil(direct_node_count / 2)),
                         ),
                     )
                     + inner_padding
@@ -3447,8 +3570,7 @@ def _assign_zone_regions(
             if orientation == "vertical":
                 required_width = max(
                     own_min_width,
-                    max(width for width, _ in child_requirements)
-                    + inner_padding * 2,
+                    max(width for width, _ in child_requirements) + inner_padding * 2,
                 )
                 required_height = max(
                     own_min_height,
@@ -3464,10 +3586,7 @@ def _assign_zone_regions(
                 # top of the content width the siblings occupy.
                 required_width = max(
                     own_min_width,
-                    sum(
-                        width + inner_padding * 2
-                        for width, _ in child_requirements
-                    )
+                    sum(width + inner_padding * 2 for width, _ in child_requirements)
                     + gutter * max(0, len(child_ids) - 1)
                     + inner_padding * 2,
                 )
@@ -3619,9 +3738,7 @@ def _assign_zone_regions(
                     content_rect["height"] * 0.5,
                 )
                 child_top = content_rect["top"] + node_band_height + inner_padding
-                child_height = (
-                    content_rect["height"] - node_band_height - inner_padding
-                )
+                child_height = content_rect["height"] - node_band_height - inner_padding
             child_available = {
                 "left": content_rect["left"],
                 "top": child_top,
@@ -3675,9 +3792,25 @@ def _assign_zone_regions(
         (_subtree_depth(root_zone_id) for root_zone_id in root_zone_ids),
         default=0,
     )
+    measured_outer_height_demand = (
+        max(
+            (
+                _estimate_zone_content_requirements(root_zone_id)[1]
+                for root_zone_id in root_zone_ids
+            ),
+            default=0.0,
+        )
+        + outer_margin * 2
+    )
+    # The viewport bounds how far a sparse surface is allowed to spread, but it
+    # must not compress content below what it measurably needs: doing so pushes
+    # nodes outside the zone that owns them and fails generation. A surface
+    # larger than the viewport stays readable because TMT scrolls, and the
+    # overflow is reported by the fill and clipping metrics.
     maximum_outer_height = max(
         240.0,
         viewport_rect["height"] - (outer_margin * 2),
+        measured_outer_height_demand,
     )
     compact_outer_height = min(
         maximum_outer_height,
@@ -3690,14 +3823,7 @@ def _assign_zone_regions(
             # measured requirement a root zone can be allocated less height
             # than its own subtree demands, which pushes nodes past the zone
             # that owns them.
-            max(
-                (
-                    _estimate_zone_content_requirements(root_zone_id)[1]
-                    for root_zone_id in root_zone_ids
-                ),
-                default=0.0,
-            )
-            + outer_margin * 2,
+            measured_outer_height_demand,
         ),
     )
     root_node_counts = {
@@ -3710,6 +3836,7 @@ def _assign_zone_regions(
         )
         for root_zone_id in root_zone_ids
     }
+
     def _root_cell_size(root_zone_id: str) -> tuple[float, float]:
         """Return the widest and tallest node cell across a root zone subtree."""
         subtree = _subtree_zone_ids(root_zone_id)
@@ -3734,11 +3861,7 @@ def _assign_zone_regions(
             inner_padding,
             zone_target_aspect,
         )
-        return (
-            columns * cell_width
-            + (columns - 1) * layout_gutter
-            + inner_padding * 2
-        )
+        return columns * cell_width + (columns - 1) * layout_gutter + inner_padding * 2
 
     desired_root_widths = {
         root_zone_id: max(
@@ -3756,10 +3879,19 @@ def _assign_zone_regions(
         )
         for root_zone_id in root_zone_ids
     }
-    maximum_root_width = max(240.0, viewport_rect["width"] - (outer_margin * 2))
     desired_total_width = sum(desired_root_widths.values()) + gutter * max(
         0,
         len(root_zone_ids) - 1,
+    )
+    # The viewport bounds how far a sparse surface is allowed to spread, but it
+    # must not compress content below what it measurably needs: doing so pushes
+    # nodes outside the zone that owns them and fails generation. A surface
+    # wider than the viewport stays readable because TMT scrolls, and the
+    # overflow is reported by the fill and clipping metrics.
+    maximum_root_width = max(
+        240.0,
+        viewport_rect["width"] - (outer_margin * 2),
+        desired_total_width,
     )
     # Expand toward the calibrated canvas so content is not compressed into a
     # narrow column, but bound the expansion by content demand so a sparse
@@ -4198,13 +4330,21 @@ def apply_layout(
                 if "height" not in position:
                     position["height"] = shape_height
                 element["position"] = position
-            elif "position" not in element:
-                element["position"] = {
-                    "left": 80,
-                    "top": 80,
-                    "width": shape_width,
-                    "height": shape_height,
-                }
+
+        unplaced = sorted(
+            str(element.get("id", "") or "")
+            for element in elements
+            if str(element.get("layout_role") or "").lower() != "suppressed"
+            and not isinstance(element.get("position"), dict)
+        )
+        if unplaced:
+            raise GenerationError(
+                f"Surface {surface.get('id', 'unknown')} produced no layout "
+                f"position for {len(unplaced)} element(s): "
+                f"{', '.join(unplaced)}; every element must declare a "
+                "trust_zone_id that resolves to a placed trust zone",
+                exit_code=EXIT_ERROR,
+            )
 
         _apply_overlay_rules(
             surface,
@@ -4218,12 +4358,25 @@ def apply_layout(
             for zone in surface.get("trust_zones", [])
             if isinstance(zone, dict)
         }
+        unnamed_zones = sorted(
+            zone_key
+            for zone_key, zone_def in zone_defs.items()
+            if zone_key
+            and zone_rects.get(zone_key)
+            and not str(zone_def.get("name", "") or "").strip()
+        )
+        if unnamed_zones:
+            raise GenerationError(
+                f"Surface {surface.get('id', 'unknown')} lays out "
+                f"{len(unnamed_zones)} trust zone(s) without a name: "
+                f"{', '.join(unnamed_zones)}; every laid-out trust zone must "
+                "carry a name so its boundary box is emitted and enforced",
+                exit_code=EXIT_ERROR,
+            )
         for zone_key, zone_def in zone_defs.items():
             if not zone_key:
                 continue
             zone_name = str(zone_def.get("name", "") or "").strip()
-            if not zone_name:
-                continue
             bounds = zone_rects.get(zone_key)
             if not bounds:
                 continue
@@ -4306,7 +4459,17 @@ def apply_layout(
             for flow in model.get("flows", [])
             if isinstance(flow, dict)
         }
-        for flow in surface.get("flows", []):
+        # Handles and labels are placed greedily: each placement avoids the
+        # ones already made. Walking the flows in spec order would therefore
+        # make the rendered geometry depend on the order flows happen to be
+        # written in. Placement runs in a canonical order keyed by flow id and
+        # the emitted list is restored to spec order once every flow is placed.
+        ordered_surface_flows = sorted(
+            enumerate(surface.get("flows", [])),
+            key=lambda item: (str(item[1].get("id", "")), item[0]),
+        )
+        placed_flow_order: list[int] = []
+        for spec_index, flow in ordered_surface_flows:
             source_element = next(
                 (
                     element
@@ -4636,6 +4799,7 @@ def apply_layout(
                     "height": float(label_height),
                 }
             )
+            placed_flow_order.append(spec_index)
             surface_flows.append(
                 {
                     **flow,
@@ -4647,7 +4811,7 @@ def apply_layout(
                         "handle_x": int(round(handle_point[0])),
                         "handle_y": int(round(handle_point[1])),
                     },
-                    "ordinal": flow.get("ordinal", len(surface_flows) + 1),
+                    "ordinal": flow.get("ordinal", spec_index + 1),
                     "source_guid": source_element.get("guid"),
                     "target_guid": target_element.get("guid"),
                     "surface_id": surface["id"],
@@ -4656,6 +4820,13 @@ def apply_layout(
                     "label_rect": label_layout["label_rect"],
                 }
             )
+        surface_flows = [
+            payload
+            for _, payload in sorted(
+                zip(placed_flow_order, surface_flows),
+                key=lambda item: item[0],
+            )
+        ]
         surface["flows"] = surface_flows
         _assert_zone_containment(surface)
 
@@ -4764,13 +4935,29 @@ def apply_layout(
     return model
 
 
+def _rect_escapes(
+    inner: tuple[float, float, float, float],
+    outer: tuple[float, float, float, float],
+) -> bool:
+    """Report whether ``inner`` leaves ``outer`` beyond the containment tolerance."""
+    left, top, right, bottom = inner
+    outer_left, outer_top, outer_right, outer_bottom = outer
+    return (
+        left < outer_left - ZONE_CONTAINMENT_TOLERANCE
+        or top < outer_top - ZONE_CONTAINMENT_TOLERANCE
+        or right > outer_right + ZONE_CONTAINMENT_TOLERANCE
+        or bottom > outer_bottom + ZONE_CONTAINMENT_TOLERANCE
+    )
+
+
 def _assert_zone_containment(surface: dict[str, Any]) -> None:
     """Fail closed when a laid-out node escapes its declared trust zone.
 
     The bounded-canvas guard only rejects gross overflow of the whole surface,
     so a moderately dense zone can pack nodes past its own boundary box while
     the surface still fits. That renders a diagram whose trust boundaries no
-    longer describe the model, which is worse than no diagram at all.
+    longer describe the model, which is worse than no diagram at all. Nested
+    zones are checked against their declared parent for the same reason.
     """
     zone_rects: dict[str, tuple[float, float, float, float]] = {}
     for element in surface.get("elements", []):
@@ -4792,6 +4979,28 @@ def _assert_zone_containment(surface: dict[str, Any]) -> None:
     if not zone_rects:
         return
 
+    zone_escapes: list[str] = []
+    for zone in surface.get("trust_zones", []):
+        if not isinstance(zone, dict):
+            continue
+        zone_id = str(zone.get("id", "") or "")
+        parent_zone_id = str(zone.get("parent_trust_zone_id", "") or "")
+        if not zone_id or not parent_zone_id:
+            continue
+        child_rect = zone_rects.get(zone_id)
+        parent_rect = zone_rects.get(parent_zone_id)
+        if child_rect is None or parent_rect is None:
+            continue
+        if _rect_escapes(child_rect, parent_rect):
+            zone_escapes.append(f"{zone_id} outside parent {parent_zone_id}")
+    if zone_escapes:
+        raise GenerationError(
+            f"Surface {surface.get('id', 'unknown')} places "
+            f"{len(zone_escapes)} trust zone(s) outside their parent zone: "
+            f"{', '.join(sorted(zone_escapes))}",
+            exit_code=EXIT_ERROR,
+        )
+
     escapes: list[str] = []
     for element in surface.get("elements", []):
         if not isinstance(element, dict):
@@ -4810,13 +5019,7 @@ def _assert_zone_containment(surface: dict[str, Any]) -> None:
         top = float(position.get("top", 0.0))
         right = left + float(position.get("width", 0.0))
         bottom = top + float(position.get("height", 0.0))
-        zone_left, zone_top, zone_right, zone_bottom = zone_rect
-        if (
-            left < zone_left - ZONE_CONTAINMENT_TOLERANCE
-            or top < zone_top - ZONE_CONTAINMENT_TOLERANCE
-            or right > zone_right + ZONE_CONTAINMENT_TOLERANCE
-            or bottom > zone_bottom + ZONE_CONTAINMENT_TOLERANCE
-        ):
+        if _rect_escapes((left, top, right, bottom), zone_rect):
             escapes.append(
                 f"{element.get('id', 'unknown')} in zone "
                 f"{element.get('trust_zone_id', 'unknown')}"
@@ -5281,13 +5484,21 @@ def _serialize_threat_instances(root: ET.Element, payload: dict[str, Any]) -> No
     }
 
     threat_payloads: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    spec_threat_count = 0
     for threat in payload.get("ThreatInstances", []):
         if not isinstance(threat, dict) or threat.get("source") != "spec":
             continue
 
+        spec_threat_count += 1
+        threat_id = str(threat.get("id", "") or "(unnamed)")
         interaction_ref = str(threat.get("interaction_ref", ""))
         interaction = flows_by_id.get(interaction_ref)
         if not isinstance(interaction, dict):
+            dropped.append(
+                f"{threat_id}: interaction_ref "
+                f"{interaction_ref or '(missing)'} does not resolve to a model flow"
+            )
             continue
 
         source_guid = str(interaction.get("source_guid") or "")
@@ -5298,7 +5509,20 @@ def _serialize_threat_instances(root: ET.Element, payload: dict[str, Any]) -> No
             )
         )
         target_guid = str(interaction.get("target_guid") or "")
-        if not (source_guid and flow_guid and target_guid):
+        missing_guids = sorted(
+            name
+            for name, value in (
+                ("source_guid", source_guid),
+                ("flow_guid", flow_guid),
+                ("target_guid", target_guid),
+            )
+            if not value
+        )
+        if missing_guids:
+            dropped.append(
+                f"{threat_id}: flow {interaction_ref} is missing "
+                f"{', '.join(missing_guids)}"
+            )
             continue
 
         surface_id = str(interaction.get("surface_id", ""))
@@ -5336,6 +5560,13 @@ def _serialize_threat_instances(root: ET.Element, payload: dict[str, Any]) -> No
             }
         )
 
+    if dropped:
+        raise GenerationError(
+            f"Threat serialization would drop {len(dropped)} spec threat(s):\n"
+            + "\n".join(sorted(dropped)),
+            exit_code=EXIT_ERROR,
+        )
+
     if not payload.get("ThreatInstances"):
         ET.SubElement(root, "ThreatInstances")
         return
@@ -5348,7 +5579,13 @@ def _serialize_threat_instances(root: ET.Element, payload: dict[str, Any]) -> No
             exit_code=EXIT_ERROR,
         )
 
-    serialize_threat_instances(root, threat_payloads)
+    prepared = serialize_threat_instances(root, threat_payloads)
+    if len(prepared) != spec_threat_count:
+        raise GenerationError(
+            f"Threat serialization emitted {len(prepared)} instances for "
+            f"{spec_threat_count} spec threat(s)",
+            exit_code=EXIT_ERROR,
+        )
 
 
 def render_tm7_xml(
@@ -5889,12 +6126,12 @@ def _find_display_attribute_value(
 def write_tm7(output_path: Path, xml_text: str) -> None:
     """Write the rendered XML through a sibling temporary file.
 
-    A direct write truncates the destination before the new content lands, so
-    an interrupted or failing write destroys the previous model and can leave a
-    partial file that still parses as XML. Writing a sibling temporary file and
-    replacing the destination keeps the prior artifact intact until the
-    replacement is complete. The replacement also swaps a symlinked destination
-    rather than writing through it to whatever the link targets.
+    A direct write truncates the destination before the new content lands, so an
+    interrupted write would destroy the existing model and could leave a partial
+    file that still parses as XML. Writing a sibling temporary file and replacing
+    the destination keeps the prior artifact intact until the replacement is
+    complete. The replacement also swaps a symlinked destination rather than
+    writing through it to whatever the link targets.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed in the with below
@@ -5925,9 +6162,22 @@ def generate_tm7_candidate(
     mode: str | None,
     update_path: Path | None,
     overlay_path: Path | None,
-    threat_generation_enabled: bool,
+    threat_generation_enabled: bool | None = None,
 ) -> Path:
-    """Generate a TM7 candidate from the supplied spec and optional overlay."""
+    """Generate a TM7 candidate from the supplied spec and optional overlay.
+
+    Args:
+        spec_path: Threat model spec to read exactly once.
+        output_path: Destination for the generated model.
+        template: Template profile override, or None to use the spec value.
+        mode: Generation mode override, or None to use the spec value.
+        update_path: Existing model to merge into, when updating.
+        overlay_path: Layout overlay to apply, when supplied.
+        threat_generation_enabled: Explicit flag, or None to defer to the spec.
+
+    Returns:
+        The written model path.
+    """
     if overlay_path is not None and update_path is not None:
         raise GenerationError(
             "overlay input cannot be combined with --update",
@@ -5935,6 +6185,14 @@ def generate_tm7_candidate(
         )
 
     spec = load_spec(spec_path)
+    # The flag is resolved from this read alone. A second load_spec in the
+    # caller allowed the flag and the model to come from different revisions of
+    # the same file.
+    resolved_threat_generation = (
+        threat_generation_enabled
+        if threat_generation_enabled is not None
+        else _coerce_bool(spec.get("threat_generation_enabled"), default=False)
+    )
     emit_warnings(spec)
     template_dir = Path(__file__).resolve().parent.parent
     profile = resolve_profile(spec, template, template_dir)
@@ -5964,7 +6222,7 @@ def generate_tm7_candidate(
         profile,
         resolved_mode,
         existing_model=existing_model,
-        threat_generation_enabled=threat_generation_enabled,
+        threat_generation_enabled=resolved_threat_generation,
         layout_overlay=layout_overlay,
     )
     xml_text = render_tm7_xml(
@@ -5977,8 +6235,8 @@ def generate_tm7_candidate(
 def configure_logging() -> None:
     """Route module diagnostics to stderr with a concise prefix.
 
-    The ``Warning: `` prefix and stderr destination match what the previous
-    direct ``print`` calls produced, so operator-visible output is unchanged.
+    Warnings carry a ``Warning: `` prefix on stderr so operator-visible output
+    stays distinct from generated content on stdout.
     """
     if logging.getLogger().handlers:
         return
@@ -5995,7 +6253,6 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        spec = load_spec(args.spec)
         output_path = generate_tm7_candidate(
             spec_path=args.spec,
             output_path=args.output,
@@ -6003,8 +6260,7 @@ def main() -> int:
             mode=args.mode,
             update_path=args.update,
             overlay_path=args.overlay_input,
-            threat_generation_enabled=args.threat_generation_enabled
-            or _coerce_bool(spec.get("threat_generation_enabled"), default=False),
+            threat_generation_enabled=True if args.threat_generation_enabled else None,
         )
         print(f"Generated {output_path}")
         return EXIT_SUCCESS
@@ -6016,6 +6272,12 @@ def main() -> int:
         # so it reports the same concise message and exit code as any other
         # rejected spec instead of escaping as a traceback.
         print(f"Error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    except KeyboardInterrupt:
+        print("\nInterrupted by user", file=sys.stderr)
+        return EXIT_INTERRUPTED
+    except BrokenPipeError:
+        sys.stderr.close()
         return EXIT_ERROR
 
 

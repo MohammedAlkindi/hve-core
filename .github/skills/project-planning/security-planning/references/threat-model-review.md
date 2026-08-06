@@ -1,10 +1,9 @@
 ---
 title: Threat Model Completeness Review
 description: Public checklist and verdict format for reviewing whether a threat-model spec satisfies the schema-backed completeness requirements.
-ms.date: 2026-07-15
+ms.date: 2026-08-05
 ms.topic: reference
 ---
-<!-- markdownlint-disable-file -->
 
 # Threat Model Completeness Review
 
@@ -48,6 +47,6 @@ Use `PASS` when every checklist item passes. Use `INCOMPLETE` when one or more c
 
 ## Review notes
 
-- INCOMPLETE handling follows the existing autonomy tier of the agent that is performing the review.
-- RGAP-01 through RGAP-07 are portable specification checks. RGAP-08 is conditional and applies only when the workflow supplies an authored TM7 base.
-- Internal review-gate steps such as uploading the artifact to an internal portal or scheduling an internal review are not part of this public checklist. Those steps belong in a private overlay referenced by `state.overlayConfigPath`.
+* INCOMPLETE handling follows the existing autonomy tier of the agent that is performing the review.
+* RGAP-01 through RGAP-07 are portable specification checks. RGAP-08 is conditional and applies only when the workflow supplies an authored TM7 base.
+* Internal review-gate steps such as uploading the artifact to an internal portal or scheduling an internal review are not part of this public checklist. Those steps belong in a private overlay referenced by `state.overlayConfigPath`.

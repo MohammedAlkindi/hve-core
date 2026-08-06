@@ -1,7 +1,7 @@
 ---
 title: Template profile bundle
 description: Default vendor-neutral template-profile metadata for TM7 generation
-ms.date: 2026-07-30
+ms.date: 2026-08-05
 ms.topic: reference
 ---
 

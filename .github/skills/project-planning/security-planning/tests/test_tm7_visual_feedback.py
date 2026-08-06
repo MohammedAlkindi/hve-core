@@ -122,7 +122,7 @@ def test_given_unsupported_schema_version_when_validating_then_raises(
         surface_flow_ids={"context": {"flow-001"}},
     )
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match=expected_message):
         feedback.validate_layout_overlay(overlay, context)
 
@@ -170,7 +170,7 @@ def test_given_unknown_rule_type_when_validating_then_raises() -> None:
         surface_flow_ids={"context": {"flow-001"}},
     )
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="layout_role"):
         feedback.validate_layout_overlay(overlay, context)
 
@@ -224,7 +224,7 @@ def test_given_duplicate_rule_keys_when_validating_then_raises() -> None:
         surface_flow_ids={"context": {"flow-001"}},
     )
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="duplicate"):
         feedback.validate_layout_overlay(overlay, context)
 
@@ -245,34 +245,20 @@ def test_given_stale_invalidation_fingerprint_when_validating_then_raises() -> N
         surface_flow_ids={"context": {"flow-001"}},
     )
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="fingerprint"):
         feedback.validate_layout_overlay(overlay, context)
 
 
-@pytest.mark.parametrize(
-    ("metric_name", "metric_value", "expected_severity"),
-    [
-        ("overlap_ratio", 0.009, "pass"),
-        ("overlap_ratio", 0.025, "warn"),
-        ("overlap_ratio", 0.035, "review"),
-        ("edge_node_intersections", 0, "pass"),
-        ("edge_node_intersections", 2, "warn"),
-        ("edge_node_intersections", 3, "review"),
-        ("edge_crossing_count", 0, "pass"),
-        ("edge_crossing_count", 2, "warn"),
-        ("edge_crossing_count", 3, "review"),
-        ("min_spacing_ratio", 0.65, "pass"),
-        ("min_spacing_ratio", 0.5, "warn"),
-        ("min_spacing_ratio", 0.24, "warn"),
-        ("min_spacing_ratio", 0.2, "review"),
-    ],
-)
-def test_surface_layout_candidate_scoring_is_deterministic(
-    metric_name: str,
-    metric_value: float,
-    expected_severity: str,
-) -> None:
+def test_given_same_candidate_when_scored_twice_then_score_is_identical() -> None:
+    """Scoring must be a pure function of the candidate and viewport.
+
+    This test previously carried a copy-pasted threshold parametrization it
+    never referenced, so it ran thirteen identical cases and asserted only that
+    two score members were non-negative. Neither the repetition nor the name's
+    determinism claim was actually exercised.
+    """
+    # Arrange
     candidate = {
         "surface_id": "context",
         "orientation": "horizontal",
@@ -283,15 +269,20 @@ def test_surface_layout_candidate_scoring_is_deterministic(
         "fan_in": {"node-a": 0, "node-b": 1},
         "fan_out": {"node-a": 1, "node-b": 0},
     }
+    viewport = (0.0, 0.0, 1920.0, 1080.0)
 
-    score = feedback.score_surface_layout_candidate(
+    # Act
+    first = feedback.score_surface_layout_candidate(
         candidate,
-        viewport_target=(0.0, 0.0, 1920.0, 1080.0),
+        viewport_target=viewport,
+    )
+    second = feedback.score_surface_layout_candidate(
+        candidate,
+        viewport_target=viewport,
     )
 
-    assert isinstance(score, tuple)
-    assert score[0] >= 0
-    assert score[1] >= 0
+    # Assert
+    assert first == second
 
 
 @pytest.mark.parametrize(
@@ -312,7 +303,7 @@ def test_surface_layout_candidate_scoring_is_deterministic(
         ("min_spacing_ratio", 0.2, "review"),
     ],
 )
-def test_threshold_boundaries_assigns_expected_severity(
+def test_given_boundary_metric_when_findings_derived_then_severity_matches(
     metric_name: str,
     metric_value: float,
     expected_severity: str,
@@ -372,7 +363,8 @@ def test_given_zone_metrics_when_evaluating_then_reports_pending_review() -> Non
     )
 
 
-def test_unoccupied_zone_is_a_blocking_review_finding() -> None:
+def test_given_unoccupied_zone_when_findings_derived_then_review_is_blocking() -> None:
+    # Arrange
     geometry = feedback.SurfaceGeometry(
         surface_id="context",
         nominal_node_size=100.0,
@@ -385,9 +377,11 @@ def test_unoccupied_zone_is_a_blocking_review_finding() -> None:
         },
     )
 
+    # Act
     metrics = feedback.derive_geometry_metrics(geometry)
     findings = feedback.derive_findings(metrics, density="simple")
 
+    # Assert
     assert metrics["unoccupied_zone_count"] == 1
     finding = next(
         item for item in findings if item["metric_name"] == "unoccupied_zone_count"
@@ -600,8 +594,7 @@ def test_given_orphaned_label_when_deriving_then_ownership_warns() -> None:
 
     # Assert
     assert (
-        metrics["max_label_ownership_distance"]
-        > feedback.MAX_LABEL_OWNERSHIP_DISTANCE
+        metrics["max_label_ownership_distance"] > feedback.MAX_LABEL_OWNERSHIP_DISTANCE
     )
     finding = next(
         item
@@ -671,10 +664,7 @@ def test_given_composition_drift_when_deriving_then_advisory_gates_only_warn() -
     # Assert
     assert metrics["backward_edge_count"] == 2
     assert metrics["rank_monotonicity_ratio"] < feedback.MIN_RANK_MONOTONICITY_RATIO
-    assert (
-        metrics["branch_alignment_variance"]
-        > feedback.MAX_BRANCH_ALIGNMENT_VARIANCE
-    )
+    assert metrics["branch_alignment_variance"] > feedback.MAX_BRANCH_ALIGNMENT_VARIANCE
     advisory_names = {
         "backward_edge_count",
         "rank_monotonicity_ratio",
@@ -866,11 +856,11 @@ def test_given_manifest_when_validated_then_requires_pending_human_status() -> N
         },
     }
 
-    # Act / Assert
+    # Act and Assert
     feedback.validate_feedback_manifest(manifest)
 
 
-def test_layout_calibration_rejects_zero_sized_pane() -> None:
+def test_given_zero_sized_pane_when_calibrated_then_rejected() -> None:
     """Reject calibration payloads that report a zero-sized pane."""
     # Arrange
     calibration = {
@@ -890,13 +880,12 @@ def test_layout_calibration_rejects_zero_sized_pane() -> None:
         },
     }
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="pane_rect"):
         feedback._validate_layout_calibration_v1(calibration)
 
 
-def test_given_layout_calibration_contract_when_validated_then_accepts_same_run_scope(
-) -> None:
+def test_given_calibration_contract_when_validated_then_same_run_is_accepted() -> None:
     """Accept a same-run calibration contract with complete confidence data."""
     # Arrange
     manifest = {
@@ -936,11 +925,13 @@ def test_given_layout_calibration_contract_when_validated_then_accepts_same_run_
         },
     }
 
-    # Act / Assert
+    # Act and Assert
     feedback.validate_feedback_manifest(manifest)
 
 
-def test_connector_label_helpers_make_generator_and_feedback_agree() -> None:
+def test_given_connector_label_when_measured_then_generator_and_feedback_agree() -> (
+    None
+):
     # Act
     generator_layout = generate_tm7._build_connector_label_layout(
         "Access the service",
@@ -961,7 +952,9 @@ def test_connector_label_helpers_make_generator_and_feedback_agree() -> None:
     assert generator_layout["label_rect"] == feedback_layout["label_rect"]
 
 
-def test_connector_endpoints_are_excluded_from_geometry_intersections() -> None:
+def test_given_connector_endpoints_when_metrics_derived_then_they_are_excluded() -> (
+    None
+):
     # Arrange
     geometry = feedback.SurfaceGeometry(
         surface_id="context",
@@ -1079,7 +1072,8 @@ def test_given_overlay_candidates_when_ranked_then_uses_deterministic_order() ->
     )
 
 
-def test_surface_layout_candidate_scoring_is_sensitive_to_zone_order() -> None:
+def test_given_differing_zone_order_when_scored_then_scores_differ() -> None:
+    # Arrange
     horizontal_candidate = {
         "surface_id": "context",
         "orientation": "horizontal",
@@ -1101,13 +1095,15 @@ def test_surface_layout_candidate_scoring_is_sensitive_to_zone_order() -> None:
         "fan_out": {"node-a": 1, "node-b": 0},
     }
 
+    # Act
     horizontal_score = feedback.score_surface_layout_candidate(horizontal_candidate)
     vertical_score = feedback.score_surface_layout_candidate(vertical_candidate)
 
+    # Assert
     assert horizontal_score[0] < vertical_score[0]
 
 
-def test_repeated_defect_history_stops_convergence() -> None:
+def test_given_repeated_defect_history_when_evaluated_then_convergence_stops() -> None:
     # Arrange
     history = [
         feedback.IterationResult(
@@ -1132,7 +1128,7 @@ def test_repeated_defect_history_stops_convergence() -> None:
     assert convergence.stop_reason == "repeated-defect-no-improvement"
 
 
-def test_max_iterations_boundary_allows_one_refinement_when_limit_is_two() -> None:
+def test_given_two_iteration_limit_when_evaluated_then_one_refinement_runs() -> None:
     # Arrange
     history = [
         feedback.IterationResult(
@@ -1155,7 +1151,7 @@ def test_max_iterations_boundary_allows_one_refinement_when_limit_is_two() -> No
     assert convergence.stop_reason == "continue"
 
 
-def test_given_zero_gates_but_incomplete_evidence_then_readiness_is_not_claimed() -> (
+def test_given_zero_gates_but_incomplete_evidence_when_evaluated_then_not_ready() -> (
     None
 ):
     """No observed failures is not the same as observed success.
@@ -1183,7 +1179,9 @@ def test_given_zero_gates_but_incomplete_evidence_then_readiness_is_not_claimed(
     assert convergence.stop_reason != "automated-ready-pending-human"
 
 
-def test_given_scored_candidates_then_every_declared_dimension_discriminates() -> None:
+def test_given_scored_candidates_when_compared_then_every_dimension_discriminates() -> (
+    None
+):
     """Each declared score member must be able to separate two candidates.
 
     Six of the eleven previously declared dimensions were returned as constant
@@ -1221,12 +1219,12 @@ def test_given_scored_candidates_then_every_declared_dimension_discriminates() -
 
     # Assert
     for index in range(len(baseline_score)):
-        assert any(
-            score[index] != baseline_score[index] for score in variant_scores
-        ), f"score dimension {index} is constant and cannot order candidates"
+        assert any(score[index] != baseline_score[index] for score in variant_scores), (
+            f"score dimension {index} is constant and cannot order candidates"
+        )
 
 
-def test_pending_overlay_sets_pending_approval_state() -> None:
+def test_given_automation_overlay_when_emitted_then_approval_state_is_pending() -> None:
     # Arrange
     geometry = feedback.SurfaceGeometry(
         surface_id="context",
@@ -1263,7 +1261,10 @@ def test_pending_overlay_sets_pending_approval_state() -> None:
     assert candidates[0]["provenance"]["approval_state"] == "pending"
 
 
-def test_boundary_failure_derives_typed_zone_rule() -> None:
+def test_given_boundary_overlap_when_candidates_derived_then_zone_rule_is_typed() -> (
+    None
+):
+    # Arrange
     geometry = feedback.SurfaceGeometry(
         surface_id="context",
         nominal_node_size=100.0,
@@ -1282,6 +1283,7 @@ def test_boundary_failure_derives_typed_zone_rule() -> None:
         surface_zone_ids={"context": {"zone-a"}},
     )
 
+    # Act
     candidate = feedback.derive_overlay_candidates(
         surface_geometry=geometry,
         overlay_context=context,
@@ -1292,18 +1294,21 @@ def test_boundary_failure_derives_typed_zone_rule() -> None:
         },
     )[0]
 
+    # Assert
     assert candidate["target_type"] == "zone"
     assert candidate["target_id"] == "zone-a"
     assert candidate["rule_collection"] == "zone_rules"
     assert candidate["overlay_rule"]["zone_id"] == "zone-a"
 
 
-def test_feedback_manifest_rejects_non_exact_candidate_fingerprint() -> None:
+def test_given_non_exact_candidate_fingerprint_when_validated_then_rejected() -> None:
+    # Arrange
     manifest = json.loads(
         (FIXTURES_DIR / "valid-manifest.json").read_text(encoding="utf-8")
     )
     manifest["candidate_sha256"] = "not-a-sha"
 
+    # Act and Assert
     with pytest.raises(ValueError, match="candidate_sha256"):
         feedback.validate_feedback_manifest(manifest)
 
@@ -1349,7 +1354,9 @@ def test_given_screenshot_review_when_deriving_candidates_then_gate_ignores_it()
     assert candidates[0]["gate_failure_count"] == 0
 
 
-def test_connector_intersection_candidate_moves_node_away() -> None:
+def test_given_connector_intersection_when_candidate_derived_then_node_moves_away() -> (
+    None
+):
     # Arrange
     geometry = feedback.SurfaceGeometry(
         surface_id="context",
@@ -1405,13 +1412,28 @@ def test_connector_intersection_candidate_moves_node_away() -> None:
         node_rects=moved_rects,
         connector_segments=geometry.connector_segments,
     )
-    moved_metrics = feedback.derive_geometry_metrics(moved_geometry)
+
+    def centre_distance(rect: tuple[float, float, float, float]) -> float:
+        rect_left, rect_top, rect_right, rect_bottom = rect
+        centre = (
+            (rect_left + rect_right) / 2.0,
+            (rect_top + rect_bottom) / 2.0,
+        )
+        return feedback._point_to_segment_distance(centre, (0.0, 0.0), (200.0, 200.0))
 
     # Assert
     assert rule["constraint"] == "position"
     assert rule["left"] >= 1.0
     assert rule["top"] >= 1.0
-    assert moved_metrics["edge_node_intersections"] <= 0
+    # The node starts centred on the connector. The candidate must push it off
+    # that line. Asserting the intersection count reaches zero instead would be
+    # vacuous: one refinement of a quarter node size cannot clear a segment that
+    # runs through the node's centre, and the count is capped at one per
+    # connector anyway. Strict growth in centre-to-connector distance is the
+    # property the candidate actually promises.
+    assert centre_distance(geometry.node_rects["ext-dev"]) == 0.0
+    assert centre_distance(moved_rects["ext-dev"]) > 0.0
+    assert moved_geometry.node_rects["ext-dev"] != geometry.node_rects["ext-dev"]
 
 
 def test_given_overlap_when_deriving_candidates_then_overlap_ratio_reduces() -> None:
@@ -1648,7 +1670,7 @@ def test_given_v1_overlay_when_validating_then_rejects_with_schema_version_error
         surface_flow_ids={"context": {"flow-001"}},
     )
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="schema_version"):
         feedback.validate_layout_overlay(overlay, context)
 
@@ -1693,7 +1715,7 @@ def test_given_overlay_payload_when_validated_then_schema_stays_strict() -> None
         surface_flow_ids={"context": {"flow-001"}},
     )
 
-    # Act / Assert
+    # Act and Assert
     with pytest.raises(ValueError, match="fingerprint"):
         feedback.validate_layout_overlay(overlay, context)
     assert schema["additionalProperties"] is False

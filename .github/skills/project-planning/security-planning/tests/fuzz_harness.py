@@ -9,6 +9,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
@@ -63,35 +65,42 @@ def fuzz_dispatch(data: bytes) -> None:
 class TestGenerateTm7FuzzHarness:
     """Pytest property tests mirroring the fuzz target behavior."""
 
+    @pytest.mark.parametrize("payload", [b"", b"{", b"<", b"\x00", b"\xff"])
     def test_given_arbitrary_bytes_when_load_spec_then_no_uncaught_exception(
         self,
+        payload: bytes,
     ) -> None:
-        for payload in (b"", b"{", b"<", b"\x00", b"\xff"):
-            with tempfile.TemporaryDirectory() as temp_dir:
-                path = Path(temp_dir) / "spec.yaml"
-                path.write_bytes(payload)
-                try:
-                    generate_tm7.load_spec(path)
-                except (generate_tm7.GenerationError, UnicodeError, ValueError):
-                    # A malformed payload must be rejected through a declared
-                    # domain error. The assertion under test is that nothing
-                    # outside this tuple escapes, so the rejection itself is the
-                    # expected outcome and needs no further handling.
-                    continue
+        # Arrange
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "spec.yaml"
+            path.write_bytes(payload)
 
+            # Act and Assert
+            try:
+                result = generate_tm7.load_spec(path)
+            except (generate_tm7.GenerationError, UnicodeError, ValueError):
+                return
+            assert isinstance(result, dict)
+
+    @pytest.mark.parametrize(
+        "payload",
+        [b"", b"<", b"<!DOCTYPE", b"\x00", b"\xff"],
+    )
     def test_given_arbitrary_bytes_when_parse_tm7_then_no_uncaught_exception(
         self,
+        payload: bytes,
     ) -> None:
-        for payload in (b"", b"<", b"<!DOCTYPE", b"\x00", b"\xff"):
-            with tempfile.TemporaryDirectory() as temp_dir:
-                path = Path(temp_dir) / "model.tm7"
-                path.write_bytes(payload)
-                try:
-                    generate_tm7.parse_hardened_xml(path)
-                except (generate_tm7.GenerationError, UnicodeError, ValueError):
-                    # As above: rejection through a declared domain error is the
-                    # expected result for every payload here.
-                    continue
+        # Arrange
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "model.tm7"
+            path.write_bytes(payload)
+
+            # Act and Assert
+            try:
+                result = generate_tm7.parse_hardened_xml(path)
+            except (generate_tm7.GenerationError, UnicodeError, ValueError):
+                return
+            assert isinstance(result, ET.Element)
 
 
 if __name__ == "__main__" and FUZZING:

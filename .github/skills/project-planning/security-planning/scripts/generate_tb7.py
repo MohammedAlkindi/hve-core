@@ -223,7 +223,7 @@ def _clone_manifest(source_root: ET.Element, spec: dict[str, Any]) -> ET.Element
     manifest.set("name", f"{name} Threat Model Template")
     manifest.set(
         "id",
-        _make_guid(f"tb7:{spec.get('project_metadata', {}).get('name', 'template')}")
+        _make_guid(f"tb7:{spec.get('project_metadata', {}).get('name', 'template')}"),
     )
     manifest.set(
         "version",
@@ -336,6 +336,12 @@ def main() -> int:
     except GenerationError as exc:
         print(str(exc), file=sys.stderr)
         return exc.exit_code
+    except KeyboardInterrupt:
+        print("\nInterrupted by user", file=sys.stderr)
+        return 130
+    except BrokenPipeError:
+        sys.stderr.close()
+        return 1
     print(output_path)
     return 0
 

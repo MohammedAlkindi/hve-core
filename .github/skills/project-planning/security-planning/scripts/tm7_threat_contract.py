@@ -7,18 +7,50 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-try:  # pragma: no cover - exercised at runtime when available
-    from defusedxml import ElementTree as DefusedET
-except ImportError:  # pragma: no cover - fallback when defusedxml is absent
-    DefusedET = None
+from defusedxml import ElementTree as DefusedET
 
+ABSTRACT_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts"
 ARRAYS_NS = "http://schemas.microsoft.com/2003/10/Serialization/Arrays"
 KNOWLEDGE_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.KnowledgeBase"
+MODEL_NS = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model"
+SERIALIZATION_NS = "http://schemas.microsoft.com/2003/10/Serialization/"
+XSD_NS = "http://www.w3.org/2001/XMLSchema"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+
+# TMT reads prefixes positionally in places, so a written model must carry the
+# exact prefix bindings below rather than the ns0/ns1 names ElementTree invents.
+TM7_NAMESPACE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("", MODEL_NS),
+    ("a", ARRAYS_NS),
+    ("b", KNOWLEDGE_NS),
+    ("d2p1", ABSTRACT_NS),
+    ("i", XSI_NS),
+    ("z", SERIALIZATION_NS),
+)
+
+# Input ceilings are derived from the largest supported committed inputs plus
+# generous headroom: the largest spec fixture is about 81 KiB and the largest
+# generated model is about 1.7 MiB. Bounds are enforced before parsing so an
+# oversized document cannot be expanded in memory first.
+MAX_SPEC_BYTES = 8 * 1024 * 1024
+MAX_MODEL_BYTES = 64 * 1024 * 1024
+
+# TMT stores ThreatInstance.Id as a signed 32-bit integer and treats 0 as the
+# unassigned sentinel, so derived identifiers occupy the closed interval
+# [1, 2147483647]. The identifier is a fixed standard-library digest over the
+# UTF-8 bytes of the exact normalized source id, which keeps a threat's visible
+# id constant across insertion, reordering, and separate processes.
+THREAT_ID_DIGEST = "sha256"
+THREAT_ID_MIN = 1
+THREAT_ID_MAX = 2147483647
 
 THREAT_MEMBER_ORDER = [
     "ChangedBy",
@@ -77,6 +109,66 @@ class UnsafeXmlError(ValueError):
     """Raised when XML input declares a DTD or entities, or cannot be parsed."""
 
 
+class InputTooLargeError(ValueError):
+    """Raised when an untrusted input exceeds its documented size ceiling."""
+
+
+# ElementTree resolves prefixes through the process-global ``ET._namespace_map``
+# and offers no per-document alternative, so every TM7 write passes through this
+# single boundary. The lock serializes concurrent writers so one cannot observe
+# another's prefixes, and the snapshot restores the caller's registry on every
+# exit path including an exception.
+_NAMESPACE_REGISTRY_LOCK = threading.Lock()
+
+
+@contextmanager
+def tm7_serialization_namespaces(root: ET.Element) -> Iterator[None]:
+    """Bind TM7 prefixes and the root xsd attribute for one serialization.
+
+    Args:
+        root: Model root element that carries the ``xmlns:c`` schema binding.
+
+    Yields:
+        None, while the TM7 prefix bindings are active.
+    """
+    with _NAMESPACE_REGISTRY_LOCK:
+        previous_map = ET._namespace_map.copy()
+        try:
+            for prefix, uri in TM7_NAMESPACE_PREFIXES:
+                ET.register_namespace(prefix, uri)
+            root.set("xmlns:c", XSD_NS)
+            yield
+        finally:
+            root.attrib.pop("xmlns:c", None)
+            ET._namespace_map.clear()
+            ET._namespace_map.update(previous_map)
+
+
+def read_bounded_bytes(path: Path, max_bytes: int) -> bytes:
+    """Read a file only when it fits inside its documented size ceiling.
+
+    The size is checked before any content is loaded, so an oversized document
+    is rejected without being expanded in memory.
+
+    Args:
+        path: File to read.
+        max_bytes: Maximum accepted size in bytes.
+
+    Returns:
+        Raw file bytes.
+
+    Raises:
+        InputTooLargeError: If the file exceeds ``max_bytes``.
+        OSError: If the file cannot be inspected or read.
+    """
+    size = path.stat().st_size
+    if size > max_bytes:
+        raise InputTooLargeError(
+            f"{path} is {size} bytes, which exceeds the {max_bytes} byte limit"
+        )
+    return path.read_bytes()
+
+
 def contains_doctype_or_entity(data: bytes) -> bool:
     """Return True when the payload declares a DTD or entity in any encoding.
 
@@ -104,17 +196,25 @@ def parse_hardened_xml_bytes(data: bytes) -> ET.Element:
     parsed model payload rather than an element.
 
     Every entry point rejects DTD and entity declarations in any supported
-    encoding, prefers defusedxml when it is installed, and converts parser and
-    defusedxml exceptions alike into ``UnsafeXmlError``. Callers translate that
-    into their own domain error so an unsafe document never surfaces as an
-    unhandled traceback.
+    encoding, parses through defusedxml, which is a required runtime
+    dependency, and converts parser and defusedxml exceptions alike into
+    ``UnsafeXmlError``. Callers translate that into their own domain error so
+    an unsafe document never surfaces as an unhandled traceback.
+
+    Args:
+        data: Raw XML bytes from an untrusted source.
+
+    Returns:
+        Parsed root element.
+
+    Raises:
+        UnsafeXmlError: If the payload declares a DTD or entity, or cannot be
+            parsed safely.
     """
     if contains_doctype_or_entity(data):
         raise UnsafeXmlError("Refusing to parse XML with DTD or entity declarations")
     try:
-        if DefusedET is not None:
-            return DefusedET.fromstring(data)
-        return ET.fromstring(data)
+        return DefusedET.fromstring(data)
     except ET.ParseError as exc:
         raise UnsafeXmlError(f"Unable to parse XML: {exc}") from exc
     except Exception as exc:  # defusedxml raises its own DTD/entity errors
@@ -198,8 +298,7 @@ def build_threat_instance_properties(
         (
             "UserThreatShortDescription",
             _normalize_text(
-                supplied.get("UserThreatShortDescription")
-                or threat.get("description")
+                supplied.get("UserThreatShortDescription") or threat.get("description")
             ),
         ),
         (
@@ -427,104 +526,67 @@ def collect_mapping_failures(
     return [message for _, message in sorted(failures)]
 
 
-def _authored_display_value(value: ET.Element, display_name: str) -> str:
-    """Return a named display-attribute value from an authored element."""
-    for attribute in value.findall("{*}Properties/{*}anyType"):
-        if _node_text(attribute.find("{*}DisplayName")) == display_name:
-            return _node_text(attribute.find("{*}Value"))
-    return ""
+def _coerce_authored_base_index(authored_base: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the one supported authored-base index shape.
 
-
-def _authored_identity(value: ET.Element) -> str:
-    """Return the stable identity of an authored element or connector.
-
-    ``SemanticId`` carries the spec identifier and is preferred. ``Name`` is the
-    human-facing label and only serves as a fallback for authored content that
-    predates semantic identifiers.
+    ``populate_tm7_threats._build_authored_base_index`` is the single producer.
+    Each surface entry carries the declared surface ``id`` it was resolved to,
+    the authored ``guid``, and an ``elements`` map keyed by declared element id.
     """
-    semantic_id = _authored_display_value(value, "SemanticId")
-    if semantic_id:
-        return semantic_id
-    named = _authored_display_value(value, "Name")
-    if named:
-        return named
-    return _node_text(value.find("{*}Properties/{*}anyType/{*}Value"))
+    return {
+        "connectors": authored_base.get("connectors") or {},
+        "surfaces": authored_base.get("surfaces") or [],
+    }
 
 
-def _coerce_authored_base_index(authored_base: Any) -> dict[str, Any]:
-    if authored_base is None:
-        return {"connectors": {}, "elements": {}, "surfaces": []}
-    if isinstance(authored_base, dict):
-        return {
-            "connectors": authored_base.get("connectors") or {},
-            "elements": authored_base.get("elements") or {},
-            "surfaces": authored_base.get("surfaces") or [],
-        }
-    if isinstance(authored_base, ET.Element):
-        surfaces: list[dict[str, Any]] = []
-        connectors: dict[str, list[dict[str, str]]] = {}
-        for surface_index, surface in enumerate(
-            authored_base.findall(
-                "{*}DrawingSurfaceList/{*}DrawingSurfaceModel"
-            )
-        ):
-            surface_guid = _node_text(surface.find("{*}Guid"))
-            surface_elements: dict[str, str] = {}
-            for child in surface.findall("{*}Borders/{*}KeyValueOfguidanyType"):
-                value = child.find("{*}Value")
-                if value is None:
-                    continue
-                element_guid = _node_text(value.find("{*}Guid"))
-                element_name = _authored_identity(value)
-                if element_name and element_guid:
-                    surface_elements[element_name] = element_guid
-            surfaces.append(
-                {
-                    "index": surface_index,
-                    "guid": surface_guid,
-                    "elements": surface_elements,
-                }
-            )
-            for child in surface.findall("{*}Lines/{*}KeyValueOfguidanyType"):
-                value = child.find("{*}Value")
-                if value is None:
-                    continue
-                flow_name = _authored_identity(value)
-                if not flow_name:
-                    continue
-                connector = {
-                    "surface_index": str(surface_index),
-                    "drawing_surface_guid": surface_guid,
-                    "flow_guid": _node_text(value.find("{*}Guid")),
-                    "source_guid": _node_text(value.find("{*}SourceGuid")),
-                    "target_guid": _node_text(value.find("{*}TargetGuid")),
-                }
-                connectors.setdefault(flow_name, []).append(connector)
-        return {"connectors": connectors, "elements": {}, "surfaces": surfaces}
-    return {"connectors": {}, "elements": {}, "surfaces": []}
+def _index_authored_surfaces(
+    authored_surfaces: Any,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Index authored surfaces by declared identity and report duplicates.
+
+    Authored surfaces that resolve to no declared surface carry an empty id and
+    are ignored; a base model may legitimately contain extra diagrams.
+    """
+    by_id: dict[str, dict[str, Any]] = {}
+    duplicates: set[str] = set()
+    for entry in _coerce_list(authored_surfaces):
+        if not isinstance(entry, dict):
+            continue
+        surface_id = _normalize_text(entry.get("id"))
+        if not surface_id:
+            continue
+        if surface_id in by_id:
+            duplicates.add(surface_id)
+            continue
+        by_id[surface_id] = entry
+    failures = [
+        f"authored-base surface {surface_id} is declared more than once"
+        for surface_id in sorted(duplicates)
+    ]
+    return by_id, failures
 
 
 def reconcile_authored_base(
     spec: dict[str, Any],
-    authored_base: Any,
+    authored_base: dict[str, Any] | None,
 ) -> list[str]:
     """Reconcile a spec against an authored base model for connector placement."""
     if not isinstance(spec, dict):
         return ["spec root must be a mapping"]
     if authored_base is None:
         return []
+    if not isinstance(authored_base, dict):
+        return ["authored base must be an index mapping"]
 
     index = _coerce_authored_base_index(authored_base)
     connectors = index.get("connectors") or {}
-    authored_surfaces = index.get("surfaces") or []
-    global_elements = index.get("elements") or {}
+    authored_surfaces, failures = _index_authored_surfaces(index.get("surfaces"))
     declared_surfaces = _surface_metadata(spec)
     flows = {
         _normalize_text(flow.get("id")): flow
         for flow in _coerce_list(spec.get("data_flows"))
         if isinstance(flow, dict) and flow.get("id")
     }
-    failures: list[str] = []
 
     for threat in _coerce_list(spec.get("threats")):
         if not isinstance(threat, dict):
@@ -539,8 +601,8 @@ def reconcile_authored_base(
         source_ref = _normalize_text(flow.get("source_ref"))
         target_ref = _normalize_text(flow.get("target_ref"))
         expected_matches = [
-            (index, surface)
-            for index, surface in enumerate(declared_surfaces)
+            surface
+            for surface in declared_surfaces
             if interaction_ref in surface["flow_ids"]
             and {source_ref, target_ref}.issubset(surface["members"])
         ]
@@ -550,21 +612,24 @@ def reconcile_authored_base(
                 f"{interaction_ref} is ambiguous"
             )
             continue
-        expected_index, expected_surface = expected_matches[0]
-        authored_surface = (
-            authored_surfaces[expected_index]
-            if expected_index < len(authored_surfaces)
-            else {}
-        )
-        expected_surface_guid = _normalize_text(
-            authored_surface.get("model_guid") or authored_surface.get("guid")
-        )
+        expected_surface_id = _normalize_text(expected_matches[0].get("id"))
+        authored_surface = authored_surfaces.get(expected_surface_id)
+        if authored_surface is None:
+            failures.append(
+                f"{threat_id}: authored-base surface "
+                f"{expected_surface_id or '~unidentified'} for {interaction_ref} "
+                "is absent"
+            )
+            continue
+        expected_surface_guid = _normalize_text(authored_surface.get("guid"))
 
         raw_connectors = connectors.get(interaction_ref)
         candidates = (
             raw_connectors
             if isinstance(raw_connectors, list)
-            else [raw_connectors] if isinstance(raw_connectors, dict) else []
+            else [raw_connectors]
+            if isinstance(raw_connectors, dict)
+            else []
         )
         connector = next(
             (
@@ -578,13 +643,11 @@ def reconcile_authored_base(
         if connector is None:
             if candidates:
                 failures.append(
-                    f"{threat_id}: authored-base surface mismatch for "
-                    f"{interaction_ref}"
+                    f"{threat_id}: authored-base surface mismatch for {interaction_ref}"
                 )
             else:
                 failures.append(
-                    f"{threat_id}: authored-base connector {interaction_ref} "
-                    "is absent"
+                    f"{threat_id}: authored-base connector {interaction_ref} is absent"
                 )
             continue
         guid_values = [
@@ -595,17 +658,14 @@ def reconcile_authored_base(
         ]
         if any(not value or value == NULL_GUID for value in guid_values):
             failures.append(
-                f"{threat_id}: authored-base connector {interaction_ref} "
-                "has null GUIDs"
+                f"{threat_id}: authored-base connector {interaction_ref} has null GUIDs"
             )
             continue
 
         surface_elements = authored_surface.get("elements") or {}
         endpoint_guid_map = {
-            source_ref: surface_elements.get(source_ref)
-            or global_elements.get(source_ref),
-            target_ref: surface_elements.get(target_ref)
-            or global_elements.get(target_ref),
+            source_ref: surface_elements.get(source_ref),
+            target_ref: surface_elements.get(target_ref),
         }
         if not all(endpoint_guid_map.values()):
             failures.append(
@@ -643,8 +703,14 @@ def validate_threat_instance(
     if not isinstance(threat, dict):
         raise ThreatContractError("threat payload must be a mapping")
     threat_id = threat.get("id")
-    if not isinstance(threat_id, int) or threat_id <= 0:
-        raise ThreatContractError("threat id must be a positive integer")
+    if (
+        not isinstance(threat_id, int)
+        or isinstance(threat_id, bool)
+        or not THREAT_ID_MIN <= threat_id <= THREAT_ID_MAX
+    ):
+        raise ThreatContractError(
+            f"threat id must be an integer in [{THREAT_ID_MIN}, {THREAT_ID_MAX}]"
+        )
 
     if not _normalize_text(threat.get("interaction_ref")):
         raise ThreatContractError("threat interaction_ref is required")
@@ -678,6 +744,15 @@ def validate_threat_instance(
     normalize_state(threat.get("state"))
 
 
+def derive_threat_numeric_id(source_id: str) -> int:
+    """Derive the stable TMT-visible numeric id for a normalized source id."""
+    if not source_id:
+        raise ThreatContractError("source threat id is required to derive an id")
+    digest = hashlib.new(THREAT_ID_DIGEST, source_id.encode("utf-8")).digest()
+    span = THREAT_ID_MAX - THREAT_ID_MIN + 1
+    return THREAT_ID_MIN + int.from_bytes(digest, "big") % span
+
+
 def prepare_threat_instances(
     threats: list[dict[str, Any]],
     *,
@@ -687,9 +762,9 @@ def prepare_threat_instances(
     prepared: list[dict[str, Any]] = []
     seen_source_ids: set[str] = set()
     seen_keys: set[str] = set()
-    for numeric_id, threat in enumerate(
-        sorted(threats, key=lambda item: _normalize_text(item.get("source_id"))),
-        start=1,
+    numeric_owners: dict[int, str] = {}
+    for threat in sorted(
+        threats, key=lambda item: _normalize_text(item.get("source_id"))
     ):
         source_id = _normalize_text(threat.get("source_id"))
         if not source_id or source_id in seen_source_ids:
@@ -697,6 +772,14 @@ def prepare_threat_instances(
                 f"duplicate or missing source threat id {source_id}"
             )
         seen_source_ids.add(source_id)
+        numeric_id = derive_threat_numeric_id(source_id)
+        collided_with = numeric_owners.get(numeric_id)
+        if collided_with is not None:
+            raise ThreatContractError(
+                f"threat id collision: {collided_with} and {source_id} both "
+                f"derive numeric id {numeric_id}"
+            )
+        numeric_owners[numeric_id] = source_id
         resolved = {
             **threat,
             "id": numeric_id,
@@ -820,8 +903,7 @@ def extract_serializable_threat(threat_node: ET.Element) -> dict[str, Any]:
         "state": _node_text(child_map.get("State")),
         "properties": properties,
         "top_level_content": {
-            field: _optional_node_text(child_map.get(field))
-            for field in content_fields
+            field: _optional_node_text(child_map.get(field)) for field in content_fields
         },
     }
 
