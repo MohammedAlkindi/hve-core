@@ -5,7 +5,7 @@ description: The five testable operation categories, their concrete pytest techn
 
 ## Source
 
-Microsoft CSE Code-with-Engineering-Playbook, [Testing Data Science and MLOps Code](https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/testing-data-science-and-mlops-code/), MIT licensed. Content below is derived from that page. The category and mocking-boundary table and the ML unit-test scope guard stay close to or match upstream wording; other passages are paraphrased. MIT permits this with the notice recorded in `THIRD-PARTY-NOTICES`. pytest API names are preserved as identifiers, and upstream code examples are described rather than copied.
+Microsoft CSE Code-with-Engineering-Playbook, [Testing Data Science and MLOps Code](https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/testing-data-science-and-mlops-code/), documentation licensed CC BY 4.0. Content below is derived from that page and has been changed. The category and mocking-boundary table and the ML unit-test scope guard stay close to or match upstream wording; other passages are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. pytest API names are preserved as identifiers, and upstream code examples are described rather than copied.
 
 ## Approach
 

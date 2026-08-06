@@ -5,11 +5,11 @@ description: The data-validation versus data-drift distinction with its correct 
 
 ## Sources
 
-* Microsoft CSE Code-with-Engineering-Playbook, [ML Model Production Checklist](https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/ml-model-checklist/#how-will-incoming-data-quality-be-monitored), MIT licensed. This is the source of the validation-versus-drift distinction.
-* Microsoft CSE Code-with-Engineering-Playbook, [Data and DataOps Fundamentals, Observability](https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/#observability), MIT licensed.
-* Microsoft CSE Code-with-Engineering-Playbook, [Observability in Machine Learning](https://microsoft.github.io/code-with-engineering-playbook/observability/ml-observability/), MIT licensed.
+* Microsoft CSE Code-with-Engineering-Playbook, [ML Model Production Checklist](https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/ml-model-checklist/#how-will-incoming-data-quality-be-monitored), documentation licensed CC BY 4.0. This is the source of the validation-versus-drift distinction.
+* Microsoft CSE Code-with-Engineering-Playbook, [Data and DataOps Fundamentals, Observability](https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/#observability), documentation licensed CC BY 4.0.
+* Microsoft CSE Code-with-Engineering-Playbook, [Observability in Machine Learning](https://microsoft.github.io/code-with-engineering-playbook/observability/ml-observability/), documentation licensed CC BY 4.0.
 
-Content below is derived from the upstream pages. The validation-versus-drift definitions, the remediation pair, and the data-validation practice list stay close to or match upstream wording; other passages are paraphrased. MIT permits this with the notice recorded in `THIRD-PARTY-NOTICES`. The validation-versus-drift distinction comes from the ML Model Production Checklist, not from the DataOps Fundamentals page or the testing page; cite the checklist for it.
+Content below is derived from the upstream pages and has been changed. The validation-versus-drift definitions, the remediation pair, and the data-validation practice list stay close to or match upstream wording; other passages are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. The validation-versus-drift distinction comes from the ML Model Production Checklist, not from the DataOps Fundamentals page or the testing page; cite the checklist for it.
 
 ## Validation and drift are different mechanisms
 
@@ -85,7 +85,11 @@ Selecting a signal is not the same as naming it. Respect these boundaries.
 | Data sensitivity classification and DPIA thresholds                    | `privacy-standards`              | Read the classification. **Never decide what is sensitive.** |
 | Which data and model signals matter                                    | This skill                       | Own.                                                         |
 
-Drift monitoring invites high-cardinality dimensions such as per-column, per-feature, per-source, and per-record. Cardinality discipline belongs to `telemetry-foundations`; apply its rules rather than restating them here.
+Drift monitoring invites high-cardinality dimensions such as per-column,
+per-feature, per-source, and per-record. Cardinality discipline belongs to
+`telemetry-foundations`, the OpenTelemetry-aligned metric, trace, log, unit,
+and PII-safe instrumentation skill; apply its rules rather than restating them
+here.
 
 ## Upstream silence on thresholds
 

@@ -5,7 +5,7 @@ description: Bronze, Silver, and Gold tier semantics, Bronze-to-Silver validatio
 
 ## Source
 
-Microsoft CSE Code-with-Engineering-Playbook, [Data and DataOps Fundamentals](https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/), MIT licensed. Content below is derived from that page. Tier definitions, the validation-placement rule, the replay rationale, and the source-control artifact list stay close to or match upstream wording; other passages are paraphrased. MIT permits this with the notice recorded in `THIRD-PARTY-NOTICES`. Statements labelled HVE Core are repository guidance, not playbook rules.
+Microsoft CSE Code-with-Engineering-Playbook, [Data and DataOps Fundamentals](https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/), documentation licensed CC BY 4.0. Content below is derived from that page and has been changed. Tier definitions, the validation-placement rule, the replay rationale, and the source-control artifact list stay close to or match upstream wording; other passages are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. Statements labelled HVE Core are repository guidance, not playbook rules.
 
 ## The quality model has three tiers
 
@@ -89,6 +89,24 @@ Upstream defines the tiers and states one placement rule. It does not enumerate 
 The invariant is upstream: move transformation logic out of notebooks and into packages so it can be unit tested. Upstream states no threshold.
 
 Any trigger a workflow applies, such as a cell-length limit or duplicated transformation logic across cells, is a repository convention. Offer extraction to a package function with a matching test stub, and attribute the threshold to the convention rather than to the playbook.
+
+## Derived dataset persistence and versioning (HVE Core)
+
+Upstream sets the tier semantics and the replay invariant. The following storage conventions are repository guidance for curated and derived datasets produced during analysis work.
+
+Persist curated or derived datasets in a columnar format rather than a row-oriented text format. Columnar storage preserves types across a write-and-read cycle, which text formats do not, and analysis reads are overwhelmingly column-selective.
+
+Name a derived dataset so its content and lineage are readable from the filename:
+
+```text
+<entity>-<scope>-<transform>-v<major>.<minor>.<extension>
+```
+
+Use lowercase and hyphens throughout. Increment the minor version for an additive change that leaves existing columns and their meaning intact. Increment the major version when the schema changes in a way that could break a consumer: a removed column, a renamed column, a changed type, or a changed unit.
+
+The distinction matters because consumers pin to what they read. An additive change is safe to pick up silently; a breaking change must be visible in the name so a stale consumer fails loudly rather than reading a column that no longer means what it did.
+
+Derived datasets are not Bronze. They carry the guarantees of the tier they were produced from, and exploratory derivations belong in the sandbox area rather than in a tier that implies downstream guarantees.
 
 ## Adjacent guidance
 

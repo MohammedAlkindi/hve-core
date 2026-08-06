@@ -1,7 +1,7 @@
 ---
 name: ds-dataops
 description: "DataOps and DS/MLOps testing reference for data tiering, Bronze-to-Silver validation placement, pipeline invariants, pytest categories, and validation-versus-drift. Use when designing, reviewing, or generating data pipelines, transformation code, data validation, or data-science test suites."
-license: MIT AND CC-BY-4.0
+license: CC-BY-4.0
 user-invocable: false
 metadata:
   authors: "Microsoft (Code With Engineering Playbook); Microsoft (planning synthesis)"
@@ -45,7 +45,7 @@ Read only the reference that matches the active concern.
 ## Constraints
 
 * This skill generates code, assertions, and review guidance. It does not execute pipelines, transformation engines, or telemetry backends.
-* Prefer paraphrase, and reproduce upstream wording where paraphrase would distort a requirement or where a short factual statement has little expressive range. Attribute every reference and describe accurately what each reference reproduces.
+* Reproduce only the minimum text necessary for a specific technical point, and paraphrase everything else. Attribute every reference and describe accurately what each reference reproduces.
 * Label HVE Core derivations as such. Do not present a derived consequence or a repository convention as upstream guidance.
 * Where upstream is silent, say so rather than inventing an upstream-sounding rule.
 
@@ -66,14 +66,17 @@ This skill never decides what is sensitive. It reads a classification produced e
 
 ## Stop rules
 
-* Stop and route to the owning skill when the request is about metric naming, units, cardinality, or data sensitivity.
+* Stop and route metric naming, units, and cardinality to
+  `telemetry-foundations`, the OpenTelemetry-aligned vocabulary and
+  instrumentation skill. Route data sensitivity to `privacy-standards`, the
+  privacy classification and DPIA-threshold reference.
 * Stop and state the gap when the request depends on guidance the playbook does not provide, such as a drift threshold or an alerting policy.
 * Stop and offer the correct placement when asked to validate before Bronze landing, rather than complying or refusing without an alternative.
 
 ## Attribution
 
-This pack declares `MIT AND CC-BY-4.0` because it mixes two kinds of content.
+This pack declares `CC-BY-4.0` because both bodies of content it holds carry that license.
 
-Source pages are Microsoft CSE Code With Engineering Playbook content under the MIT license. The references derive from those pages and in many places stay close to or match upstream wording, which MIT permits with the notice recorded in `THIRD-PARTY-NOTICES`. Each reference cites its own upstream URL and states what it reproduces.
+Source pages are Microsoft CSE Code With Engineering Playbook documentation licensed CC BY 4.0. The upstream project applies MIT through a separate `LICENSE-CODE` file to code samples only, which this pack does not reproduce. The references derive from those documentation pages, have been changed, and in many places stay close to or match upstream wording. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires and states that the content has been changed. Each reference cites its own upstream URL and states what it reproduces.
 
 Content labelled as HVE Core derivation is repository-original material under CC BY 4.0. See [provenance.md](references/provenance.md) for the consolidated source map and derivation labels.

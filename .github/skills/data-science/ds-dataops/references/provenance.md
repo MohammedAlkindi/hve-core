@@ -9,7 +9,9 @@ This file records where each part of `ds-dataops` comes from, what may be reprod
 
 ## Licensing posture
 
-Microsoft CSE Code With Engineering Playbook content is MIT licensed, which permits reproduction provided the copyright and permission notice is preserved; `THIRD-PARTY-NOTICES` carries that notice. Much of this pack stays close to upstream wording, and several passages reproduce it exactly. The scope column below states what each area actually reproduces. Standards identifiers and structural names are facts rather than licensed prose and are preserved exactly.
+Microsoft CSE Code With Engineering Playbook documentation is licensed CC BY 4.0, which permits reproduction in whole or in part provided the source is attributed and changes are indicated; `THIRD-PARTY-NOTICES` carries that attribution and states that the content has been changed. The upstream project applies MIT through a separate `LICENSE-CODE` file to code samples only, which this pack does not reproduce.
+
+This repository's licensing posture is stricter than the license itself: it limits reproduction to the minimum text necessary for a specific technical point. Much of this pack stays close to upstream wording, and several passages reproduce it exactly, so the current scope exceeds that limit and is recorded for correction. The scope column below states what each area actually reproduces. Standards identifiers and structural names are facts rather than licensed prose and are preserved exactly.
 
 ## Source map
 
