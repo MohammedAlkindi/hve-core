@@ -40,7 +40,9 @@ Every planned GitHub operation resolves to exactly one row. An action that has n
 | Add comment        | `mcp_github_add_issue_comment` | n/a      | `owner`, `repo`, `issue_number`, `body`                                                                         |
 | Set PR milestone   | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` (the PR number), `milestone`                                                    |
 | Set PR labels      | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` (the PR number), full replacement `labels` set                                  |
-| Set PR assignees   | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` (the PR number), `assignees`                                                    |
+| Set PR assignees   | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` (the PR number), full replacement `assignees` set                               |
+| Update PR fields   | `mcp_github_update_pull_request` | n/a    | `owner`, `repo`, `pullNumber` plus the changed PR-specific fields (`title`, `body`, `base`, `draft`, `state`)   |
+| Assign Copilot     | `mcp_github_assign_copilot_to_issue` | n/a | `owner`, `repo`, `issue_number`; `base_ref`, `custom_instructions` optional                                     |
 
 Operation rules:
 
@@ -83,7 +85,7 @@ The shared Error Handling table in [workflows.md](workflows.md) defines the requ
 | Action verbs            | Create, Update, Link, Close, Comment, No Change                                                        |
 | Planning-type additions | Beyond the core enum, GitHub uses `sprint` (milestone organization) and `backlog` (refinement)         |
 
-Map the core three-tier autonomy model onto GitHub operations: label and milestone updates are low-risk (auto in Full and Partial); creates, closes, sub-issue links, comments, and ambiguous duplicate handling gate on the user in Partial and Manual.
+Map the core three-tier autonomy model onto GitHub operations. Validated label and milestone updates are low-risk and auto-execute under Full and Partial. Creates, closes, sub-issue links, comments, and ambiguous duplicate handling gate on the user under Partial and Manual. The core Three-Tier Autonomy Model defines the tiers themselves.
 
 ## Field Vocabulary
 
@@ -222,6 +224,8 @@ Confirm a label exists with `mcp_github_get_label` before applying it. A reposit
 
 GitHub backlog output is often visible to external contributors, so outbound comments carry extra guardrails beyond the core sanitization guards.
 
+`community-interaction.instructions.md` and `content-policy-citation.instructions.md` are applied automatically through their own `applyTo` attachments and must be honored. The filenames below are provenance, not the enforcement mechanism; this reference is a bundled skill resource and does not path-reference a separately packaged instruction.
+
 * When an operation produces a comment visible to external contributors (closure, information request, acknowledgment, redirect), the comment body follows the scenario templates in `community-interaction.instructions.md`.
 * When GitHub-visible text references a suspected content-policy or terms-of-service concern, apply `content-policy-citation.instructions.md` before the API call. Public comments and issue bodies use neutral wording and must not include classification labels, rationale, quoted snippets, paraphrases, or payload examples.
 * Apply the comment-before-closure pattern: call `mcp_github_add_issue_comment` with the appropriate scenario template before any state-changing call such as `mcp_github_issue_write` with a closure.
@@ -324,7 +328,7 @@ Resolve deterministically:
 2. When nothing matches both, relax stability and prefer any milestone with the target proximity; among those, choose the nearest due date.
 3. When neither can be satisfied, choose the nearest suitable milestone by due date and record the rationale in `planning-log.md`.
 
-A `security` issue follows the same resolution but is expedited: it ships in the earliest available milestone that satisfies step 1 or 2.
+A `security` issue follows the same resolution but is expedited: it ships in the earliest available milestone that satisfies step 1 or 2. Expedited placement is a recommendation, not an approval — a `security` or vulnerability label pauses for user guidance before any mutation, per the GitHub Human Review Triggers below.
 
 #### Step 5: Low-confidence fallback and repository override
 
@@ -344,7 +348,7 @@ The platform-agnostic protocol lives in [sprint-planning.md](sprint-planning.md)
 | Binding                 | GitHub resolution                                                                                                         |
 |-------------------------|---------------------------------------------------------------------------------------------------------------------------|
 | Iteration container     | Milestone                                                                                                                 |
-| Enumerate containers    | `mcp_github_list_milestones`, using milestone `due_on` as the window end                                                  |
+| Enumerate containers    | Aggregate distinct milestone objects from `mcp_github_search_issues` results per Milestone Discovery step 1, using milestone `due_on` as the window end. GitHub MCP exposes no milestone-list tool, so report that milestones with zero open issues are undiscoverable |
 | Retrieve planned items  | `mcp_github_search_issues` scoped by `milestone:`                                                                         |
 | Retrieve unplanned work | `mcp_github_search_issues` with `no:milestone`                                                                            |
 | Effort field            | None natively. Report item counts and state the substitution, or read a team-defined size label when the caller names one |
@@ -361,3 +365,5 @@ A milestone has no start date. Derive the window from the previous milestone's c
 ## Human Review Triggers (GitHub additions)
 
 Alongside the core triggers, pause when: the target `owner/repo` is unknown; org issue-type support is unclear after `mcp_github_list_issue_types`; a required label or milestone is not confirmed to exist; a close would use a `state_reason` that is not clearly supported; or a community-visible comment would post without a matching `community-interaction.instructions.md` scenario template.
+
+Also pause when an issue already carries a security or vulnerability label, or when triage would add either label. Request user guidance before applying any mutation to that issue, including a label, milestone, comment, or close. Expedited processing is not approval: a priority or milestone rule never authorizes acting on a security issue on its own.

@@ -1,6 +1,6 @@
 ---
 name: backlog-execute
-description: "Mutating backlog execution across Azure DevOps, GitHub, and Jira: create a single work item conversationally, or process a reviewed handoff into sequential create, update, link, transition, close, and comment operations. Resolves the backing tracker at runtime and gates every mutation through the three-tier autonomy model, dry-run preview, content sanitization, and resumable state. Use to apply planned backlog changes to a tracker."
+description: "Mutating backlog execution for Azure DevOps, GitHub, and Jira. Use to create one item or apply a reviewed handoff to a confirmed tracker."
 license: MIT
 user-invocable: true
 argument-hint: "[add|run] [handoff path or item description] [--dry-run] [--autonomy full|partial|manual]"
@@ -90,7 +90,7 @@ Summarize the operations attempted, succeeded, and failed, name the log files by
 Guided creation of one work item.
 
 1. **Resolve context.** Establish the target project or repository and verify access through the platform's identity and scope bindings. Report an inaccessible target rather than falling back to a default.
-2. **Select the item type.** Use the supplied type when it is valid for the platform. Otherwise present the platform's available types and ask. Discover types through the platform's type-discovery binding rather than assuming a fixed list, because supported types vary by process, repository, and project.
+2. **Select the item type.** Use the supplied type when it is valid for the platform. Otherwise present the platform's available types and ask. Resolve types through the platform's Type discovery binding rather than assuming a fixed list, because supported types vary by process, repository, and project. Where that binding reports no discovery tool — Azure DevOps today — confirm the process or template with the user and record the types as unvalidated instead of claiming discovery.
 3. **Collect fields conversationally.** Author the title and description using the interaction templates in the active platform reference, at the level the item occupies per the story-quality reference. Ask before supplying optional fields; do not invent a priority, severity, assignee, or tag the user did not state.
 4. **Validate the hierarchy.** When a parent is supplied, fetch it and verify the relationship is legal for the platform's hierarchy, using the Relationship Semantics section of the platform reference. An invalid pairing is reported and corrected before creation, never silently created unparented.
 5. **Create and log.** Apply the sanitization guards, create the item, and record the result with its returned key.
@@ -101,7 +101,7 @@ All five are mandatory on every path through this command.
 
 ### Three-tier autonomy
 
-The tier from the core skill gates every mutation. `manual` confirms each operation, `partial` confirms operation categories and anything destructive, and `full` proceeds without per-operation gates while still honoring destination confirmation, human review triggers, and the guards below.
+The Three-Tier Autonomy Model in the core skill is the only definition of the tiers and of which operations each gates. Apply it as written; do not restate it here. `full` removes per-operation gates while still honoring destination confirmation, the human review triggers, and the guards below.
 
 ### Dry-run
 
@@ -130,9 +130,27 @@ This enforces the repository rule that backlog managers verify all human review 
 
 ### Content sanitization
 
-Run all six Content Sanitization Guards from the core skill before every platform-bound mutation: strip local tracking paths, remove internal planning reference identifiers including namespaced planner families, resolve or replace temporary placeholders, apply the content-policy public-output guard, neutralize ingested markup that would cross-reference or close an unrelated item or notify uninvolved people, and stop on a probable secret or credential. Unresolved planning identifiers never reach a tracker API or CLI call.
+Run all six Content Sanitization Guards from the core skill before every platform-bound mutation, as that skill defines them. Unresolved planning identifiers never reach a tracker API or CLI call.
 
 For community-visible output on GitHub, additionally apply the scenario templates named in the Community Communication section of the GitHub reference, using the comment-before-closure pattern so a contributor sees the explanation before the state change.
+
+## Success criteria
+
+* The platform is resolved and its destination is explicitly confirmed before the first mutating call.
+* Every operation in the dispatched or planned set is attempted, or the run stops with a reported reason.
+* Every attempted operation is written to `handoff-logs.md` with its reference identifier, action, and returned item key before the next begins.
+* No planning reference ID or unresolved placeholder reached a tracker API or CLI call.
+* A dry run renders exactly what would be sent and makes no mutating call.
+* The response reports operations succeeded, failed, and skipped, with the item keys the tracker returned.
+
+## Stop rules
+
+* Stop when the platform is unresolved, the destination is unconfirmed, or an inferred platform has not been confirmed.
+* Stop when the core skill does not resolve; the autonomy tiers, guards, and operation contract are unavailable.
+* Stop when a handoff or planner artifact carries an unchecked human-review checkbox. Report the path and the specific item.
+* Stop on a probable secret or credential, and on any placeholder that can be neither resolved nor safely described.
+* Stop when a completed create has no recorded key, or a placeholder cannot be resolved from the rebuilt mapping.
+* Stop on any core Human Review Trigger, and when a request would span a second tracker.
 
 ## Constraints
 

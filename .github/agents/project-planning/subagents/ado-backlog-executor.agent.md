@@ -1,6 +1,6 @@
 ---
 name: ADO Backlog Executor
-description: "Applies a dispatched Azure DevOps backlog operation set: create, update, link, comment, and transition work items in one confirmed project, with no access to any other tracker"
+description: "Applies a dispatched Azure DevOps backlog operation set in one confirmed project. Creates, updates, links, comments on, and transitions work items."
 tools:
   - ado/search_workitem
   - ado/wit_get_work_item

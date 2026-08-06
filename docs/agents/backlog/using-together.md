@@ -2,7 +2,7 @@
 title: Using Workflows Together
 description: End-to-end backlog pipeline walkthrough from discovery through execution across any supported tracker
 author: Microsoft
-ms.date: 2026-08-02
+ms.date: 2026-08-06
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -19,6 +19,8 @@ Individual workflows are useful alone. Chained, they form a pipeline where each 
 
 ```mermaid
 flowchart LR
+    accTitle: Backlog workflow sequences
+    accDescr: Discovery feeds Triage, which feeds Sprint Planning, which feeds Execution. My Work feeds Task Planning, which also feeds Execution.
     D[Discovery] --> T[Triage]
     T --> S[Sprint Planning]
     S --> E[Execution]

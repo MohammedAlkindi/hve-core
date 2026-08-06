@@ -2,7 +2,7 @@
 title: Backlog Management
 description: Cross-platform work item discovery, triage, sprint planning, and execution for Azure DevOps, GitHub, and Jira
 author: Microsoft
-ms.date: 2026-08-02
+ms.date: 2026-08-06
 ms.topic: concept
 keywords:
   - backlog management
@@ -37,6 +37,8 @@ The [Backlog Manager](../project-planning/README.md) agent orchestrates both acr
 
 ```mermaid
 graph TD
+    accTitle: Backlog Manager dispatch map
+    accDescr: Backlog Manager dispatches to two commands. backlog-plan owns Discovery, Triage, and Sprint Planning; backlog-execute owns the mutating half.
     A[Backlog Manager] --> P[backlog-plan]
     A --> E[backlog-execute]
     P --> D[Discovery]

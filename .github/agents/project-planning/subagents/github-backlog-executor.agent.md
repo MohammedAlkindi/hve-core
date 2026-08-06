@@ -1,6 +1,6 @@
 ---
 name: GitHub Backlog Executor
-description: "Applies a dispatched GitHub backlog operation set: create, update, comment on, and close issues and sub-issues in one confirmed repository, with no access to any other tracker"
+description: "Applies a dispatched GitHub backlog operation set in one confirmed repository. Creates, updates, comments on, and closes issues and sub-issues."
 tools:
   - github/get_me
   - github/list_issues
@@ -11,6 +11,9 @@ tools:
   - github/issue_write
   - github/add_issue_comment
   - github/sub_issue_write
+  - github/search_pull_requests
+  - github/update_pull_request
+  - github/assign_copilot_to_issue
   - search
   - read
   - edit/createFile
@@ -38,7 +41,7 @@ Every dispatch supplies all of the following. A missing field is a stop conditio
 
 1. **Verify the contract.** Confirm the destination is present and every operation names a supported GitHub action verb. Stop and report if either fails.
 2. **Validate before creating.** Discover valid issue types and labels for the repository rather than assuming a fixed set. Fetch any supplied parent issue and verify the sub-issue relationship is legal per the GitHub reference in the `backlog-management` skill.
-3. **Execute in contract order.** Create parents before children, then update, link sub-issues, comment, and close, following the Operation Contract in the workflows reference.
+3. **Execute in contract order.** Create parents before children, then update, link sub-issues, comment, and close, following the Operation Contract in the workflows reference. Set a pull request's milestone, labels, or assignees through `github/issue_write` with the PR number; use `github/update_pull_request` only for PR-specific fields.
 4. **Comment before closure.** For any community-visible state change, post the explanation before the state change so a contributor sees the reasoning first.
 5. **Log each operation before the next.** Record the reference identifier, action, and returned issue number to `handoff-logs.md` so an interruption is recoverable.
 6. **Return a structured result.** Report operations attempted, succeeded, and failed, with returned issue numbers and the reason for each failure.

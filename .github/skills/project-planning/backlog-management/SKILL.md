@@ -1,6 +1,6 @@
 ---
 name: backlog-management
-description: "Platform-agnostic backlog planning conventions for ADO, GitHub, and Jira backlog managers: planning-file lifecycle and directory structure, planning-type enum, scope-name normalization, reference-ID scheme, similarity assessment, three-tier autonomy, content sanitization, resumable state, work-item quality at epic through task level, and sprint and iteration planning. Use for backlog discovery, triage, sprint planning, PRD-to-work-item planning, and execution handoff. Per-platform command surfaces, fields, ID prefixes, and action verbs live in references/{ado,github,jira}.md; workflow protocols live in references/workflows.md."
+description: "Shared backlog conventions for Azure DevOps, GitHub, and Jira. Use for platform resolution, autonomy tiers, sanitization guards, and story quality."
 license: MIT
 user-invocable: false
 compatibility: "Hosts: vscode, github-coding-agent. Reference-only conventions; the consuming skill supplies tracker access."
@@ -52,18 +52,28 @@ Resolve the platform from the strongest available signal, in this order:
 1. Explicit user mention of Azure DevOps, GitHub, or Jira.
 2. Active tracking root in context: `.copilot-tracking/workitems/**` resolves to Azure DevOps, `.copilot-tracking/github-issues/**` to GitHub, `.copilot-tracking/jira-issues/**` to Jira.
 3. Item-key shape: `PROJ-123` resolves to Jira, `#NNN` to GitHub, a bare numeric `System.Id` to Azure DevOps.
-4. A configured or credentialed platform when only one passes its preflight. This is capability evidence, not user intent — see Inferred-Platform Confirmation below.
+4. A configured or credentialed platform when only one passes a non-interactive readiness probe. This is capability evidence, not user intent — see Inferred-Platform Confirmation below.
 5. Otherwise, ask which platform to target.
 
 When more than one platform remains plausible, summarize the two most likely options with a brief rationale and ask the user to choose. Do not guess a tracker and do not run the workflow against every candidate.
 
-### Step 2: Run the preflight for that platform
+A readiness probe is a non-interactive capability check that runs across all three platforms before signal 4 is used. It never prompts, never launches a setup workflow, and never mutates:
+
+| Platform     | Non-interactive readiness probe                                                                    |
+|--------------|------------------------------------------------------------------------------------------------------|
+| Azure DevOps | MCP `ado/*` tools are available                                                                    |
+| GitHub       | MCP `github/*` tools are available                                                                 |
+| Jira         | `JIRA_BASE_URL` and either `JIRA_API_TOKEN` or `JIRA_PAT` are already set, and a terminal is available |
+
+### Step 2: Run the full preflight for the resolved platform
+
+The full preflight runs once, after the platform is resolved. It may resolve identity and may run interactive credential setup, which is why it never runs as a probe.
 
 | Platform     | Preflight check                                                                                                                                                                                                                           |
 |--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Azure DevOps | MCP `ado/*` tools available and an explicit `project` resolvable; call `ado/core_get_identity_ids` to establish authenticated user context before assignment.                                                                             |
 | GitHub       | MCP `github/*` tools available and identity resolvable via `github/get_me`; the target `owner/repo` is known.                                                                                                                             |
-| Jira         | `JIRA_BASE_URL` and either `JIRA_API_TOKEN` or `JIRA_PAT` are set (source `~/.jira.env` when it exists; when still missing, run the `jira` skill's credential-setup command inline) and a terminal is available for the `jira` skill CLI. |
+| Jira         | `JIRA_BASE_URL` and either `JIRA_API_TOKEN` or `JIRA_PAT` are set (source `~/.jira.env` when it exists; when still missing, run the `jira` skill's credential-setup command inline) and a terminal is available for the `jira` skill CLI. Credential setup runs only here, never during a readiness probe. |
 
 ### Inferred-Platform Confirmation
 
@@ -105,6 +115,7 @@ Every backlog workflow persists its state under a platform tracking root inside 
 * `triage` — item triage, field cleanup, duplicate review, and workflow-state recommendations.
 * `execution` — item creation, update, transition or move, and comment processing from finalized plans.
 * `prds` — PRD-driven hierarchy planning that produces a handoff for a separate execution pass.
+* `current-work` — retrieval and enrichment of the authenticated user's assigned work into an implementation handoff, per [references/task-planning.md](references/task-planning.md).
 
 ### Scope-Name Normalization
 
@@ -175,13 +186,19 @@ When one candidate returns more than one Similar existing item, present all of t
 
 ## Three-Tier Autonomy Model
 
-| Mode              | Behavior                                                                                             |
-|-------------------|------------------------------------------------------------------------------------------------------|
-| Full              | Execute all supported operations without confirmation                                                |
-| Partial (default) | Auto-execute low-risk field updates, but gate creates, transitions, and ambiguous duplicate handling |
-| Manual            | Require confirmation for every mutation                                                              |
+This table is the only generic definition of the autonomy tiers. Agents, workflow commands, and platform references point at it rather than restating it; a second copy drifts.
 
-Default to Partial autonomy unless the user specifies otherwise. Each platform reference maps this model onto its concrete operations.
+| Mode              | Behavior                                                                                                                  |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Full              | Execute all supported operations without confirmation                                                                     |
+| Partial (default) | Auto-execute validated low-risk field updates; gate creates, transitions and closes, links, comments, and ambiguous duplicate handling |
+| Manual            | Require confirmation for every platform-bound mutation                                                                    |
+
+A field update is low-risk only when it stays inside the validated field set and does not change the item's workflow state. An operation that changes workflow state is a transition for autonomy purposes regardless of the API verb that carries it, and links and comments are gated because they are externally visible.
+
+Default to Partial autonomy unless the user specifies otherwise. Each platform reference maps this model onto its concrete operations without redefining the tiers.
+
+Autonomy controls per-operation gates only. It never waives the Inferred-Platform Confirmation, the Content Sanitization Guards, or the Human Review Triggers below.
 
 ## Content Sanitization Guards
 
@@ -245,6 +262,21 @@ Author intent is out of scope here. A parent reference the user asked for is aut
 Run this guard over every platform-bound title, body, comment, and field value before the payload is composed, on the same pre-mutation timing as the other guards.
 
 In scope: access tokens and API keys, connection strings, private keys and certificate material, passwords, and authorization headers or their fragments.
+
+Detect against concrete indicators rather than impression. Inspect keys, values, and embedded text for:
+
+| Indicator                    | Examples                                                                                  |
+|------------------------------|---------------------------------------------------------------------------------------------|
+| Credential header names      | `Authorization`, `Proxy-Authorization`, `X-Api-Key`                                        |
+| Credential-bearing key names | `password`, `passwd`, `secret`, `token`, `api_key`, `client_secret`, `private_key`, `connectionstring`, `sas` |
+| Key material delimiters      | `-----BEGIN ... PRIVATE KEY-----`, OpenSSH private-key headers, PKCS#12 blobs              |
+| Credentialed URIs            | A connection string or URL carrying inline user and password                               |
+| Signed-URL parameters        | Cloud access-token or shared-access-signature query parameters                              |
+| High-entropy values          | A token-like value adjacent to any of the markers above                                     |
+
+An exact indicator match is a probable secret: stop the operation. An ambiguous value is not sent; name only its field or location and the apparent secret type, and ask the user to classify it.
+
+Scope the inspection to the payload being composed. Do not scan or log unrelated source files to satisfy this guard.
 
 A probable match stops the operation and asks the user. Silent redaction is wrong here: it hides the fact that a secret was about to be published, and leaves the user unaware that the credential needs rotation.
 

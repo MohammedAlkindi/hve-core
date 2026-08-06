@@ -1,6 +1,6 @@
 ---
 name: backlog-plan
-description: "Read-only backlog planning across Azure DevOps, GitHub, and Jira: discover candidate work from requests, documents, or search; retrieve and enrich assigned work into an implementation handoff; triage existing items; plan a sprint or iteration; and resume an interrupted planning workflow. Resolves the backing tracker at runtime and never creates, updates, transitions, or comments on an item. Use for backlog discovery, triage, sprint planning, my-work retrieval, task-planning handoff, and workflow resumption."
+description: "Read-only backlog planning for Azure DevOps, GitHub, and Jira. Use to discover, triage, sprint-plan, or resume without mutating a tracker."
 license: MIT
 user-invocable: true
 argument-hint: "[discover|my-work|task-plan|triage|sprint|resume] [scope or query]"
@@ -70,6 +70,23 @@ The `resume` mode reads the durable planning artifacts rather than the conversat
 4. Propose the next workflow step with its rationale, and state what remains.
 
 Stop and ask rather than improvising when the logs are missing, when a completed operation has no recorded item key, or when a placeholder cannot be resolved from the rebuilt mapping. An unresolved mapping is a blocker, not a value to guess.
+
+## Success criteria
+
+* The platform is resolved and its readiness verdict is recorded in `planning-log.md`.
+* The selected mode ran to completion, and its planning files exist under the resolved platform's tracking root.
+* Every planned item carries a reference ID, and every similarity assessment records the aspects that drove its category.
+* No tracker mutation occurred.
+* The response names the planning files it produced and the next command the user would run.
+
+## Stop rules
+
+* Stop when the platform cannot be resolved, or when two platforms remain plausible after the resolution heuristics.
+* Stop when the resolved platform's preflight fails; name the missing prerequisite instead of substituting another tracker.
+* Stop when the `backlog-management` skill does not resolve; the conventions this command depends on are unavailable.
+* Stop on any core Human Review Trigger, including an Uncertain similarity result and a one-to-many Similar fan-out.
+* Stop when resuming and the logs are missing, a completed operation has no recorded item key, or a placeholder cannot be resolved.
+* Report the stop condition and what the user must decide. Never substitute an assumption for a missing answer.
 
 ## Constraints
 

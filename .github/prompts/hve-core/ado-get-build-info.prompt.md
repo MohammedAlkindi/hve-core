@@ -5,7 +5,9 @@ agent: agent
 
 # ADO Build Info & Log Extraction (Targeted or Latest PR Build)
 
-**MANDATORY**: Follow all instructions from #file:../../skills/project-planning/backlog-management/references/ado-build-info.md
+**MANDATORY**: Activate the `backlog-management` skill by name and follow its Azure DevOps build-info reference (`references/ado-build-info.md`). That reference is packaged with the skill, not with this prompt, so resolve it by name rather than by path.
+
+When the skill does not resolve, warn the user that the build-info protocol is unavailable and stop before any Azure DevOps call. Do not reconstruct it here.
 
 ## Inputs
 

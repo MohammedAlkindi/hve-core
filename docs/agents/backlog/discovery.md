@@ -2,7 +2,7 @@
 title: Discovery Workflow
 description: Discover and categorize work items across Azure DevOps, GitHub, and Jira through user-centric, artifact-driven, and search-based paths
 author: Microsoft
-ms.date: 2026-08-02
+ms.date: 2026-08-06
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -39,6 +39,8 @@ Run it with `/backlog-plan discover`.
 
 ```mermaid
 flowchart TD
+    accTitle: Discovery workflow paths
+    accDescr: Discovery starts by resolving the platform, then branches into a user-centric, artifact-driven, or search-based path.
     Start[Start Discovery] --> Resolve[Resolve platform]
     Resolve --> Choice{Discovery Path}
     Choice --> UC[User-Centric]

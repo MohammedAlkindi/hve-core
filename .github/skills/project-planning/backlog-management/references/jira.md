@@ -9,7 +9,7 @@ Jira delta for the [backlog-management](../SKILL.md) skill. Read this with the c
 
 ## Command Surface
 
-Jira command execution is delegated to the `jira` skill; run every command through `.github/skills/project-planning/jira/scripts/jira.py`. Confirm `JIRA_BASE_URL` and either `JIRA_API_TOKEN` or `JIRA_PAT` are set before any command; the `jira` skill documents authentication and audit logging.
+Jira command execution is delegated to the `jira` skill. Activate that skill by name and run every command through the CLI entry point it resolves (`scripts/jira.py`, relative to the skill), not through a hard-coded path from this file; the two skills are packaged separately and this file's location does not predict the other's. When the `jira` skill does not resolve, report that the Jira command surface is unavailable and stop before any terminal execution rather than guessing a path. Confirm `JIRA_BASE_URL` and either `JIRA_API_TOKEN` or `JIRA_PAT` are set before any command; the `jira` skill documents authentication and audit logging.
 
 | Category | Command      | Purpose                                                                                                |
 |----------|--------------|--------------------------------------------------------------------------------------------------------|
@@ -36,8 +36,23 @@ Prefer `--fields` on read commands to keep output concise. Do not assume issue-l
 | Action verbs           | Create, Update, Transition, Comment, No Change                               |
 | Analysis file          | `artifact-analysis.md` (PRD paths) or `issue-analysis.md` (discovery paths)  |
 | Plan file              | `issues-plan.md`                                                             |
+| Identity and assigned work | Resolved through JQL `currentUser()`; see the Task Planning Delta below   |
 
-Map the core three-tier autonomy model onto Jira operations: field updates are low-risk (auto in Full and Partial); creates, transitions, comments, and ambiguous duplicate handling gate on the user in Partial and Manual.
+Map the core three-tier autonomy model onto Jira operations. Validated low-risk field updates auto-execute under Full and Partial. Creates, transitions, comments, and ambiguous duplicate handling gate on the user under Partial and Manual. The core Three-Tier Autonomy Model defines the tiers themselves.
+
+## Task Planning Delta
+
+The platform-agnostic protocol lives in [task-planning.md](task-planning.md). Jira resolves its Stage 1 bindings through JQL rather than a dedicated identity command; the CLI exposes no `myself` endpoint.
+
+| Binding              | Jira resolution                                                                                       |
+|----------------------|---------------------------------------------------------------------------------------------------------|
+| Identity resolution  | `currentUser()` inside the assigned-work query. A successful request establishes the authenticated user; an empty result set is a valid identity-scoped result, not a failed identity |
+| Assigned-to-me query | `search 'project = "<KEY>" AND assignee = currentUser() ORDER BY updated DESC' --fields key,fields.summary,fields.status.name,fields.issuetype,fields.labels,fields.priority,fields.assignee` |
+| Type filter          | A JQL `issuetype` clause                                                                              |
+| State filter         | A JQL `status` clause                                                                                 |
+| Scope filters        | JQL `project`, `component`, and sprint clauses                                                         |
+
+Configured credentials are not identity. A passing preflight proves the CLI can authenticate, not which user the caller is; only a `currentUser()` query binds it.
 
 ## Field Vocabulary
 

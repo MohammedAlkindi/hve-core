@@ -1,6 +1,6 @@
 ---
 name: functional-planner
-description: "Platform-agnostic, read-only PRD-to-work-item hierarchy planning for Azure DevOps, GitHub, and Jira: a five-phase analysis model, per-platform hierarchy references, and selectable open planning-framework decomposition lenses (generic, Scrum, Kanban). Use to turn a PRD into a validated work-item hierarchy handoff for a separate execution pass. Never mutates a tracker."
+description: "Read-only PRD-to-work-item hierarchy planning. Use to turn a PRD into a validated Azure DevOps, GitHub, or Jira handoff."
 license: mixed
 user-invocable: true
 argument-hint: "[prd path or description] [platform=ado|github|jira] [lens=generic|scrum|kanban]"
@@ -66,6 +66,8 @@ When one does not resolve, warn the user by name, state the unavailable capabili
 * [references/frameworks/scrum.md](references/frameworks/scrum.md) — the Scrum decomposition lens (paraphrased from the Scrum Guide).
 * [references/frameworks/kanban.md](references/frameworks/kanban.md) — the Kanban flow and right-sizing lens (paraphrased from the Kanban Guide).
 
+Framework lenses are grouped under `references/frameworks/` as a deliberate, direct-reference exception that separates them from the per-platform deltas. Every link above resolves directly from this file, so the grouping adds an axis without adding a hop.
+
 Command surfaces, field vocabularies, reference-ID prefixes, and action verbs are not restated here; they live in the per-platform references of the `backlog-management` skill, which this skill's per-platform references point at. Activate that skill by name; when it does not resolve, warn the user that command surfaces and field vocabulary are unavailable and stop rather than inventing them.
 
 ## Five-Phase PRD Model
@@ -122,6 +124,22 @@ The plan hands off to the `Backlog Manager` for a separate execution pass:
 * Order the handoff using the platform's operation order from the workflows reference of the `backlog-management` skill; mark any `needs_review` item.
 * Keep all content sanitized per the `backlog-management` skill before it could reach a platform.
 * State explicitly that execution is a separate, user-reviewed pass; this skill never executes the plan.
+
+## Success criteria
+
+* The platform is resolved and every proposed type, field, and parent linkage was validated through a read-only call, or is marked `needs_review`.
+* The five-phase model completed, with each phase's state recorded in `planning-log.md`.
+* The plan file and `handoff.md` exist under the resolved platform's `prds/` tracking path, ordered by the platform's operation order.
+* Every requirement in the PRD maps to a planned item, or is recorded as an explicit gap.
+* No tracker mutation occurred.
+
+## Stop rules
+
+* Stop when the platform cannot be resolved, or when the target project, repository, or project key is unknown.
+* Stop when `functional-planner`, `backlog-management`, `jira`, or `Backlog Manager` does not resolve; name the capability and its effect rather than reimplementing it.
+* Stop before proposing a create against a type or field that read-only discovery could not validate; mark it `needs_review` instead.
+* Stop when the PRD is ambiguous or contradictory about a requirement's scope, level, or acceptance criteria.
+* Never fabricate a requirement, acceptance criterion, or evidence source. Record the gap and ask.
 
 ## Untrusted Content Boundary
 

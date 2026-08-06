@@ -42,7 +42,8 @@ Prefer the batch read and update tools when operating on several items, and pass
 | Platform tracking root  | `.copilot-tracking/workitems/`                                                      |
 | Reference-ID prefix     | `WI` (for example `WI001`)                                                          |
 | Item vocabulary         | "work item"; item key is `System.Id` (for example `1071`)                           |
-| Item types              | Epic, Feature, User Story, Bug (validate against the project's process)             |
+| Item types              | Epic, Feature, User Story, Task, Bug (validate against the project's process)          |
+| Type discovery          | No MCP tool lists a project's process types. Ask the user to confirm the process or template, and record the types as unvalidated rather than claiming discovery |
 | Priority scale          | `Microsoft.VSTS.Common.Priority` (1 highest – 4 lowest)                             |
 | Action verbs            | Create, Update, Link, Comment, No Change                                            |
 | Analysis file           | `artifact-analysis.md`                                                              |
@@ -51,7 +52,7 @@ Prefer the batch read and update tools when operating on several items, and pass
 
 Azure DevOps has no Close or Transition verb in this workflow: a state change is an Update to `System.State`. Order operations as Create, Update, Link, Comment, No Change per the Operation Contract in [workflows.md](workflows.md).
 
-Map the core three-tier autonomy model onto ADO operations: field updates are low-risk (auto in Full and Partial); creates, child additions, links, comments, and ambiguous duplicate handling gate on the user in Partial and Manual.
+Map the core three-tier autonomy model onto ADO operations. A change to `System.State` is a transition for autonomy purposes even though the MCP verb is Update, because operation risk and user-visible state change define the tier, not the transport verb. Under Partial and Manual autonomy, request confirmation before any `System.State` change, including resolution and closure. Creates, child additions, links, comments, and ambiguous duplicate handling gate the same way. Other validated field updates remain low risk and auto-execute under Full and Partial.
 
 ## Field Vocabulary
 
@@ -284,7 +285,7 @@ Field: `Microsoft.VSTS.TCM.ReproSteps`
 
 ### HTML rendering
 
-When the detected format is HTML, emit the same structure using HTML syntax. Headings become `<h2>`, paragraphs `<p>`, ordered lists `<ol>`, unordered lists `<ul>`, and checklist items become list items prefixed with the `&#9744;` entity, because Azure DevOps Server does not render task-list syntax.
+When the detected format is HTML, emit the same structure using HTML syntax. Headings become `<h2>`, paragraphs `<p>`, ordered lists `<ol>`, unordered lists `<ul>`, and checklist items become list items prefixed with a literal `[ ]` or `[x]`, matching the Markdown form, because Azure DevOps Server does not render task-list syntax. Use the literal brackets rather than a ballot-box character or entity: the bracket form carries both checked and unchecked states, survives copy and paste, and is announced predictably by a screen reader.
 
 For example, the User Story description renders as:
 
@@ -306,8 +307,8 @@ and its acceptance criteria render as:
 
 ```html
 <ul>
-<li>&#9744; {{functional_criterion_1}}</li>
-<li>&#9744; {{edge_case_criterion}}</li>
+<li>[ ] {{functional_criterion_1}}</li>
+<li>[ ] {{edge_case_criterion}}</li>
 </ul>
 ```
 
@@ -364,7 +365,7 @@ Scope the pass with `mcp_ado_wit_my_work_items`, `mcp_ado_wit_list_backlog_work_
 | `Microsoft.VSTS.Common.AcceptanceCriteria` is empty on a User Story | Flag for grooming rather than authoring criteria automatically               |
 | A User Story has no `System.Parent`                                 | Flag as an orphan for hierarchy review                                       |
 
-A state change in ADO is an Update to `System.State`, so it obeys the field-update autonomy gate rather than a separate transition gate. Duplicate handling uses the core Similarity Assessment Framework; record the comparison aspects that drove the category, and never merge or close a duplicate without user review.
+A state change in ADO is carried by an Update to `System.State`, but it is gated as a transition under Partial and Manual autonomy, not as an ordinary field update. Duplicate handling uses the core Similarity Assessment Framework; record the comparison aspects that drove the category, and never merge or close a duplicate without user review.
 
 ## Human Review Triggers (Azure DevOps additions)
 

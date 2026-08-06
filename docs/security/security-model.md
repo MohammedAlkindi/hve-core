@@ -3,7 +3,7 @@ title: Security Assurance Case and Security Model
 description: Comprehensive security model and security assurance documentation demonstrating enterprise security practices
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-07-31
+ms.date: 2026-08-06
 ms.topic: reference
 keywords:
   - security
@@ -1037,7 +1037,7 @@ External standards are cited inline.
 
 ### Jira Credential Threats
 
-These threats address credential and error-handling risks specific to the [Jira skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/jira/jira/SKILL.md) (`.github/skills/jira/jira/scripts/jira.py`), a single-file standard-library CLI that authenticates to a Jira instance with a PAT (`Authorization: Bearer`) or Jira Cloud Basic auth (`base64(email:token)`) read from the environment per invocation.
+These threats address credential and error-handling risks specific to the [Jira skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/project-planning/jira/SKILL.md) (`.github/skills/project-planning/jira/scripts/jira.py`), a single-file standard-library CLI that authenticates to a Jira instance with a PAT (`Authorization: Bearer`) or Jira Cloud Basic auth (`base64(email:token)`) read from the environment per invocation.
 The catalog uses the same extended 11-row format as the OAuth threats. The authoritative per-skill model is the [Jira skill `SECURITY.md`](https://github.com/microsoft/hve-core/blob/main/.github/skills/project-planning/jira/SECURITY.md).
 Residual redaction-architecture hardening (central `_emit()` sink, `LOGGER`, typed `JiraAPIError`, source-contract redaction tests) is tracked on issues #1555, #1556, and #1559.
 
@@ -1155,7 +1155,7 @@ Residual redaction-architecture hardening (central `_emit()` sink, `LOGGER`, typ
 
 ### GitLab Credential Threats
 
-These threats address credential and error-handling risks specific to the [GitLab skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/gitlab/gitlab/SKILL.md) (`.github/skills/gitlab/gitlab/scripts/gitlab.py`), a single-file standard-library CLI that authenticates with a PAT (`PRIVATE-TOKEN` header) read from `GITLAB_TOKEN` and resolves the project from a read-only `git remote` subprocess.
+These threats address credential and error-handling risks specific to the [GitLab skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/project-planning/gitlab/SKILL.md) (`.github/skills/project-planning/gitlab/scripts/gitlab.py`), a single-file standard-library CLI that authenticates with a PAT (`PRIVATE-TOKEN` header) read from `GITLAB_TOKEN` and resolves the project from a read-only `git remote` subprocess.
 The authoritative per-skill model is the [GitLab skill `SECURITY.md`](https://github.com/microsoft/hve-core/blob/main/.github/skills/project-planning/gitlab/SECURITY.md).
 Residual redaction-architecture hardening (central `_emit()` sink, `LOGGER`, typed `GitLabAPIError` replacing `die()`, single-`urlopen` refactor, source-contract tests) is tracked on issues #1555, #1557, and #1559.
 

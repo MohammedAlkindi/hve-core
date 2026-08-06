@@ -361,7 +361,7 @@ Platform-agnostic skeletons. The active platform reference specifies file names,
 ````markdown
 # Planning Log - [Scope Name]
 
-* **Planning Type**: [discovery|triage|execution|prds]
+* **Planning Type**: [discovery|triage|execution|prds|current-work]
 * **Project**: [PROJECT or unknown]
 * **Status**: [Not Started|In Progress|Waiting for Review|Complete|Blocked]
 

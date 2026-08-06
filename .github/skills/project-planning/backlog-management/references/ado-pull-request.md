@@ -357,6 +357,21 @@ When `${input:noGates}` is true:
 * Create PR immediately with all discovered linkages
 * Deliver final recap in Phase 7 as usual
 
+`noGates` skips only the staged presentation in Phase 5, and only after the Mandatory Preflight confirmed the destination. It never bypasses destination confirmation, the Content Sanitization Guards, the core Human Review Triggers, or the Partial and Manual mutation gates. When the destination is unconfirmed, `noGates` does not apply and the workflow stops for confirmation.
+
+## Mandatory Preflight
+
+Run this before Phase 1. It is the operative invocation of the core conventions; the introductory pointer above is provenance, not enforcement.
+
+1. Activate the `backlog-management` skill. When it does not resolve, stop before any PR operation and report that the guards are unavailable.
+2. Run Platform Resolution for Azure DevOps and record its readiness verdict.
+3. Resolve and confirm the destination `project` and `repository` with the user. An inferred platform or destination is confirmed explicitly before the first mutating call.
+4. Establish the active autonomy tier and apply the Three-Tier Autonomy Model to every PR create, update, reviewer change, work-item link, and comment.
+5. Apply all six Content Sanitization Guards to every platform-visible PR field and comment while composing the payload, including the title, description, and any comment body.
+6. Honor the core Human Review Triggers and the Untrusted Content Boundary throughout.
+
+Record the resolved platform, confirmed destination, and autonomy tier in `planning-log.md` before Phase 1 produces any output.
+
 ## Required Phases
 
 ### Phase 1: Setup and PR Reference Generation

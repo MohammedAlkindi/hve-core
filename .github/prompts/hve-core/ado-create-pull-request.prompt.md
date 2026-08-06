@@ -5,7 +5,9 @@ agent: agent
 
 # Create Azure DevOps Pull Request with Work Item & Reviewer Discovery
 
-Follow all instructions from #file:../../skills/project-planning/backlog-management/references/ado-pull-request.md
+Activate the `backlog-management` skill by name and follow its Azure DevOps pull request reference (`references/ado-pull-request.md`). That reference is packaged with the skill, not with this prompt, so resolve it by name rather than by path.
+
+When the skill does not resolve, warn the user that platform resolution, the autonomy tiers, the content sanitization guards, and the human review triggers are unavailable, and stop before any Azure DevOps call. Do not reconstruct the protocol here.
 
 ## Inputs
 
@@ -24,4 +26,6 @@ Follow all instructions from #file:../../skills/project-planning/backlog-managem
 
 ## Instructions
 
-Proceed through the PR creation workflow following all Azure DevOps Pull Request Creation & Workflow instructions.
+Run the reference's Mandatory Preflight first: activate `backlog-management`, resolve Azure DevOps, confirm the `project` and `repository` destination, establish the autonomy tier, and apply the content sanitization guards to every platform-visible field. `${input:noGates}` skips only the staged Phase 5 presentation after that confirmation; it never bypasses destination confirmation, sanitization, human review triggers, or the Partial and Manual mutation gates.
+
+Then proceed through the seven-phase creation protocol in the reference.
