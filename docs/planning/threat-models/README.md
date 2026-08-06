@@ -20,8 +20,8 @@ Machine-readable threat-model specs consumed by the `security-planning` skill ge
 
 ## Specs
 
-| Spec                                                       | Scope                                                                                                                             | Review status |
-|------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|---------------|
+| Spec                                                       | Scope                                                                                                                             | Review status             |
+|------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|---------------------------|
 | [hve-core-comprehensive.yaml](hve-core-comprehensive.yaml) | Repository contents, CI/CD pipeline, developer workstation, dependency supply chain, dev container, and executable skill runtimes | DRAFT, not human-reviewed |
 
 ## Relationship to the prose model

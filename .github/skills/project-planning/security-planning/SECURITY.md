@@ -24,12 +24,12 @@ The highest-risk behavior is running a local executable against a threat-model a
 
 ### Security Posture Overview
 
-| Dimension          | Value                                                                                                                                                         |
-|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Runtime surface    | Local Python generator, native TMT validation harness, Windows UI Automation, screenshot capture, and evidence/overlay handling                               |
-| Trust buckets      | B1 TMT process automation and UI Automation; B2 local screenshots and evidence capture; B3 overlay-manifest and output path handling                          |
-| Credentials        | None handled or persisted by the runtime; no network egress is expected                                                                                       |
-| Network egress     | None                                                                                                                                                          |
+| Dimension          | Value                                                                                                                                                                                                             |
+|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Runtime surface    | Local Python generator, native TMT validation harness, Windows UI Automation, screenshot capture, and evidence/overlay handling                                                                                   |
+| Trust buckets      | B1 TMT process automation and UI Automation; B2 local screenshots and evidence capture; B3 overlay-manifest and output path handling                                                                              |
+| Credentials        | None handled or persisted by the runtime; no network egress is expected                                                                                                                                           |
+| Network egress     | None                                                                                                                                                                                                              |
 | Open residual gaps | 10 (executable trust, UIA ambiguity, evidence disclosure, evidence tampering, overlay tampering, path confinement, visual-score over-trust, automation stalls, marked-workspace deletion, local assembly loading) |
 
 ## Contents
@@ -121,14 +121,14 @@ flowchart TD
 
 ## Adversaries
 
-| Id    | Adversary                                                                                               | In-scope mitigations                                                                               |
-|-------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| ADV-a | Attacker supplies a forged or spoofed executable path to redirect the harness to an unintended binary   | Path validation, executable metadata checks, pinned version, harness-owned process tracking        |
-| ADV-b | Attacker causes UI Automation to select the wrong window or pane, or to interact with unrelated content | Explicit surface identity checks, fail-closed selection, bounded timeouts                          |
-| ADV-c | Attacker causes a hang, modal loop, or resource exhaustion in TMT or the harness                        | Bounded timeouts, modal detection, clean shutdown, retry boundaries, evidence flush on exit        |
+| Id    | Adversary                                                                                               | In-scope mitigations                                                                                     |
+|-------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| ADV-a | Attacker supplies a forged or spoofed executable path to redirect the harness to an unintended binary   | Path validation, executable metadata checks, pinned version, harness-owned process tracking              |
+| ADV-b | Attacker causes UI Automation to select the wrong window or pane, or to interact with unrelated content | Explicit surface identity checks, fail-closed selection, bounded timeouts                                |
+| ADV-c | Attacker causes a hang, modal loop, or resource exhaustion in TMT or the harness                        | Bounded timeouts, modal detection, clean shutdown, retry boundaries, evidence flush on exit              |
 | ADV-d | Attacker or operator discloses sensitive model content through screenshots or UIA traces                | Text-evidence redaction, local-only evidence handling, window-handle-isolated capture, no network egress |
-| ADV-e | Attacker tampers with overlay manifests, fingerprints, or output paths                                  | Deterministic manifest fingerprints, path confinement, strict schema validation, pending approval  |
-| ADV-f | Operator over-trusts a visual score or pending overlay without semantic review                          | Human approval before promotion, semantic regression checks, no automatic promotion                |
+| ADV-e | Attacker tampers with overlay manifests, fingerprints, or output paths                                  | Deterministic manifest fingerprints, path confinement, strict schema validation, pending approval        |
+| ADV-f | Operator over-trusts a visual score or pending overlay without semantic review                          | Human approval before promotion, semantic regression checks, no automatic promotion                      |
 
 ## Bucket B1: TMT process automation and UI Automation
 
@@ -192,10 +192,10 @@ flowchart TD
 
 ### Risk Rating
 
-| Threat                                                     | Likelihood | Impact | Residual Risk | Status                                                                                                                         |
-|------------------------------------------------------------|------------|--------|---------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Threat                                                     | Likelihood | Impact | Residual Risk | Status                                                                                                                                                     |
+|------------------------------------------------------------|------------|--------|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Screenshots or UIA traces expose sensitive model content   | Medium     | Medium | Medium        | Partially mitigated (text-evidence redaction, window-handle-isolated capture that is refused when isolation is unavailable, local-only evidence) (G-INF-1) |
-| Evidence files are replaced or tampered with after capture | Medium     | Medium | Medium        | Mitigated (deterministic manifests, local ownership, explicit status updates) (G-TAM-2)                                        |
+| Evidence files are replaced or tampered with after capture | Medium     | Medium | Medium        | Mitigated (deterministic manifests, local ownership, explicit status updates) (G-TAM-2)                                                                    |
 
 ## Bucket B3: Overlay manifest and output path handling
 
@@ -239,14 +239,14 @@ The following residual gaps should be tracked before the runtime is treated as f
 |---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|-----------------------------------------------------------------------|
 | G-SPF-1 | Executable discovery selects from absolute installation roots and requires a valid Authenticode signature from the accepted publisher, but the harness still trusts the local installation it finds, so operators must confirm the discovered binary and pinned version. | Spoofing-High    | Open; requires operator review and a trusted installation path        |
 | G-TAM-1 | UI Automation can still target an unintended window or pane when the surface identity is ambiguous, so strict mode must remain fail-closed.                                                                                                                              | Tampering-Med    | Open; requires surface identification discipline and human inspection |
-| G-INF-1 | Screenshots capture the whole Threat Modeling Tool window and UIA traces carry model text. Text evidence is redacted; captured pixels are not, so retention and handling of screenshots is a policy control rather than a runtime one.                                 | InfoDisc-Med     | Open; requires retention and handling controls for pixel evidence     |
+| G-INF-1 | Screenshots capture the whole Threat Modeling Tool window and UIA traces carry model text. Text evidence is redacted; captured pixels are not, so retention and handling of screenshots is a policy control rather than a runtime one.                                   | InfoDisc-Med     | Open; requires retention and handling controls for pixel evidence     |
 | G-TAM-2 | Evidence files can still be modified or replaced after capture if the local environment is compromised, so bundle integrity checks remain important.                                                                                                                     | Tampering-Med    | Open; requires integrity and access controls                          |
 | G-TAM-3 | Overlay and manifest tampering remain a practical risk when untrusted files are replayed, so strict schema and fingerprint validation must stay mandatory.                                                                                                               | Tampering-Med    | Open; requires review of overlay provenance and path origin           |
 | G-EOP-1 | Output-path handling should remain confined to the runtime-owned evidence directory and reject traversal or escape attempts.                                                                                                                                             | EoP-Med          | Open; requires path-confinement validation and monitoring             |
 | G-REP-1 | Visual scores and pending overlays are not semantic approval signals, so the workflow must continue to require human review before any promotion.                                                                                                                        | Repudiation-High | Open; requires explicit review and promotion process                  |
 | G-DOS-1 | TMT or UI Automation can still hit a modal or resource exhaustion state, so the runtime must continue to enforce bounded timeouts and stop conditions.                                                                                                                   | DoS-Med          | Open; requires runtime monitoring and operator response               |
 | G-EOP-2 | Recursive workspace deletion is restricted to a directory the harness created and marked itself, so an operator-supplied `--workspace-root` is treated as a parent only. The marker is a local file and offers no protection against a compromised host.                 | EoP-Med          | Open; requires local file-system integrity                            |
-| G-SPF-2 | The PowerShell fidelity probe loads a .NET assembly from the discovered TMT installation to deserialize a model. The assembly is verified as signed by the accepted publisher before loading, but loading any local assembly executes publisher code in-process.          | Spoofing-Med     | Open; requires a trusted installation and operator confirmation       |
+| G-SPF-2 | The PowerShell fidelity probe loads a .NET assembly from the discovered TMT installation to deserialize a model. The assembly is verified as signed by the accepted publisher before loading, but loading any local assembly executes publisher code in-process.         | Spoofing-Med     | Open; requires a trusted installation and operator confirmation       |
 
 ## References
 

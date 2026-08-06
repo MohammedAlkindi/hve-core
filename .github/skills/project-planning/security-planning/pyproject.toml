@@ -12,12 +12,17 @@ dev = [
     "pytest>=9.0",
     "pytest-cov>=6.0",
     "ruff>=0.15",
+    # Pillow is a test dependency on every platform, not just Windows. The
+    # harness tests stub the Windows-only UI automation layer and fake the
+    # platform check, so they are designed to run on Linux CI; only the PNG
+    # fixture helper needs a real imaging library. Gating it to Windows made
+    # the whole module fail to import on Linux and silently skipped its tests.
+    "pillow>=11.3.0",
 ]
 fuzz = [
     "atheris>=3.0",
 ]
 windows = [
-    "pillow>=11.3.0 ; platform_system == 'Windows'",
     "pywinauto>=0.6.8 ; platform_system == 'Windows'",
 ]
 

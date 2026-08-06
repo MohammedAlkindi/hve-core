@@ -55,18 +55,18 @@ A run stops with a stable reason such as `automated-ready-pending-human`, `repea
 
 The generator and the harness share a stable exit-code contract. `status.json` records the same value the process returns.
 
-| Code | Meaning                                                                       |
-|------|-------------------------------------------------------------------------------|
-| `0`  | Success, or a local run that skipped because TMT was absent without `--require-tmt` |
-| `1`  | Validation failure, including semantic regression against the baseline model  |
-| `2`  | Input or harness error, including a rejected spec, overlay, or evidence path   |
-| `3`  | TMT was not found, was untrusted, or the host is not Windows                   |
-| `4`  | The installed TMT is not the pinned version                                   |
-| `5`  | UI Automation exceeded `--timeout-seconds`                                    |
-| `6`  | An unexpected modal dialog blocked automation                                 |
-| `7`  | Required per-surface feedback evidence was missing                            |
-| `8`  | The feedback loop stopped without converging                                  |
-| `130`| The operator interrupted the run                                              |
+| Code  | Meaning                                                                             |
+|-------|-------------------------------------------------------------------------------------|
+| `0`   | Success, or a local run that skipped because TMT was absent without `--require-tmt` |
+| `1`   | Validation failure, including semantic regression against the baseline model        |
+| `2`   | Input or harness error, including a rejected spec, overlay, or evidence path        |
+| `3`   | TMT was not found, was untrusted, or the host is not Windows                        |
+| `4`   | The installed TMT is not the pinned version                                         |
+| `5`   | UI Automation exceeded `--timeout-seconds`                                          |
+| `6`   | An unexpected modal dialog blocked automation                                       |
+| `7`   | Required per-surface feedback evidence was missing                                  |
+| `8`   | The feedback loop stopped without converging                                        |
+| `130` | The operator interrupted the run                                                    |
 
 See [references/tm7-generation.md](references/tm7-generation.md) for the full CLI surface of both scripts, the `--mode` behavior of the generator and the harness, and the operator runbook.
 
