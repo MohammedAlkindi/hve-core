@@ -49,16 +49,9 @@ items:
 - path: .github/agents/coding-standards/subagents/code-review-walkback.agent.md
   kind: agent
   maturity: experimental
-- path: .github/agents/data-science/eval-dataset-creator.agent.md
+- path: .github/agents/data-science/data-workstream-coach.agent.md
   kind: agent
-- path: .github/agents/data-science/gen-data-spec.agent.md
-  kind: agent
-- path: .github/agents/data-science/gen-jupyter-notebook.agent.md
-  kind: agent
-- path: .github/agents/data-science/gen-streamlit-dashboard.agent.md
-  kind: agent
-- path: .github/agents/data-science/test-streamlit-dashboard.agent.md
-  kind: agent
+  maturity: experimental
 - path: .github/agents/design-thinking/dt-coach.agent.md
   kind: agent
   maturity: preview
@@ -493,6 +486,7 @@ items:
   kind: instruction
 - path: .github/instructions/shared/disclaimer-language.instructions.md
   kind: instruction
+  maturity: experimental
 - path: .github/instructions/shared/hve-core-location.instructions.md
   kind: instruction
 - path: .github/instructions/shared/planner-identity-base.instructions.md
@@ -515,10 +509,25 @@ items:
 - path: .github/skills/coding-standards/python-foundational
   kind: skill
   maturity: experimental
+- path: .github/skills/data-science/data-workstream-foundation
+  kind: skill
+  maturity: experimental
+- path: .github/skills/data-science/ds-analysis-authoring
+  kind: skill
+  maturity: experimental
+- path: .github/skills/data-science/ds-catalog
+  kind: skill
+  maturity: experimental
 - path: .github/skills/data-science/ds-dataops
   kind: skill
   maturity: experimental
-- path: .github/skills/data-science/experiment-design
+- path: .github/skills/data-science/ds-evaluation-design
+  kind: skill
+  maturity: experimental
+- path: .github/skills/data-science/ds-feasibility
+  kind: skill
+  maturity: experimental
+- path: .github/skills/data-science/ml-experimentation
   kind: skill
   maturity: experimental
 - path: .github/skills/design-thinking/dt-coaching-foundation
@@ -581,6 +590,9 @@ items:
 - path: .github/skills/jira/jira
   kind: skill
 - path: .github/skills/project-planning/adr-author
+  kind: skill
+  maturity: experimental
+- path: .github/skills/project-planning/experiment-design
   kind: skill
   maturity: experimental
 - path: .github/skills/project-planning/performance-slo-planner
@@ -653,6 +665,7 @@ items:
   kind: skill
 - path: .github/skills/shared/telemetry-foundations
   kind: skill
+  maturity: experimental
 - path: .github/hooks/shared/telemetry.json
   kind: hook
   maturity: experimental

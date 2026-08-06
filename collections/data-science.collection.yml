@@ -1,6 +1,6 @@
 id: data-science
 name: Data Science
-description: Evaluation dataset creation, data specification generation, Jupyter notebooks, and Streamlit dashboards
+description: Persistent data-workstream coaching with routed catalog, feasibility, DataOps, experimentation, analysis-authoring, and AI-evaluation-design capabilities
 notice: |
   > [!CAUTION]
   > This collection includes RAI (Responsible AI) agents and prompts that are **assistive tools only**. They do not replace qualified responsible AI review, ethics board oversight, or established organizational RAI governance processes. All AI-generated RAI assessments, impact analyses, and recommendations **must** be reviewed and validated by qualified professionals before use. AI outputs may contain inaccuracies, miss critical risk categories, or produce recommendations that are incomplete or inappropriate for your context.
@@ -15,16 +15,9 @@ tags:
   - responsible-ai
 items:
   # Agents
-  - path: .github/agents/data-science/eval-dataset-creator.agent.md
+  - path: .github/agents/data-science/data-workstream-coach.agent.md
     kind: agent
-  - path: .github/agents/data-science/gen-data-spec.agent.md
-    kind: agent
-  - path: .github/agents/data-science/gen-jupyter-notebook.agent.md
-    kind: agent
-  - path: .github/agents/data-science/gen-streamlit-dashboard.agent.md
-    kind: agent
-  - path: .github/agents/data-science/test-streamlit-dashboard.agent.md
-    kind: agent
+    maturity: experimental
   - path: .github/agents/rai-planning/rai-planner.agent.md
     kind: agent
     maturity: experimental
@@ -49,13 +42,43 @@ items:
     maturity: experimental
   - path: .github/instructions/shared/hve-core-location.instructions.md
     kind: instruction
+  - path: .github/instructions/shared/disclaimer-language.instructions.md
+    kind: instruction
+    maturity: experimental
   - path: .github/instructions/shared/untrusted-content-boundary.instructions.md
     kind: instruction
   # Skills
+  - path: .github/skills/data-science/ds-analysis-authoring
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/data-science/ds-catalog
+    kind: skill
+    maturity: experimental
   - path: .github/skills/data-science/ds-dataops
     kind: skill
     maturity: experimental
-  - path: .github/skills/data-science/experiment-design
+  - path: .github/skills/data-science/ds-evaluation-design
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/data-science/ds-feasibility
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/data-science/data-workstream-foundation
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/project-planning/experiment-design
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/data-science/ml-experimentation
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/hve-core/architecture-diagrams
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/project-planning/adr-author
+    kind: skill
+    maturity: experimental
+  - path: .github/skills/project-planning/privacy-standards
     kind: skill
     maturity: experimental
   - path: .github/skills/project-planning/rai-planner
@@ -66,6 +89,9 @@ items:
     maturity: experimental
   - path: .github/skills/rpi/rpi-research
     kind: skill
+  - path: .github/skills/shared/telemetry-foundations
+    kind: skill
+    maturity: experimental
   # Prompts
   - path: .github/prompts/rai-planning/rai-capture.prompt.md
     kind: prompt
