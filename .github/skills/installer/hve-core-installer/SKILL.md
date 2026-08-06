@@ -416,11 +416,11 @@ After displaying the success report, proceed to Phase 6 for post-installation se
 
 ## Phase 6: Post-Installation Setup
 
-Post-installation setup is documented in [references/post-installation-setup.md](references/post-installation-setup.md).
+Read [references/post-installation-setup.md](references/post-installation-setup.md) and perform every step it specifies before continuing. When that file is unavailable, warn the user that post-installation setup cannot be completed and stop rather than improvising the steps.
 
 ## Phase 7: Component Installation and Upgrade
 
-Optional component installation and the upgrade mode are documented in [references/component-installation.md](references/component-installation.md).
+Read [references/component-installation.md](references/component-installation.md) and follow its component installation and upgrade procedures exactly, including every confirmation gate it defines. When that file is unavailable, warn the user that component installation and upgrade cannot be performed and stop without writing to the target repository.
 
 ## Error Recovery
 

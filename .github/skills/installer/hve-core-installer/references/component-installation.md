@@ -331,6 +331,12 @@ Process file: .github/agents/hve-core/rpi-agent.agent.md?
 ```
 <!-- </upgrade-summary> -->
 
+### Upgrade Confirmation Gate
+
+Write nothing to the target repository until the user confirms. After displaying the upgrade summary, stop and require an explicit confirmation to proceed with the listed updates. Present each `modified` file individually and require an explicit `A`, `K`, `E`, or `D` selection for it; never assume a default. Treat silence, an unrecognized answer, or a declined confirmation as `Keep local` and skip the write.
+
+Never overwrite a `modified` or `ejected` file without an explicit per-file `Accept` selection for that file.
+
 ### Diff Display
 
 When user requests diff:
