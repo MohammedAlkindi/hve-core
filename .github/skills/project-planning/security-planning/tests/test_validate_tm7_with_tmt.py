@@ -2694,6 +2694,11 @@ def test_given_capture_when_screenshotting_then_window_is_not_restored(
         "PIL.ImageGrab",
         type("ImageGrab", (), {"grab": FakeImageGrab.grab}),
     )
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "screenshot_isolation_available",
+        lambda: True,
+    )
 
     # Act
     validate_tm7_with_tmt.capture_window_screenshot(window, tmp_path / "shot.png")
@@ -3703,6 +3708,11 @@ def test_given_window_handle_when_capturing_then_uses_exact_hwnd(
         ImageGrab = FakeImageGrab
 
     monkeypatch.setitem(sys.modules, "PIL", FakePillow)
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "screenshot_isolation_available",
+        lambda: True,
+    )
     monkeypatch.setitem(sys.modules, "PIL.ImageGrab", FakeImageGrab)
 
     # Act
@@ -3739,6 +3749,11 @@ def test_given_transient_capture_error_when_retrying_then_uses_exact_hwnd(
         ImageGrab = FakeImageGrab
 
     monkeypatch.setitem(sys.modules, "PIL", FakePillow)
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "screenshot_isolation_available",
+        lambda: True,
+    )
     monkeypatch.setitem(sys.modules, "PIL.ImageGrab", FakeImageGrab)
 
     # Act
@@ -3773,6 +3788,11 @@ def test_given_stale_restore_when_capturing_then_uses_exact_hwnd(
         ImageGrab = FakeImageGrab
 
     monkeypatch.setitem(sys.modules, "PIL", FakePillow)
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "screenshot_isolation_available",
+        lambda: True,
+    )
     monkeypatch.setitem(sys.modules, "PIL.ImageGrab", FakeImageGrab)
 
     # Act
