@@ -16,9 +16,11 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-import tm7_threat_contract
 import yaml
 from tm7_threat_contract import (
+    KNOWLEDGE_NS,
+    MODEL_NS,
+    XSD_NS,
     ThreatContractError,
     UnsafeXmlError,
     build_custom_threat_type_id,
@@ -37,9 +39,10 @@ EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 # SIGINT convention: 128 + signal number.
 EXIT_INTERRUPTED = 130
-MODEL_NS = tm7_threat_contract.MODEL_NS
-KNOWLEDGE_NS = tm7_threat_contract.KNOWLEDGE_NS
-XSD_NS = tm7_threat_contract.XSD_NS
+
+# Namespace constants are re-exported from the shared contract module so callers
+# and tests can read them from this entry point.
+__all__ = ["KNOWLEDGE_NS", "MODEL_NS", "XSD_NS"]
 
 
 class GenerationError(Exception):

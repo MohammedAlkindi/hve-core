@@ -5613,11 +5613,24 @@ def render_tm7_xml(
             _make_guid(f"surface:{surface['id']}"),
             {"xmlns": ABSTRACT_NS},
         )
-        _add_child(
+        surface_properties = _add_child(
             surface_node,
             "Properties",
             None,
             {"xmlns": ABSTRACT_NS, "xmlns:a": ARRAYS_NS},
+        )
+        # TMT reads a drawing surface's tab caption from the StringDisplayAttribute
+        # named "Name" in this collection, the same mechanism element names use.
+        # The sibling Header element is kept in sync but does not drive the tab.
+        surface_title = str(surface.get("name", surface.get("id", "surface")))
+        _add_display_attribute(
+            surface_properties, "Diagram", None, attr_type="b:HeaderDisplayAttribute"
+        )
+        _add_display_attribute(
+            surface_properties,
+            "Name",
+            surface_title,
+            attr_type="b:StringDisplayAttribute",
         )
         _add_child(surface_node, "TypeId", "DRAWINGSURFACE", {"xmlns": ABSTRACT_NS})
 
@@ -5731,9 +5744,7 @@ def render_tm7_xml(
                 {"xmlns": ABSTRACT_NS},
             )
 
-        _add_child(
-            surface_node, "Header", surface.get("name", surface.get("id", "surface"))
-        )
+        _add_child(surface_node, "Header", surface_title)
         lines = ET.SubElement(surface_node, "Lines", {"xmlns:a": ARRAYS_NS})
         for flow in [
             item

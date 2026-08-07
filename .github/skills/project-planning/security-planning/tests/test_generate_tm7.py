@@ -5156,6 +5156,61 @@ def test_given_reference_when_compare_surface_member_order_then_matches(
     assert generated_order == reference_order
 
 
+def test_given_named_surfaces_when_generated_then_tab_caption_carries_surface_name(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    output_path = tmp_path / "model.tm7"
+    spec = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
+    expected_names = [
+        str(surface["name"])
+        for view in ("context_diagrams", "functional_scenarios", "operational_views")
+        for surface in spec["representations"].get(view, [])
+    ]
+
+    # Act
+    run_generator(SPEC_PATH, output_path)
+    surfaces = iter_surface_nodes(parse_tm7(output_path))
+
+    # Assert: TMT reads the tab caption from the "Name" StringDisplayAttribute in
+    # the surface Properties collection. An empty collection renders every tab as
+    # the default "Diagram" caption regardless of the sibling Header element.
+    captions = []
+    for surface in surfaces:
+        properties = surface.find("{*}Properties")
+        assert properties is not None
+        name_value = next(
+            (
+                attribute.find("{*}Value")
+                for attribute in properties
+                if (display := attribute.find("{*}DisplayName")) is not None
+                and display.text == "Name"
+            ),
+            None,
+        )
+        assert name_value is not None
+        captions.append(name_value.text)
+
+    assert captions == expected_names
+    assert [surface.find("{*}Header").text for surface in surfaces] == expected_names
+
+
+def test_given_reference_when_compare_surface_properties_shape_then_matches() -> None:
+    # Act
+    reference_surface = iter_surface_nodes(parse_tm7(REFERENCE_FIXTURE_PATH))[0]
+    properties = reference_surface.find("{*}Properties")
+
+    # Assert: the generated surface Properties collection mirrors this TMT-authored
+    # shape, so the attribute pair and ordering are pinned against the real tool.
+    assert properties is not None
+    assert [
+        attribute.get(f"{{{generate_tm7.XSI_NS}}}type") for attribute in properties
+    ] == [
+        "b:HeaderDisplayAttribute",
+        "b:StringDisplayAttribute",
+    ]
+
+
 def test_given_reference_fixture_when_checked_then_no_zero_length_connectors() -> None:
     # Act
     root = parse_tm7(REFERENCE_FIXTURE_PATH)

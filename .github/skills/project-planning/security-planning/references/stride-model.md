@@ -7,7 +7,7 @@ description: STRIDE categories, AI-specific extensions, risk matrix guidance, an
 
 This reference captures the STRIDE methodology, AI-specific extensions, and threat table conventions used during security planning.
 
-Source: STRIDE threat model, Microsoft Security Development Lifecycle: <https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats>
+Source: STRIDE threat model, Microsoft Security Development Lifecycle: <https://learn.microsoft.com/azure/security/develop/threat-modeling-tool-threats>
 
 ## Schema-aligned flow guidance
 

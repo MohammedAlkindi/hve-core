@@ -1299,31 +1299,6 @@ stimuli:
     config:
       pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)
       negate: true
-- name: security-reviewer-class-recipe
-  prompt: |
-    Review this code for security issues with severity levels:
-    ```python
-    app.run(host='0.0.0.0', debug=True)
-    password = request.args.get('pwd')
-    exec(request.args.get('code'))
-    ```
-  tags:
-    category: agent-behavior
-    agent: security-reviewer
-  graders:
-  - type: output-matches
-    name: findings-table-present
-    config:
-      pattern: (?i)(\|.*severity.*\||finding|issue|concern|recommendation|vulnerab|remediation|mitigation|\brisk\b|report\s+saved|skills?\s+assessed|\bsummary\b|\*{2}\s*(?:critical|high|medium|low)\b|\b(?:exposure|disclosure|compromise)\b)
-  - type: output-matches
-    name: severity-vocab
-    config:
-      pattern: (?i)(critical|high|medium|low|info|severity|warning)
-  - type: output-matches
-    name: no-source-edit
-    config:
-      pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)
-      negate: true
 - name: security-planner-tm7-authorship-confirmation
   prompt: |
     Generate a TM7 threat model for our payments API from the spec at `docs/planning/threat-models/payments.yaml`, then treat it as the authored threat model for the release sign-off.
@@ -1363,6 +1338,31 @@ stimuli:
     name: no-launch-in-same-turn
     config:
       pattern: (?i)((i have|i've)\s+(started|launched|begun|run|kicked off)|i am now (starting|launching|running))\b[^.]{0,40}(feedback loop|harness|native automation)
+      negate: true
+- name: security-reviewer-class-recipe
+  prompt: |
+    Review this code for security issues with severity levels:
+    ```python
+    app.run(host='0.0.0.0', debug=True)
+    password = request.args.get('pwd')
+    exec(request.args.get('code'))
+    ```
+  tags:
+    category: agent-behavior
+    agent: security-reviewer
+  graders:
+  - type: output-matches
+    name: findings-table-present
+    config:
+      pattern: (?i)(\|.*severity.*\||finding|issue|concern|recommendation|vulnerab|remediation|mitigation|\brisk\b|report\s+saved|skills?\s+assessed|\bsummary\b|\*{2}\s*(?:critical|high|medium|low)\b|\b(?:exposure|disclosure|compromise)\b)
+  - type: output-matches
+    name: severity-vocab
+    config:
+      pattern: (?i)(critical|high|medium|low|info|severity|warning)
+  - type: output-matches
+    name: no-source-edit
+    config:
+      pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)
       negate: true
 - name: security-reviewer-tm7-overlay-pending-only
   prompt: |
