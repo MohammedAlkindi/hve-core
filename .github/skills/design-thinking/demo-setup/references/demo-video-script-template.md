@@ -9,18 +9,18 @@ This template provides both the structural reference for authoring a demo video 
 
 ### Script Structure
 
-| Section | Duration | Content |
-|---|---|---|
-| Video Details | — | Metadata table: title, subtitle, target duration, audience, tone |
-| Cold Open | 0:30 | Show the running prototype; narrate the persona's pain in their own words |
-| Section 1: The Problem | 1:30 | Walk through the persona brief on screen; highlight frustrations and the specific scenario |
-| Section 2: Design Thinking Coach | 2:30 | Show the DT artifacts directory; narrate key method outputs and coaching state |
-| Section 3: The Experiment Card | 1:00 | Open the experiment card; narrate hypothesis, success criteria, and failure criteria |
-| Section 4+: Prototype Demo | 4:00 | Screen-by-screen narration of the prototype; one section per major screen |
-| What You Just Saw | 1:30 | Recap the five HVE Core capabilities demonstrated |
-| Where to Start | 4:00 | Three entry points with live demo prompts for Task Researcher, RPI Agent, and DT Coach |
-| Closing | 0:30 | Summary statement and call to action |
-| Production Notes | — | Recording setup table: tool, browser, theme, font size, resolution, pre-recording steps |
+| Section                          | Duration | Content                                                                                    |
+|----------------------------------|----------|--------------------------------------------------------------------------------------------|
+| Video Details                    | —        | Metadata table: title, subtitle, target duration, audience, tone                           |
+| Cold Open                        | 0:30     | Show the running prototype; narrate the persona's pain in their own words                  |
+| Section 1: The Problem           | 1:30     | Walk through the persona brief on screen; highlight frustrations and the specific scenario |
+| Section 2: Design Thinking Coach | 2:30     | Show the DT artifacts directory; narrate key method outputs and coaching state             |
+| Section 3: The Experiment Card   | 1:00     | Open the experiment card; narrate hypothesis, success criteria, and failure criteria       |
+| Section 4+: Prototype Demo       | 4:00     | Screen-by-screen narration of the prototype; one section per major screen                  |
+| What You Just Saw                | 1:30     | Recap the five HVE Core capabilities demonstrated                                          |
+| Where to Start                   | 4:00     | Three entry points with live demo prompts for Task Researcher, RPI Agent, and DT Coach     |
+| Closing                          | 0:30     | Summary statement and call to action                                                       |
+| Production Notes                 | —        | Recording setup table: tool, browser, theme, font size, resolution, pre-recording steps    |
 
 ### Section Authoring Rules
 
@@ -34,27 +34,27 @@ This template provides both the structural reference for authoring a demo video 
 
 ### Content Derivation
 
-| Script Section | Source Artifact |
-|---|---|
-| Cold Open scene | Prototype `index.html` primary screen |
-| The Problem narration | Customer persona brief: frustrations, problem scenario, constraints |
-| DT Coach walkthrough | `.copilot-tracking/dt/{slug}/` artifact directory and coaching-state.md |
-| Experiment Card | `experiment-card.md` hypothesis and criteria |
-| Prototype Demo screens | Each `.html` file in the scaffold, walked through in workflow order |
-| What You Just Saw | Integration with HVE Core Tools table from the demo-setup skill |
-| Where to Start | Standard three-agent intro: Task Researcher, RPI Agent, DT Coach |
+| Script Section         | Source Artifact                                                         |
+|------------------------|-------------------------------------------------------------------------|
+| Cold Open scene        | Prototype `index.html` primary screen                                   |
+| The Problem narration  | Customer persona brief: frustrations, problem scenario, constraints     |
+| DT Coach walkthrough   | `.copilot-tracking/dt/{slug}/` artifact directory and coaching-state.md |
+| Experiment Card        | `experiment-card.md` hypothesis and criteria                            |
+| Prototype Demo screens | Each `.html` file in the scaffold, walked through in workflow order     |
+| What You Just Saw      | Integration with HVE Core Tools table from the demo-setup skill         |
+| Where to Start         | Standard three-agent intro: Task Researcher, RPI Agent, DT Coach        |
 
 ---
 
 ## Video Details
 
-| Field            | Value                                                                          |
-|------------------|--------------------------------------------------------------------------------|
-| Title            | {{title — action-oriented statement about the demo outcome}}                   |
-| Subtitle         | HVE Core Design Thinking + Prototyping Workflow                                |
-| Target duration  | 14-16 minutes                                                                  |
-| Audience         | {{audience — who will watch this recording}}                                   |
-| Tone             | Conversational, confident, practitioner-to-practitioner                        |
+| Field           | Value                                                        |
+|-----------------|--------------------------------------------------------------|
+| Title           | {{title — action-oriented statement about the demo outcome}} |
+| Subtitle        | HVE Core Design Thinking + Prototyping Workflow              |
+| Target duration | 14-16 minutes                                                |
+| Audience        | {{audience — who will watch this recording}}                 |
+| Tone            | Conversational, confident, practitioner-to-practitioner      |
 
 ---
 
@@ -250,18 +250,14 @@ Prompt to type:
 
 ## Production Notes
 
-| Item                 | Detail                                                                    |
-|----------------------|---------------------------------------------------------------------------|
-| Screen recording tool | OBS or VS Code screen recorder extension                                 |
-| Browser              | Chrome with DevTools closed, zoom at 100%                                |
-| VS Code theme        | Default dark or light — keep it familiar                                 |
-| Font size            | VS Code editor font 14px minimum for readability                         |
-| Resolution           | 1920x1080 or 2560x1440                                                   |
-| localStorage         | Run `localStorage.clear()` in DevTools before each take                  |
-| Pauses               | Leave 1-2 second pauses at section transitions for editing               |
-| B-roll opportunities | File explorer navigation, coaching state YAML scrolling, status bar updates |
+| Item                  | Detail                                                                      |
+|-----------------------|-----------------------------------------------------------------------------|
+| Screen recording tool | OBS or VS Code screen recorder extension                                    |
+| Browser               | Chrome with DevTools closed, zoom at 100%                                   |
+| VS Code theme         | Default dark or light — keep it familiar                                    |
+| Font size             | VS Code editor font 14px minimum for readability                            |
+| Resolution            | 1920x1080 or 2560x1440                                                      |
+| localStorage          | Run `localStorage.clear()` in DevTools before each take                     |
+| Pauses                | Leave 1-2 second pauses at section transitions for editing                  |
+| B-roll opportunities  | File explorer navigation, coaching state YAML scrolling, status bar updates |
 
-
----
-
-*🤖 Crafted with precision by ✨Copilot following brilliant human instruction, then carefully refined by our team of discerning human reviewers.*

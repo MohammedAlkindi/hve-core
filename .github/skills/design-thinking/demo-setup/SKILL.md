@@ -189,15 +189,15 @@ Transition to Method 7 and generate the hi-fi prototype scaffold directly.
 
 #### Prototype Input Mapping
 
-| Scaffold Input       | Source DT Artifact                           | Derivation                                                                          |
-|----------------------|----------------------------------------------|-------------------------------------------------------------------------------------|
-| Hypothesis           | M3 problem statement                         | Reframe as a testable prediction about user behavior                                |
-| Success criteria     | M5 concept D/F/V assessment                  | Convert desirability, feasibility, and viability ratings into measurable conditions |
-| Stack preference     | Always `html`                                | Default zero-install stack for demos                                                |
-| Simulation needs     | M2 constraint catalog and M6 usability notes | List components that cannot be built live and require fixtures                      |
-| Telemetry level      | Always `basic`                               | Page views, clicks, and task timing for demo purposes                               |
-| Storage              | Always `files`                               | Zero-dependency demo default; avoids database setup                                 |
-| LLM provider         | Always `none`                                | Demos use fixture data, not live LLM calls                                          |
+| Scaffold Input   | Source DT Artifact                           | Derivation                                                                          |
+|------------------|----------------------------------------------|-------------------------------------------------------------------------------------|
+| Hypothesis       | M3 problem statement                         | Reframe as a testable prediction about user behavior                                |
+| Success criteria | M5 concept D/F/V assessment                  | Convert desirability, feasibility, and viability ratings into measurable conditions |
+| Stack preference | Always `html`                                | Default zero-install stack for demos                                                |
+| Simulation needs | M2 constraint catalog and M6 usability notes | List components that cannot be built live and require fixtures                      |
+| Telemetry level  | Always `basic`                               | Page views, clicks, and task timing for demo purposes                               |
+| Storage          | Always `files`                               | Zero-dependency demo default; avoids database setup                                 |
+| LLM provider     | Always `none`                                | Demos use fixture data, not live LLM calls                                          |
 
 Checkpoint: prototype runs locally by opening `index.html` in a browser.
 
@@ -319,7 +319,3 @@ Each step of the demo workflow showcases specific HVE Core tools and features.
 The demo video script follows a fixed section structure with narrator text (blockquoted) and visual stage directions (bracketed). See `references/demo-video-script-template.md` for the full template, section-by-section script structure, authoring rules, and content derivation guidance. Copy that file to the prototype directory as `demo-video-script.md` in Step 6 and fill in the placeholders.
 
 > Brought to you by microsoft/hve-core
-
----
-
-*🤖 Crafted with precision by ✨Copilot following brilliant human instruction, then carefully refined by our team of discerning human reviewers.*
