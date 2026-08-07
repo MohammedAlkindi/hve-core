@@ -131,7 +131,7 @@ stimuli:
       - type: output-matches
         name: applyTo-evidence
         config:
-          pattern: "(?i)community-interaction|github-backlog-.*\\.instructions\\.md"
+          pattern: "(?i)community-interaction\\.instructions\\.md|project-planning/community-interaction"
       - type: output-matches
         name: scope-language
         config:

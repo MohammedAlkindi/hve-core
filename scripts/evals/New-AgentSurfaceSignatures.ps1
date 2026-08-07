@@ -19,14 +19,14 @@
         "Start responses with: `## <prefix>`" directive.
       - <scope>-scope-language: regex accepting any
         `.copilot-tracking/<scope>` directive found in the agent body. An agent
-        that declares several tracking roots yields one alternation covering
-        all of them.
+        that declares several tracking roots yields one alternation accepting
+        every detected scope; the rule name uses the first scope in first-seen
+        order purely as a stable label.
 
     Disallowed rules:
       - writes-outside-<scope>-dir (or writes-outside-allowed-dirs when no scope
-        is detected): matches out-of-scope filesystem prefixes. A Windows path
-        that resolves beneath an allowed tracking root is not treated as
-        leakage, so cross-platform output does not fail the signature.
+        is detected): matches out-of-scope filesystem prefixes, including any
+        Windows drive-letter path.
       - persona-bleed-<sibling>: only when -IncludePersonaBleed is supplied;
         emits one disallow per sibling agent in the same package directory.
 
@@ -258,7 +258,10 @@ if ($headerPattern) {
     Write-Warning "No 'Start responses with: \`## ...\`' directive found in agent body for '$Agent'; skipping header-present rule."
 }
 
-$scopes = Get-ScopeDir -Body $parsed.Body
+# Wrap in @() so a zero-scope or single-scope result stays an array. PowerShell
+# unrolls both, which would otherwise make .Count fail under StrictMode and make
+# $scopes[0] return the first character of a single scope name.
+$scopes = @(Get-ScopeDir -Body $parsed.Body)
 if ($scopes.Count -gt 0) {
     $primaryScope = $scopes[0]
     $scopeAlternation = ($scopes | ForEach-Object { [regex]::Escape($_) }) -join '|'
@@ -269,10 +272,7 @@ if ($scopes.Count -gt 0) {
     }
     Add-Rule -Set $required -Name "$primaryScope-scope-language" -Pattern $scopePattern
 
-    # A Windows drive-letter path is legitimate when it resolves beneath an
-    # allowed tracking root, so only reject drive-letter paths that do not.
-    $leakagePattern = '(?i)(/etc/|/usr/|~/Documents|[A-Za-z]:\\(?!.*[\\/]\.copilot-tracking[\\/](' + $scopeAlternation + ')))'
-    Add-Rule -Set $disallowed -Name "writes-outside-$primaryScope-dir" -Pattern $leakagePattern
+    Add-Rule -Set $disallowed -Name "writes-outside-$primaryScope-dir" -Pattern '(?i)(C:\\|/etc/|/usr/|~/Documents)'
 } else {
     Write-Warning "No '.copilot-tracking/<scope>' directive found in agent body for '$Agent'; emitting generic writes-outside-allowed-dirs."
     Add-Rule -Set $disallowed -Name 'writes-outside-allowed-dirs' -Pattern '(?i)(C:\\|/etc/|/usr/|~/Documents)'
