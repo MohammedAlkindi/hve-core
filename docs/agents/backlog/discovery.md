@@ -70,12 +70,12 @@ Queries the tracker using criteria you define: types, states, areas, keywords, o
 
 The three paths are identical everywhere. The query surface underneath differs.
 
-| Aspect                 | Azure DevOps                       | GitHub                      | Jira                           |
-|------------------------|------------------------------------|-----------------------------|--------------------------------|
+| Aspect                 | Azure DevOps                       | GitHub                      | Jira                                                 |
+|------------------------|------------------------------------|-----------------------------|------------------------------------------------------|
 | Assigned-work query    | `wit_my_work_items`                | `assignee:@me` issue search | Jira Query Language (JQL) `assignee = currentUser()` |
-| Iteration-scoped query | `wit_get_work_items_for_iteration` | Milestone filter            | JQL `sprint in openSprints()`  |
-| Free-text search       | `search_workitem`                  | Issue search qualifiers     | JQL text operators             |
-| Categorization read    | Area Path, Tags, Priority          | Labels                      | Components, Labels, Priority   |
+| Iteration-scoped query | `wit_get_work_items_for_iteration` | Milestone filter            | JQL `sprint in openSprints()`                        |
+| Free-text search       | `search_workitem`                  | Issue search qualifiers     | JQL text operators                                   |
+| Categorization read    | Area Path, Tags, Priority          | Labels                      | Components, Labels, Priority                         |
 
 > [!NOTE]
 > Jira field availability varies by instance. Custom fields such as story points carry instance-assigned IDs, so the workflow discovers them rather than assuming a fixed name.
@@ -86,10 +86,10 @@ Discovery writes to the tracking root for the resolved platform: `.copilot-track
 
 Discovery output files, all written under `<tracking-root>/discovery/<scope-name>/`:
 
-* `planning-log.md` — search terms, discovered items, and phase tracking.
-* `artifact-analysis.md` — extracted requirements and field values. Artifact-driven path only.
-* `work-items.md` — the source of truth for planned operations. Artifact-driven path only.
-* `handoff.md` — the reviewed summary the next workflow consumes.
+* `planning-log.md`: search terms, discovered items, and phase tracking.
+* `artifact-analysis.md`: extracted requirements and field values. Artifact-driven path only.
+* `work-items.md`: the source of truth for planned operations. Artifact-driven path only.
+* `handoff.md`: the reviewed summary the next workflow consumes.
 
 ```text
 <tracking-root>/discovery/<scope-name>/

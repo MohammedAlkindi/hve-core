@@ -1,7 +1,7 @@
 ---
-title: PRD Quality Reviewer
-description: Read-only PRD quality reviewer that emits both PRD_STANDARD_FINDINGS_V1 and PRD_QUALITY_REPORT_V1 payloads
-sidebar_position: 5
+title: ADO Backlog Executor
+description: "Applies a dispatched Azure DevOps backlog operation set in one confirmed project. Creates, updates, links, comments on, and transitions work items."
+sidebar_position: 1
 ms.date: 2026-08-06
 ---
 
@@ -9,7 +9,7 @@ ms.date: 2026-08-06
 | Field       | Value                                                                     |
 |-------------|---------------------------------------------------------------------------|
 | Kind        | agent                                                                     |
-| Source      | `.github/agents/project-planning/subagents/prd-quality-reviewer.agent.md` |
+| Source      | `.github/agents/project-planning/subagents/ado-backlog-executor.agent.md` |
 | Invocation  | Delegated subagent, dispatched by a parent agent (not selected directly)  |
 | Interactive | No                                                                        |
 <!-- END AUTO-GENERATED: metadata -->
@@ -17,7 +17,7 @@ ms.date: 2026-08-06
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Read-only PRD quality reviewer that emits both PRD_STANDARD_FINDINGS_V1 and PRD_QUALITY_REPORT_V1 payloads
+Applies a dispatched Azure DevOps backlog operation set in one confirmed project. Creates, updates, links, comments on, and transitions work items.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

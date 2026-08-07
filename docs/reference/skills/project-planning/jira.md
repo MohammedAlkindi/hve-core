@@ -2,16 +2,16 @@
 title: jira
 description: "Jira issue workflows for search, issue updates, transitions, comments, field discovery, and interactive credential setup via the Jira REST API. Use when you need to configure Jira access, search with JQL, inspect an issue, create or update work items, move an issue between statuses, post comments, or discover required fields for issue creation."
 sidebar_position: 7
-ms.date: 2026-08-04
+ms.date: 2026-08-06
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                  |
-|-------------|----------------------------------------|
-| Kind        | skill                                  |
-| Source      | `.github/skills/project-planning/jira` |
-| Invocation  | Loaded on demand by referencing agents |
-| Interactive | No                                     |
+| Field       | Value                                                                  |
+|-------------|------------------------------------------------------------------------|
+| Kind        | skill                                                                  |
+| Source      | `.github/skills/project-planning/jira`                                 |
+| Invocation  | Invoked directly as `/jira`, or loaded on demand by referencing agents |
+| Interactive | No                                                                     |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does

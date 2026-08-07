@@ -1,8 +1,8 @@
 ---
 title: Backlog Manager
-description: "Unified backlog and work-management orchestrator for Azure DevOps, GitHub, and Jira: discovery, triage, PRD-to-work-item planning, execution, build and pipeline info, and sprint planning"
+description: "Read-only backlog orchestrator for Azure DevOps, GitHub, and Jira. Classifies and plans requests, and dispatches every mutation to a per-platform executor."
 sidebar_position: 2
-ms.date: 2026-08-04
+ms.date: 2026-08-06
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -17,7 +17,7 @@ ms.date: 2026-08-04
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Unified backlog and work-management orchestrator for Azure DevOps, GitHub, and Jira: discovery, triage, PRD-to-work-item planning, execution, build and pipeline info, and sprint planning
+Read-only backlog orchestrator for Azure DevOps, GitHub, and Jira. Classifies and plans requests, and dispatches every mutation to a per-platform executor.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

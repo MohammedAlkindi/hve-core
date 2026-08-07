@@ -12,7 +12,7 @@ metadata:
 
 # Backlog Management
 
-Shared, platform-agnostic conventions for backlog managers across Azure DevOps, GitHub, and Jira. This skill owns the structural core that every platform reuses: how planning files are named and laid out, how planned items are identified, how candidate work is compared to existing work, how autonomy gates mutations, how outbound text is sanitized, and how an interrupted workflow resumes. Each platform contributes only its small delta — the command surface, field vocabulary, reference-ID prefix, and action verbs — through a per-platform reference.
+Shared, platform-agnostic conventions for backlog managers across Azure DevOps, GitHub, and Jira. This skill owns the structural core that every platform reuses: how planning files are named and laid out, how planned items are identified, how candidate work is compared to existing work, how autonomy gates mutations, how outbound text is sanitized, and how an interrupted workflow resumes. Each platform contributes only its small delta (the command surface, field vocabulary, reference-ID prefix, and action verbs) through a per-platform reference.
 
 ## When to Use
 
@@ -52,27 +52,27 @@ Resolve the platform from the strongest available signal, in this order:
 1. Explicit user mention of Azure DevOps, GitHub, or Jira.
 2. Active tracking root in context: `.copilot-tracking/workitems/**` resolves to Azure DevOps, `.copilot-tracking/github-issues/**` to GitHub, `.copilot-tracking/jira-issues/**` to Jira.
 3. Item-key shape: `PROJ-123` resolves to Jira, `#NNN` to GitHub, a bare numeric `System.Id` to Azure DevOps.
-4. A configured or credentialed platform when only one passes a non-interactive readiness probe. This is capability evidence, not user intent — see Inferred-Platform Confirmation below.
+4. A configured or credentialed platform when only one passes a non-interactive readiness probe. This is capability evidence, not user intent; see Inferred-Platform Confirmation below.
 5. Otherwise, ask which platform to target.
 
 When more than one platform remains plausible, summarize the two most likely options with a brief rationale and ask the user to choose. Do not guess a tracker and do not run the workflow against every candidate.
 
 A readiness probe is a non-interactive capability check that runs across all three platforms before signal 4 is used. It never prompts, never launches a setup workflow, and never mutates:
 
-| Platform     | Non-interactive readiness probe                                                                    |
-|--------------|------------------------------------------------------------------------------------------------------|
-| Azure DevOps | MCP `ado/*` tools are available                                                                    |
-| GitHub       | MCP `github/*` tools are available                                                                 |
+| Platform     | Non-interactive readiness probe                                                                        |
+|--------------|--------------------------------------------------------------------------------------------------------|
+| Azure DevOps | MCP `ado/*` tools are available                                                                        |
+| GitHub       | MCP `github/*` tools are available                                                                     |
 | Jira         | `JIRA_BASE_URL` and either `JIRA_API_TOKEN` or `JIRA_PAT` are already set, and a terminal is available |
 
 ### Step 2: Run the full preflight for the resolved platform
 
 The full preflight runs once, after the platform is resolved. It may resolve identity and may run interactive credential setup, which is why it never runs as a probe.
 
-| Platform     | Preflight check                                                                                                                                                                                                                           |
-|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Azure DevOps | MCP `ado/*` tools available and an explicit `project` resolvable; call `ado/core_get_identity_ids` to establish authenticated user context before assignment.                                                                             |
-| GitHub       | MCP `github/*` tools available and identity resolvable via `github/get_me`; the target `owner/repo` is known.                                                                                                                             |
+| Platform     | Preflight check                                                                                                                                                                                                                                                                                            |
+|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Azure DevOps | MCP `ado/*` tools available and an explicit `project` resolvable; call `ado/core_get_identity_ids` to establish authenticated user context before assignment.                                                                                                                                              |
+| GitHub       | MCP `github/*` tools available and identity resolvable via `github/get_me`; the target `owner/repo` is known.                                                                                                                                                                                              |
 | Jira         | `JIRA_BASE_URL` and either `JIRA_API_TOKEN` or `JIRA_PAT` are set (source `~/.jira.env` when it exists; when still missing, run the `jira` skill's credential-setup command inline) and a terminal is available for the `jira` skill CLI. Credential setup runs only here, never during a readiness probe. |
 
 ### Inferred-Platform Confirmation
@@ -143,7 +143,7 @@ Every planning markdown file ends with:
 
 ## Reference-ID Scheme
 
-Planned items carry a stable per-workflow reference ID that pairs a platform prefix with a zero-padded sequence — for example `JI001`, `JI002`. The active platform reference defines its prefix (`WI` for Azure DevOps, `IS` for GitHub, `JI` for Jira). Reference IDs are internal planning identifiers and never leave the workflow for the target platform; see Content Sanitization Guards. Items not yet created use a temporary key of the form `{{TEMP-N}}`, resolved to the real platform key after creation.
+Planned items carry a stable per-workflow reference ID that pairs a platform prefix with a zero-padded sequence, for example `JI001`, `JI002`. The active platform reference defines its prefix (`WI` for Azure DevOps, `IS` for GitHub, `JI` for Jira). Reference IDs are internal planning identifiers and never leave the workflow for the target platform; see Content Sanitization Guards. Items not yet created use a temporary key of the form `{{TEMP-N}}`, resolved to the real platform key after creation.
 
 ## Similarity Assessment Framework
 
@@ -188,11 +188,11 @@ When one candidate returns more than one Similar existing item, present all of t
 
 This table is the only generic definition of the autonomy tiers. Agents, workflow commands, and platform references point at it rather than restating it; a second copy drifts.
 
-| Mode              | Behavior                                                                                                                  |
-|-------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| Full              | Execute all supported operations without confirmation                                                                     |
+| Mode              | Behavior                                                                                                                               |
+|-------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| Full              | Execute all supported operations without confirmation                                                                                  |
 | Partial (default) | Auto-execute validated low-risk field updates; gate creates, transitions and closes, links, comments, and ambiguous duplicate handling |
-| Manual            | Require confirmation for every platform-bound mutation                                                                    |
+| Manual            | Require confirmation for every platform-bound mutation                                                                                 |
 
 A field update is low-risk only when it stays inside the validated field set and does not change the item's workflow state. An operation that changes workflow state is a transition for autonomy purposes regardless of the API verb that carries it, and links and comments are gated because they are externally visible.
 
@@ -265,14 +265,14 @@ In scope: access tokens and API keys, connection strings, private keys and certi
 
 Detect against concrete indicators rather than impression. Inspect keys, values, and embedded text for:
 
-| Indicator                    | Examples                                                                                  |
-|------------------------------|---------------------------------------------------------------------------------------------|
-| Credential header names      | `Authorization`, `Proxy-Authorization`, `X-Api-Key`                                        |
+| Indicator                    | Examples                                                                                                      |
+|------------------------------|---------------------------------------------------------------------------------------------------------------|
+| Credential header names      | `Authorization`, `Proxy-Authorization`, `X-Api-Key`                                                           |
 | Credential-bearing key names | `password`, `passwd`, `secret`, `token`, `api_key`, `client_secret`, `private_key`, `connectionstring`, `sas` |
-| Key material delimiters      | `-----BEGIN ... PRIVATE KEY-----`, OpenSSH private-key headers, PKCS#12 blobs              |
-| Credentialed URIs            | A connection string or URL carrying inline user and password                               |
-| Signed-URL parameters        | Cloud access-token or shared-access-signature query parameters                              |
-| High-entropy values          | A token-like value adjacent to any of the markers above                                     |
+| Key material delimiters      | `-----BEGIN ... PRIVATE KEY-----`, OpenSSH private-key headers, PKCS#12 blobs                                 |
+| Credentialed URIs            | A connection string or URL carrying inline user and password                                                  |
+| Signed-URL parameters        | Cloud access-token or shared-access-signature query parameters                                                |
+| High-entropy values          | A token-like value adjacent to any of the markers above                                                       |
 
 An exact indicator match is a probable secret: stop the operation. An ambiguous value is not sent; name only its field or location and the apparent secret type, and ask the user to classify it.
 
@@ -316,7 +316,7 @@ When a conversation resumes after summarization or interruption:
 
 1. Read `planning-log.md` first.
 2. When execution has started, read `handoff.md` and `handoff-logs.md`.
-3. Rebuild every temporary-ID mapping — generic and namespaced — from the completed Create entries in `handoff-logs.md`.
+3. Rebuild every temporary-ID mapping, generic and namespaced, from the completed Create entries in `handoff-logs.md`.
 4. Continue from the first unchecked or unlogged operation.
 
 Stop and request user guidance rather than improvising when the logs are missing, when a completed Create has no recorded item key, or when any placeholder referenced by a remaining operation cannot be resolved from the rebuilt mapping. An unresolved mapping is a blocker, not a value to guess.

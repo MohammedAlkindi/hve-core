@@ -33,30 +33,30 @@ Infer what can be inferred safely, from the live conversation, an item key or UR
 
 Four things must hold before the first mutating call. Everything else can be discovered, inferred, or deferred:
 
-1. **One platform**, resolved and, if inferred, confirmed by the user.
-2. **One destination**, named and confirmed: an ADO project, a GitHub repository, or a Jira project key.
-3. **A compatible write surface** actually reachable in the active context.
-4. **Any confirmation the autonomy tier requires** for the operations at hand.
+1. One platform, resolved and, if inferred, confirmed by the user.
+2. One destination, named and confirmed: an ADO project, a GitHub repository, or a Jira project key.
+3. A compatible write surface actually reachable in the active context.
+4. Any confirmation the autonomy tier requires for the operations at hand.
 
 ### Supported direct-invocation contexts
 
-| Context | Write surface | Notes |
-|---------|---------------|-------|
-| The `Backlog Manager` agent | Dispatches to the executor for the resolved platform | Preferred path; the orchestrator resolves and confirms, the executor mutates |
-| An agent or host session carrying the platform's own write tools | Those tools directly | Requires the ADO or GitHub write family, or terminal access for the Jira CLI |
-| A read-only session | None | Plan the operations, write the handoff, and stop before mutating |
+| Context                                                          | Write surface                | Notes                                                                                                       |
+|------------------------------------------------------------------|------------------------------|-------------------------------------------------------------------------------------------------------------|
+| A platform executor subagent dispatched by `Backlog Manager`     | That platform's write family | Preferred path; the orchestrator resolves and confirms, the executor runs this flow with its platform delta |
+| An agent or host session carrying the platform's own write tools | Those tools directly         | Requires the ADO or GitHub write family, or terminal access for the Jira CLI                                |
+| A read-only session                                              | None                         | Plan the operations, write the handoff, and stop before mutating                                            |
 
 When the active context exposes no compatible write surface, say so plainly and stop before the first mutating call: state which platform was resolved, that the current context has no write surface for it, and that the planned operations were written to the handoff file for execution through `Backlog Manager` or an equivalently equipped context. Do not substitute a terminal command or an alternate CLI to reach an operation the context withholds, and never fall back to a different platform because that one happens to be reachable.
 
 ### Direct-invocation scenarios
 
-| Situation | Behavior |
-|-----------|----------|
-| User supplies platform, destination, and item details | Confirm the destination, sanitize, execute |
-| User names only an item key such as `PROJ-123` or `#482` | Infer the platform from the key shape and the destination from repository or tracking context, state both, and confirm before mutating |
-| Everything is clear except one mutation-critical field, such as issue type | Ask that one question, then proceed |
-| Platform resolves but the context has no matching write tools | Write the handoff and stop with the no-compatible-write-surface message |
-| Two platforms both plausible and no signal separates them | Present the two candidates with rationale and ask; never pick one because it happens to pass preflight |
+| Situation                                                                  | Behavior                                                                                                                               |
+|----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| User supplies platform, destination, and item details                      | Confirm the destination, sanitize, execute                                                                                             |
+| User names only an item key such as `PROJ-123` or `#482`                   | Infer the platform from the key shape and the destination from repository or tracking context, state both, and confirm before mutating |
+| Everything is clear except one mutation-critical field, such as issue type | Ask that one question, then proceed                                                                                                    |
+| Platform resolves but the context has no matching write tools              | Write the handoff and stop with the no-compatible-write-surface message                                                                |
+| Two platforms both plausible and no signal separates them                  | Present the two candidates with rationale and ask; never pick one because it happens to pass preflight                                 |
 
 ## Required Flow
 
@@ -89,11 +89,11 @@ Summarize the operations attempted, succeeded, and failed, name the log files by
 
 Guided creation of one work item.
 
-1. **Resolve context.** Establish the target project or repository and verify access through the platform's identity and scope bindings. Report an inaccessible target rather than falling back to a default.
-2. **Select the item type.** Use the supplied type when it is valid for the platform. Otherwise present the platform's available types and ask. Resolve types through the platform's Type discovery binding rather than assuming a fixed list, because supported types vary by process, repository, and project. Where that binding reports no discovery tool — Azure DevOps today — confirm the process or template with the user and record the types as unvalidated instead of claiming discovery.
-3. **Collect fields conversationally.** Author the title and description using the interaction templates in the active platform reference, at the level the item occupies per the story-quality reference. Ask before supplying optional fields; do not invent a priority, severity, assignee, or tag the user did not state.
-4. **Validate the hierarchy.** When a parent is supplied, fetch it and verify the relationship is legal for the platform's hierarchy, using the Relationship Semantics section of the platform reference. An invalid pairing is reported and corrected before creation, never silently created unparented.
-5. **Create and log.** Apply the sanitization guards, create the item, and record the result with its returned key.
+1. Resolve context: establish the target project or repository and verify access through the platform's identity and scope bindings. Report an inaccessible target rather than falling back to a default.
+2. Select the item type: use the supplied type when it is valid for the platform. Otherwise present the platform's available types and ask. Resolve types through the platform's Type discovery binding rather than assuming a fixed list, because supported types vary by process, repository, and project. Where that binding reports no discovery tool, as Azure DevOps does today, confirm the process or template with the user and record the types as unvalidated instead of claiming discovery.
+3. Collect fields conversationally: author the title and description using the interaction templates in the active platform reference, at the level the item occupies per the story-quality reference. Ask before supplying optional fields; do not invent a priority, severity, assignee, or tag the user did not state.
+4. Validate the hierarchy: when a parent is supplied, fetch it and verify the relationship is legal for the platform's hierarchy, using the Relationship Semantics section of the platform reference. An invalid pairing is reported and corrected before creation, never silently created unparented.
+5. Create and log: apply the sanitization guards, create the item, and record the result with its returned key.
 
 ## Safety Protocols
 
@@ -101,7 +101,7 @@ All five are mandatory on every path through this command.
 
 ### Three-tier autonomy
 
-The Three-Tier Autonomy Model in the core skill is the only definition of the tiers and of which operations each gates. Apply it as written; do not restate it here. `full` removes per-operation gates while still honoring destination confirmation, the human review triggers, and the guards below.
+The Three-Tier Autonomy Model in the core skill is the only definition of the tiers, of which operations each gates, and of what a tier never waives. Apply it as written; do not restate it here.
 
 ### Dry-run
 

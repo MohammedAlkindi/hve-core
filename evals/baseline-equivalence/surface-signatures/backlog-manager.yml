@@ -9,4 +9,4 @@ disallowed:
   - name: writes-outside-workitems-dir
     type: output-matches
     config:
-      pattern: '(?i)(/etc/|/usr/|~/Documents|[A-Za-z]:\\(?!.*[\\/]\.copilot-tracking[\\/](workitems|github-issues|jira-issues)))'
+      pattern: '(?i)(C:\\|/etc/|/usr/|~/Documents)'

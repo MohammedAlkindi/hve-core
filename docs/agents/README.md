@@ -47,11 +47,11 @@ Automates work discovery, triage, sprint planning, task planning, and execution 
 
 Three workflows have no cross-platform equivalent and remain Azure DevOps only:
 
-| Workflow             | Documentation                                              |
-|----------------------|--------------------------------------------------------------|
-| Build monitoring     | [Build Monitoring](ado-backlog/build-monitoring.md)         |
-| Pull request creation | [Pull Request Creation](ado-backlog/pr-creation.md)        |
-| PRD planning          | [PRD Planning](ado-backlog/prd-planning.md)                |
+| Workflow              | Documentation                                       |
+|-----------------------|-----------------------------------------------------|
+| Build monitoring      | [Build Monitoring](ado-backlog/build-monitoring.md) |
+| Pull request creation | [Pull Request Creation](ado-backlog/pr-creation.md) |
+| PRD planning          | [PRD Planning](ado-backlog/prd-planning.md)         |
 
 ## Project Planning
 

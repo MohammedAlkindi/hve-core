@@ -40,12 +40,12 @@ Sprint planning coordinates discovery and triage inline when the backlog is not 
 
 This is the single largest platform difference in the workflow.
 
-| Binding             | Azure DevOps                     | GitHub                           | Jira                                      | GitHub capability status |
-|---------------------|----------------------------------|----------------------------------|-------------------------------------------|--------------------------|
-| Container           | Iteration Path                   | Milestone                        | Sprint                                    | Supported                |
-| Window              | Start and end dates on iteration | Due date only, start derived     | Start and end dates on sprint             | Configuration required   |
-| Effort field        | Story Points                     | None native                      | Story Points (instance-specific field ID) | Capability gap           |
-| Container discovery | Team iteration list              | Repository milestone list        | Board sprint list                         | Supported                |
+| Binding             | Azure DevOps                     | GitHub                       | Jira                                      | GitHub capability status |
+|---------------------|----------------------------------|------------------------------|-------------------------------------------|--------------------------|
+| Container           | Iteration Path                   | Milestone                    | Sprint                                    | Supported                |
+| Window              | Start and end dates on iteration | Due date only, start derived | Start and end dates on sprint             | Configuration required   |
+| Effort field        | Story Points                     | None native                  | Story Points (instance-specific field ID) | Capability gap           |
+| Container discovery | Team iteration list              | Repository milestone list    | Board sprint list                         | Supported                |
 
 ### GitHub capability gaps
 

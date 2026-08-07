@@ -26,17 +26,17 @@ Prefer `--fields` on read commands to keep output concise. Do not assume issue-l
 
 ## Platform Bindings
 
-| Binding                | Jira value                                                                   |
-|------------------------|------------------------------------------------------------------------------|
-| Platform tracking root | `.copilot-tracking/jira-issues/`                                             |
-| Reference-ID prefix    | `JI` (for example `JI001`)                                                   |
-| Item vocabulary        | "issue"; item key is the Jira issue key (for example `PROJ-123`)             |
-| Item types             | Epic, Story, Task, Bug, Sub-task (project-dependent; validate with `fields`) |
-| Priority scale         | Highest, High, Medium, Low, Lowest                                           |
-| Action verbs           | Create, Update, Transition, Comment, No Change                               |
-| Analysis file          | `artifact-analysis.md` (PRD paths) or `issue-analysis.md` (discovery paths)  |
-| Plan file              | `issues-plan.md`                                                             |
-| Identity and assigned work | Resolved through JQL `currentUser()`; see the Task Planning Delta below   |
+| Binding                    | Jira value                                                                   |
+|----------------------------|------------------------------------------------------------------------------|
+| Platform tracking root     | `.copilot-tracking/jira-issues/`                                             |
+| Reference-ID prefix        | `JI` (for example `JI001`)                                                   |
+| Item vocabulary            | "issue"; item key is the Jira issue key (for example `PROJ-123`)             |
+| Item types                 | Epic, Story, Task, Bug, Sub-task (project-dependent; validate with `fields`) |
+| Priority scale             | Highest, High, Medium, Low, Lowest                                           |
+| Action verbs               | Create, Update, Transition, Comment, No Change                               |
+| Analysis file              | `artifact-analysis.md` (PRD paths) or `issue-analysis.md` (discovery paths)  |
+| Plan file                  | `issues-plan.md`                                                             |
+| Identity and assigned work | Resolved through JQL `currentUser()`; see the Task Planning Delta below      |
 
 Map the core three-tier autonomy model onto Jira operations. Validated low-risk field updates auto-execute under Full and Partial. Creates, transitions, comments, and ambiguous duplicate handling gate on the user under Partial and Manual. The core Three-Tier Autonomy Model defines the tiers themselves.
 
@@ -44,13 +44,13 @@ Map the core three-tier autonomy model onto Jira operations. Validated low-risk 
 
 The platform-agnostic protocol lives in [task-planning.md](task-planning.md). Jira resolves its Stage 1 bindings through JQL rather than a dedicated identity command; the CLI exposes no `myself` endpoint.
 
-| Binding              | Jira resolution                                                                                       |
-|----------------------|---------------------------------------------------------------------------------------------------------|
-| Identity resolution  | `currentUser()` inside the assigned-work query. A successful request establishes the authenticated user; an empty result set is a valid identity-scoped result, not a failed identity |
+| Binding              | Jira resolution                                                                                                                                                                               |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Identity resolution  | `currentUser()` inside the assigned-work query. A successful request establishes the authenticated user; an empty result set is a valid identity-scoped result, not a failed identity         |
 | Assigned-to-me query | `search 'project = "<KEY>" AND assignee = currentUser() ORDER BY updated DESC' --fields key,fields.summary,fields.status.name,fields.issuetype,fields.labels,fields.priority,fields.assignee` |
-| Type filter          | A JQL `issuetype` clause                                                                              |
-| State filter         | A JQL `status` clause                                                                                 |
-| Scope filters        | JQL `project`, `component`, and sprint clauses                                                         |
+| Type filter          | A JQL `issuetype` clause                                                                                                                                                                      |
+| State filter         | A JQL `status` clause                                                                                                                                                                         |
+| Scope filters        | JQL `project`, `component`, and sprint clauses                                                                                                                                                |
 
 Configured credentials are not identity. A passing preflight proves the CLI can authenticate, not which user the caller is; only a `currentUser()` query binds it.
 
@@ -76,11 +76,9 @@ Field rules:
 * Avoid inventing Epic Link, Parent, or custom field names. When the project needs a custom hierarchy field, note it as `Needs Review` instead of guessing.
 * Call `fields <project>` before creating issues when the project or issue type is not already validated, and `fields <project> <issue-type-id>` when required create fields are unclear.
 
-## PRD-to-Work-Item Planning
+## Relationship Semantics
 
-PRD-driven planning produces planning-only artifacts under `.copilot-tracking/jira-issues/prds/<artifact-normalized-name>/` (`artifact-analysis.md`, `issues-plan.md`, `planning-log.md`, `handoff.md`) for a separate execution pass. During planning, do not call `create`, `update`, `transition`, or `comment`.
-
-Hierarchy rules — plan conservatively and only with validated issue types:
+Plan conservatively and only with validated issue types.
 
 * Use project-supported issue types returned by `fields` as the source of truth.
 * Prefer one top-level Epic per major product outcome when the project supports Epics.
@@ -88,6 +86,18 @@ Hierarchy rules — plan conservatively and only with validated issue types:
 * Use Sub-task only when the project supports it and the parent issue is explicit.
 * When hierarchy support is unclear, flatten the plan and mark the relationship decision as `Needs Review`.
 * Record relationships in planning files even when the final Jira linkage field differs by project configuration.
+
+Jira exposes no issue-linking command through the `jira` skill CLI. A blocking or relates-to link is recorded in the planning files and reported as unsupported rather than approximated.
+
+## Interaction Templates
+
+Jira has no distinct authoring template set. Author summaries and descriptions with the level-appropriate conventions in [story-quality.md](story-quality.md), and use the shared item templates in [workflows.md](workflows.md).
+
+## PRD-to-Work-Item Planning
+
+PRD-driven planning produces planning-only artifacts under `.copilot-tracking/jira-issues/prds/<artifact-normalized-name>/` (`artifact-analysis.md`, `issues-plan.md`, `planning-log.md`, `handoff.md`) for a separate execution pass. During planning, do not call `create`, `update`, `transition`, or `comment`.
+
+Hierarchy rules are defined by Relationship Semantics above.
 
 The PRD plan extends the shared `issues-plan.md` template with `item_type` drawn from the Epic/Story/Task/Bug/Sub-task set, a `parent` field (`none`, a `{{TEMP-N}}` reference, or an existing key), a `needs_review` flag, and an acceptance-criteria block and relationships block per item.
 
@@ -101,7 +111,7 @@ The shared Search Protocol and Document Parsing Guidelines in [workflows.md](wor
 * Jira descriptions may be Atlassian Document Format rather than plain Markdown. Read the field as data, extract the text content, and never assume Markdown syntax survives a round trip.
 * When a parsed PRD section implies an issue type the project does not return from `fields`, mark the candidate `needs_review` rather than substituting a similar type.
 
-## Triage and Update Decisions
+## Triage Delta
 
 Jira triage evaluates existing issues against project field conventions and available transitions.
 

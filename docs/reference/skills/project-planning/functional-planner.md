@@ -1,23 +1,23 @@
 ---
 title: functional-planner
-description: "Platform-agnostic, read-only PRD-to-work-item hierarchy planning for Azure DevOps, GitHub, and Jira: a five-phase analysis model, per-platform hierarchy references, and selectable open planning-framework decomposition lenses (generic, Scrum, Kanban). Use to turn a PRD into a validated work-item hierarchy handoff for a separate execution pass. Never mutates a tracker."
+description: "Read-only PRD-to-work-item hierarchy planning. Use to turn a PRD into a validated Azure DevOps, GitHub, or Jira handoff."
 sidebar_position: 5
-ms.date: 2026-08-04
+ms.date: 2026-08-06
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                                |
-|-------------|------------------------------------------------------|
-| Kind        | skill                                                |
-| Source      | `.github/skills/project-planning/functional-planner` |
-| Invocation  | Loaded on demand by referencing agents               |
-| Interactive | No                                                   |
+| Field       | Value                                                                                |
+|-------------|--------------------------------------------------------------------------------------|
+| Kind        | skill                                                                                |
+| Source      | `.github/skills/project-planning/functional-planner`                                 |
+| Invocation  | Invoked directly as `/functional-planner`, or loaded on demand by referencing agents |
+| Interactive | No                                                                                   |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Platform-agnostic, read-only PRD-to-work-item hierarchy planning for Azure DevOps, GitHub, and Jira: a five-phase analysis model, per-platform hierarchy references, and selectable open planning-framework decomposition lenses (generic, Scrum, Kanban). Use to turn a PRD into a validated work-item hierarchy handoff for a separate execution pass. Never mutates a tracker.
+Read-only PRD-to-work-item hierarchy planning. Use to turn a PRD into a validated Azure DevOps, GitHub, or Jira handoff.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

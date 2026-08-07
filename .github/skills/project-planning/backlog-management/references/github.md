@@ -29,20 +29,20 @@ To set a milestone, labels, or assignees on a pull request, call `mcp_github_iss
 
 Every planned GitHub operation resolves to exactly one row. An action that has no row is not a supported GitHub operation and is not planned.
 
-| Operation          | Tool                           | Method   | Required fields                                                                                                 |
-|--------------------|--------------------------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| Create issue       | `mcp_github_issue_write`       | `create` | `owner`, `repo`, `title`; `body`, `labels`, `milestone`, `assignees`, `type` optional                           |
-| Update issue       | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` plus the changed fields                                                         |
-| Close issue        | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number`, `state: closed`, `state_reason`; `duplicate_of` when the reason is `duplicate` |
-| Add labels         | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number`, full replacement `labels` set                                                  |
-| Set milestone      | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number`, `milestone`                                                                    |
-| Add sub-issue link | `mcp_github_sub_issue_write`   | `add`    | `owner`, `repo`, `issue_number` (parent), `sub_issue_id`                                                        |
-| Add comment        | `mcp_github_add_issue_comment` | n/a      | `owner`, `repo`, `issue_number`, `body`                                                                         |
-| Set PR milestone   | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` (the PR number), `milestone`                                                    |
-| Set PR labels      | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` (the PR number), full replacement `labels` set                                  |
-| Set PR assignees   | `mcp_github_issue_write`       | `update` | `owner`, `repo`, `issue_number` (the PR number), full replacement `assignees` set                               |
-| Update PR fields   | `mcp_github_update_pull_request` | n/a    | `owner`, `repo`, `pullNumber` plus the changed PR-specific fields (`title`, `body`, `base`, `draft`, `state`)   |
-| Assign Copilot     | `mcp_github_assign_copilot_to_issue` | n/a | `owner`, `repo`, `issue_number`; `base_ref`, `custom_instructions` optional                                     |
+| Operation          | Tool                                 | Method   | Required fields                                                                                                 |
+|--------------------|--------------------------------------|----------|-----------------------------------------------------------------------------------------------------------------|
+| Create issue       | `mcp_github_issue_write`             | `create` | `owner`, `repo`, `title`; `body`, `labels`, `milestone`, `assignees`, `type` optional                           |
+| Update issue       | `mcp_github_issue_write`             | `update` | `owner`, `repo`, `issue_number` plus the changed fields                                                         |
+| Close issue        | `mcp_github_issue_write`             | `update` | `owner`, `repo`, `issue_number`, `state: closed`, `state_reason`; `duplicate_of` when the reason is `duplicate` |
+| Add labels         | `mcp_github_issue_write`             | `update` | `owner`, `repo`, `issue_number`, full replacement `labels` set                                                  |
+| Set milestone      | `mcp_github_issue_write`             | `update` | `owner`, `repo`, `issue_number`, `milestone`                                                                    |
+| Add sub-issue link | `mcp_github_sub_issue_write`         | `add`    | `owner`, `repo`, `issue_number` (parent), `sub_issue_id`                                                        |
+| Add comment        | `mcp_github_add_issue_comment`       | n/a      | `owner`, `repo`, `issue_number`, `body`                                                                         |
+| Set PR milestone   | `mcp_github_issue_write`             | `update` | `owner`, `repo`, `issue_number` (the PR number), `milestone`                                                    |
+| Set PR labels      | `mcp_github_issue_write`             | `update` | `owner`, `repo`, `issue_number` (the PR number), full replacement `labels` set                                  |
+| Set PR assignees   | `mcp_github_issue_write`             | `update` | `owner`, `repo`, `issue_number` (the PR number), full replacement `assignees` set                               |
+| Update PR fields   | `mcp_github_update_pull_request`     | n/a      | `owner`, `repo`, `pullNumber` plus the changed PR-specific fields (`title`, `body`, `base`, `draft`, `state`)   |
+| Assign Copilot     | `mcp_github_assign_copilot_to_issue` | n/a      | `owner`, `repo`, `issue_number`; `base_ref`, `custom_instructions` optional                                     |
 
 Operation rules:
 
@@ -231,17 +231,27 @@ GitHub backlog output is often visible to external contributors, so outbound com
 * Apply the comment-before-closure pattern: call `mcp_github_add_issue_comment` with the appropriate scenario template before any state-changing call such as `mcp_github_issue_write` with a closure.
 * Internal-only operations (label changes, milestone assignment, sub-issue linking) that produce no visible comment do not require community-interaction templates.
 
-## PRD-to-Work-Item Planning
+## Relationship Semantics
 
-PRD-driven planning produces planning-only artifacts under `.copilot-tracking/github-issues/prds/<artifact-normalized-name>/` (`issue-analysis.md`, `issues-plan.md`, `planning-log.md`, `handoff.md`) for a separate execution pass. During planning, do not call `mcp_github_issue_write`, `mcp_github_add_issue_comment`, or `mcp_github_sub_issue_write`.
-
-Hierarchy rules — plan conservatively:
+Plan conservatively.
 
 * GitHub has no native Epic/Feature/Story taxonomy. Model hierarchy with sub-issue relationships (`mcp_github_sub_issue_write`) and, when the org enables issue types, the `type` field.
 * Prefer one parent tracking issue per major product outcome, with child issues linked as sub-issues.
 * Use org issue types only after `mcp_github_list_issue_types` confirms support; otherwise convey level through labels and sub-issue nesting.
 * When hierarchy support is unclear, flatten the plan and mark the relationship decision as `Needs Review`.
-* Record relationships in planning files even when the final GitHub linkage (sub-issue vs label) differs by repository configuration.
+* Record relationships in planning files even when the final GitHub linkage (sub-issue versus label) differs by repository configuration.
+
+A sub-issue link is legal only when both the parent and the child already exist, so link operations always follow their creates.
+
+## Interaction Templates
+
+Use the Issue Body Template above for issue bodies, and the scenario templates named in Community Communication for any comment an external contributor can read.
+
+## PRD-to-Work-Item Planning
+
+PRD-driven planning produces planning-only artifacts under `.copilot-tracking/github-issues/prds/<artifact-normalized-name>/` (`issue-analysis.md`, `issues-plan.md`, `planning-log.md`, `handoff.md`) for a separate execution pass. During planning, do not call `mcp_github_issue_write`, `mcp_github_add_issue_comment`, or `mcp_github_sub_issue_write`.
+
+Hierarchy rules are defined by Relationship Semantics above.
 
 The PRD plan extends the shared `issues-plan.md` template with a `parent` field (`none`, a `{{TEMP-N}}` reference, or an existing `#number`), a `needs_review` flag, and an acceptance-criteria block and relationships block per item.
 
@@ -345,18 +355,18 @@ Process higher-priority issues first: `security` (highest, expedite) → `bug` (
 
 The platform-agnostic protocol lives in [sprint-planning.md](sprint-planning.md). GitHub resolves its bindings as follows.
 
-| Binding                 | GitHub resolution                                                                                                         |
-|-------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| Iteration container     | Milestone                                                                                                                 |
+| Binding                 | GitHub resolution                                                                                                                                                                                                                                                      |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Iteration container     | Milestone                                                                                                                                                                                                                                                              |
 | Enumerate containers    | Aggregate distinct milestone objects from `mcp_github_search_issues` results per Milestone Discovery step 1, using milestone `due_on` as the window end. GitHub MCP exposes no milestone-list tool, so report that milestones with zero open issues are undiscoverable |
-| Retrieve planned items  | `mcp_github_search_issues` scoped by `milestone:`                                                                         |
-| Retrieve unplanned work | `mcp_github_search_issues` with `no:milestone`                                                                            |
-| Effort field            | None natively. Report item counts and state the substitution, or read a team-defined size label when the caller names one |
-| Burndown fields         | None. Report open versus closed counts instead                                                                            |
-| Grouping field          | Labels, using the component dimension of the label taxonomy                                                               |
-| Assignment field        | `assignees`                                                                                                               |
-| Initial state           | An open issue carrying no triage label                                                                                    |
-| Tracking root           | `.copilot-tracking/github-issues/sprint/{{milestone-kebab}}/`                                                             |
+| Retrieve planned items  | `mcp_github_search_issues` scoped by `milestone:`                                                                                                                                                                                                                      |
+| Retrieve unplanned work | `mcp_github_search_issues` with `no:milestone`                                                                                                                                                                                                                         |
+| Effort field            | None natively. Report item counts and state the substitution, or read a team-defined size label when the caller names one                                                                                                                                              |
+| Burndown fields         | None. Report open versus closed counts instead                                                                                                                                                                                                                         |
+| Grouping field          | Labels, using the component dimension of the label taxonomy                                                                                                                                                                                                            |
+| Assignment field        | `assignees`                                                                                                                                                                                                                                                            |
+| Initial state           | An open issue carrying no triage label                                                                                                                                                                                                                                 |
+| Tracking root           | `.copilot-tracking/github-issues/sprint/{{milestone-kebab}}/`                                                                                                                                                                                                          |
 
 Two differences from a work-item tracker matter. GitHub has no native effort field, so capacity analysis reports counts unless the caller supplies a size-label convention; never infer story points from issue text. GitHub models hierarchy through sub-issues rather than a fixed four-level tree, so the hierarchy coverage matrix reports only the parent-child levels that sub-issues express, using the mapping in the PRD-to-Work-Item Planning section above.
 

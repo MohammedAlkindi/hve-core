@@ -1,24 +1,23 @@
 ---
 title: backlog-plan
-description: "Read-only backlog planning across Azure DevOps, GitHub, and Jira: discover candidate work from requests, documents, or search; retrieve and enrich assigned work into an implementation handoff; triage existing items; plan a sprint or iteration; and resume an interrupted planning workflow. Resolves the backing tracker at runtime and never creates, updates, transitions, or comments on an item. Use for backlog discovery, triage, sprint planning, my-work retrieval, task-planning handoff, and workflow resumption."
+description: "Read-only backlog planning for Azure DevOps, GitHub, and Jira. Use to discover, triage, sprint-plan, or resume without mutating a tracker."
 sidebar_position: 4
-ms.date: 2026-08-04
+ms.date: 2026-08-06
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                          |
-|-------------|------------------------------------------------|
-| Kind        | skill                                          |
-| Source      | `.github/skills/project-planning/backlog-plan` |
-| Invocation  | Loaded on demand by referencing agents         |
-| Interactive | No                                             |
+| Field       | Value                                                                          |
+|-------------|--------------------------------------------------------------------------------|
+| Kind        | skill                                                                          |
+| Source      | `.github/skills/project-planning/backlog-plan`                                 |
+| Invocation  | Invoked directly as `/backlog-plan`, or loaded on demand by referencing agents |
+| Interactive | No                                                                             |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Read-only backlog planning across Azure DevOps, GitHub, and Jira: discover candidate work from requests, documents, or search; retrieve and enrich assigned work into an implementation handoff; triage existing items; plan a sprint or iteration; and resume an interrupted planning workflow. Resolves the backing tracker at runtime and never creates, updates, transitions, or comments on an item. Use for backlog discovery, triage, sprint planning, my-work retrieval, task-planning handoff, and workflow
-resumption.
+Read-only backlog planning for Azure DevOps, GitHub, and Jira. Use to discover, triage, sprint-plan, or resume without mutating a tracker.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

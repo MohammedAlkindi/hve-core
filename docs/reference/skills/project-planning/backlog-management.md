@@ -1,8 +1,8 @@
 ---
 title: backlog-management
-description: "Platform-agnostic backlog planning conventions for ADO, GitHub, and Jira backlog managers: planning-file lifecycle and directory structure, planning-type enum, scope-name normalization, reference-ID scheme, similarity assessment, three-tier autonomy, content sanitization, resumable state, work-item quality at epic through task level, and sprint and iteration planning. Use for backlog discovery, triage, sprint planning, PRD-to-work-item planning, and execution handoff. Per-platform command surfaces, fields, ID prefixes, and action verbs live in references/{ado,github,jira}.md; workflow protocols live in references/workflows.md."
+description: "Shared backlog conventions for Azure DevOps, GitHub, and Jira. Use for platform resolution, autonomy tiers, sanitization guards, and story quality."
 sidebar_position: 3
-ms.date: 2026-08-04
+ms.date: 2026-08-06
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -17,8 +17,7 @@ ms.date: 2026-08-04
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Platform-agnostic backlog planning conventions for ADO, GitHub, and Jira backlog managers: planning-file lifecycle and directory structure, planning-type enum, scope-name normalization, reference-ID scheme, similarity assessment, three-tier autonomy, content sanitization, resumable state, work-item quality at epic through task level, and sprint and iteration planning. Use for backlog discovery, triage, sprint planning, PRD-to-work-item planning, and execution handoff. Per-platform command
-surfaces, fields, ID prefixes, and action verbs live in references/{ado,github,jira}.md; workflow protocols live in references/workflows.md.
+Shared backlog conventions for Azure DevOps, GitHub, and Jira. Use for platform resolution, autonomy tiers, sanitization guards, and story quality.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

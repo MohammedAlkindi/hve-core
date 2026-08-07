@@ -27,15 +27,15 @@ You enter Sprint Planning after completing [Stage 4: Decomposition](decompositio
 
 ## Available Tools
 
-| Tool                  | Type   | How to Invoke                      | Purpose                                                          |
-|-----------------------|--------|------------------------------------|------------------------------------------------------------------|
-| backlog-manager       | Agent  | Select **backlog-manager** agent   | Manage the backlog end-to-end across ADO, GitHub, and Jira       |
-| backlog-plan discover | Skill  | `/backlog-plan discover`           | Find candidate work items for sprint planning, read-only         |
-| backlog-plan triage   | Skill  | `/backlog-plan triage`             | Classify and label unprocessed items, read-only                  |
-| backlog-plan sprint   | Skill  | `/backlog-plan sprint`             | Create a sprint plan from backlog priorities, read-only          |
-| backlog-execute run   | Skill  | `/backlog-execute run`             | Apply a reviewed handoff to the tracker                          |
-| backlog-execute add   | Skill  | `/backlog-execute add`             | Add a single new item to the backlog                             |
-| backlog-management    | Skill  | Auto-loaded by the Backlog Manager | Supplies backlog planning, triage, and story quality conventions |
+| Tool                  | Type  | How to Invoke                      | Purpose                                                          |
+|-----------------------|-------|------------------------------------|------------------------------------------------------------------|
+| backlog-manager       | Agent | Select **backlog-manager** agent   | Manage the backlog end-to-end across ADO, GitHub, and Jira       |
+| backlog-plan discover | Skill | `/backlog-plan discover`           | Find candidate work items for sprint planning, read-only         |
+| backlog-plan triage   | Skill | `/backlog-plan triage`             | Classify and label unprocessed items, read-only                  |
+| backlog-plan sprint   | Skill | `/backlog-plan sprint`             | Create a sprint plan from backlog priorities, read-only          |
+| backlog-execute run   | Skill | `/backlog-execute run`             | Apply a reviewed handoff to the tracker                          |
+| backlog-execute add   | Skill | `/backlog-execute add`             | Add a single new item to the backlog                             |
+| backlog-management    | Skill | Auto-loaded by the Backlog Manager | Supplies backlog planning, triage, and story quality conventions |
 
 ## Role-Specific Guidance
 

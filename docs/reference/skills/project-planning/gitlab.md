@@ -2,16 +2,16 @@
 title: gitlab
 description: Manage GitLab merge requests and pipelines with a Python CLI
 sidebar_position: 6
-ms.date: 2026-08-04
+ms.date: 2026-08-06
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                    |
-|-------------|------------------------------------------|
-| Kind        | skill                                    |
-| Source      | `.github/skills/project-planning/gitlab` |
-| Invocation  | Loaded on demand by referencing agents   |
-| Interactive | No                                       |
+| Field       | Value                                                                    |
+|-------------|--------------------------------------------------------------------------|
+| Kind        | skill                                                                    |
+| Source      | `.github/skills/project-planning/gitlab`                                 |
+| Invocation  | Invoked directly as `/gitlab`, or loaded on demand by referencing agents |
+| Interactive | No                                                                       |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does

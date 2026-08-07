@@ -37,18 +37,18 @@ Prefer the batch read and update tools when operating on several items, and pass
 
 ## Platform Bindings
 
-| Binding                 | Azure DevOps value                                                                  |
-|-------------------------|-------------------------------------------------------------------------------------|
-| Platform tracking root  | `.copilot-tracking/workitems/`                                                      |
-| Reference-ID prefix     | `WI` (for example `WI001`)                                                          |
-| Item vocabulary         | "work item"; item key is `System.Id` (for example `1071`)                           |
-| Item types              | Epic, Feature, User Story, Task, Bug (validate against the project's process)          |
+| Binding                 | Azure DevOps value                                                                                                                                               |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Platform tracking root  | `.copilot-tracking/workitems/`                                                                                                                                   |
+| Reference-ID prefix     | `WI` (for example `WI001`)                                                                                                                                       |
+| Item vocabulary         | "work item"; item key is `System.Id` (for example `1071`)                                                                                                        |
+| Item types              | Epic, Feature, User Story, Task, Bug (validate against the project's process)                                                                                    |
 | Type discovery          | No MCP tool lists a project's process types. Ask the user to confirm the process or template, and record the types as unvalidated rather than claiming discovery |
-| Priority scale          | `Microsoft.VSTS.Common.Priority` (1 highest – 4 lowest)                             |
-| Action verbs            | Create, Update, Link, Comment, No Change                                            |
-| Analysis file           | `artifact-analysis.md`                                                              |
-| Plan file               | `work-items.md`                                                                     |
-| Planning-type additions | Beyond the core enum, ADO uses `pr` (PR work-item linking), `sprint`, and `backlog` |
+| Priority scale          | `Microsoft.VSTS.Common.Priority` (1 highest – 4 lowest)                                                                                                          |
+| Action verbs            | Create, Update, Link, Comment, No Change                                                                                                                         |
+| Analysis file           | `artifact-analysis.md`                                                                                                                                           |
+| Plan file               | `work-items.md`                                                                                                                                                  |
+| Planning-type additions | Beyond the core enum, ADO uses `pr` (PR work-item linking), `sprint`, and `backlog`                                                                              |
 
 Azure DevOps has no Close or Transition verb in this workflow: a state change is an Update to `System.State`. Order operations as Create, Update, Link, Comment, No Change per the Operation Contract in [workflows.md](workflows.md).
 

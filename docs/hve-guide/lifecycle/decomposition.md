@@ -27,14 +27,14 @@ You enter Decomposition after completing [Stage 3: Product Definition](product-d
 
 ## Available Tools
 
-| Tool                   | Type   | How to Invoke                       | Purpose                                                        |
-|------------------------|--------|-------------------------------------|----------------------------------------------------------------|
-| functional-planner     | Agent  | Select **functional-planner** agent | Plan a work item hierarchy from a PRD, read-only               |
-| backlog-manager        | Agent  | Select **backlog-manager** agent    | Work discovery, triage, and backlog management across trackers |
-| backlog-plan my-work   | Skill  | `/backlog-plan my-work`             | Retrieve your assigned work items                              |
-| backlog-plan task-plan | Skill  | `/backlog-plan task-plan`           | Enrich assigned work into an implementation handoff            |
-| backlog-execute run    | Skill  | `/backlog-execute run`              | Apply a reviewed handoff to the tracker                        |
-| backlog-management     | Skill  | Auto-loaded by the Backlog Manager  | Supplies work item planning conventions                        |
+| Tool                   | Type  | How to Invoke                       | Purpose                                                        |
+|------------------------|-------|-------------------------------------|----------------------------------------------------------------|
+| functional-planner     | Agent | Select **functional-planner** agent | Plan a work item hierarchy from a PRD, read-only               |
+| backlog-manager        | Agent | Select **backlog-manager** agent    | Work discovery, triage, and backlog management across trackers |
+| backlog-plan my-work   | Skill | `/backlog-plan my-work`             | Retrieve your assigned work items                              |
+| backlog-plan task-plan | Skill | `/backlog-plan task-plan`           | Enrich assigned work into an implementation handoff            |
+| backlog-execute run    | Skill | `/backlog-execute run`              | Apply a reviewed handoff to the tracker                        |
+| backlog-management     | Skill | Auto-loaded by the Backlog Manager  | Supplies work item planning conventions                        |
 
 ## Role-Specific Guidance
 
