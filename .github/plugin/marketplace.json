@@ -213,6 +213,7 @@
         "rules/coding-standards/uv-projects.instructions.md",
         "rules/rai-planning/rai-identity.instructions.md",
         "rules/rai-planning/rai-license-posture.instructions.md",
+        "rules/shared/disclaimer-language.instructions.md",
         "rules/shared/hve-core-location.instructions.md",
         "rules/shared/untrusted-content-boundary.instructions.md"
       ],
