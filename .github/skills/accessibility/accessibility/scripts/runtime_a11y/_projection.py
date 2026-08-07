@@ -75,8 +75,7 @@ def _iter_intents(record: dict[str, Any]) -> list[dict[str, Any]]:
     for entry in intents:
         if not isinstance(entry, dict):
             raise ScriptError(
-                f"Each entry in 'intents' must be a mapping, got "
-                f"{type(entry).__name__}"
+                f"Each entry in 'intents' must be a mapping, got {type(entry).__name__}"
             )
     return intents
 

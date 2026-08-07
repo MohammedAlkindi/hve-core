@@ -461,7 +461,7 @@ intents:
             "          outcome: passed\n"
             "          rationale: Manual review on a platform the probe cannot drive.\n"
             "          reviewedBy: C. Reviewer\n"
-            "          reviewedOn: \"2026-08-06\"\n",
+            '          reviewedOn: "2026-08-06"\n',
         )
         record_path = _write_record(tmp_path, body)
         results_path = _write_results(tmp_path, [])
@@ -483,7 +483,7 @@ intents:
             "          outcome: failed\n"
             "          rationale: Manual review found the announcement missing.\n"
             "          reviewedBy: C. Reviewer\n"
-            "          reviewedOn: \"2026-08-06\"\n",
+            '          reviewedOn: "2026-08-06"\n',
         )
         record_path = _write_record(tmp_path, body)
         results_path = _write_results(tmp_path, [_row(status="pass")])

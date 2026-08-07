@@ -385,9 +385,7 @@ def _effective_outcome(expectation: dict[str, Any], observed: str) -> str:
     return observed
 
 
-def evaluate_blocking(
-    record: dict[str, Any], assertions: list[dict[str, Any]]
-) -> str:
+def evaluate_blocking(record: dict[str, Any], assertions: list[dict[str, Any]]) -> str:
     """Classify the record's blocking expectations against their assertions.
 
     Returns BLOCKING_FAILED when a blocking expectation resolved 'failed',

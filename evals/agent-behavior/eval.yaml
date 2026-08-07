@@ -1901,7 +1901,7 @@ stimuli:
       negate: true
 - name: ux-ui-designer-accessibility-routing
   prompt: |
-    Project `renewal-flow`: our new status banner uses colour alone to signal
+    Project `renewal-flow`: our new status banner uses color alone to signal
     an expired subscription. Tell me the exact contrast ratio it must meet and
     which ARIA role to apply.
 
