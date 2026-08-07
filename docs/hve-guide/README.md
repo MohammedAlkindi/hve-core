@@ -3,7 +3,7 @@ title: HVE Guide
 description: Role-specific guides and the AI-assisted project lifecycle for engineering teams using HVE Core
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-06-26
+ms.date: 2026-08-02
 ms.topic: overview
 keywords:
   - hve guide
@@ -44,23 +44,24 @@ flowchart LR
 
 | Stage   | Name               | Key Tools                                                                                                                    |
 |---------|--------------------|------------------------------------------------------------------------------------------------------------------------------|
-| Stage 1 | Setup              | hve-core-installer (skill), memory                                                                                           |
-| Stage 2 | Discovery          | task-researcher, brd-builder, security-planner, dt-coach, sssc-planner, rai-planner                                          |
+| Stage 1 | Setup              | hve-core-installer (skill), git-setup                                                                                        |
+| Stage 2 | Discovery          | rpi-research, brd-builder, security-planner, dt-coach, sssc-planner, rai-planner                                             |
 | Stage 3 | Product Definition | prd-builder, product-manager-advisor, adr-creation, architecture-diagrams skill, security-planner, sssc-planner, rai-planner |
 | Stage 4 | Decomposition      | ado-prd-to-wit, github-backlog-manager                                                                                       |
 | Stage 5 | Sprint Planning    | github-backlog-manager, agile-coach                                                                                          |
-| Stage 6 | Implementation     | task-researcher, task-planner, task-implementor, task-reviewer, rpi-agent, prompt-builder, coding-standards                  |
-| Stage 7 | Review             | task-reviewer, code-review                                                                                                   |
+| Stage 6 | Implementation     | RPI Agent, rpi-plan, rpi-implement, hve-builder, coding-standards                                                            |
+| Stage 7 | Review             | rpi-review, code-review, hve-builder                                                                                         |
 | Stage 8 | Delivery           | pull-request, git-commit, git-merge, ado-get-build-info                                                                      |
-| Stage 9 | Operations         | documentation, incident-response                                                                                             |
+| Stage 9 | Operations         | documentation, hve-builder, incident-response                                                                                |
 
-> Cross-cutting: memory is available at every stage and is not tied to any single phase.
+> Cross-cutting: each workflow persists its own durable state, evidence, and
+> handoff artifacts when work must span conversations.
 
 **[AI-Assisted Project Lifecycle Overview →](lifecycle/)**
 
 ### Role Guides
 
-Nine role-specific guides covering recommended collections, stage walkthroughs, starter prompts, and collaboration patterns tailored to how you work.
+Nine role-specific guides covering recommended capabilities, stage walkthroughs, starter prompts, and collaboration patterns tailored to how you work.
 
 | Role                     | Primary Stages                              | Guide                                                         |
 |--------------------------|---------------------------------------------|---------------------------------------------------------------|
@@ -84,15 +85,15 @@ flowchart TD
     START{Where to Start?} -->|Understand the workflow| LC[Lifecycle Overview]
     START -->|Find tools for my phase| SN[Stage Navigator]
     START -->|Get my role guide| RF[Role Finder]
-    START -->|Install collections| CQ[Collection Quick Reference]
+    START -->|Find tools for my role| CQ[Role Capability Reference]
 ```
 
-| I want to...                            | Go Here                                            |
-|-----------------------------------------|----------------------------------------------------|
-| Understand the full project workflow    | [Lifecycle Overview](lifecycle/)                   |
-| Find tools for my current project phase | [Stage Navigator](lifecycle/#where-are-you)        |
-| Get my role-specific guide              | [Role Finder](roles/#find-your-role)               |
-| Install collections for my role         | [Collection Quick Reference](roles/#role-overview) |
+| I want to...                            | Go Here                                           |
+|-----------------------------------------|---------------------------------------------------|
+| Understand the full project workflow    | [Lifecycle Overview](lifecycle/)                  |
+| Find tools for my current project phase | [Stage Navigator](lifecycle/#where-are-you)       |
+| Get my role-specific guide              | [Role Finder](roles/#find-your-role)              |
+| Find HVE Core tools for my role         | [Role Capability Reference](roles/#role-overview) |
 
 <!-- markdownlint-disable MD036 -->
 *🤖 Crafted with precision by ✨Copilot following brilliant human instruction,

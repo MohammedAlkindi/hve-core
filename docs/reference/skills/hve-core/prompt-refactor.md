@@ -1,23 +1,23 @@
 ---
 title: prompt-refactor
-description: Refactor existing prompt artifacts against explicit requirements through the full prompt-builder loop.
-sidebar_position: 5
-ms.date: 2026-07-03
+description: Compatibility alias for behavior-preserving prompt artifact cleanup. Routes refactoring to hve-builder refactor mode.
+sidebar_position: 7
+ms.date: 2026-07-27
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                     |
-|-------------|-------------------------------------------|
-| Kind        | skill                                     |
-| Source      | `.github/skills/hve-core/prompt-refactor` |
-| Invocation  | Loaded on demand by referencing agents    |
-| Interactive | No                                        |
+| Field       | Value                                                                             |
+|-------------|-----------------------------------------------------------------------------------|
+| Kind        | skill                                                                             |
+| Source      | `.github/skills/hve-core/prompt-refactor`                                         |
+| Invocation  | Invoked directly as `/prompt-refactor`, or loaded on demand by referencing agents |
+| Interactive | No                                                                                |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Refactor existing prompt artifacts against explicit requirements through the full prompt-builder loop.
+Compatibility alias for behavior-preserving prompt artifact cleanup. Routes refactoring to hve-builder refactor mode.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it

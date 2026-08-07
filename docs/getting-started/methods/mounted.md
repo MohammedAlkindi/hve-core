@@ -3,7 +3,7 @@ title: Mounted Directory Installation
 description: Advanced devcontainer setup mounting HVE Core from host filesystem
 sidebar_position: 5
 author: Microsoft
-ms.date: 2026-06-11
+ms.date: 2026-08-02
 ms.topic: how-to
 keywords:
   - mounted directory
@@ -81,7 +81,7 @@ This method requires a multi-phase workflow:
 
 ## Quick Start
 
-Install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core) for the fastest setup. For guided setup with installation method selection and MCP configuration, install the [HVE Core Installer](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-installer) extension and ask any agent "help me customize hve-core installation". Use the manual steps below for direct configuration.
+Install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core) for the fastest setup. For guided installation-method selection, MCP configuration, or selective clone adoption, ask an agent to use the included `hve-core-installer` skill. Use the manual steps below for direct configuration.
 
 ## Manual Setup
 
@@ -114,7 +114,7 @@ Update `.devcontainer/devcontainer.json`:
 ```jsonc
 {
   // ... existing configuration ...
-  
+
   "mounts": [
     "source=${localWorkspaceFolder}/../hve-core,target=/workspaces/hve-core,type=bind,readonly=true,consistency=cached"
   ]
@@ -236,7 +236,7 @@ After rebuild, update `.vscode/settings.json`:
 
 1. Open GitHub Copilot Chat (`Ctrl+Alt+I`)
 2. Click the agent picker dropdown
-3. Verify HVE Core agents appear (task-planner, task-researcher, prompt-builder)
+3. Verify `RPI Agent` and `Documentation` appear, then confirm `/rpi-research` is available
 
 #### Verify mount from container terminal
 
@@ -250,11 +250,11 @@ ls /workspaces/hve-core/.github/agents
 {
   "name": "My Project with Mounted HVE Core",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-  
+
   "mounts": [
     "source=${localWorkspaceFolder}/../hve-core,target=/workspaces/hve-core,type=bind,readonly=true,consistency=cached"
   ],
-  
+
   "customizations": {
     "vscode": {
       "settings": {

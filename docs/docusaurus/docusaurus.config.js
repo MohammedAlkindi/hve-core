@@ -3,37 +3,28 @@
 // @ts-check
 import { themes as prismThemes } from 'prism-react-renderer';
 import remarkGithubAlert from 'remark-github-blockquote-alert';
-import * as fs from 'fs';
 import * as path from 'path';
 import { labelRegistry } from './src/data/labelRegistry';
+import { loadPackageCards } from './src/data/marketplaceCounts';
 
-const collectionsDir = path.resolve(__dirname, '../../collections');
-
-/**
- * @param {string} name
- */
-function countYamlPaths(name) {
-  const yamlPath = path.join(collectionsDir, `${name}.collection.yml`);
-  let content;
-  try {
-    content = fs.readFileSync(yamlPath, 'utf-8');
-  } catch {
-    throw new Error(
-      `[docusaurus.config.js] Cannot read collection manifest: ${yamlPath}\n` +
-      `Ensure "${name}" exists in the collections/ directory.`,
-    );
-  }
-  return (content.match(/^\s*- path:/gm) || []).length;
-}
-
-const collectionNames = [
-  'ado', 'coding-standards', 'data-science', 'design-thinking',
-  'experimental', 'github', 'gitlab', 'hve-core', 'jira',
-  'project-planning', 'security', 'hve-core-all',
-];
-const collectionCounts = Object.fromEntries(
-  collectionNames.map((n) => [n, countYamlPaths(n)]),
+const packageCards = loadPackageCards(
+  path.resolve(__dirname, '../../.github/plugin/marketplace.json'),
 );
+
+const accessibleGithubPrismTheme = {
+  ...prismThemes.github,
+  styles: prismThemes.github.styles.map((entry) =>
+    entry.types.includes('comment')
+      ? {
+          ...entry,
+          style: {
+            ...entry.style,
+            color: '#505050',
+          },
+        }
+      : entry,
+  ),
+};
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -54,7 +45,7 @@ const config = {
   onBrokenLinks: 'throw',
 
   customFields: {
-    collectionCounts,
+    packageCards,
   },
 
   markdown: {
@@ -194,7 +185,7 @@ const config = {
         copyright: `© Microsoft ${new Date().getFullYear()}. Built with ${labelRegistry.hveCoreExpanded}. Need help? Start with the documentation and the accessibility resources when available.`,
       },
       prism: {
-        theme: prismThemes.github,
+        theme: accessibleGithubPrismTheme,
         darkTheme: prismThemes.dracula,
       },
     }),

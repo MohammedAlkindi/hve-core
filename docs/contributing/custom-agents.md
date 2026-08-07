@@ -3,13 +3,13 @@ title: 'Contributing Agents to HVE Core'
 description: 'Requirements and standards for contributing GitHub Copilot agent files to hve-core'
 sidebar_position: 5
 author: Microsoft
-ms.date: 2026-07-09
+ms.date: 2026-08-02
 ms.topic: how-to
 ---
 
 This guide defines the requirements, standards, and best practices for contributing GitHub Copilot agent files (`.agent.md`) to the hve-core library.
 
-⚙️ Common Standards: See [AI Artifacts Common Standards](ai-artifacts-common.md) for shared requirements (XML blocks, markdown quality, RFC 2119, validation, testing).
+⚙️ Common Standards: See [AI Artifacts Common Standards](ai-artifacts-common) for shared requirements (XML blocks, markdown quality, RFC 2119, validation, testing).
 
 ## What is an Agent?
 
@@ -123,23 +123,23 @@ Run `npm run lint:models` to validate model references against the catalog.
 
 ### Location
 
-Agent files are typically organized in a collection subdirectory by convention:
+Agent files are typically organized in a package subdirectory by convention:
 
 ```text
-.github/agents/{collection-id}/
+.github/agents/{package-id}/
 ├── your-agent-name.agent.md
 └── subagents/
     └── your-subagent-name.agent.md
 ```
 
 > [!NOTE]
-> Collections can reference artifacts from any subfolder. The `path:` field in collection YAML files
-> accepts any valid repo-relative path regardless of the artifact's parent directory.
+> Marketplace package recipes can reference artifacts from any canonical subfolder. Standard component paths
+> are declared in `.github/plugin/marketplace.json` and resolve to canonical source files.
 
 ### Naming Convention
 
 * Use lowercase kebab-case: `security-reviewer.agent.md`
-* Be descriptive and action-oriented: `task-planner.agent.md`, `code-review.agent.md`, `rpi-agent.agent.md`
+* Be descriptive and action-oriented: `security-reviewer.agent.md`, `code-review.agent.md`, `rpi-agent.agent.md`
 * Avoid generic names: `helper.agent.md` ❌ → `ado-work-item-processor.agent.md` ✅
 
 ### File Format
@@ -288,9 +288,9 @@ Example:
 
 ```yaml
   handoffs:
-    - label: "📋 Create Plan"
-      agent: Task Planner
-      prompt: /task-plan
+    - label: "Coordinate RPI Work"
+      agent: RPI Agent
+      prompt: "Coordinate this task through the applicable RPI phases"
       send: true
   ```
 
@@ -310,73 +310,18 @@ Example:
 description: 'Validates and reviews contributed agents, prompts, and instructions for quality and compliance'
 tools: ['agent', 'read', 'search']
 disable-model-invocation: true
-agents:
-  - HVE Artifact Reviewer
-  - HVE Artifact Validator
 ---
 ```
 
-## Collection Entry Requirements
+Use generic dispatch prompts when a lifecycle stage needs isolated work and no
+stable specialized worker is required. Reserve an `agents:` allowlist for
+named dependencies that the agent must dispatch by name.
 
-All agents must have matching entries in one or more `collections/*.collection.yml` manifests. Collection entries control selection and maturity.
+## Marketplace Recipe Registration
 
-### Adding Your Agent to a Collection
+Distributable agents must be declared under the `agents` field of the `hve-core` entry in `.github/plugin/marketplace.json`. Use the recipe-relative `agents/<subpath>/<name>.md` path and keep the canonical source under `.github/agents/`.
 
-After creating your agent file, add an `items[]` entry to each target collection:
-
-```yaml
-items:
-  # path can reference artifacts from any subfolder
-  - path: .github/agents/{collection-id}/my-new-agent.agent.md
-  kind: agent
-  maturity: stable
-```
-
-### Selecting Collections for Agents
-
-Choose collections based on who benefits most from your agent:
-
-| Agent Type             | Recommended Collections                   |
-|------------------------|-------------------------------------------|
-| Task workflow agents   | `hve-core-all`, `hve-core`                |
-| Architecture agents    | `hve-core-all`, `project-planning`        |
-| Documentation agents   | `hve-core-all`, `hve-core`                |
-| Data science agents    | `hve-core-all`, `data-science`            |
-| Design thinking agents | `hve-core-all`, `design-thinking`         |
-| ADO/work item agents   | `hve-core-all`, `ado`, `project-planning` |
-| Code review agents     | `hve-core-all`, `hve-core`                |
-
-### Declaring Agent Dependencies
-
-If your agent dispatches other agents at runtime via `runSubagent`, invokes prompts, or depends on skills, document those relationships in the agent content and validate packaging behavior in affected collections.
-
-For complete collection documentation, see [AI Artifacts Common Standards - Collection Manifests](ai-artifacts-common.md#collection-manifests-and-dependencies).
-
-### MCP Tool Dependencies
-
-When agents reference MCP tools in their `tools:` frontmatter or body content, document the dependencies clearly.
-
-#### Frontmatter Declaration
-
-```yaml
-tools: ['github/*', 'ado/*', 'context7/*', 'microsoft-docs/*']
-```
-
-#### Curated MCP Servers Referenced by HVE Core Agents
-
-| Server         | Tool Pattern       | Purpose                                   |
-|----------------|--------------------|-------------------------------------------|
-| github         | `github/*`         | GitHub repository and issue management    |
-| ado            | `ado/*`            | Azure DevOps work items, pipelines, repos |
-| context7       | `context7/*`       | Library and SDK documentation lookup      |
-| microsoft-docs | `microsoft-docs/*` | Microsoft Learn documentation             |
-
-#### Guidelines for MCP Tool References
-
-* Document MCP dependencies in agent body text when using `mcp_*` tool patterns
-* Agents should gracefully handle missing MCP servers (tools unavailable)
-* Reference the [MCP Server Configuration](../getting-started/mcp-configuration.md) guide when agents require MCP tools
-* Prefer built-in VS Code Copilot tools when equivalent functionality exists
+Agent handoffs are closed transitively over catalog-declared agents. Unresolved or ambiguous targets fail marketplace validation, so every handoff target must belong to the recipe. Add non-stable lifecycle disclosure through `x-hve.componentMaturity`, update `docs/plugins/hve-core.md`, then run `npm run lint:marketplace` and `npm run plugin:generate`.
 
 ## Agent Content Structure Standards
 
@@ -431,11 +376,11 @@ Source artifacts carry no attribution footer.
 
 ### XML-Style Block Requirements
 
-See [AI Artifacts Common Standards - XML-Style Block Standards](ai-artifacts-common.md#xml-style-block-standards) for complete rules and examples.
+See [AI Artifacts Common Standards - XML-Style Block Standards](ai-artifacts-common#xml-style-block-standards) for complete rules and examples.
 
 ### Directive Language Standards
 
-Use RFC 2119 compliant keywords (MUST/SHOULD/MAY). See [AI Artifacts Common Standards - RFC 2119 Directive Language](ai-artifacts-common.md#rfc-2119-directive-language) for complete guidance.
+Use RFC 2119 compliant keywords (MUST/SHOULD/MAY). See [AI Artifacts Common Standards - RFC 2119 Directive Language](ai-artifacts-common#rfc-2119-directive-language) for complete guidance.
 
 ## Tool Usage Discipline
 
@@ -511,7 +456,7 @@ Report validation status:
 
 ## Research and External Sources
 
-When agents integrate external knowledge, consult authoritative sources and provide minimal, annotated snippets with reference links. See [AI Artifacts Common Standards - Attribution Requirements](ai-artifacts-common.md#attribution-requirements) for guidelines.
+When agents integrate external knowledge, consult authoritative sources and provide minimal, annotated snippets with reference links. See [AI Artifacts Common Standards - Attribution Requirements](ai-artifacts-common#attribution-requirements) for guidelines.
 
 ## Validation Checklist
 
@@ -534,13 +479,13 @@ Before submitting your agent, verify:
 * [ ] Core directives with RFC 2119 keywords
 * [ ] Examples wrapped in XML-style blocks
 * [ ] Success criteria defined
-* [ ] Attribution footer present
+* [ ] Attribution footer absent
 
 ### Common Standards
 
-* [ ] Markdown quality (see [Common Standards - Markdown Quality](ai-artifacts-common.md#markdown-quality-standards))
-* [ ] XML-style blocks properly formatted (see [Common Standards - XML-Style Blocks](ai-artifacts-common.md#xml-style-block-standards))
-* [ ] RFC 2119 keywords used consistently (see [Common Standards - RFC 2119](ai-artifacts-common.md#rfc-2119-directive-language))
+* [ ] Markdown quality (see [Common Standards - Markdown Quality](ai-artifacts-common#markdown-quality-standards))
+* [ ] XML-style blocks properly formatted (see [Common Standards - XML-Style Blocks](ai-artifacts-common#xml-style-block-standards))
+* [ ] RFC 2119 keywords used consistently (see [Common Standards - RFC 2119](ai-artifacts-common#rfc-2119-directive-language))
 
 ### Technical Validation
 
@@ -558,7 +503,7 @@ Before submitting your agent, verify:
 
 ## Testing Your Agent
 
-See [AI Artifacts Common Standards - Common Testing Practices](ai-artifacts-common.md#common-testing-practices) for testing guidelines. For agents specifically:
+See [AI Artifacts Common Standards - Common Testing Practices](ai-artifacts-common#common-testing-practices) for testing guidelines. For agents specifically:
 
 1. Test with realistic scenarios matching the agent's purpose
 2. Verify tool usage patterns execute correctly
@@ -573,29 +518,31 @@ See [AI Artifacts Common Standards - Common Testing Practices](ai-artifacts-comm
 
 Referencing tools that don't exist or using incorrect camelCase variants. Use exact tool names from VS Code Copilot's available tools list.
 
-For additional common issues (XML blocks, markdown, directives), see [AI Artifacts Common Standards - Common Issues and Fixes](ai-artifacts-common.md#common-issues-and-fixes).
+For additional common issues (XML blocks, markdown, directives), see [AI Artifacts Common Standards - Common Issues and Fixes](ai-artifacts-common#common-issues-and-fixes).
 
 ## Automated Validation
 
-Run these commands before submission (see [Common Standards - Common Validation](ai-artifacts-common.md#common-validation-standards)):
+Run these commands before submission (see [Common Standards - Common Validation](ai-artifacts-common#common-validation-standards)):
 
 * `npm run lint:frontmatter`
 * `npm run lint:md`
 * `npm run spell-check`
 * `npm run lint:md-links`
+* `npm run docs:generate` (required when adding a new agent; scaffolds the reference page under `docs/reference/agents/`)
+* `npm run lint:asset-docs`
 
 All checks **MUST** pass before merge.
 
 ## Related Documentation
 
-* [AI Artifacts Common Standards](ai-artifacts-common.md) - Shared standards for all contributions
-* [Contributing Prompts](prompts.md) - Workflow-specific guidance files
-* [Contributing Instructions](instructions.md) - Technology-specific standards
+* [AI Artifacts Common Standards](ai-artifacts-common) - Shared standards for all contributions
+* [Contributing Prompts](prompts) - Workflow-specific guidance files
+* [Contributing Instructions](instructions) - Technology-specific standards
 * [Pull Request Template](https://github.com/microsoft/hve-core/blob/main/.github/PULL_REQUEST_TEMPLATE.md) - Submission requirements
 
 ## Getting Help
 
-See [AI Artifacts Common Standards - Getting Help](ai-artifacts-common.md#getting-help) for support resources. For agent-specific assistance, review existing examples in `.github/agents/{collection-id}/` (the conventional location for agent files).
+See [AI Artifacts Common Standards - Getting Help](ai-artifacts-common#getting-help) for support resources. For agent-specific assistance, review existing examples in `.github/agents/{package-id}/` (the conventional location for agent files).
 
 ---
 

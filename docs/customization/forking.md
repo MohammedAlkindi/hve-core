@@ -2,7 +2,7 @@
 title: Forking and Extending HVE Core
 description: Fork HVE Core to create a fully customized prompt engineering framework with upstream sync and Copilot-assisted adaptation
 author: Microsoft
-ms.date: 2026-06-27
+ms.date: 2026-08-02
 ms.topic: tutorial
 keywords:
   - forking
@@ -60,8 +60,13 @@ git fetch upstream
 ### Step 3: Install dependencies
 
 ```bash
-npm install
+npm ci
 ```
+
+If your network blocks public package registries, see
+[Install behind a restricted network](../contributing/validation#install-behind-a-restricted-network).
+Set the registry override in your environment rather than in a fork file, so the
+fork stays restorable for everyone who clones it.
 
 ### Step 4: Make initial configuration changes
 
@@ -75,7 +80,7 @@ Update these files to reflect your organization:
 ### Step 5: Verify the build
 
 ```bash
-npm run lint:all
+npm run validate:local
 npm run plugin:generate
 ```
 
@@ -94,13 +99,13 @@ README, and marketplace presentation. See the
 
 Agent and prompt files live under `.github/agents/` and `.github/prompts/`. Restructure
 these directories to match your organization's team topology or domain boundaries. Update
-collection manifests to reflect new paths.
+the `hve-core` marketplace recipe to reflect new paths.
 
 ### 3. MCP Servers
 
 If your workflows depend on MCP (Model Context Protocol) servers, configure server
 definitions in `.vscode/mcp.json` or workspace settings. Fork-level changes let you
-add organization-specific MCP servers that all collections can reference.
+add organization-specific MCP servers that all relevant agents and skills can reference.
 
 ### 4. npm Scripts
 
@@ -150,14 +155,14 @@ Conflicts typically occur in files you have customized. Common conflict points:
 
 * `package.json` (script modifications)
 * `.markdownlint.json` (rule adjustments)
-* Collection YAML files (added or removed artifacts)
+* Marketplace package recipes (added or removed artifacts)
 * Workflow files (permission or job changes)
 
 For each conflict, evaluate whether to keep your change, accept the upstream change, or
 combine both. Validate after resolution:
 
 ```bash
-npm run lint:all
+npm run validate:local
 npm run plugin:generate
 ```
 
@@ -169,7 +174,7 @@ npm run plugin:generate
 | Schema files in `scripts/linting/schemas/` | `README.md` (your branding)           |
 | Agent and prompt templates                 | `.github/workflows/` (your CI config) |
 | Shared instructions                        | `CONTRIBUTING.md` (your guidelines)   |
-| Documentation in `docs/`                   | Custom collection manifests           |
+| Documentation in `docs/`                   | Custom marketplace package recipes    |
 
 ## Copilot-Assisted Adaptation
 
@@ -230,7 +235,7 @@ When upstream deprecates an artifact, evaluate whether to:
 Run the full validation suite after every sync:
 
 ```bash
-npm run lint:all
+npm run validate:local
 npm run plugin:generate
 npm run plugin:validate
 ```
@@ -254,6 +259,7 @@ upstream change against regulatory requirements before merging.
 * [VS Code Extension API](https://code.visualstudio.com/api) for extension packaging and
   distribution
 * [docs/contributing/](../contributing/) for artifact syntax and contribution guidelines
+* [Validation Commands and CI-Owned Lanes](../contributing/validation) for local-safe defaults and separate CI lanes
 
 <!-- markdownlint-disable MD036 -->
 *🤖 Crafted with precision by ✨Copilot following brilliant human instruction,

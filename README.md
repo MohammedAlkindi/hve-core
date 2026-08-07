@@ -2,7 +2,7 @@
 title: HVE Core
 description: Hypervelocity Engineering prompt library for GitHub Copilot with convention-driven AI workflows and validated artifacts
 author: Microsoft
-ms.date: 2026-06-30
+ms.date: 2026-08-02
 ms.topic: overview
 keywords:
   - hypervelocity engineering
@@ -35,27 +35,31 @@ Use HVE Core when you want AI-assisted work to be repeatable, standards-aligned,
 * Instructions that apply coding standards automatically
 * Skills that add reusable tool capabilities
 
+> [!CAUTION]
+> HVE Core is a highly opinionated, rapidly evolving agentic SDLC framework. It is best treated as a source of patterns and learning rather than a stable platform, foundation, or production dependency.
+> Workflows, interfaces, architecture, and recommended practices may change substantially, including in ways that are not backward compatible, as the technology landscape evolves. Evaluate all materials for your own requirements and risk tolerance.
+> The HVE Builder skill (use with `/hve-builder`) and GitHub Copilot can help you adapt or copy relevant patterns into an agentic SDLC that you own and maintain independently.
+> To build an independent implementation, start with [Forking and Extending HVE Core](docs/customization/forking.md) and review the [HVE Core documentation](docs/README.md) before adopting any component.
+
 ## Where to Start
 
 <!-- markdownlint-disable MD013 -->
-[![Install HVE Core - Essentials Collection](https://img.shields.io/badge/VS%20Code-Install%20Core%20Collection-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core)
+[![Install HVE Core](https://img.shields.io/badge/VS%20Code-Install%20HVE%20Core-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core)
 <!-- markdownlint-enable MD013 -->
 
 1. Install the [HVE Core extension](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core) from the VS Code Marketplace.
 2. Open any project and launch GitHub Copilot Chat (`Ctrl+Alt+I`).
-3. Select an agent from the picker (try **rpi-agent**, **task-researcher**, or **memory**) and start a conversation.
+3. Select **RPI Agent** from the agent picker or run `/rpi`, then describe the task you want to complete.
 
-> [!TIP]
-> Use [HVE Core All Extension](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core-all) when you want the full collection deployment. See [Collections Overview](docs/getting-started/collections.md).
 > [!TIP]
 > Using GitHub Copilot CLI? Install as a plugin instead:
 >
 > ```bash
-> copilot plugin marketplace add microsoft/hve-core
+> copilot plugin marketplace add microsoft/hve-core#<ref>
 > copilot plugin install hve-core@hve-core
 > ```
 >
-> See [CLI Plugins](docs/getting-started/methods/cli-plugins.md) for usage details.
+> The marketplace ref selects the catalog, which pins matching immutable plugin bytes. Keep one Stable or PreRelease registration active at a time. See [CLI Plugins](docs/getting-started/methods/cli-plugins.md) for details.
 
 ## Choose Your Path
 
@@ -83,7 +87,8 @@ Full documentation is available at **<https://microsoft.github.io/hve-core/>**.
 | Guide                                                            | Description                                      |
 |------------------------------------------------------------------|--------------------------------------------------|
 | [Getting Started](docs/getting-started/README.md)                | Setup and first workflow tutorial                |
-| [Collections](docs/getting-started/collections.md)               | Available bundles and selection guide            |
+| [HVE Core Identity](docs/getting-started/packages.md)            | Distribution channels and lifecycle disclosure   |
+| [Package Migration](docs/getting-started/package-migration.md)   | Move from retired distribution identities        |
 | [RPI Workflow](docs/rpi/README.md)                               | Deep dive into Research, Plan, Implement, Review |
 | [Contributing](docs/contributing/README.md)                      | Create custom agents, instructions, and prompts  |
 | [Agents Reference](.github/CUSTOM-AGENTS.md)                     | All available agents                             |
