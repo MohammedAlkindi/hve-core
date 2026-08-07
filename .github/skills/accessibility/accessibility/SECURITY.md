@@ -1,8 +1,8 @@
 ---
 title: Accessibility Skill Security Model
-description: STRIDE threat model for the accessibility skill scanner organized by assets, adversaries, and trust buckets (scan-target egress, scanner toolchain supply chain, untrusted scanner output, CLI caller process) with in-code mitigations and acknowledged enterprise readiness gaps
+description: STRIDE threat model for the accessibility skill scanner organized by assets, adversaries, and trust buckets (scan-target egress, scanner toolchain supply chain, untrusted scanner output, CLI caller process, design-intent verification boundary) with in-code mitigations and acknowledged enterprise readiness gaps
 author: microsoft/hve-core
-ms.date: 2026-06-30
+ms.date: 2026-08-06
 ms.topic: reference
 estimated_reading_time: 10
 keywords:
@@ -15,7 +15,7 @@ keywords:
 <!-- markdownlint-disable-file -->
 # Accessibility Skill Security Model
 
-This document records the STRIDE threat model for the accessibility skill's scanner (`scripts/scan.py`). The model is organized by trust bucket: Scan-target egress (B1), Scanner toolchain supply chain (B2), Untrusted scanner output (B3), and CLI caller process and filesystem (B4). Each bucket enumerates all six STRIDE categories with the in-code mitigations that address them. Assets and adversaries are enumerated first. Acknowledged enterprise readiness gaps are listed at the end.
+This document records the STRIDE threat model for the accessibility skill's scanner (`scripts/scan.py`). The model is organized by trust bucket: Scan-target egress (B1), Scanner toolchain supply chain (B2), Untrusted scanner output (B3), CLI caller process and filesystem (B4), and Design-intent verification boundary (B5). Each bucket enumerates all six STRIDE categories with the in-code mitigations that address them. Assets and adversaries are enumerated first. Acknowledged enterprise readiness gaps are listed at the end.
 
 `scan.py` is a thin Python wrapper that shells out to the Node-based `@axe-core/cli` accessibility scanner against an operator-supplied URL or local file, then normalizes the scanner's JSON into a stable shape. The scanner itself drives a headless browser that fetches and renders the target. The skill holds no credentials and runs no network listener; its security-relevant behavior is the subprocess invocation and the outbound fetch performed by the scanner.
 
@@ -27,13 +27,13 @@ The accessibility skill runs an external Node scanner (`@axe-core/cli`, version-
 
 ### Security Posture Overview
 
-| Dimension          | Value                                                                            |
-|--------------------|----------------------------------------------------------------------------------|
-| Runtime surface    | Python wrapper spawning `npx --yes @axe-core/cli@4.12.1` (headless browser)      |
-| Trust buckets      | B1 scan-target egress, B2 toolchain supply chain, B3 untrusted output, B4 caller |
-| Credentials        | None handled; no listener                                                        |
-| Network egress     | Scanner fetches the operator-supplied target (no allow-list); npx package fetch  |
-| Open residual gaps | 4 (InfoDisc-Med: SSRF with no egress allow-list)                                 |
+| Dimension          | Value                                                                                                           |
+|--------------------|-----------------------------------------------------------------------------------------------------------------|
+| Runtime surface    | Python wrapper spawning `npx --yes @axe-core/cli@4.12.1` (headless browser)                                     |
+| Trust buckets      | B1 scan-target egress, B2 toolchain supply chain, B3 untrusted output, B4 caller, B5 design-intent verification |
+| Credentials        | None handled; no listener                                                                                       |
+| Network egress     | Scanner fetches the operator-supplied target (no allow-list); npx package fetch                                 |
+| Open residual gaps | 4 (InfoDisc-Med: SSRF with no egress allow-list)                                                                |
 
 ## Contents
 
@@ -45,6 +45,7 @@ The accessibility skill runs an external Node scanner (`@axe-core/cli`, version-
 * [Bucket B2: Scanner toolchain supply chain](#bucket-b2-scanner-toolchain-supply-chain)
 * [Bucket B3: Untrusted scanner output](#bucket-b3-untrusted-scanner-output)
 * [Bucket B4: CLI caller process and filesystem](#bucket-b4-cli-caller-process-and-filesystem)
+* [Bucket B5: Design-intent verification boundary](#bucket-b5-design-intent-verification-boundary)
 * [Enterprise Readiness Gaps](#enterprise-readiness-gaps)
 * [References](#references)
 
@@ -61,6 +62,8 @@ The accessibility skill runs an external Node scanner (`@axe-core/cli`, version-
 ### Data Flow
 
 ```mermaid
+accTitle: Accessibility skill data flow trust zones
+accDescr: Data flow from scan wrapper to axe-core CLI and untrusted scan target, plus resulting normalized output.
 flowchart TD
     subgraph HOST["Operator Workstation / Runner (trust zone)"]
         CLI["scan.py wrapper"]
@@ -84,6 +87,8 @@ flowchart TD
 Design-intent verification adds a second, offline flow. It runs after a probe run, spawns no process, and reaches no network.
 
 ```mermaid
+accTitle: Design-intent verification offline data flow
+accDescr: Offline flow reading authored design-intent and probe results to emit verification and projection artifacts.
 flowchart TD
     subgraph PROJECT["Consuming Project Repository (operator-controlled)"]
         REC["design-intent/&lt;id&gt;.intent.yaml<br/>human-authored, committed"]
@@ -102,7 +107,7 @@ flowchart TD
     REND -->|"writes"| PROJ
 ```
 
-Two properties bound this flow. The adapter never reads or writes human-authored fields, including `override`, so no generator can alter a human decision. And the authored record is operator-controlled committed source rather than third-party input, so its trust level matches the repository it lives in.
+Two properties bound this flow. The adapter reads declarative fields needed to evaluate assertions (`surfaceId`, `binding.state`, `criteria`, `role`, and `blocking`), and reads `override.outcome` only to derive the effective gate outcome behind its exit code; it never merges an override into the recorded observed outcome and never writes the authored record, so no generator can alter a human decision. And the authored record is operator-controlled committed source rather than third-party input, so its trust level matches the repository it lives in.
 
 ## Trust Boundaries
 
@@ -125,12 +130,12 @@ Two properties bound this flow. The adapter never reads or writes human-authored
 
 ### Boundary Descriptions
 
-| Boundary                      | Assets Protected               | Controls Enforced                                                                                                                    |
-|-------------------------------|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| Operator Workstation / Runner | Output integrity, host process | Argument list (no shell); typed errors; default-perm output path                                                                     |
-| npm registry                  | Scanner toolchain integrity    | Version pin `@axe-core/cli@4.12.1` (no lockfile/integrity hash — G-SUP-1)                                                            |
-| Scan Target                   | None (target is untrusted)     | No allow-list (G-INF-1); rendering isolated to upstream browser                                                                      |
-| Design-intent record          | Human decision integrity       | Adapter never reads or writes human-authored fields; YAML parsed with `safe_load`; digest binds results to the exact record revision |
+| Boundary                      | Assets Protected               | Controls Enforced                                                                                                                                                                                                                                            |
+|-------------------------------|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Operator Workstation / Runner | Output integrity, host process | Argument list (no shell); typed errors; default-perm output path                                                                                                                                                                                             |
+| npm registry                  | Scanner toolchain integrity    | Version pin `@axe-core/cli@4.12.1` (no lockfile/integrity hash — G-SUP-1)                                                                                                                                                                                    |
+| Scan Target                   | None (target is untrusted)     | No allow-list (G-INF-1); rendering isolated to upstream browser                                                                                                                                                                                              |
+| Design-intent record          | Human decision integrity       | Adapter reads declarative fields (including `blocking`) and reads `override.outcome` only for the effective gate outcome; it never rewrites the recorded observed outcome; record parsed with `safe_load`; digest binds results to the exact record revision |
 
 ## Assets
 
@@ -286,6 +291,42 @@ Two properties bound this flow. The adapter never reads or writes human-authored
 | Threat                                   | Likelihood | Impact | Residual Risk | Status              |
 |------------------------------------------|------------|--------|---------------|---------------------|
 | Output path overwrite / unintended write | Low        | Low    | Low           | Operator-controlled |
+
+## Bucket B5: Design-intent verification boundary
+
+### Spoofing
+
+* Not applicable. The adapter does not assert an external identity; it evaluates local authored input against local results.
+
+### Tampering
+
+* Authored record edits can change gate behavior because `blocking` and assertion metadata are input to the enforcement decision.
+* Mitigations are contract and parser controls: typed shape guards, boolean-only `blocking`, identifier validation before write, and deterministic digest binding to the exact record revision.
+
+### Repudiation
+
+* The generated artifact carries deterministic identity (`intentId`, `expectationId`) plus `intentDigest`, so a run can be tied to an authored revision.
+* Human override remains in the authored record with `reviewedBy` and `reviewedOn`; the adapter does not absorb it into observed runtime outcome.
+
+### Information Disclosure
+
+* Verification artifacts echo authored identifiers and rationale-adjacent metadata. The skill handles no credentials and publishes no secret-bearing fields by design.
+* Residual exposure is procedural: a consuming project that skips authoring-contract validation can publish verification output without enforcing pairing and adequacy checks.
+
+### Denial of Service
+
+* Malformed nested record structures fail closed with typed errors rather than `AttributeError`, avoiding partial writes and ambiguous failure modes.
+
+### Elevation of Privilege
+
+* Not applicable. The verification and projection paths parse local data and write files; they execute no shell and perform no privileged transition.
+
+### Risk Rating
+
+| Threat                                                                         | Likelihood | Impact | Residual Risk | Status                                |
+|--------------------------------------------------------------------------------|------------|--------|---------------|---------------------------------------|
+| Authoring-contract bypass in a consuming project without equivalent validation | Med        | Med    | Med           | Accepted boundary (repository-scoped) |
+| Malformed record causing ambiguous runtime behavior                            | Low        | Med    | Low           | Mitigated (typed guards, fail-closed) |
 
 ## Enterprise Readiness Gaps
 

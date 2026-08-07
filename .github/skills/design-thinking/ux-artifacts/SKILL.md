@@ -4,6 +4,10 @@ description: "Produce evidence-labelled UX needs, journey, structure, inclusion,
 argument-hint: "[mode=frame-needs|map-journey|sketch-structure|decide-inclusion|prepare-handoff] [project=...] [subject=...] [source=...] [destination=figma|mural] [destination-kind=...] [destination-target=...] [destination-change=create|update|append]"
 license: MIT
 user-invocable: true
+metadata:
+  authors: "microsoft/hve-core"
+  spec_version: "1.0"
+  last_updated: "2026-08-06"
 ---
 
 # UX Artifacts

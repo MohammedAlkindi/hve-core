@@ -21,13 +21,13 @@ After the common evidence sections, write:
 ```markdown
 ## Inclusion Decisions
 
-| Decision area | Current decision | Who may be excluded | Basis and source | Alternative or mitigation | Status |
-|---------------|------------------|---------------------|------------------|---------------------------|--------|
-| Memory and attention | <decision> | <affected users or Unknown> | <Observed, Reported, or Assumed plus source> | <alternative> | decided | unresolved |
-| Language and comprehension | <decision> | <affected users or Unknown> | <basis> | <alternative> | decided | unresolved |
-| Sensory assumptions | <decision> | <affected users or Unknown> | <basis> | <alternative> | decided | unresolved |
-| Motor and interaction assumptions | <decision> | <affected users or Unknown> | <basis> | <alternative> | decided | unresolved |
-| Environmental and situational demands | <decision> | <affected users or Unknown> | <basis> | <alternative> | decided | unresolved |
+| Decision area                         | Current decision | Who may be excluded         | Basis and source                             | Alternative or mitigation | Status                  |
+|---------------------------------------|------------------|-----------------------------|----------------------------------------------|---------------------------|-------------------------|
+| Memory and attention                  | <decision>       | <affected users or Unknown> | <Observed, Reported, or Assumed plus source> | <alternative>             | <decided or unresolved> |
+| Language and comprehension            | <decision>       | <affected users or Unknown> | <basis>                                      | <alternative>             | <decided or unresolved> |
+| Sensory assumptions                   | <decision>       | <affected users or Unknown> | <basis>                                      | <alternative>             | <decided or unresolved> |
+| Motor and interaction assumptions     | <decision>       | <affected users or Unknown> | <basis>                                      | <alternative>             | <decided or unresolved> |
+| Environmental and situational demands | <decision>       | <affected users or Unknown> | <basis>                                      | <alternative>             | <decided or unresolved> |
 
 ## Research Coverage
 

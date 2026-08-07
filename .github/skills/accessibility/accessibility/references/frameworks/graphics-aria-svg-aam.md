@@ -11,12 +11,14 @@ These sit apart from the other framework references in this skill. [`wcag-22`](w
 
 They describe implementation targets, not an authoring format. Use them to decide which criterion identifiers an expectation cites and which sources a design intent record grounds itself in. They do not supply a schema of their own.
 
-Sources, all published under the W3C Document License:
+Sources:
 
 * WAI-ARIA Graphics Module: <https://www.w3.org/TR/graphics-aria-1.0/>
 * SVG Accessibility API Mappings: <https://www.w3.org/TR/svg-aam-1.0/>
 * Graphics Accessibility API Mappings: <https://www.w3.org/TR/graphics-aam-1.0/>
 * WAI Complex Images tutorial: <https://www.w3.org/WAI/tutorials/images/complex/>
+
+Publication status and licensing are publication-specific. Graphics ARIA is a W3C Recommendation; SVG-AAM is a Working Draft. The WAI tutorial page is not in TR space and can carry a different document-license footer from a TR publication.
 
 Per the accessibility licensing posture in `accessibility-license-posture.instructions.md`, every summary below is paraphrased in the authors' own words and links the canonical W3C URL for verification.
 
@@ -30,7 +32,7 @@ The Graphics Module adds three roles that describe a graphic's internal structur
 | `graphics-object`   | A meaningful part within a graphic, which may itself group further parts                | A plotted series, an axis, a labelled region of a map     |
 | `graphics-symbol`   | A unit of meaning conveyed by a shape that is not decomposed further                    | A legend marker, a pictogram, a repeated data point glyph |
 
-A graphic that carries meaning needs an accessible name. Structure alone does not communicate anything if the parts are unnamed.
+The module does not define a blanket accessible-name requirement for every graphics role. In particular, `graphics-object` does not carry a role-level required-name rule. Whether a given element needs a name depends on semantics and context.
 
 ## How SVG reaches assistive technology
 
@@ -70,9 +72,10 @@ This is a deliberate limit rather than a missing feature. The adequacy map in th
 
 Criterion references that graphics expectations commonly cite:
 
-| Criterion       | Bears on                                                                | Realistic role for automation                     |
-|-----------------|-------------------------------------------------------------------------|---------------------------------------------------|
-| `wcag-22:1.1.1` | A non-text element has a text alternative serving an equivalent purpose | Presence: decidable. Equivalence: human           |
-| `wcag-22:1.3.1` | Structure and relationships are programmatically determinable           | Exposure: partially decidable. Correctness: human |
-| `wcag-22:1.4.1` | Colour is not the only means of conveying information                   | Human, with heuristic hints                       |
-| `wcag-22:1.4.5` | Text is real text rather than an image of text                          | Heuristic only                                    |
+| Criterion        | Bears on                                                                | Realistic role for automation                     |
+|------------------|-------------------------------------------------------------------------|---------------------------------------------------|
+| `wcag-22:1.1.1`  | A non-text element has a text alternative serving an equivalent purpose | Presence: decidable. Equivalence: human           |
+| `wcag-22:1.3.1`  | Structure and relationships are programmatically determinable           | Exposure: partially decidable. Correctness: human |
+| `wcag-22:1.4.1`  | Colour is not the only means of conveying information                   | Human, with heuristic hints                       |
+| `wcag-22:1.4.11` | Non-text visual elements and states preserve required contrast          | Presence: partly decidable. Equivalence: human    |
+| `wcag-22:1.4.5`  | Text is real text rather than an image of text                          | Heuristic only                                    |

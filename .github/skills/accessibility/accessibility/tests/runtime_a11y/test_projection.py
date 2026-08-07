@@ -153,11 +153,26 @@ class TestRenderIntents:
         markdown = projection.render({"surfaceId": "s", "intents": []})
         assert "This record declares no intents." in markdown
 
+    def test_given_malformed_intents_when_rendered_then_raises(self) -> None:
+        with pytest.raises(ScriptError, match="intents"):
+            projection.render({"surfaceId": "s", "intents": ["bad"]})
+
     def test_given_intent_without_expectations_when_rendered_then_says_so(self) -> None:
         markdown = projection.render(
             {"surfaceId": "s", "intents": [{"id": "INT-001", "conveys": "c"}]}
         )
         assert "No expectations are declared for this intent." in markdown
+
+    def test_given_malformed_expectations_when_rendered_then_raises(self) -> None:
+        with pytest.raises(ScriptError, match="expectations"):
+            projection.render(
+                {
+                    "surfaceId": "s",
+                    "intents": [
+                        {"id": "INT-001", "conveys": "c", "expectations": ["bad"]}
+                    ],
+                }
+            )
 
 
 class TestRenderExpectations:

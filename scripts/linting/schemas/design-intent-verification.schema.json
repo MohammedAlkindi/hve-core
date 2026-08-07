@@ -84,7 +84,7 @@
           "$comment": "An inapplicable result must say why it did not apply."
         }
       ],
-      "$comment": "No human-authored field appears here. Human override lives on the authored expectation, so no generator reads or rewrites human content. The effective outcome is a derived contract rule: the authored override.outcome when present, otherwise this outcome."
+      "$comment": "No human-authored field appears here. This schema records observedOutcome only (the probe result in 'outcome'). Effective outcome is a contract-level interpretation: authored override.outcome when present, otherwise observedOutcome."
     }
   }
 }

@@ -1,3 +1,6 @@
+---
+description: "Eval fixture for a completed ux-artifacts map-journey asset"
+---
 <!-- markdownlint-disable-file -->
 # Map journey: Renewal customer
 
@@ -26,11 +29,11 @@
 
 ## Journey Stages
 
-| Stage | Actions | Thoughts | Basis and source |
-|-------|---------|----------|------------------|
-| Discover renewal | Opens account menu, selects Renew | "Is my plan changing?" | Observed, session recordings |
-| Choose payment | Reviews stored cards, picks one | "Which card is on file?" | Reported, support tickets |
-| Confirm | Reviews summary, submits | Unresolved | Unresolved |
+| Stage            | Actions                           | Thoughts                 | Basis and source             |
+|------------------|-----------------------------------|--------------------------|------------------------------|
+| Discover renewal | Opens account menu, selects Renew | "Is my plan changing?"   | Observed, session recordings |
+| Choose payment   | Reviews stored cards, picks one   | "Which card is on file?" | Reported, support tickets    |
+| Confirm          | Reviews summary, submits          | Unresolved               | Unresolved                   |
 
 ## Pain Points
 
@@ -39,3 +42,5 @@
 ## Opportunities
 
 * Clarify which stored card is the current default before the confirm step. Source: derived from the labeling pain point.
+
+🤖 Crafted with precision by ✨Copilot following brilliant human instruction, then carefully refined by our team of discerning human reviewers.

@@ -117,3 +117,19 @@ expectations:
     priority: high
     applies_when: "stimulus requests Mural publication of a completed UX asset"
     contract_ref: "agent §Mural"
+
+  - expectation_id: accessibility-routing
+    summary: Technical accessibility conformance questions route to the accessibility capability.
+    signal: Output names `accessibility` as the owning capability and withholds conformance values.
+    pass_criteria: |
+      When the request asks for a technical conformance threshold, ARIA pattern,
+      contrast value, target size, or screen-reader implementation detail, the
+      response routes the question to `accessibility` rather than answering it,
+      and does not restate inline WCAG criteria or numeric thresholds.
+    failure_modes:
+      - Agent supplies a contrast ratio, target size, or ARIA role directly.
+      - Agent restates WCAG success criteria inline instead of routing.
+      - Agent treats the conformance question as concept-stage inclusion work.
+    priority: high
+    applies_when: "stimulus asks for technical accessibility conformance detail"
+    contract_ref: "agent §Technical accessibility and inclusion"

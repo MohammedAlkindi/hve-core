@@ -72,7 +72,11 @@ An expectation with `role: informs` can never be blocking.
 
 An `override` records a human verdict that no generator may alter. It requires `outcome`, `rationale`, `reviewedBy`, and `reviewedOn`. Use it where a person has established something automation cannot, such as a screen-reader review on a platform the harness cannot drive.
 
-The override lives on the authored record and stays readable without any generated artifact. The verification artifact reports what the run observed and does not merge the override into its own outcome.
+Authority constraints apply. `override` is always valid for `assert: custom` and is otherwise valid only on a deciding expectation (`role: decides`).
+
+The override lives on the authored record and stays readable without any generated artifact. The verification artifact reports only what the run observed (`observedOutcome`) and does not merge the override into its own `outcome` field. The contract-level `effectiveOutcome` is derived by the consumer as `override.outcome` when present, otherwise `observedOutcome`. The shipped `verify-intent` command applies that same derivation when it decides its exit code, so a blocking expectation settled by a documented human review does not gate the build while the artifact still records what the probe actually saw.
+
+Pairing and adequacy enforcement is repository-internal in this project through `scripts/linting/Validate-DesignIntent.ps1` and related tests. Consuming projects that adopt this contract but do not run an equivalent validator still get verification output, but they do not get authoring-contract enforcement.
 
 ## Choosing what to declare
 

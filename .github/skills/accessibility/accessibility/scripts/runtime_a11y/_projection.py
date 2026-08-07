@@ -63,6 +63,44 @@ def _render_expectation_table(expectations: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _iter_intents(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return intents, rejecting malformed nested structures early."""
+    intents = record.get("intents")
+    if intents is None:
+        return []
+    if not isinstance(intents, list):
+        raise ScriptError(
+            f"Record 'intents' must be a list, got {type(intents).__name__}"
+        )
+    for entry in intents:
+        if not isinstance(entry, dict):
+            raise ScriptError(
+                f"Each entry in 'intents' must be a mapping, got "
+                f"{type(entry).__name__}"
+            )
+    return intents
+
+
+def _iter_expectations(intent: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return expectations, rejecting malformed nested structures early."""
+    expectations = intent.get("expectations")
+    if expectations is None:
+        return []
+    if not isinstance(expectations, list):
+        raise ScriptError(
+            f"Intent '{intent.get('id')}' expectations must be a list, got "
+            f"{type(expectations).__name__}"
+        )
+    for entry in expectations:
+        if not isinstance(entry, dict):
+            raise ScriptError(
+                f"Each entry in 'expectations' of intent "
+                f"'{intent.get('id')}' must be a mapping, got "
+                f"{type(entry).__name__}"
+            )
+    return expectations
+
+
 def _render_intent(intent: dict[str, Any]) -> list[str]:
     """Render one intent: its claim, reasoning, audience, and checks."""
     lines: list[str] = []
@@ -89,7 +127,7 @@ def _render_intent(intent: dict[str, Any]) -> list[str]:
     basis = _EVIDENCE_NOTE.get(evidence, evidence or "unspecified")
     lines.append(f"Basis: {basis}. Applies to the `{state}` state.")
 
-    expectations = intent.get("expectations") or []
+    expectations = _iter_expectations(intent)
     if expectations:
         lines.extend(_render_expectation_table(expectations))
     else:
@@ -119,7 +157,7 @@ def render(record: dict[str, Any]) -> str:
         lines.append(f"| {label} | {_escape_cell(value)} |")
     lines.append("")
 
-    intents = record.get("intents") or []
+    intents = _iter_intents(record)
     if not intents:
         lines.append("This record declares no intents.")
         lines.append("")

@@ -15,7 +15,8 @@ package.json or node_modules are required. Config is passed to the Node runner
 through environment variables. Exit code is 0 on a completed run even when
 findings exist; a non-zero exit signals a harness error (bad config, missing
 Node or browser, or a blocked target). ``verify-intent`` additionally exits
-with EXIT_INTENT_DRIFT when a blocking design-intent expectation failed.
+with EXIT_INTENT_DRIFT when a blocking design-intent expectation failed, and
+with EXIT_INTENT_UNCOVERED when a blocking expectation was never evaluated.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from runtime_a11y import _projection as projection
 from runtime_a11y._config import load_validated_config
 from runtime_a11y._errors import (
     EXIT_INTENT_DRIFT,
+    EXIT_INTENT_UNCOVERED,
     EXIT_SUCCESS,
     EXIT_USAGE,
     ScriptError,
@@ -298,14 +300,23 @@ def _verify_intent(args: argparse.Namespace) -> int:
     """Generate a verification artifact and report blocking intent drift."""
     raw_text = intent.read_record_text(args.record)
     record = intent.parse_record(raw_text, args.record)
-    destination, document = intent.generate(args.record, args.results, args.out)
+    destination, document = intent.generate(
+        args.record, args.results, args.out, prepared=(raw_text, record)
+    )
     print(f"Wrote {destination}")
-    if intent.has_blocking_failure(record, document["assertions"]):
+    blocking = intent.evaluate_blocking(record, document["assertions"])
+    if blocking == intent.BLOCKING_FAILED:
         print(
             "Error: a blocking design intent expectation failed",
             file=sys.stderr,
         )
         return EXIT_INTENT_DRIFT
+    if blocking == intent.BLOCKING_UNCOVERED:
+        print(
+            "Error: a blocking design intent expectation was never evaluated",
+            file=sys.stderr,
+        )
+        return EXIT_INTENT_UNCOVERED
     return EXIT_SUCCESS
 
 

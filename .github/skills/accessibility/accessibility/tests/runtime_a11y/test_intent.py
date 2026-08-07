@@ -13,6 +13,7 @@ import runtime_a11y.__main__ as cli
 from runtime_a11y import _intent as intent
 from runtime_a11y._errors import (
     EXIT_INTENT_DRIFT,
+    EXIT_INTENT_UNCOVERED,
     EXIT_SUCCESS,
     EXIT_USAGE,
     ScriptError,
@@ -155,6 +156,14 @@ class TestOutcomeMapping:
         _, document = intent.generate(record_path, results_path)
         assert document["assertions"][0]["outcome"] == "cantTell"
 
+    def test_given_partial_status_when_build_then_maps_explicitly_to_cant_tell(
+        self, tmp_path: Path
+    ) -> None:
+        record_path = _write_record(tmp_path, _SIMPLE_RECORD)
+        results_path = _write_results(tmp_path, [_row(status="partial")])
+        _, document = intent.generate(record_path, results_path)
+        assert document["assertions"][0]["outcome"] == "cantTell"
+
 
 class TestJoin:
     @pytest.mark.parametrize(
@@ -279,8 +288,15 @@ class TestFixtureRecord:
         record = intent.parse_record(raw, _FIXTURE_RECORD)
         results = intent.load_results(_FIXTURE_RESULTS)
         assertions = intent.build_assertions(record, results)
-        # EXP-002 fails but is declared non-blocking, so the run does not gate.
-        assert intent.has_blocking_failure(record, assertions) is False
+        # EXP-002 fails but is declared non-blocking, so no blocking failure.
+        verdict = intent.evaluate_blocking(record, assertions)
+        assert verdict != intent.BLOCKING_FAILED
+        # The fixture is not clean either: blocking EXP-003 declares two criteria
+        # and the run settled only part of them, so its claim is unproven. The
+        # old boolean gate reported success here, which is the silent pass this
+        # contract now refuses. Blocking EXP-005 is untested but carries a human
+        # override, so it does not contribute.
+        assert verdict == intent.BLOCKING_UNCOVERED
 
     @_requires_contract_fixture
     def test_given_custom_assert_when_generate_then_untested_and_manual(
@@ -317,7 +333,7 @@ class TestFixtureRecord:
         assert committed.read_bytes() == before
 
 
-class TestBlockingFailure:
+class TestBlockingEvaluation:
     def test_given_blocking_failure_when_checked_then_true(
         self, tmp_path: Path
     ) -> None:
@@ -326,7 +342,10 @@ class TestBlockingFailure:
         raw = intent.read_record_text(record_path)
         record = intent.parse_record(raw, record_path)
         _, document = intent.generate(record_path, results_path)
-        assert intent.has_blocking_failure(record, document["assertions"]) is True
+        assert (
+            intent.evaluate_blocking(record, document["assertions"])
+            == intent.BLOCKING_FAILED
+        )
 
     def test_given_non_blocking_failure_when_checked_then_false(
         self, tmp_path: Path
@@ -339,7 +358,8 @@ class TestBlockingFailure:
         raw = intent.read_record_text(record_path)
         record = intent.parse_record(raw, record_path)
         _, document = intent.generate(record_path, results_path)
-        assert intent.has_blocking_failure(record, document["assertions"]) is False
+        verdict = intent.evaluate_blocking(record, document["assertions"])
+        assert verdict == intent.BLOCKING_OK
 
     def test_given_passing_run_when_checked_then_false(self, tmp_path: Path) -> None:
         record_path = _write_record(tmp_path, _SIMPLE_RECORD)
@@ -347,7 +367,143 @@ class TestBlockingFailure:
         raw = intent.read_record_text(record_path)
         record = intent.parse_record(raw, record_path)
         _, document = intent.generate(record_path, results_path)
-        assert intent.has_blocking_failure(record, document["assertions"]) is False
+        verdict = intent.evaluate_blocking(record, document["assertions"])
+        assert verdict == intent.BLOCKING_OK
+
+    def test_given_partial_coverage_for_blocking_when_checked_then_uncovered(
+        self, tmp_path: Path
+    ) -> None:
+        body = _SIMPLE_RECORD.replace(
+            "          - wcag-22:2.1.1",
+            "          - wcag-22:2.1.1\n          - wcag-22:2.1.2",
+        )
+        record_path = _write_record(tmp_path, body)
+        rows = [_row(criterionId="2.1.1", status="pass")]
+        results_path = _write_results(tmp_path, rows)
+        raw = intent.read_record_text(record_path)
+        record = intent.parse_record(raw, record_path)
+        _, document = intent.generate(record_path, results_path)
+        assert (
+            intent.evaluate_blocking(record, document["assertions"])
+            == intent.BLOCKING_UNCOVERED
+        )
+
+    def test_given_duplicate_expectation_id_across_intents_when_checked_then_no_cross(
+        self, tmp_path: Path
+    ) -> None:
+        body = """
+schemaVersion: "1.0"
+surfaceId: s1
+title: Multi intent
+owner: Team
+status: accepted
+decidedOn: "2026-01-01"
+decidedBy:
+  - A. Person
+version: 1
+intents:
+  - id: INT-001
+    conveys: Blocking expectation.
+    rationale: r1
+    audience: [A]
+    evidence: observed
+    binding: { state: default }
+    expectations:
+      - id: EXP-001
+        method: runtime-automation
+        assert: probe-keyboard-traversal
+        detail: d1
+        criteria: [wcag-22:2.1.1]
+        role: decides
+        blocking: true
+  - id: INT-002
+    conveys: Informing expectation with same id.
+    rationale: r2
+    audience: [B]
+    evidence: observed
+    binding: { state: default }
+    expectations:
+      - id: EXP-001
+        method: runtime-automation
+        assert: probe-keyboard-traversal
+        detail: d2
+        criteria: [wcag-22:2.1.2]
+        role: informs
+        blocking: false
+"""
+        record_path = _write_record(tmp_path, body)
+        rows = [_row(criterionId="2.1.2", status="fail")]
+        results_path = _write_results(tmp_path, rows)
+        raw = intent.read_record_text(record_path)
+        record = intent.parse_record(raw, record_path)
+        _, document = intent.generate(record_path, results_path)
+        verdict = intent.evaluate_blocking(record, document["assertions"])
+        assert verdict == intent.BLOCKING_UNCOVERED
+
+    def test_given_non_boolean_blocking_when_checked_then_raises(
+        self, tmp_path: Path
+    ) -> None:
+        body = _SIMPLE_RECORD.replace("blocking: true", "blocking: 'true'")
+        record_path = _write_record(tmp_path, body)
+        results_path = _write_results(tmp_path, [_row(status="pass")])
+        with pytest.raises(ScriptError, match="non-boolean"):
+            intent.generate(record_path, results_path)
+
+    def test_given_override_settles_uncovered_blocking_when_checked_then_ok(
+        self, tmp_path: Path
+    ) -> None:
+        # A human review settled a blocking expectation the probe cannot drive.
+        # The artifact still records 'untested', but the gate must not fire.
+        body = _SIMPLE_RECORD.replace(
+            "        blocking: true\n",
+            "        blocking: true\n"
+            "        override:\n"
+            "          outcome: passed\n"
+            "          rationale: Manual review on a platform the probe cannot drive.\n"
+            "          reviewedBy: C. Reviewer\n"
+            "          reviewedOn: \"2026-08-06\"\n",
+        )
+        record_path = _write_record(tmp_path, body)
+        results_path = _write_results(tmp_path, [])
+        raw = intent.read_record_text(record_path)
+        record = intent.parse_record(raw, record_path)
+        _, document = intent.generate(record_path, results_path)
+
+        assert document["assertions"][0]["outcome"] == "untested"
+        verdict = intent.evaluate_blocking(record, document["assertions"])
+        assert verdict == intent.BLOCKING_OK
+
+    def test_given_override_failed_when_checked_then_blocking_failed(
+        self, tmp_path: Path
+    ) -> None:
+        body = _SIMPLE_RECORD.replace(
+            "        blocking: true\n",
+            "        blocking: true\n"
+            "        override:\n"
+            "          outcome: failed\n"
+            "          rationale: Manual review found the announcement missing.\n"
+            "          reviewedBy: C. Reviewer\n"
+            "          reviewedOn: \"2026-08-06\"\n",
+        )
+        record_path = _write_record(tmp_path, body)
+        results_path = _write_results(tmp_path, [_row(status="pass")])
+        raw = intent.read_record_text(record_path)
+        record = intent.parse_record(raw, record_path)
+        _, document = intent.generate(record_path, results_path)
+
+        verdict = intent.evaluate_blocking(record, document["assertions"])
+        assert verdict == intent.BLOCKING_FAILED
+
+    def test_given_missing_expectation_id_when_generate_then_raises_before_write(
+        self, tmp_path: Path
+    ) -> None:
+        body = _SIMPLE_RECORD.replace("      - id: EXP-001\n", "      -\n")
+        record_path = _write_record(tmp_path, body)
+        results_path = _write_results(tmp_path, [_row(status="pass")])
+        out = tmp_path / "out.json"
+        with pytest.raises(ScriptError, match="needs an id"):
+            intent.generate(record_path, results_path, out)
+        assert not out.exists()
 
 
 class TestFailurePaths:
@@ -489,6 +645,36 @@ class TestCli:
         )
         assert code == EXIT_INTENT_DRIFT
         assert "blocking design intent expectation failed" in capsys.readouterr().err
+        assert out.exists(), "the artifact is still written so CI can publish it"
+
+    def test_given_blocking_uncovered_when_verify_intent_then_exit_uncovered(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        body = _SIMPLE_RECORD.replace(
+            "          - wcag-22:2.1.1",
+            "          - wcag-22:2.1.1\n          - wcag-22:2.1.2",
+        )
+        record_path = _write_record(tmp_path, body)
+        results_path = _write_results(
+            tmp_path, [_row(criterionId="2.1.1", status="pass")]
+        )
+        out = tmp_path / "out.json"
+        code = cli.main(
+            [
+                "verify-intent",
+                "--record",
+                str(record_path),
+                "--results",
+                str(results_path),
+                "--out",
+                str(out),
+            ]
+        )
+        assert code == EXIT_INTENT_UNCOVERED
+        assert (
+            "blocking design intent expectation was never evaluated"
+            in capsys.readouterr().err
+        )
         assert out.exists(), "the artifact is still written so CI can publish it"
 
     def test_given_missing_record_when_verify_intent_then_usage_exit(

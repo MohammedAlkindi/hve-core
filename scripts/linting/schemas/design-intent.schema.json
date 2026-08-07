@@ -253,6 +253,24 @@
             "properties": { "method": { "const": "runtime-automation" } }
           },
           "$comment": "Every other probe ID runs in the runtime automation lane."
+        },
+        {
+          "if": {
+            "required": ["override"]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": { "assert": { "const": "custom" } },
+                "required": ["assert"]
+              },
+              {
+                "properties": { "role": { "const": "decides" } },
+                "required": ["role"]
+              }
+            ]
+          },
+          "$comment": "Override is human authority. It is always allowed for custom checks and otherwise only for deciding expectations."
         }
       ]
     },

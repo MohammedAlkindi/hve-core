@@ -977,35 +977,43 @@ else {
     (Resolve-Path -LiteralPath $RootPath).Path
 }
 
-$resolvedMapPath = if ([string]::IsNullOrWhiteSpace($ProbeCriteriaMapPath)) {
-    $script:DefaultProbeCriteriaMapPath
-}
-else {
-    $ProbeCriteriaMapPath
-}
+if ($MyInvocation.InvocationName -ne '.') {
+    try {
+        $resolvedMapPath = if ([string]::IsNullOrWhiteSpace($ProbeCriteriaMapPath)) {
+            $script:DefaultProbeCriteriaMapPath
+        }
+        else {
+            $ProbeCriteriaMapPath
+        }
 
-$mode = if ($RequireVerification) { 'require-verification' } else { 'source-only' }
-Write-Host "Validating Design Intent contract under '$resolvedRoot' (mode: $mode)..."
+        $mode = if ($RequireVerification) { 'require-verification' } else { 'source-only' }
+        Write-Host "Validating Design Intent contract under '$resolvedRoot' (mode: $mode)..."
 
-$result = Invoke-DesignIntentValidation -RootPath $resolvedRoot `
-    -RequireVerification:$RequireVerification.IsPresent -ProbeCriteriaMapPath $resolvedMapPath
+        $result = Invoke-DesignIntentValidation -RootPath $resolvedRoot `
+            -RequireVerification:$RequireVerification.IsPresent -ProbeCriteriaMapPath $resolvedMapPath
 
-Write-DesignIntentReport -RootPath $resolvedRoot -OutputPath $OutputPath -Status $result.Status `
-    -Mode $mode -FilesChecked $result.FilesChecked -Issues $result.Issues
+        Write-DesignIntentReport -RootPath $resolvedRoot -OutputPath $OutputPath -Status $result.Status `
+            -Mode $mode -FilesChecked $result.FilesChecked -Issues $result.Issues
 
-foreach ($file in $result.FilesChecked) {
-    Write-Host "  checked $file"
-}
+        foreach ($file in $result.FilesChecked) {
+            Write-Host "  checked $file"
+        }
 
-if ($result.Issues.Count -gt 0) {
-    foreach ($issue in $result.Issues) {
-        Write-CIAnnotation -Level Error -File $issue.File -Message "[$($issue.Code)] $($issue.Message)"
+        if ($result.Issues.Count -gt 0) {
+            foreach ($issue in $result.Issues) {
+                Write-CIAnnotation -Level Error -File $issue.File -Message "[$($issue.Code)] $($issue.Message)"
+            }
+            Write-Host "Design Intent validation failed with $($result.Issues.Count) issue(s)." -ForegroundColor Red
+            exit 1
+        }
+
+        Write-Host "Design Intent validation passed ($($result.FilesChecked.Count) file(s) checked)."
+        exit 0
     }
-    Write-Host "Design Intent validation failed with $($result.Issues.Count) issue(s)." -ForegroundColor Red
-    exit 1
+    catch {
+        Write-Error -ErrorAction Continue "Validate-DesignIntent.ps1 failed: $($_.Exception.Message)"
+        exit 1
+    }
 }
-
-Write-Host "Design Intent validation passed ($($result.FilesChecked.Count) file(s) checked)."
-exit 0
 
 #endregion Main

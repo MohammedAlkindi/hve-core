@@ -7,7 +7,7 @@ This instruction defines the coaching state schema, file conventions, and sessio
 
 ## State File Location
 
-Store the coaching state file at `.copilot-tracking/design-thinking-sessions/{project-slug}/coaching-state.md`.
+Store the coaching state file at `.copilot-tracking/dt/{project-slug}/coaching-state.md`.
 
 * `{project-slug}` is a kebab-case project identifier provided by the user (e.g., `factory-floor-maintenance`). DT method artifacts are scoped under `.copilot-tracking/dt/{project-slug}/`.
 * Create the directory when initializing a new coaching project.
@@ -16,7 +16,7 @@ Store the coaching state file at `.copilot-tracking/design-thinking-sessions/{pr
 ## State File Schema
 
 ```yaml
-# .copilot-tracking/design-thinking-sessions/{project-slug}/coaching-state.md
+# .copilot-tracking/dt/{project-slug}/coaching-state.md
 project:
   name: "Human-readable project name"
   slug: "kebab-case-identifier"
@@ -176,7 +176,7 @@ Do not set space independently of method.
 
 When resuming a coaching session:
 
-1. Read the state file at `.copilot-tracking/design-thinking-sessions/{project-slug}/coaching-state.md`.
+1. Read the state file at `.copilot-tracking/dt/{project-slug}/coaching-state.md`.
 2. Verify the file parses as valid YAML and contains required fields (`project`, `current`, `methods_completed`, `transition_log`).
 3. Restore coaching context from `current.method`, `current.space`, and `current.phase`.
 4. Review the most recent `transition_log` and `session_log` entries to understand where the team left off.

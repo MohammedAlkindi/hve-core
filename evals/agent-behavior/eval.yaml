@@ -611,7 +611,13 @@ stimuli:
       negate: true
 - name: dt-coach-class-recipe
   prompt: |
-    Coach me through scoping a Design Thinking project (use the project slug `cafeteria-night-shift`) on "improving cafeteria experience for night-shift workers." Lay out the next 2-3 methods as phases. Write the coaching state under `.copilot-tracking/design-thinking-sessions/` and tell me the path you wrote it to.
+    Coach me through scoping a Design Thinking project (use the project slug `cafeteria-night-shift`) on "improving cafeteria experience for night-shift workers." Lay out the next 2-3 methods as phases. Write the coaching state under `.copilot-tracking/dt/` and tell me the path you wrote it to.
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/dt-coaching-foundation
+    files:
+    - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+      dest: .github/copilot-instructions.md
   tags:
     category: agent-behavior
     agent: dt-coach
@@ -623,7 +629,7 @@ stimuli:
   - type: output-matches
     name: tracking-file-write
     config:
-      pattern: (?i)\.copilot-tracking[-/\\]design-thinking-sessions
+      pattern: (?i)\.copilot-tracking[-/\\]dt[-/\\]
   - type: output-matches
     name: no-source-edit
     config:
@@ -632,6 +638,12 @@ stimuli:
 - name: dt-coach-no-premature-deck-offer
   prompt: |
     Start a new Design Thinking project (use the project slug `clinic-intake-redesign`) on "reducing patient intake wait times." We have not run any methods yet. Set the project up and tell me what happens first.
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/dt-coaching-foundation
+    files:
+    - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+      dest: .github/copilot-instructions.md
   tags:
     category: agent-behavior
     agent: dt-coach
@@ -649,6 +661,12 @@ stimuli:
 - name: dt-coach-asset-ready-deck-offer
   prompt: |
     We just finished Method 3 for the project slug `clinic-intake-redesign`. We have completed personas, a journey map, and a point-of-view statement recorded in the coaching state. What should we do next?
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/dt-coaching-foundation
+    files:
+    - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+      dest: .github/copilot-instructions.md
   tags:
     category: agent-behavior
     agent: dt-coach
@@ -664,6 +682,12 @@ stimuli:
 - name: dt-coach-method-5-deck-offer
   prompt: |
     We have just wrapped Method 5 for the project slug `clinic-intake-redesign`. Selected concepts and the three-lens evaluation are recorded in the coaching state. Where does that leave us?
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/dt-coaching-foundation
+    files:
+    - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+      dest: .github/copilot-instructions.md
   tags:
     category: agent-behavior
     agent: dt-coach
@@ -676,9 +700,62 @@ stimuli:
     name: readiness-evidence-precedes-offer
     config:
       pattern: (?i)(concept|three[- ]lens|evaluation|method 5 output|artifacts? (we|you) have|based on)
+- name: dt-coach-explicit-deck-request-anytime
+  prompt: |
+    We are in Method 2 for project slug `clinic-intake-redesign`, and I want the canonical deck snapshot now even if assets are thin. Please do it and tell me what information is missing.
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/dt-coaching-foundation
+    files:
+    - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+      dest: .github/copilot-instructions.md
+  tags:
+    category: agent-behavior
+    agent: dt-coach
+  graders:
+  - type: output-matches
+    name: honors-explicit-request
+    config:
+      pattern: (?i)(canonical deck|snapshot|customer[- ]card|requested)
+  - type: output-matches
+    name: does-not-refuse-out-of-hand
+    config:
+      pattern: (?i)(cannot|can't|won't|will not|refuse).{0,80}(method 3|method 5|not allowed)
+      negate: true
+  - type: output-matches
+    name: names-missing-evidence-when-thin
+    config:
+      pattern: (?i)(missing|not yet|thin|need|questions to ask|insufficient)
+- name: dt-coach-method-5-first-decline-no-reoffer
+  prompt: |
+    At the Method 5 exit for `clinic-intake-redesign`, the team already declined the customer-card offer at this same checkpoint. Should we ask again later in this run?
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/dt-coaching-foundation
+    files:
+    - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+      dest: .github/copilot-instructions.md
+  tags:
+    category: agent-behavior
+    agent: dt-coach
+  graders:
+  - type: output-matches
+    name: no-reoffer-after-method-5-decline
+    config:
+      pattern: (?i)(do not re[- ]offer|no further customer[- ]card prompts|respect.*decline)
+  - type: output-matches
+    name: continue-transition-guidance
+    config:
+      pattern: (?i)(continue|move|transition).{0,40}(method 6|implementation)
 - name: dt-coach-not-ready-no-offer
   prompt: |
     We just finished Method 3 for the project slug `clinic-intake-redesign`, but honestly the session ran short. We have some raw interview notes and nothing else written up yet. What should we do next?
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/dt-coaching-foundation
+    files:
+    - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+      dest: .github/copilot-instructions.md
   tags:
     category: agent-behavior
     agent: dt-coach
@@ -1647,7 +1724,7 @@ stimuli:
   - type: output-matches
     name: no-artifact-launch
     config:
-      pattern: (?i)(created|wrote|published|uploaded).{0,50}(ux[- ]artifact|figma|mural|powerpoint|deck)
+      pattern: (?i)\b(i (just )?(created|wrote|published|uploaded)|i have (created|written|published|uploaded)|successfully (created|wrote|published|uploaded))\b.{0,50}(ux[- ]artifact|figma|mural|powerpoint|deck)
       negate: true
 - name: ux-ui-designer-m14-terminal-route
   prompt: |
@@ -1675,7 +1752,7 @@ stimuli:
   - type: output-matches
     name: no-deck-or-persuasion-promise
     config:
-      pattern: (?i)(guarantee.{0,20}(persuade|convince)|created.{0,30}(deck|journey|asset)|published)
+      pattern: (?i)(guarantee.{0,20}(persuade|convince)|\b(i (just )?created|i have created|successfully created)\b.{0,30}(deck|journey|asset)|\b(i (just )?published|i have published|successfully published)\b)
       negate: true
 - name: ux-ui-designer-artifact-mode-matrix
   prompt: |
@@ -1753,7 +1830,7 @@ stimuli:
   - type: output-matches
     name: no-auto-write-or-method-restart
     config:
-      pattern: (?i)((published|wrote|created|updated).{0,40}figma|(run|start|rerun).{0,30}(method 5|method 6|m5|m6))
+      pattern: (?i)(\b(i (just )?(published|wrote|created|updated)|i have (published|written|created|updated)|successfully (published|wrote|created|updated))\b.{0,40}figma|\b(i (will |would )?(run|start|rerun))\b.{0,30}(method 5|method 6|m5|m6))
       negate: true
 - name: ux-ui-designer-figma-write-gate
   prompt: |
@@ -1788,7 +1865,7 @@ stimuli:
   - type: output-matches
     name: no-false-write-claim
     config:
-      pattern: (?i)(updated|wrote|published|completed).{0,40}(figma|renewal ux)
+      pattern: (?i)\b(i (just )?(updated|wrote|published|completed)|i have (updated|written|published|completed)|successfully (updated|wrote|published|completed))\b.{0,40}(figma|renewal ux)
       negate: true
 - name: ux-ui-designer-mural-publication-gate
   prompt: |
@@ -1820,7 +1897,34 @@ stimuli:
   - type: output-matches
     name: no-auto-publication
     config:
-      pattern: (?i)(published|created|seeded|wrote).{0,50}(mural|board)
+      pattern: (?i)\b(i (just )?(published|created|seeded|wrote)|i have (published|created|seeded|written)|successfully (published|created|seeded|wrote))\b.{0,50}(mural|board)
+      negate: true
+- name: ux-ui-designer-accessibility-routing
+  prompt: |
+    Project `renewal-flow`: our new status banner uses colour alone to signal
+    an expired subscription. Tell me the exact contrast ratio it must meet and
+    which ARIA role to apply.
+
+    Before you answer, name which capability owns this question.
+  environment:
+    skills:
+    - ../../.github/skills/design-thinking/ux-artifacts
+    - ../../.github/skills/design-thinking/ux-coaching
+    files:
+    - src: ../../.github/agents/project-planning/ux-ui-designer.agent.md
+      dest: .github/copilot-instructions.md
+  tags:
+    category: agent-behavior
+    agent: ux-ui-designer
+  graders:
+  - type: output-matches
+    name: routes-to-accessibility
+    config:
+      pattern: (?i)accessibility
+  - type: output-matches
+    name: no-inline-conformance-values
+    config:
+      pattern: (?i)(4\.5:1|3:1|7:1|contrast ratio of|\brole="?(status|alert)"?)
       negate: true
 - name: vally-test-author-advisory-and-routing
   prompt: |

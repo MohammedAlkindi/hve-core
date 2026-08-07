@@ -7,7 +7,7 @@ user-invocable: false
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-08-02"
+  last_updated: "2026-08-06"
 ---
 
 # Accessibility — Skill Entry
@@ -182,6 +182,15 @@ The matrix engine in [scripts/runtime_a11y/matrix](scripts/runtime_a11y/matrix) 
 * `0` indicates the harness completed successfully, even when probes reported findings.
 * Non-zero exit codes indicate a harness error such as invalid config, a failed probe, missing Node.js, missing browser support, or a blocked target.
 
+`verify-intent` adds two design-intent codes that a consuming project's CI can distinguish:
+
+| Exit code | Meaning                                    | Typical response                               |
+|-----------|--------------------------------------------|------------------------------------------------|
+| `3`       | A blocking expectation resolved `failed`   | Treat as intent drift; the surface regressed   |
+| `4`       | A blocking expectation was never evaluated | Treat as coverage drift; the check did not run |
+
+The two are separate because a failed check and an unrun check call for different responses. Reusing one code would let missing coverage read as a regression, or pass silently.
+
 #### Runtime dependencies
 
 The harness uses `npx` at run time to install pinned dependencies `playwright@1.61.1` and `@axe-core/playwright@4.12.1`. It targets the system Google Chrome browser through `channel: 'chrome'`, so no skill-local `package.json` or `node_modules` directory is required.
@@ -230,7 +239,14 @@ An expectation is one claim over one or more criteria, so the worst criterion ou
 
 Expectations whose criteria a probe only informs resolve to `cantTell` in normal operation. That is expected: the probe gathered evidence without settling the claim.
 
-A `custom` expectation reports `untested` whether or not the record carries a human `override`. The adapter never reads human-authored content, so the override stays authoritative in the record itself rather than being merged into the generated artifact.
+A `custom` expectation reports `untested` whether or not the record carries a human `override`. The adapter records only observed runtime outcome in the artifact. Human override remains authoritative in the record itself and is not merged into the generated artifact outcome.
+
+Interpretation is two-layered by contract:
+
+* `observedOutcome` is the generated artifact field `outcome`.
+* `effectiveOutcome` is derived by policy as `override.outcome` when present, otherwise `observedOutcome`.
+
+Pairing and adequacy enforcement is repository-internal in this repository through `scripts/linting/Validate-DesignIntent.ps1` and related tests. A consuming project that adopts the record format but does not run an equivalent validator still gets verification output, but does not get authoring-contract enforcement.
 
 #### Exit codes
 
@@ -238,8 +254,9 @@ A `custom` expectation reports `untested` whether or not the record carries a hu
 * `1` — the record or results document was malformed. Nothing is written.
 * `2` — the record or results document could not be read.
 * `3` — the artifact was written and a blocking expectation failed.
+* `4` — the artifact was written and a blocking expectation was never evaluated.
 
-Exit code `3` is the enforcement signal. A consuming project's CI step fails its build on that non-zero exit, exactly as it would for any other command. The artifact is still written so the run can publish it. Which expectations block is the record's decision, through each expectation's `blocking` flag.
+Exit codes `3` and `4` are enforcement signals. A consuming project's CI step fails its build on either non-zero exit, exactly as it would for any other command. The artifact is still written so the run can publish it. Which expectations block is the record's decision, through each expectation's `blocking` flag.
 
 Graphics and diagram semantics have no runtime probe. Those expectations use `assert: custom` and resolve through human review; see the [Graphics ARIA and SVG-AAM reference](references/frameworks/graphics-aria-svg-aam.md) for the boundary between what automation can decide and what it cannot.
 

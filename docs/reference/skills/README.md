@@ -2,7 +2,7 @@
 title: Skills
 description: Reference documentation for HVE Core skills.
 sidebar_position: 0
-ms.date: 2026-08-05
+ms.date: 2026-08-06
 ---
 
 <!-- BEGIN AUTO-GENERATED: index -->

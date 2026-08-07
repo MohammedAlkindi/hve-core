@@ -52,8 +52,6 @@ Each offer is optional and skippable. Declining must not block a method transiti
 
 Before making an automatic offer, confirm the project has DT method outputs that map to at least one supported canonical artifact type. When it does not, make no offer and continue coaching. An explicit user request is always honored regardless of this check; when assets are thin, say what is missing and let the user decide.
 
-Each offer must be optional and skippable. Declining an offer must not block method transition.
-
 ## Mandatory Post-Snapshot Customer-Card Checkpoint
 
 After any canonical deck create or refresh, the coach must ask this yes-or-no question in the same turn:
@@ -70,9 +68,9 @@ Record the offer timestamp and user response in coaching state.
 
 If the user declines the customer-card PowerPoint offer:
 
-- **Do not re-offer until the end of Method 5** — The decline stands for the rest of the current work.
-- **Re-offer at the end of Method 5** — Before transitioning from Method 5 to Method 6, ask the customer-card question one final time: *"We're finishing up Method 5. Before we move to prototyping, would you like to generate the customer-card PowerPoint now?"*
-- **If declined again at Method 5, do not re-offer** — Respect the user's decision and continue to implementation methods without further customer-card prompts.
+- **If the decline happens before Method 5**: do not re-offer until the Method 5 exit checkpoint.
+- **At the Method 5 exit checkpoint**: ask one final customer-card question before the transition to Method 6: *"We're finishing up Method 5. Before we move to prototyping, would you like to generate the customer-card PowerPoint now?"*
+- **If the decline happens at Method 5 (first or second decline)**: do not re-offer again in the current DT run; continue to implementation methods.
 
 Record all offers and responses in coaching state for audit and session recovery.
 

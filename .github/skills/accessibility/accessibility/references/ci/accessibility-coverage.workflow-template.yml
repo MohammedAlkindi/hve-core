@@ -154,13 +154,19 @@ jobs:
             [ -e "$record" ] || continue
             echo "Verifying $record"
             # Exit 3 means a blocking expectation failed: real intent drift.
-            # Any other non-zero exit is an adapter error and stops the job.
+            # Exit 4 means a blocking expectation was never evaluated: missing
+            # coverage, which would otherwise pass silently. Both fail the job
+            # and are reported distinctly. Any other non-zero exit is an
+            # adapter error and stops the job.
             uv run python -m runtime_a11y verify-intent \
               --record "$record" \
               --results "${{ env.TARGET_RESULTS }}" || {
               code=$?
               if [ "$code" -eq 3 ]; then
                 echo "::error::Design intent drift in $record"
+                status=1
+              elif [ "$code" -eq 4 ]; then
+                echo "::error::Blocking design intent expectation never evaluated in $record"
                 status=1
               else
                 exit "$code"
