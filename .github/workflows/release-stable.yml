@@ -158,26 +158,25 @@ jobs:
             exit 1
           fi
 
-          SNAPSHOT_TAG="plugins-v$SOURCE_VERSION"
-          if ! git fetch --no-tags origin "+refs/tags/$SNAPSHOT_TAG:refs/tags/$SNAPSHOT_TAG"; then
-            echo "::error::Immutable snapshot $SNAPSHOT_TAG does not exist"
+          EVIDENCE_DIR="$RUNNER_TEMP/stable-promotion-evidence"
+          rm -rf "$EVIDENCE_DIR"
+          mkdir -p "$EVIDENCE_DIR"
+          if ! gh release download "$SOURCE_TAG" -R "$REPOSITORY" \
+            -p 'plugin-release-evidence.json' -D "$EVIDENCE_DIR"; then
+            echo "::error::$SOURCE_TAG carries no readable plugin-release-evidence.json"
             exit 1
           fi
-          if ! EVIDENCE=$(git show "refs/tags/$SNAPSHOT_TAG^{commit}:plugin-release-evidence.json" 2>/dev/null); then
-            echo "::error::$SNAPSHOT_TAG carries no readable plugin-release-evidence.json"
-            exit 1
-          fi
+          EVIDENCE=$(cat "$EVIDENCE_DIR/plugin-release-evidence.json")
           if ! printf '%s' "$EVIDENCE" | jq -e \
             --arg version "$SOURCE_VERSION" \
             --arg source_commit "$SOURCE_SHA" \
             --arg repository "$REPOSITORY" '
-              .schema == "hve-core/plugin-release-evidence/v1" and
+              .schema == "hve-core/plugin-release-evidence/v2" and
               .sourceCommit == $source_commit and
               .version == $version and
               .locator.source == "github" and
               .locator.repo == $repository and
-              .locator.path == "plugins" and
-              .locator.ref == ("plugins-v" + $version) and
+              .locator.ref == ("hve-core-v" + $version) and
               (.packageCount | type == "number" and . > 0) and
               (.packages | type == "array") and
               ((.packages | length) == .packageCount) and
@@ -189,7 +188,7 @@ jobs:
               (.totalBytes | type == "number" and . > 0) and
               (.digest | type == "string" and test("^[0-9a-f]{64}$"))
             ' >/dev/null; then
-            echo "::error::$SNAPSHOT_TAG evidence does not match published source $SOURCE_TAG at $SOURCE_SHA"
+            echo "::error::$SOURCE_TAG evidence does not match published source $SOURCE_TAG at $SOURCE_SHA"
             exit 1
           fi
 
@@ -277,15 +276,14 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/promotion"
 
-          for candidate_ref in "refs/tags/hve-core-v$VERSION" "refs/tags/plugins-v$VERSION"; do
-            # A transport or authentication failure aborts under set -e
-            # instead of reporting the identity as available.
-            OCCUPIED=$(git ls-remote origin "$candidate_ref")
-            if [ -n "$OCCUPIED" ]; then
-              echo "::error::Candidate release identity $candidate_ref already exists"
-              exit 1
-            fi
-          done
+          # A transport or authentication failure aborts under set -e instead
+          # of reporting the identity as available.
+          CANDIDATE_REF="refs/tags/hve-core-v$VERSION"
+          OCCUPIED=$(git ls-remote origin "$CANDIDATE_REF")
+          if [ -n "$OCCUPIED" ]; then
+            echo "::error::Candidate release identity $CANDIDATE_REF already exists"
+            exit 1
+          fi
 
           # Only an explicit not-found response proves the release identity is
           # free. A success means it is occupied, and every auth, rate-limit,
@@ -304,7 +302,7 @@ jobs:
             exit 1
           fi
 
-          echo "Release identity hve-core-v$VERSION and plugins-v$VERSION is unoccupied"
+          echo "Release identity hve-core-v$VERSION is unoccupied"
 
       - name: Refresh the promotion head
         id: promote
@@ -393,6 +391,7 @@ jobs:
           # restored.
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/scripts/release/Update-VersionFiles.ps1" \
               -Version "$TARGET_VERSION" \
+              -CatalogRefMode Exact \
               -RepoRoot "$PWD" \
               -SkipManifest \
               -SkipPluginGenerate

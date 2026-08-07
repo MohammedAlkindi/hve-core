@@ -3,7 +3,7 @@ title: Installing HVE Core
 description: Install a catalog-selected HVE Core extension or plugin, or adopt selected components from a clone
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-04
+ms.date: 2026-08-06
 ms.topic: how-to
 keywords: [installation, setup, github copilot, marketplace, selective clone]
 estimated_reading_time: 4
@@ -106,19 +106,27 @@ copilot plugin marketplace add microsoft/hve-core#main
 copilot plugin install hve-core@hve-core
 ```
 
-The `main` catalog is updated by a reviewed pull request after successful
-PreRelease publication. Each catalog entry still pins matching immutable
-`plugins-v<version>` bytes. Register an exact release snapshot when you need a
-fixed catalog and payload set:
+The `main` catalog sources canonical content from `.github` and omits
+`source.ref`. After you refresh the marketplace and update the plugin, it
+resolves the current `main` content. Ref omission does not update an installed
+plugin by itself. Register an exact release when you need a fixed, reviewed
+catalog and payload set:
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core#plugins-v<version>
+copilot plugin marketplace add microsoft/hve-core#hve-core-v<version>
 ```
 
-Both refs register the same marketplace name, `hve-core`, so keep one active
-registration at a time. The client does not promise automatic refresh. After
-the moving catalog advances, explicitly refresh it and update the installed
-plugin:
+Release catalog entries use the same exact `hve-core-v<version>` ref. Those
+release assets are reviewed, release-gated, SBOM-covered, attested, and
+immutable. By contrast, `#main` delivers current main bytes after refresh
+without a release gate, SBOM, or attestation covering those bytes. This is the
+intended development-channel behavior.
+
+Both refs register the marketplace name `hve-core`, so keep one active
+registration at a time. For a self-added marketplace, you can set
+`autoUpdate: true` on its `extraKnownMarketplaces` entry in your personal
+Copilot CLI settings. Otherwise, after `main` advances, explicitly refresh the
+marketplace and then update the installed plugin:
 
 ```bash
 copilot plugin marketplace update hve-core

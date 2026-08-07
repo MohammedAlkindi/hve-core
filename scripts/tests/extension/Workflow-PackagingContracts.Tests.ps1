@@ -219,7 +219,7 @@ Describe 'Package discovery parity' -Tag 'Unit' {
         [string]$verification[0]['env']['DISCOVERED_NAMES'] | Should -BeExactly '${{ needs.discover-packages.outputs.names }}'
         $run = [string]$verification[0]['run']
         $run | Should -Match "jq -r '\.\[\]' \| sort"
-        $run | Should -Match 'find plugins -mindepth 1 -maxdepth 1 -type d'
+        $run | Should -Match 'find "\$\{HVE_PLUGIN_STAGING_ROOT\}" -mindepth 1 -maxdepth 1 -type d'
         $run | Should -Match '\[ "\$expected" != "\$actual" \]'
         $run | Should -Not -Match '-eq 1\b|== 1\b'
     }
@@ -380,6 +380,51 @@ Describe 'Plugin validation lane' -Tag 'Unit' {
         $script:StepIndex['plugin:evidence'] | Should -BeGreaterThan $script:StepIndex['plugin:generate']
     }
 
+    It 'Stages generated package work under runner temp in <Workflow> step <Step>' -ForEach @(
+        @{ Workflow = 'plugin-validation.yml'; Job = 'validate'; Step = 'Regenerate plugins from source' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'discover-packages'; Step = 'Discover marketplace packages' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Generate committed plugins' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Generate plugins and projected release catalog' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Verify generated roots match discovered packages' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Package plugin directory' }
+    ) {
+        $document = Get-WorkflowDocument -Name $Workflow
+        $step = Get-NamedJobStep -Document $document -JobName $Job -StepName $Step
+        [string]$step['env']['HVE_PLUGIN_STAGING_ROOT'] |
+            Should -BeExactly '${{ runner.temp }}/plugins'
+    }
+
+    # Canonical evidence is derived from declared git-tracked sources, so no
+    # evidence producer may depend on a materialized package tree.
+    It 'Records canonical evidence without a staging root in <Workflow> step <Step>' -ForEach @(
+        @{ Workflow = 'plugin-validation.yml'; Job = 'validate'; Step = 'Record canonical release evidence' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'publish-evidence'; Step = 'Record canonical release evidence' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'publish-evidence'; Step = 'Verify recorded evidence reproduces' }
+    ) {
+        $document = Get-WorkflowDocument -Name $Workflow
+        $step = Get-NamedJobStep -Document $document -JobName $Job -StepName $Step
+        $environment = if ($step.Contains('env')) { $step['env'] } else { @{} }
+        $environment.Contains('HVE_PLUGIN_STAGING_ROOT') | Should -BeFalse
+    }
+
+    It 'Preserves the plugins directory prefix inside signed ZIP archives' {
+        $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name 'plugin-package.yml') -JobName 'package'
+        $package = @($steps | Where-Object { $_ -match 'zip -r' })
+        $package | Should -HaveCount 1
+        $package[0] | Should -Match '\(cd "\$\{RUNNER_TEMP\}"'
+        $package[0] | Should -Match '"plugins/\$\{PACKAGE_ID\}"'
+        $package[0] | Should -Match 'dist/plugins/\$\{PACKAGE_ID\}\.zip'
+    }
+
+    It 'References no repository-root generated plugin tree in retained callers' {
+        foreach ($workflow in @('plugin-validation.yml', 'plugin-package.yml')) {
+            $text = Get-WorkflowText -Name $workflow
+            $text | Should -Not -Match 'find plugins -'
+            $text | Should -Not -Match 'Get-ChildItem -LiteralPath plugins -Directory'
+            $text | Should -Not -Match 'cp -R plugins '
+        }
+    }
+
     It 'Runs no removed collection lint' {
         (Get-WorkflowText -Name 'plugin-validation.yml') | Should -Not -Match 'lint:collections'
         [string]$script:RootManifest.scripts.'validate:local' | Should -Not -Match 'lint:collections'
@@ -535,7 +580,8 @@ Describe 'Release source ownership' -Tag 'Unit' {
     It 'Creates no tag or GitHub release during stable preparation on main' {
         $text = Get-WorkflowText -Name 'release-stable.yml'
         $text | Should -Not -Match 'ref=refs/tags/'
-        $text | Should -Not -Match 'gh release '
+        # Reading the selected source release is permitted; only mutation is not.
+        $text | Should -Not -Match 'gh release (create|edit|delete|upload)'
         $text | Should -Not -Match 'release_created'
     }
 
@@ -745,11 +791,11 @@ Describe 'Pre-release preparation and publication' -Tag 'Unit' {
 
     It 'Closes the pre-release milestone only after final publication' {
         @($script:PreReleaseDocument['jobs']['close-milestone']['needs']) | Should -Contain 'publish-release'
-        @($script:PreReleaseDocument['jobs']['publish-release']['needs']) | Should -Contain 'plugin-snapshot-production'
+        @($script:PreReleaseDocument['jobs']['publish-release']['needs']) | Should -Contain 'upload-plugin-packages'
 
         $mainSync = $script:PreReleaseDocument['jobs']['main-catalog-sync']
         $mainSync | Should -Not -BeNullOrEmpty
-        @($mainSync['needs']) | Should -Be @('validate-release', 'plugin-snapshot-production', 'publish-release')
+        @($mainSync['needs']) | Should -Be @('validate-release', 'plugin-package-prerelease', 'publish-release')
         [string]$mainSync['uses'] | Should -BeExactly './.github/workflows/release-main-catalog-sync.yml'
         [string]$mainSync['with']['version'] | Should -BeExactly '${{ needs.validate-release.outputs.version }}'
         [string]$mainSync['with']['release-sha'] | Should -BeExactly '${{ needs.validate-release.outputs.sha }}'
@@ -839,7 +885,7 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $stateRun | Should -Match ([regex]::Escape('refs/tags/$SOURCE_TAG^{commit}'))
         $stateRun | Should -Match ([regex]::Escape('git show "$SOURCE_SHA:$SOURCE_MANIFEST"'))
         $stateRun | Should -Match ([regex]::Escape('git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/$SOURCE_BRANCH"'))
-        $stateRun | Should -Match ([regex]::Escape('SNAPSHOT_TAG="plugins-v$SOURCE_VERSION"'))
+        $stateRun | Should -Match ([regex]::Escape('gh release download "$SOURCE_TAG"'))
         $stateRun | Should -Match ([regex]::Escape('refs/remotes/origin/$BASE_BRANCH..$SOURCE_SHA'))
         $stateRun | Should -Not -Match 'SOURCE_SHA=\$\(git rev-parse "refs/remotes/origin/\$SOURCE_BRANCH"\)'
         $stateRun | Should -Not -Match 'plugins-v\$VERSION|hve-core-v\$VERSION'
@@ -1129,13 +1175,9 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $preRelease = Get-WorkflowDocument -Name 'release-prerelease.yml'
         [string]$preRelease['jobs']['plugin-package-prerelease']['with']['source-policy'] |
             Should -BeExactly 'release-tag'
-        [string]$preRelease['jobs']['plugin-snapshot-production']['with']['source-policy'] |
-            Should -BeExactly 'release-tag'
 
         $stable = Get-WorkflowDocument -Name 'release-stable-publish.yml'
         [string]$stable['jobs']['plugin-package-release']['with']['source-policy'] |
-            Should -BeExactly 'release-tag'
-        [string]$stable['jobs']['plugin-snapshot-production']['with']['source-policy'] |
             Should -BeExactly 'release-tag'
     }
 
@@ -1143,6 +1185,7 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         @{ Workflow = 'extension-package.yml'; Job = 'discover-packages' }
         @{ Workflow = 'extension-provenance.yml'; Job = 'discover-packages' }
         @{ Workflow = 'plugin-package.yml'; Job = 'discover-packages' }
+        @{ Workflow = 'plugin-package.yml'; Job = 'publish-evidence' }
     ) {
         $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name $Workflow) -JobName $Job
         @($steps | Where-Object { $_ -match 'source-ref is required and must not be blank' }) | Should -HaveCount 1
@@ -1151,11 +1194,20 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
 
     It 'Consumes the version input in the plugin lane' {
         $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name 'plugin-package.yml') -JobName 'package'
-        $evidence = @($steps | Where-Object { $_ -match 'Assert-PluginReleaseEvidence\.ps1' })
-        $evidence | Should -HaveCount 1
-        $evidence[0] | Should -Match '-Version \$env:INPUT_VERSION'
+        @($steps | Where-Object { $_ -match 'Assert-PluginReleaseEvidence\.ps1' }) | Should -HaveCount 0
+
+        $evidence = @(Get-JobStepText -Document (Get-WorkflowDocument -Name 'plugin-package.yml') -JobName 'publish-evidence' |
+                Where-Object { $_ -match 'Assert-PluginReleaseEvidence\.ps1' })
+        $evidence | Should -HaveCount 2
+        foreach ($step in $evidence) {
+            $step | Should -Match '-EvidenceVersion v2'
+            $step | Should -Match '-SourceCommit \$env:INPUT_SOURCE_REF'
+            $step | Should -Match '-Version \$env:INPUT_VERSION'
+            $step | Should -Match '-ReleaseTag "hve-core-v\$env:INPUT_VERSION"'
+        }
+        $evidence[0] | Should -Match '-ExpectedPackageCount \$expectedCount'
         $evidence[0] | Should -Match '-OutputPath logs/plugin-release-evidence\.json'
-        $evidence[0] | Should -Not -Match '-ExpectedPackageCount'
+        $evidence[1] | Should -Match '-ExpectedEvidencePath logs/plugin-release-evidence\.json'
     }
 
     It 'Avoids projected release catalogs in both channel package lanes' {
@@ -1171,169 +1223,108 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $stable['jobs']['plugin-package-release']['with'].Contains('project-release-catalog') | Should -BeFalse
     }
 
-    It 'Pins no package count in either snapshot evidence call' {
-        $document = Get-WorkflowDocument -Name 'plugin-snapshot-publish.yml'
-        $evidenceSteps = @($document['jobs']['publish-snapshot']['steps'] | Where-Object {
-                $_.Contains('run') -and [string]$_['run'] -match 'Assert-PluginReleaseEvidence\.ps1'
-            })
-        $evidenceSteps | Should -HaveCount 2
-        foreach ($step in $evidenceSteps) {
-            [string]$step['run'] | Should -Not -Match '-ExpectedPackageCount'
-            [string]$step['run'] | Should -Match '-SourceCommit "\$\{SOURCE_COMMIT\}"'
-            [string]$step['run'] | Should -Match '-Version "\$\{EFFECTIVE_VERSION\}"'
-            [string]$step['run'] | Should -Match '-ReleaseTag "\$\{RELEASE_TAG\}"'
-        }
-        [string]$evidenceSteps[0]['run'] | Should -Match '-OutputPath logs/plugin-release-evidence\.json'
-        [string]$evidenceSteps[1]['run'] | Should -Match '-ExpectedEvidencePath logs/plugin-release-evidence\.json'
-        [string]$evidenceSteps[1]['run'] | Should -Match '-OutputPath logs/plugin-snapshot-verification\.json'
+    It 'Binds recorded evidence to the discovered package set' {
+        $document = Get-WorkflowDocument -Name 'plugin-package.yml'
+        $record = Get-NamedJobStep -Document $document -JobName 'publish-evidence' -StepName 'Record canonical release evidence'
+        [string]$record['env']['DISCOVERED_NAMES'] | Should -BeExactly '${{ needs.discover-packages.outputs.names }}'
+        [string]$record['env']['INPUT_SOURCE_REF'] | Should -BeExactly '${{ inputs.source-ref }}'
+        [string]$record['env']['INPUT_VERSION'] | Should -BeExactly '${{ inputs.version }}'
+
+        $run = [string]$record['run']
+        $run | Should -Match 'ConvertFrom-Json'
+        $run | Should -Match 'Package discovery produced no package names'
+        $run | Should -Match '-ExpectedPackageCount \$expectedCount'
+
+        # Record, reproduce, then publish. A document that cannot be recomputed
+        # from the same tracked sources never reaches the release.
+        $names = [string[]]@($document['jobs']['publish-evidence']['steps'] | ForEach-Object { [string]$_['name'] })
+        [array]::IndexOf($names, 'Record canonical release evidence') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Verify recorded evidence reproduces'))
+        [array]::IndexOf($names, 'Verify recorded evidence reproduces') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Upload evidence to GitHub Release'))
     }
 
-    It 'Verifies generated roots against the projected catalog before evidence and staging' {
-        $document = Get-WorkflowDocument -Name 'plugin-snapshot-publish.yml'
-        $texts = [string[]]@(Get-JobStepText -Document $document -JobName 'publish-snapshot')
-        $indexes = @(0..($texts.Count - 1))
-
-        $verifyIndexes = @($indexes | Where-Object {
-                $texts[$_] -match 'logs/marketplace-snapshot\.json' -and
-            $texts[$_] -match 'Get-ChildItem -LiteralPath plugins -Directory'
-            })
-        $verifyIndexes | Should -HaveCount 1
-        $verifyIndex = $verifyIndexes[0]
-
-        $generateIndex = @($indexes | Where-Object { $texts[$_] -match 'Generate-Plugins\.ps1' })[0]
-        $evidenceIndex = @($indexes | Where-Object { $texts[$_] -match 'Assert-PluginReleaseEvidence\.ps1' })[0]
-        $stageIndex = @($indexes | Where-Object { $texts[$_] -match 'git -C "\$\{snapshot_dir\}" init' })[0]
-        $verifyIndex | Should -BeGreaterThan $generateIndex
-        $verifyIndex | Should -BeLessThan $evidenceIndex
-        $verifyIndex | Should -BeLessThan $stageIndex
-
-        $run = $texts[$verifyIndex]
-        $run | Should -Match '\. ./scripts/extension/Get-MarketplacePackageMatrix\.ps1'
-        $run | Should -Match "Get-MarketplacePackageMatrixCore -Channel PreRelease -CatalogPath 'logs/marketplace-snapshot\.json'"
-        $run | Should -Match '\[array\]::Sort\(\$expected, \[System\.StringComparer\]::Ordinal\)'
-        $run | Should -Match '\[array\]::Sort\(\$actual, \[System\.StringComparer\]::Ordinal\)'
-        $run | Should -Match '\[string\]::Join\('','', \$expected\) -cne \[string\]::Join\('','', \$actual\)'
-        $run | Should -Not -Match '-eq 1\b|== 1\b|HaveCount 1'
-        $run | Should -Not -Match 'stable|preview|experimental|deprecated|removed'
-    }
-
-    It 'Retains snapshot integrity protections around publication' {
-        $text = Get-WorkflowText -Name 'plugin-snapshot-publish.yml'
-        @([regex]::Matches($text, 'find [^\n]*-type l')) | Should -HaveCount 2
-        $text | Should -Match 'git clone --quiet --no-local'
-        $text | Should -Match 'git diff --quiet -- \.github/plugin/marketplace\.json'
-        $text | Should -Match 'push --atomic'
-        $text | Should -Not -Match 'push --force'
-    }
-
-    It 'Validates caller-controlled refs before writing snapshot outputs' {
-        $document = Get-WorkflowDocument -Name 'plugin-snapshot-publish.yml'
-        $checkout = @($document['jobs']['publish-snapshot']['steps'] | Where-Object {
-                $_.Contains('uses') -and [string]$_['uses'] -match '^actions/checkout@'
-            })
-        $checkout | Should -HaveCount 1
-        $checkout[0]['with'].Contains('ref') | Should -BeFalse
-        $checkout[0]['with']['persist-credentials'] | Should -BeFalse
-
-        $source = @($document['jobs']['publish-snapshot']['steps'] | Where-Object {
-                [string]$_['id'] -eq 'source'
-            })[0]
-        $run = [string]$source['run']
-
-        $run | Should -Match "validate_ref_value 'source-ref'"
-        $run | Should -Match "validate_ref_value 'snapshot-branch'"
-        $run | Should -Match "validate_ref_value 'snapshot-tag'"
-        $run | Should -Match '\^\[A-Za-z0-9\._/-\]\+\$'
-        $run | Should -Match '\[\[ -n "\$\{value\}" && ! "\$\{value\}" =~'
-        $run | Should -Not -Match '\$\{value\}.*\|\s*grep'
-        foreach ($pattern in @(
-                "'main-ancestor'",
-                "'release-tag'",
-                "'direct-event'",
-                "'manual-authorized'",
-                'refs/heads/main:refs/remotes/origin/main',
-                'refs/tags/hve-core-v\$\{EXPECTED_VERSION\}',
-                'git merge-base --is-ancestor',
-                'git check-ref-format',
-                'FETCH_HEAD\^\{commit\}',
-                'git checkout --quiet --detach',
-                'Unsupported source policy'
-            )) {
-            $run | Should -Match $pattern
-        }
-        $run.IndexOf("validate_ref_value 'source-ref'", [System.StringComparison]::Ordinal) |
-            Should -BeLessThan $run.IndexOf('source_commit=$(git rev-parse HEAD)', [System.StringComparison]::Ordinal)
-        $run.IndexOf("validate_ref_value 'source-ref'", [System.StringComparison]::Ordinal) |
-            Should -BeLessThan $run.IndexOf('} >> "$GITHUB_OUTPUT"', [System.StringComparison]::Ordinal)
-    }
-
-    It 'Grants write permission only to the gated snapshot publication job' {
-        $document = Get-WorkflowDocument -Name 'plugin-snapshot-publish.yml'
-        $stage = $document['jobs']['publish-snapshot']
-        $publish = $document['jobs']['push-snapshot']
-
-        [string]$stage['permissions']['contents'] | Should -BeExactly 'read'
-        [string]$publish['permissions']['contents'] | Should -BeExactly 'write'
-        [string]$publish['needs'] | Should -BeExactly 'publish-snapshot'
-        [string]$publish['if'] | Should -Match "needs\.publish-snapshot\.outputs\.should-publish == 'true'"
-
-        $source = @($stage['steps'] | Where-Object { [string]$_['id'] -eq 'source' })[0]
-        [string]$source['run'] | Should -Match "GITHUB_EVENT_NAME.*workflow_dispatch"
-
-        $stageText = [string]::Join("`n", (Get-JobStepText -Document $document -JobName 'publish-snapshot'))
-        $publishText = [string]::Join("`n", (Get-JobStepText -Document $document -JobName 'push-snapshot'))
-        $stageText | Should -Not -Match 'secrets\.GITHUB_TOKEN|git -C [^\n]+ push'
-        $publishText | Should -Match '^actions/download-artifact@' -Because 'the verified archive crosses the job boundary'
-        $publishText | Should -Match 'tar -xzf'
-        $publishText | Should -Match 'push --atomic'
-        $publishText | Should -Match 'refs/tags/\$\{RELEASE_TAG\}'
-    }
-
-    It 'Binds snapshot evidence to the resolved effective version' {
-        $document = Get-WorkflowDocument -Name 'plugin-snapshot-publish.yml'
-        $evidenceSteps = @($document['jobs']['publish-snapshot']['steps'] | Where-Object {
-                $_.Contains('run') -and [string]$_['run'] -match 'Assert-PluginReleaseEvidence\.ps1'
-            })
-        $evidenceSteps | Should -HaveCount 2
-        foreach ($step in $evidenceSteps) {
-            [string]$step['run'] | Should -Match '-Version "\$\{EFFECTIVE_VERSION\}"'
-            [string]$step['env']['EFFECTIVE_VERSION'] |
-                Should -BeExactly '${{ steps.source.outputs.version }}'
+    # Historical plugins-v tags stay immutable and keep resolving. Retirement is
+    # prospective only, so no workflow may write that namespace again.
+    It 'Creates, moves, deletes, or force-updates no plugins-v tag in any workflow' {
+        $workflows = @(Get-ChildItem -LiteralPath $script:WorkflowDirectory -Filter '*.yml' -File)
+        $workflows | Should -Not -BeNullOrEmpty
+        foreach ($workflow in $workflows) {
+            $text = Get-Content -LiteralPath $workflow.FullName -Raw -Encoding utf8
+            foreach ($forbidden in @(
+                    'refs/tags/plugins-v',
+                    'git tag[^\n]*plugins-v',
+                    'gh release (create|delete)[^\n]*plugins-v',
+                    'push --force',
+                    'push[^\n]*--delete',
+                    'Assert-PluginSnapshotTarget'
+                )) {
+                $text | Should -Not -Match $forbidden -Because "$($workflow.Name) must not write the plugins-v namespace"
+            }
         }
     }
 
-    It 'Accepts an explicit expected version for snapshot generation' {
-        $inputs = (Get-WorkflowDocument -Name 'plugin-snapshot-publish.yml')['on']['workflow_dispatch']['inputs']
-        $inputs.Contains('expected-version') | Should -BeTrue
-        (Get-WorkflowText -Name 'plugin-snapshot-publish.yml') | Should -Match 'EXPECTED_VERSION'
+    It 'Retired the orphan snapshot publisher and every workflow reference to it' {
+        Test-Path -LiteralPath (Join-Path $script:WorkflowDirectory 'plugin-snapshot-publish.yml') |
+            Should -BeFalse -Because 'canonical release evidence replaces orphan snapshot publication'
+        foreach ($workflow in @(Get-ChildItem -LiteralPath $script:WorkflowDirectory -Filter '*.yml' -File)) {
+            $text = Get-Content -LiteralPath $workflow.FullName -Raw -Encoding utf8
+            foreach ($forbidden in @('plugin-snapshot-publish\.yml', 'plugin-snapshot-production', 'plugins-snapshot/')) {
+                $text | Should -Not -Match $forbidden -Because "$($workflow.Name) must not reference the retired publisher"
+            }
+        }
     }
 
-    It 'Publishes immutable production snapshots for both release lanes before publication' {
-        $snapshot = Get-WorkflowDocument -Name 'plugin-snapshot-publish.yml'
-        $callInputs = $snapshot['on']['workflow_call']['inputs']
-        foreach ($name in @('source-ref', 'source-policy', 'expected-version', 'production')) {
-            $callInputs.Contains($name) | Should -BeTrue
+    It 'Grants release write permission only to the evidence publishing job' {
+        $document = Get-WorkflowDocument -Name 'plugin-package.yml'
+        [string]$document['permissions']['contents'] | Should -BeExactly 'read'
+        foreach ($name in @('discover-packages', 'package')) {
+            [string]$document['jobs'][$name]['permissions']['contents'] | Should -BeExactly 'read'
         }
-        [string]$callInputs['production']['type'] | Should -BeExactly 'boolean'
-        $callInputs['production']['default'] | Should -BeFalse
 
-        $snapshotText = Get-WorkflowText -Name 'plugin-snapshot-publish.yml'
-        $snapshotText | Should -Match 'Assert-PluginSnapshotTarget'
-        $snapshotText | Should -Match '-Mode \$env:SNAPSHOT_MODE'
-        $snapshotText | Should -Match 'refs/tags/\$\{RELEASE_TAG\}'
-        $snapshotText | Should -Not -Match 'push --force'
+        $evidenceJob = $document['jobs']['publish-evidence']
+        [string]$evidenceJob['needs'] | Should -BeExactly 'discover-packages'
+        [string]$evidenceJob['permissions']['contents'] | Should -BeExactly 'write'
+        [string]$evidenceJob['permissions']['id-token'] | Should -BeExactly 'write'
+        [string]$evidenceJob['permissions']['attestations'] | Should -BeExactly 'write'
 
+        $attest = Get-NamedJobStep -Document $document -JobName 'publish-evidence' -StepName 'Attest build provenance'
+        [string]$attest['uses'] | Should -Match '^actions/attest-build-provenance@[0-9a-f]{40}$'
+        [string]$attest['with']['subject-path'] | Should -BeExactly 'logs/plugin-release-evidence.json'
+
+        $upload = Get-NamedJobStep -Document $document -JobName 'publish-evidence' -StepName 'Upload evidence to GitHub Release'
+        [string]$upload['env']['TAG'] | Should -BeExactly 'hve-core-v${{ inputs.version }}'
+        [string]$upload['run'] | Should -Match 'gh release upload "\$TAG"'
+        [string]$upload['run'] | Should -Match 'logs/plugin-release-evidence\.json'
+        [string]$upload['run'] | Should -Not -Match 'gh release (create|delete|edit)'
+    }
+
+    It 'Publishes canonical release evidence for both release lanes before publication' {
         foreach ($lane in @(
-                @{ Workflow = 'release-prerelease.yml'; SnapshotJob = 'plugin-snapshot-production'; PackageJob = 'plugin-package-prerelease' },
-                @{ Workflow = 'release-stable-publish.yml'; SnapshotJob = 'plugin-snapshot-production'; PackageJob = 'plugin-package-release' }
+                @{ Workflow = 'release-prerelease.yml'; PackageJob = 'plugin-package-prerelease' },
+                @{ Workflow = 'release-stable-publish.yml'; PackageJob = 'plugin-package-release' }
             )) {
             $document = Get-WorkflowDocument -Name $lane.Workflow
-            $job = $document['jobs'][$lane.SnapshotJob]
-            [string]$job['uses'] | Should -BeExactly './.github/workflows/plugin-snapshot-publish.yml'
-            @($job['needs']) | Should -Contain $lane.PackageJob
-            $job['with']['production'] | Should -BeTrue
-            @($document['jobs']['publish-release']['needs']) | Should -Contain $lane.SnapshotJob
+            $job = $document['jobs'][$lane.PackageJob]
+            [string]$job['uses'] | Should -BeExactly './.github/workflows/plugin-package.yml'
+
+            # The reusable call writes a release asset and attests it, so the
+            # caller must grant exactly those permissions.
+            [string]$job['permissions']['contents'] | Should -BeExactly 'write'
+            [string]$job['permissions']['id-token'] | Should -BeExactly 'write'
+            [string]$job['permissions']['attestations'] | Should -BeExactly 'write'
+
+            # Producer before consumer: publication waits on the packaging call
+            # that uploads the evidence asset every catalog consumer reads.
+            @($document['jobs']['upload-plugin-packages']['needs']) | Should -Contain $lane.PackageJob
+            @($document['jobs']['publish-release']['needs']) | Should -Contain 'upload-plugin-packages'
         }
+
+        # Main synchronization reads the asset from the release it advertises,
+        # so it depends on the producing job directly as well as on publication.
+        $preRelease = Get-WorkflowDocument -Name 'release-prerelease.yml'
+        @($preRelease['jobs']['main-catalog-sync']['needs']) | Should -Contain 'plugin-package-prerelease'
+        @($preRelease['jobs']['main-catalog-sync']['needs']) | Should -Contain 'publish-release'
     }
 
     It 'Publishes the marketplace lanes from the released ref' {
@@ -1468,6 +1459,7 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
         $run | Should -Match 'merge_ref "\$SOURCE_SHA" theirs'
         $run | Should -Match 'CHANGELOG\.md "\$TARGET_CONFIG" "\$TARGET_MANIFEST"'
         $run | Should -Match 'Update-VersionFiles\.ps1'
+        $run | Should -Match '-CatalogRefMode Exact'
         $run | Should -Match '-SkipManifest'
         $run | Should -Match '-SkipPluginGenerate'
         $run | Should -Match 'release-as'
@@ -1507,8 +1499,9 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
         $run = [string]$probe['run']
         $run | Should -Match 'set -euo pipefail'
         $run | Should -Match ([regex]::Escape('cd "$GITHUB_WORKSPACE/promotion"'))
-        $run | Should -Match ([regex]::Escape('"refs/tags/hve-core-v$VERSION" "refs/tags/plugins-v$VERSION"'))
-        $run | Should -Match ([regex]::Escape('git ls-remote origin "$candidate_ref"'))
+        $run | Should -Match ([regex]::Escape('CANDIDATE_REF="refs/tags/hve-core-v$VERSION"'))
+        $run | Should -Not -Match ([regex]::Escape('refs/tags/plugins-v$VERSION'))
+        $run | Should -Match ([regex]::Escape('git ls-remote origin "$CANDIDATE_REF"'))
         $run | Should -Match ([regex]::Escape('gh api --include "/repos/$REPOSITORY/releases/tags/hve-core-v$VERSION"'))
 
         # Only an explicit not-found proves availability; success means occupied
@@ -1527,7 +1520,7 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
             Should -BeLessThan ([array]::IndexOf($names, 'Refresh the promotion head'))
     }
 
-    It 'Synchronizes main from validated PreRelease snapshots and never from Stable' {
+    It 'Synchronizes main from validated PreRelease evidence and never from Stable' {
         $script:PublishDocument['jobs'].Contains('open-main-sync-pr') | Should -BeFalse
         (Get-WorkflowText -Name 'release-stable-publish.yml') | Should -Not -Match 'release-main-catalog-sync|gh pr merge|--auto'
 
@@ -1537,14 +1530,16 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
         $job = $document['jobs']['sync-catalog']
         $job | Should -Not -BeNullOrEmpty
         $steps = Get-JobStepText -Document $document -JobName 'sync-catalog'
-        $validation = @($steps | Where-Object { $_ -match 'Immutable snapshot \$SNAPSHOT_TAG does not exist' })
+        $validation = @($steps | Where-Object { $_ -match 'RELEASE_TAG="hve-core-v\$VERSION"' })
         $validation | Should -HaveCount 1
         $validation[0] | Should -Match 'plugin-release-evidence\.json'
-        $validation[0] | Should -Match 'hve-core/plugin-release-evidence/v1'
-        $validation[0] | Should -Match '\.locator\.ref == \("plugins-v" \+ \$version\)'
+        $validation[0] | Should -Match 'hve-core/plugin-release-evidence/v2'
+        $validation[0] | Should -Match '\.locator\.ref == \("hve-core-v" \+ \$version\)'
         $validation[0] | Should -Match '\.packageCount \| type == "number"'
         $validation[0] | Should -Match '\.digest \| type == "string"'
         $validation[0] | Should -Match 'carries no readable plugin-release-evidence\.json'
+        $validation[0] | Should -Match 'gh release download "\$RELEASE_TAG"'
+        $validation[0] | Should -Not -Match 'locator\.path'
         $validation[0] | Should -Match 'git merge-base --is-ancestor'
         $validation[0] | Should -Match 'continue=false'
 
@@ -1585,12 +1580,12 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
         [string]$stableMonotonic['run'] | Should -Match 'release/stable already carries \$BASELINE'
     }
 
-    It 'Requires complete immutable snapshot evidence in every catalog consumer' {
+    It 'Requires complete canonical release evidence in every catalog consumer' {
         $consumers = @(
             @{
                 Document = Get-WorkflowDocument -Name 'release-main-catalog-sync.yml'
                 Job = 'sync-catalog'
-                Step = 'Validate snapshot and candidate version'
+                Step = 'Validate release evidence and candidate version'
             }
             @{
                 Document = $script:PrepareDocument
@@ -1608,21 +1603,32 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
             $step = Get-NamedJobStep -Document $consumer.Document -JobName $consumer.Job -StepName $consumer.Step
             $run = [string]$step['run']
             foreach ($pattern in @(
-                    'hve-core/plugin-release-evidence/v1'
+                    'hve-core/plugin-release-evidence/v2'
                     '\.sourceCommit == \$source_commit'
                     '\.version == \$version'
-                    '\.locator\.ref == \("plugins-v" \+ \$version\)'
+                    '\.locator\.ref == \("hve-core-v" \+ \$version\)'
                     '\.packageCount \| type == "number"'
                     '\.packages \| type == "array"'
                     '\.digest \| type == "string"'
+                    'gh release download'
+                    'plugin-release-evidence\.json'
                 )) {
                 $run | Should -Match $pattern
             }
+            # Only the projected package path clause is dropped; the evidence
+            # addresses the repository at its release tag instead.
+            $run | Should -Not -Match 'locator\.path'
+            $run | Should -Not -Match 'plugins-v'
         }
 
         $stableState = Get-NamedJobStep -Document $script:PrepareDocument -JobName 'prepare-promotion' -StepName 'Resolve promotion state'
         [string]$stableState['env']['REPOSITORY'] | Should -BeExactly '${{ github.repository }}'
         [string]$stableState['run'] | Should -Match ([regex]::Escape('--arg repository "$REPOSITORY"'))
+
+        $mainSyncState = Get-NamedJobStep -Document (Get-WorkflowDocument -Name 'release-main-catalog-sync.yml') `
+            -JobName 'sync-catalog' -StepName 'Validate release evidence and candidate version'
+        [string]$mainSyncState['env']['REPOSITORY'] | Should -BeExactly '${{ github.repository }}'
+        [string]$mainSyncState['env']['GH_TOKEN'] | Should -BeExactly '${{ steps.app-token.outputs.token }}'
     }
 }
 
@@ -1662,11 +1668,36 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
             $text | Should -Match 'release-stable-publish\.yml' -Because "$relativePath must name Stable release-please orchestration"
             $text | Should -Match '(?i)release-please' -Because "$relativePath must name the release authority"
             $text | Should -Match '(?i)draft' -Because "$relativePath must describe the reviewed draft boundary"
-            $text | Should -Match 'plugins-v<version>' -Because "$relativePath must document the immutable plugin snapshot"
+            $text | Should -Not -Match 'plugins-v<version>' -Because "$relativePath must not document a future plugins-v snapshot locator"
             $text | Should -Match '(?i)main' -Because "$relativePath must describe the moving main catalog"
             if ($relativePath -ne 'extension/PACKAGING.md') {
                 $text | Should -Match 'release-main-catalog-sync\.yml' -Because "$relativePath must name reviewed PreRelease catalog synchronization"
             }
+        }
+    }
+
+    It 'Requires the implemented release ref, canonical evidence, signed asset, and retirement vocabulary' {
+        foreach ($relativePath in $script:ReleaseDocumentationPaths) {
+            $text = $script:ReleaseDocumentation[$relativePath]
+            $text | Should -Match 'hve-core-v<version>' -Because "$relativePath must document the exact release ref"
+            $text | Should -Match 'plugin-release-evidence\.json' -Because "$relativePath must document canonical release evidence on the hve-core release"
+            $text | Should -Match '(?is)signed\s+plugin ZIPs?' -Because "$relativePath must keep signed plugin ZIPs as release deliverables"
+            foreach ($asset in @('SBOM', 'Sigstore', 'in-toto')) {
+                $text | Should -Match ([regex]::Escape($asset)) -Because "$relativePath must keep $asset assets as release deliverables"
+            }
+            $text | Should -Match '(?is)future\s+`plugins-v`\s+snapshot publication has stopped' -Because "$relativePath must state prospective-only snapshot retirement"
+            $text | Should -Match '(?is)existing\s+`plugins-v`\s+tags\s+and\s+catalogs\s+remain\s+immutable\s+and\s+supported' -Because "$relativePath must keep historical plugins-v tags and catalogs supported"
+        }
+    }
+
+    It 'States ref-less main refresh behavior and the main versus release attestation posture' {
+        foreach ($relativePath in $script:ReleaseDocumentationPaths) {
+            $text = $script:ReleaseDocumentation[$relativePath]
+            $text | Should -Match '(?is)ref-less main catalog' -Because "$relativePath must name the ref-less main catalog"
+            $text | Should -Match '(?is)(?:marketplace refresh|refreshes the marketplace)' -Because "$relativePath must require an explicit marketplace refresh instead of automatic main updates"
+            $text | Should -Match '(?is)(?:plugin update|updates the plugin)' -Because "$relativePath must require an explicit plugin update instead of automatic main updates"
+            $text | Should -Match '(?is)(?:without a|no)\s+release gate,\s+SBOM,\s+or\s+attestation' -Because "$relativePath must state that main bytes carry no release gate, SBOM, or attestation"
+            $text | Should -Match '(?is)release-gated[^.]{0,120}SBOM-covered[^.]{0,120}attested' -Because "$relativePath must state that release channels remain gated and attested"
         }
     }
 
@@ -1735,11 +1766,18 @@ Describe 'Catalog release ref and plugin locator consistency' -Tag 'Unit' {
         $preReleaseState = [string](Get-NamedJobStep -Document $preRelease -JobName 'validate-release' -StepName 'Verify committed pre-release state')['run']
         $preReleaseState | Should -Match '\.release-please-prerelease-manifest\.json'
         $preReleaseState | Should -Not -Match '"\.release-please-manifest\.json'
+        $preReleaseState | Should -Match '\.source\.ref == \("hve-core-v" \+ \$version\)'
+
+        $preReleaseSync = [string](Get-NamedJobStep -Document $preRelease -JobName 'sync-release-pr' -StepName 'Update committed version fields and retire the promotion intent')['run']
+        $preReleaseSync | Should -Match '-CatalogRefMode Exact'
 
         $stable = Get-WorkflowDocument -Name 'release-stable-publish.yml'
         $stableState = [string](Get-NamedJobStep -Document $stable -JobName 'validate-release' -StepName 'Verify release version and committed state')['run']
         $stableState | Should -Match '"\.release-please-manifest\.json'
         $stableState | Should -Not -Match 'release-please-prerelease-manifest\.json'
+        $stableState | Should -Match '\.source\.ref == \("hve-core-v" \+ \$version\)'
+        $stableSync = [string](Get-NamedJobStep -Document $stable -JobName 'sync-release-pr' -StepName 'Update committed version fields and retire the promotion intent')['run']
+        $stableSync | Should -Match '-CatalogRefMode Exact'
         # Final publication is an independent boundary: it rejects an odd minor
         # even though preparation already resolved an even one.
         $stableState | Should -Match 'MINOR % 2 != 0'
@@ -1747,19 +1785,24 @@ Describe 'Catalog release ref and plugin locator consistency' -Tag 'Unit' {
 
         $mainSync = Get-WorkflowDocument -Name 'release-main-catalog-sync.yml'
         $mainUpdate = [string](Get-NamedJobStep -Document $mainSync -JobName 'sync-catalog' -StepName 'Update the main catalog')['run']
+        $mainUpdate | Should -Match '-CatalogRefMode Remove'
         $mainUpdate | Should -Match '-SkipManifest'
+        $mainUpdate | Should -Match 'main catalog entries must omit source\.ref and source\.sha'
+        $mainUpdate | Should -Match '\(\.plugins \| type == "array"\)'
+
+        $pluginPackage = Get-WorkflowText -Name 'plugin-package.yml'
+        $pluginPackage | Should -Match '\$expectedRef = "hve-core-v\$env:INPUT_VERSION"'
     }
 
-    # A catalog registered at a release ref must resolve the immutable plugin
-    # snapshot for that same version. Selecting a source branch alone never
-    # changes the installed plugin bytes.
-    It 'Resolves a matching immutable plugins-v<version> source ref' {
+    # The committed catalog is the main channel. Release workflows add exact
+    # refs to branch-owned catalog state before packaging or publication.
+    It 'Keeps the committed main catalog canonical and ref-less' {
         $version = [string]$script:RootManifest.version
         @($script:Catalog['plugins']).Count | Should -BeGreaterThan 0
         foreach ($entry in @($script:Catalog['plugins'])) {
             [string]$entry['version'] | Should -BeExactly $version
-            [string]$entry['source']['path'] | Should -BeExactly "plugins/$([string]$entry['name'])"
-            [string]$entry['source']['ref'] | Should -BeExactly "plugins-v$version"
+            [string]$entry['source']['path'] | Should -BeExactly '.github'
+            $entry['source'].Contains('ref') | Should -BeFalse
             $entry['source'].Contains('sha') | Should -BeFalse
         }
     }

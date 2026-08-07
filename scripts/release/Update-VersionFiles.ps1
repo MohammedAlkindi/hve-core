@@ -17,11 +17,15 @@
     - .github/plugin/marketplace.json (metadata.version and plugins[*].version)
     - The selected release-please manifest, unless SkipManifest is set
 
-    After updating the files, runs 'npm run plugin:generate' to regenerate
-    plugin outputs so plugin-validation passes.
+    After updating the files, runs 'npm run plugin:generate' against the
+    caller-supplied staging root unless generation is skipped.
 
 .PARAMETER Version
     The version string to write (e.g. '3.3.0').
+
+.PARAMETER CatalogRefMode
+    Required catalog source-ref policy. Exact adds or updates every entry to
+    hve-core-v<version>; Remove deletes source.ref from every entry.
 
 .PARAMETER RepoRoot
     Optional. Repository root directory. Defaults to the git working tree root.
@@ -45,8 +49,9 @@
 
 .NOTES
     Requires Node.js and npm dependencies installed when SkipPluginGenerate is
-    not set. It also rewrites the catalog's immutable plugins-v<version> source
-    ref, which release-please's extra-files updaters cannot express.
+    not set. The caller must also supply package staging outside the repository.
+    Catalog ref updates are explicit because release-please's extra-files
+    updaters cannot express property insertion or removal.
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'Manifest')]
@@ -54,6 +59,10 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+\z')]
     [string]$Version,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('Remove', 'Exact')]
+    [string]$CatalogRefMode,
 
     [Parameter(Mandatory = $false)]
     [string]$RepoRoot = "",
@@ -131,6 +140,51 @@ function Update-JsonVersion {
     Write-Host "  ✅ Updated $Description" -ForegroundColor Green
 }
 
+function Update-MarketplaceCatalogVersion {
+    <#
+    .SYNOPSIS
+        Advances marketplace versions and applies an explicit source-ref mode.
+
+    .PARAMETER Catalog
+        Parsed marketplace catalog.
+
+    .PARAMETER Version
+        Exact version written to catalog metadata and every package.
+
+    .PARAMETER RefMode
+        Exact adds hve-core-v<version>; Remove deletes source.ref.
+
+    .OUTPUTS
+        [object] Updated marketplace catalog.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Catalog,
+
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^\d+\.\d+\.\d+\z')]
+        [string]$Version,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Remove', 'Exact')]
+        [string]$RefMode
+    )
+
+    $Catalog.metadata.version = $Version
+    foreach ($plugin in $Catalog.plugins) {
+        $plugin.version = $Version
+        if ($RefMode -eq 'Exact') {
+            $plugin.source | Add-Member -NotePropertyName ref -NotePropertyValue "hve-core-v$Version" -Force
+        }
+        else {
+            $plugin.source.PSObject.Properties.Remove('ref')
+        }
+    }
+    return $Catalog
+}
+
 #endregion Helpers
 
 #region Main
@@ -173,14 +227,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             -Description ".github/plugin/marketplace.json" `
             -Transform {
                 param($j)
-                $j.metadata.version = $Version
-                foreach ($plugin in $j.plugins) {
-                    $plugin.version = $Version
-                    if ($plugin.source -is [PSCustomObject] -and $plugin.source.PSObject.Properties.Name -contains 'ref') {
-                        $plugin.source.ref = "plugins-v$Version"
-                    }
-                }
-                $j
+                Update-MarketplaceCatalogVersion -Catalog $j -Version $Version -RefMode $CatalogRefMode
             }
 
         # 5. Selected release-please manifest

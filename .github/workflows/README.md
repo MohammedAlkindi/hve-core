@@ -2,7 +2,7 @@
 title: GitHub Actions Workflows
 description: Modular CI/CD workflow architecture for validation, security scanning, and automated maintenance
 author: HVE Core Team
-ms.date: 2026-08-05
+ms.date: 2026-08-06
 ms.topic: reference
 keywords:
   - github actions
@@ -62,7 +62,7 @@ The validation jobs in `pr-validation.yml` feed the `pr-validation-success` aggr
 
 release-stable.yml jobs: prepare-promotion, open-promotion-pr
 
-release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-pr, validate-release, close-milestone, extension-provenance, plugin-package-release, plugin-snapshot-production, generate-dependency-sbom, upload-plugin-packages, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
+release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-pr, validate-release, close-milestone, extension-provenance, plugin-package-release, generate-dependency-sbom, upload-plugin-packages, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
 
 release-prerelease-prepare.yml jobs: prepare-promotion, open-promotion-pr
 
@@ -70,7 +70,7 @@ release-main-catalog-sync.yml jobs: sync-catalog
 
 release-prerelease.yml jobs: release-please, sync-release-pr, validate-release,
 close-milestone, extension-package-prerelease, plugin-package-prerelease,
-plugin-snapshot-production, generate-dependency-sbom, attest-and-upload,
+generate-dependency-sbom, attest-and-upload,
 upload-plugin-packages, verify-provenance, publish-release, main-catalog-sync
 
 `release-prerelease-prepare.yml` maintains the reviewed, target-based `main` to
@@ -78,7 +78,7 @@ upload-plugin-packages, verify-provenance, publish-release, main-catalog-sync
 explicit published PreRelease tag and maintains one reviewed promotion head
 scoped to that tag:
 `release-promotion--release-prerelease--to--release-stable--<source-tag>`.
-It resolves the tag commit, verifies matching immutable plugin snapshot
+It resolves the tag commit, verifies matching canonical plugin release
 evidence, and uses only that commit for promotion even when
 the branch tip is newer. Same-tag reruns reapply selected-source package and
 catalog content before Stable version projection; different tags cannot share
@@ -90,8 +90,8 @@ Release-please owns the managed Stable release PR and draft Stable release.
 
 Before Stable release-please runs, a read-only trigger job validates the exact
 managed head or the full tag-scoped promotion grammar. Promotion mode
-revalidates the selected release, source commit, manifest, ancestry, snapshot
-evidence, pull-request head containment, and live Stable intent. Managed mode
+revalidates the selected release, source commit, manifest, ancestry, canonical
+plugin release evidence, pull-request head containment, and live Stable intent. Managed mode
 requires the consumed `release-as` to be absent. Both modes serialize against
 `release/stable`; exact branch writers, required review, merge-commit policy,
 and immutable tags remain repository-policy controls.
@@ -100,16 +100,16 @@ Merging the same-repository managed Stable release PR runs release-please in
 tag-only mode with the Stable config. It creates the draft
 `hve-core-v<version>` release at the merge commit. The workflow validates
 event, merge, and release identity plus `release/stable` ancestry, packages
-from that release tag, publishes the immutable `plugins-v<version>` snapshot,
-and publishes the draft with a release GitHub App token. The resulting release
-event triggers `Stable Marketplace Publish`. Stable does not synchronize
-metadata back to `main`.
+from that release tag, attaches and attests `plugin-release-evidence.json` plus
+the signed plugin ZIP, SBOM, Sigstore, and in-toto assets, and publishes the
+draft with a release GitHub App token. The resulting release event triggers
+`Stable Marketplace Publish`. Stable does not synchronize metadata back to
+`main`.
 
-The managed Stable PR intentionally updates `marketplace.json` to the future
-`plugins-v<stable-version>` locator before that snapshot tag exists. Its
-approved merge creates the Stable release tag and starts the packaging job
-that creates the matching immutable snapshot; Stable source preparation never
-pre-validates that future target locator.
+The managed Stable PR intentionally updates `marketplace.json` to the exact
+future `hve-core-v<stable-version>` ref before that release tag exists. Its
+approved merge creates the Stable release tag and starts the packaging job;
+Stable source preparation never pre-validates that future ref.
 
 `release-prerelease.yml` is the `Pre-Release Pipeline`. A merged promotion PR
 runs release-please in PR-only mode against `release/prerelease` with
@@ -120,8 +120,8 @@ odd-minor `hve-core-v<version>` release at the merge commit.
 
 The workflow verifies event, merge, and release identity plus
 `release/prerelease` ancestry before it packages extensions and plugins from
-the release tag, validates the committed release catalog, and creates the immutable
-`plugins-v<version>` snapshot.
+the release tag, validates the committed release catalog, and attaches and
+attests canonical plugin release evidence and signed package assets.
 
 PreRelease uses an odd-minor version and Stable uses an even-minor version. Each promotion writes the exact release intent that release-please consumes on its target branch.
 
@@ -141,12 +141,25 @@ release-state decision. Odd/even minor parity remains repository policy
 aligned with VS Code Marketplace guidance and behavior, rather than a
 requirement of `MAJOR.MINOR.PATCH` syntax.
 
+Release catalogs set every plugin entry to the exact
+`hve-core-v<version>` ref. Their reviewed, release-gated assets remain
+SBOM-covered, attested, and immutable. The ref-less main catalog instead
+sources canonical `.github` content and resolves current main bytes after the
+user refreshes the marketplace and updates the plugin. No release gate, SBOM,
+or attestation covers those main bytes; this is accepted channel behavior.
+
+Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
+and catalogs remain immutable and supported for historical installations.
+
 Final publication mints a release GitHub App token and atomically runs
 `gh release edit --prerelease --draft=false`; the resulting published event
-triggers `Pre-Release Marketplace Publish`. After the immutable snapshot
-succeeds, `release-main-catalog-sync.yml` opens a reviewed, version-scoped PR
-that advances the package metadata, immutable plugin entry refs, and
-`CHANGELOG.md` on `main`.
+triggers `Pre-Release Marketplace Publish`. After release publication succeeds,
+`release-main-catalog-sync.yml` opens a reviewed, version-scoped PR that
+advances package metadata, removes release entry refs, and updates `CHANGELOG.md`
+on `main`.
+
+Hosted branch, tag, release, asset, workflow, and installed-client checks are
+authorized manual actions. Local validation does not execute or verify them.
 
 ## Reusable Workflows
 

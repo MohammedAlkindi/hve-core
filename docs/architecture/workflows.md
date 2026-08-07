@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-08-05
+ms.date: 2026-08-06
 ms.topic: overview
 ---
 
@@ -28,7 +28,7 @@ flowchart TD
         PROMO -->|merge, no tag| PRE_RP[Pre-Release Pipeline PR-only mode]
         PRE_RP --> PRE_REL[Review managed PreRelease PR]
         PRE_REL -->|merge| PRE_DRAFT[Tag-only Draft at Managed Merge]
-        PRE_DRAFT --> PRE_EVIDENCE[Release-tag Packages and Immutable Snapshot]
+        PRE_DRAFT --> PRE_EVIDENCE[Release-tag Packages and Canonical Evidence]
         PRE_EVIDENCE --> PRE_PUBLISH[App-token Prerelease Publication]
         PRE_PUBLISH --> PRE_MARKET[Pre-Release Marketplace Publish]
         PRE_PUBLISH --> MAIN_SYNC[Review Main Catalog and Changelog Sync]
@@ -41,7 +41,7 @@ flowchart TD
         ST_PROMO -->|merge, no tag| ST_RP[Stable Release Publish PR-only mode]
         ST_RP --> ST_REL[Review managed Stable PR]
         ST_REL -->|merge| ST_DRAFT[Tag-only Draft at Managed Merge]
-        ST_DRAFT --> ST_EVIDENCE[Release-tag Packages and Immutable Snapshot]
+        ST_DRAFT --> ST_EVIDENCE[Release-tag Packages and Canonical Evidence]
         ST_EVIDENCE --> ST_PUBLISH[App-token Stable Publication]
         ST_PUBLISH --> ST_MARKET[Stable Marketplace Publish]
     end
@@ -237,24 +237,41 @@ not a requirement of `MAJOR.MINOR.PATCH` syntax.
 
 ### Release Channel Jobs
 
-| Workflow                     | Jobs                                                                                                                                                                                                                                                                                                             |
-|------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `release-prerelease.yml`     | `release-please`, `sync-release-pr`, `validate-release`, `close-milestone`, `extension-package-prerelease`, `plugin-package-prerelease`, `plugin-snapshot-production`, `generate-dependency-sbom`, `attest-and-upload`, `upload-plugin-packages`, `verify-provenance`, `publish-release`, `main-catalog-sync`    |
-| `release-stable-publish.yml` | `release-please`, `sync-release-pr`, `validate-release`, `close-milestone`, `extension-provenance`, `plugin-package-release`, `plugin-snapshot-production`, `generate-dependency-sbom`, `upload-plugin-packages`, `vex-attest`, `verify-provenance`, `sbom-diff`, `append-verification-notes`, `publish-release` |
+`release-prerelease.yml` jobs: `release-please`, `sync-release-pr`,
+`validate-release`, `close-milestone`, `extension-package-prerelease`,
+`plugin-package-prerelease`, `generate-dependency-sbom`, `attest-and-upload`,
+`upload-plugin-packages`, `verify-provenance`, `publish-release`, and
+`main-catalog-sync`.
+
+`release-stable-publish.yml` jobs: `release-please`, `sync-release-pr`,
+`validate-release`, `close-milestone`, `extension-provenance`,
+`plugin-package-release`, `generate-dependency-sbom`,
+`upload-plugin-packages`, `vex-attest`, `verify-provenance`, `sbom-diff`,
+`append-verification-notes`, and `publish-release`.
 
 Both release workflows verify event, merge, release-please, and release-tag
 SHA equality plus target-branch ancestry. Extension and plugin packages use
-the immutable release tag as their source. Production snapshot publication
-creates `plugins-v<version>` without force and verifies its evidence against
-the release SHA.
+the immutable release tag as their source. Every release catalog entry uses the
+exact `hve-core-v<version>` ref. The workflows attach and attest
+`plugin-release-evidence.json`, derived from declared canonical tracked
+sources, alongside signed plugin ZIPs, SBOM, Sigstore, and in-toto assets.
 
 Both channels publish their draft with a release GitHub App token. The
 resulting `published` event triggers the matching Marketplace workflow.
-PreRelease also calls `release-main-catalog-sync.yml` after its snapshot and
-publication succeed. That reusable workflow opens a reviewed, version-scoped
-PR that moves synchronized package metadata, immutable plugin entry refs, and
-`CHANGELOG.md` on `main`; newer candidates close older open sync PRs as
-superseded. Stable has no reverse-main synchronization path.
+PreRelease also calls `release-main-catalog-sync.yml` after its release assets
+and publication succeed. That reusable workflow opens a reviewed, version-scoped
+PR that moves synchronized package metadata, removes release entry refs, and
+updates `CHANGELOG.md` on `main`; newer candidates close older open sync PRs
+as superseded. Stable has no reverse-main synchronization path.
+
+The ref-less main catalog sources canonical content from `.github`. After a
+marketplace refresh and plugin update, `#main` resolves current main bytes
+without a release gate, SBOM, or attestation covering those bytes. This is the
+accepted development-channel contract. PreRelease and Stable retain reviewed,
+release-gated, SBOM-covered, attested, and immutable delivery.
+
+Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
+and catalogs remain immutable and supported for historical installations.
 
 ## Security Workflows
 
@@ -319,7 +336,10 @@ flowchart TD
 
 `hve-core` retains the unsuffixed HVE Core extension identity. Every other active catalog entry receives a deterministic package-specific extension identity and plugin root.
 
-A single immutable `plugins-v<version>` snapshot contains every active package root and the projected catalog that references them. Each package remains self-contained; the release model does not use package dependencies or aggregate metadata.
+Each package remains self-contained; the release model does not use package
+dependencies or aggregate metadata. Catalog membership uses `.github`-root
+canonical paths, while generated ZIP and VSIX paths remain host-specific
+packaging details.
 
 Lifecycle inclusion rules:
 

@@ -2,7 +2,7 @@
 title: Release Process
 description: Release HVE Core through reviewed PreRelease metadata and Stable promotion workflows
 sidebar_position: 9
-ms.date: 2026-08-05
+ms.date: 2026-08-06
 ms.topic: how-to
 author: WilliamBerryiii
 ---
@@ -16,9 +16,17 @@ branch and creates no tag. Its merge runs release-please in PR-only mode. The
 later release-please managed PR owns version and changelog metadata, and its
 merge is the `hve-core-v<version>` tag boundary.
 
-`main` is not a release-please target. A successful PreRelease snapshot opens
-a normal reviewed PR that advances the development catalog and `CHANGELOG.md`
-on `main`. Stable never synchronizes release metadata back to `main`.
+`main` is not a release-please target. A successful PreRelease publication
+opens a normal reviewed PR that advances the ref-less development catalog and
+`CHANGELOG.md` on `main`. Stable never synchronizes release metadata back to
+`main`.
+
+The ref-less main catalog follows `main`, but ref omission does not update
+installed plugins automatically. A merge changes what `#main` consumers
+receive only after a marketplace refresh and plugin update. Main bytes have no
+release gate, SBOM, or attestation. Release channels remain the reviewed path
+through exact `hve-core-v<version>` refs: they are release-gated, SBOM-covered,
+and attested.
 
 Workflow ownership is explicit:
 
@@ -39,7 +47,7 @@ flowchart TD
     subgraph PRE[PreRelease]
         P1[Review main to PreRelease promotion PR] -->|merge, no tag| P2[Review managed PreRelease PR]
         P2 -->|merge| P3[Draft odd-minor tag at managed merge]
-        P3 --> P4[Package from release tag and publish snapshot]
+        P3 --> P4[Package and attest release assets]
         P4 --> P5[Publish prerelease with App token]
         P5 --> P6[Pre-Release Marketplace Publish]
         P5 --> P7[Review main catalog and changelog PR]
@@ -48,7 +56,7 @@ flowchart TD
         S1[Published PreRelease] --> S2[Review PreRelease to Stable promotion PR]
         S2 -->|merge, no tag| S3[Review managed Stable PR]
         S3 -->|merge| S4[Draft Stable release at merge commit]
-        S4 --> S5[Package from release tag and publish snapshot]
+        S4 --> S5[Package and attest release assets]
         S5 --> S6[Publish Stable release with App token]
         S6 --> S7[Stable Marketplace Publish]
     end
@@ -77,16 +85,18 @@ flowchart TD
    draft odd-minor `hve-core-v<version>` release at that merge commit.
 7. The workflow proves event SHA, PR merge SHA, release-please SHA, tag SHA,
    and `release/prerelease` ancestry are consistent.
-8. It packages from the release tag, publishes the immutable
-   `plugins-v<version>` snapshot, and verifies snapshot evidence against the
-   release SHA.
+8. It packages from the release tag, sets every release catalog entry to the
+    exact `hve-core-v<version>` ref, and attaches and attests
+    `plugin-release-evidence.json`. The evidence is derived from the declared
+    canonical tracked sources and verifies package non-vacuity and digests
+    against the release SHA.
 9. A release GitHub App token publishes the prerelease with
    `gh release edit --prerelease --draft=false`. The event triggers
    `Pre-Release Marketplace Publish`.
-10. After snapshot and release publication succeed, `Main Catalog Sync` opens
+10. After release publication succeeds, `Main Catalog Sync` opens
     a reviewed `release-main-catalog-sync--v<version>` PR. It advances the
-    synchronized package metadata, immutable entry refs, and `CHANGELOG.md` on
-    `main` without running release-please there.
+    synchronized package metadata, removes release entry refs, and updates
+    `CHANGELOG.md` on `main` without running release-please there.
 
 Newer main catalog candidates close older open sync PRs as superseded. PR
 validation rejects an out-of-order candidate when `main` is already at or
@@ -97,8 +107,8 @@ above that version.
 1. A published PreRelease event runs `Stable Release Preparation`. A recovery
     dispatch must provide the published `hve-core-v<version>` PreRelease tag.
 2. The workflow derives a promotion head from the validated source tag,
-    refreshes it from `release/stable`, validates matching
-    `plugins-v<version>` evidence, and merges only that tag commit. It restores
+    refreshes it from `release/stable`, validates matching canonical release
+    evidence, and merges only that tag commit. It restores
     selected-source package and catalog content, projects Stable version
     fields, writes the exact `release-as`, and opens a reviewed PR. Newer
     `release/prerelease` commits and other selected tags are excluded.
@@ -107,15 +117,17 @@ above that version.
 4. `Stable Release Publish` revalidates the tag-scoped merged head and current
     Stable intent in a read-only job, then runs release-please in PR-only mode
     and opens or updates the managed Stable PR.
-5. Review the managed version, changelog, manifest, and immutable plugin
-    locator. The future `plugins-v<stable-version>` locator does not exist yet
-    by design. Postprocessing removes the consumed `release-as`.
+5. Review the managed version, changelog, manifest, and exact
+    `hve-core-v<stable-version>` plugin ref. The future release tag does not
+    exist yet by design. Postprocessing removes the consumed `release-as`.
 6. Merge the managed PR. Release-please creates the draft even-minor
     `hve-core-v<version>` release at that managed merge commit.
 7. The workflow proves event SHA, PR merge SHA, release-please SHA, tag SHA,
     and `release/stable` ancestry are consistent.
-8. It packages from the release tag, publishes the immutable snapshot, and
-    attaches the required SBOM, VEX, provenance, and verification evidence.
+8. It packages from the release tag and attaches signed plugin ZIPs,
+    `plugin-release-evidence.json`, SBOM, VEX, Sigstore, in-toto, provenance,
+    and verification assets. Release evidence and package assets are attested
+    against the immutable release identity.
 9. A release GitHub App token publishes the Stable release with
     `gh release edit --draft=false`. The event triggers
     `Stable Marketplace Publish`.
@@ -131,7 +143,7 @@ prepares channel version metadata and changelog changes on its release branch:
 
 * Updated `package.json` and `package-lock.json` versions
 * Updated `extension/templates/package.template.json` version
-* Updated `.github/plugin/marketplace.json` version and immutable `plugins-v<version>` locator
+* Updated `.github/plugin/marketplace.json` version and exact `hve-core-v<version>` ref
 * Updated channel manifest
 * Updated `CHANGELOG.md`
 
@@ -189,18 +201,21 @@ For more details, see the [commit message instructions](https://github.com/micro
 
 ## For Maintainers
 
+The checks in this section are authorized manual operations against GitHub and
+release clients. Local documentation validation does not execute or verify
+them.
+
 ### Recovering from an Occupied Candidate
 
 Promotion preparation stops before branch mutation when the calculated
-`hve-core-v<version>` release identity or `plugins-v<version>` snapshot identity
-already exists. The calculation is deterministic, so rerunning preparation
-without reconciling channel state selects the same occupied version and fails
-again.
+`hve-core-v<version>` release identity already exists. The calculation is
+deterministic, so rerunning preparation without reconciling channel state
+selects the same occupied version and fails again.
 
-1. Inspect both tags, the GitHub release, their target commits, and available
-    plugin snapshot evidence. Determine whether they belong to a completed HVE
+1. Inspect the tag, the GitHub release, its target commit, and available
+    canonical plugin evidence. Determine whether they belong to a completed HVE
     Core release or are unrelated, manual, or abandoned state.
-2. Do not delete, move, or force-update either immutable tag. Do not republish a
+2. Do not delete, move, or force-update the immutable tag. Do not republish a
     completed release to make branch metadata agree with it.
 3. If the identities belong to a completed release, reconcile the channel
     branch manifest and synchronized release metadata with that released commit
@@ -232,8 +247,9 @@ preparation workflow.
     versions, changelog, manifest, and immutable plugin locator.
 5. Merge the managed PR and verify the draft `hve-core-v<version>` release
     targets that managed merge commit.
-6. Verify packaging uses the release tag and creates the matching immutable
-    `plugins-v<version>` snapshot with evidence for the same source SHA.
+6. Verify packaging uses the release tag and attaches signed plugin ZIPs,
+    `plugin-release-evidence.json`, SBOM, Sigstore, and in-toto assets for the
+    same source SHA.
 7. Verify App-token publication marks the GitHub release as a prerelease,
     triggers `Pre-Release Marketplace Publish`, and opens the reviewed main
     catalog and changelog PR.
@@ -247,17 +263,19 @@ The promotion and managed release PR are separate review boundaries. When ready 
 2. Confirm the head is
     `release-promotion--release-prerelease--to--release-stable--<source-tag>`,
     the suffix matches the selected published PreRelease tag, the source commit
-    has matching snapshot evidence, and the proposed version is even-minor. A
+    has matching canonical release evidence, and the proposed version is
+    even-minor. A
     newer branch tip or another selected tag must not enter the promotion.
 3. Merge the promotion and verify it creates no tag. Confirm the resulting
     `Stable Release Publish` run opens the managed PR in PR-only mode.
 4. Review the managed PR on `release/stable`, including its changelog, version
-    fields, manifest, and future immutable plugin locator. The locator becomes
-    resolvable only after the approved merge starts Stable snapshot creation.
+    fields, manifest, and future exact plugin ref. The ref becomes resolvable
+    when the approved merge creates the Stable `hve-core-v<version>` tag.
 5. Merge the managed PR and verify the draft tag targets that managed merge
     commit.
-6. Verify the workflow attaches the VSIX, plugin, SBOM, VEX, and provenance
-    evidence, then publishes the immutable snapshot.
+6. Verify the workflow attaches the VSIX, signed plugin ZIPs,
+    `plugin-release-evidence.json`, SBOM, VEX, Sigstore, in-toto, and provenance
+    assets.
 7. Verify App-token publication triggers `Stable Marketplace Publish` for the
     same release tag. Confirm no Stable-to-main synchronization PR is opened.
 
@@ -307,6 +325,13 @@ Publish the extension after merging a Release PR that includes extension-relevan
 * Updated extension metadata or documentation
 
 Documentation-only releases may not require an extension publish.
+
+## Historical Plugin Snapshots
+
+Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
+and catalogs remain immutable and supported for historical installations. Do
+not delete, move, rewrite, or describe them as migrated. Current release
+channels use exact `hve-core-v<version>` refs and canonical release evidence.
 
 ### Client Version Selection
 

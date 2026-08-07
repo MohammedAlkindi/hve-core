@@ -2,7 +2,7 @@
 title: Extension Packaging Guide
 description: Developer guide for packaging and publishing the HVE Core VS Code extension
 author: Microsoft
-ms.date: 2026-08-05
+ms.date: 2026-08-06
 ms.topic: reference
 ---
 
@@ -75,8 +75,9 @@ odd-minor release at its merge commit.
 
 The PreRelease workflow verifies event, merge, release-please, and tag SHA
 equality plus `release/prerelease` ancestry. It packages from the immutable
-release tag, publishes `plugins-v<version>`, and publishes the prerelease with
-a release GitHub App token. That event triggers PreRelease Marketplace
+release tag, attaches and attests `plugin-release-evidence.json` plus signed
+plugin ZIP, SBOM, Sigstore, and in-toto assets, and publishes the prerelease
+with a release GitHub App token. That event triggers PreRelease Marketplace
 publication and the workflow opens a reviewed main catalog and changelog PR.
 
 `release-stable.yml` starts from the published PreRelease event or a recovery
@@ -86,9 +87,20 @@ PR-only mode. Merging the later managed Stable PR creates the draft even-minor
 release at its merge commit.
 
 Stable performs the same identity and ancestry checks on `release/stable`,
-packages from the release tag, publishes the immutable snapshot, and publishes
-the release with an App token. The resulting event triggers Stable Marketplace
-publication. Stable does not synchronize metadata back to `main`.
+packages from the release tag, attaches and attests the same canonical evidence
+and signed package assets, and publishes the release with an App token. The
+resulting event triggers Stable Marketplace publication. Stable does not
+synchronize metadata back to `main`.
+
+Release catalogs set every plugin entry to the exact
+`hve-core-v<version>` ref and retain reviewed, release-gated, SBOM-covered,
+attested, and immutable delivery. The ref-less main catalog sources canonical
+`.github` content. After a marketplace refresh and plugin update, `#main`
+resolves current main bytes without a release gate, SBOM, or attestation
+covering those bytes. This is accepted development-channel behavior.
+
+Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
+and catalogs remain immutable and supported for historical installations.
 
 For ordinary promotions, PreRelease reads `release/prerelease` and returns the
 same major, minor plus two, and patch zero. Stable reads the promoted
@@ -397,11 +409,13 @@ Use the reviewed two-PR workflow for publishing pre-releases:
     mode.
 4. Review the managed PR from
     `release-please--branches--release/prerelease`, including synchronized
-    version fields, changelog, manifest, and immutable plugin locator.
+    version fields, changelog, manifest, and exact `hve-core-v<version>` plugin
+    ref.
 5. Merge the managed PR. Verify the draft `hve-core-v<version>` release targets
     that merge commit and the workflow proves target-branch ancestry.
-6. Verify extension and plugin packaging use the release tag and the immutable
-    snapshot is `plugins-v<version>` with evidence for the same release SHA.
+6. Verify extension and plugin packaging use the release tag and attach signed
+    plugin ZIPs, `plugin-release-evidence.json`, SBOM, Sigstore, and in-toto
+    assets for the same release SHA.
 7. Verify the release GitHub App token publishes the prerelease, triggers
     `Pre-Release Marketplace Publish`, and opens the reviewed main catalog and
     changelog PR.
@@ -435,6 +449,10 @@ Preparation consumes the shared handoff-resolved projection. Packaging stages
 only git-tracked contribution paths plus explicit shared resources and invokes
 the repository-pinned `vsce`. No retired manifest reader, full-tree copy, or
 installer fallback is used.
+
+Remote release, asset, workflow, and installed-client checks in this guide are
+authorized manual actions. Local packaging and documentation checks do not
+execute or verify them.
 
 To add a distributable component, update the `hve-core` recipe and [HVE Core](../docs/plugins/hve-core.md), then run marketplace validation and both extension preparation channels.
 
