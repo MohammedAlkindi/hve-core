@@ -11,7 +11,7 @@ The practitioner has a finding, a recommendation, or a design, and someone who m
 
 Grounded in GOV.UK Service Manual guidance on sharing research findings and involving colleagues in research, and in the UK Government Digital, Data and Technology (DDaT) capability framework's User Researcher role.
 
-* Source: <https://www.gov.uk/service-manual/user-research/share-user-research-findings>
+* Source: <https://www.gov.uk/service-manual/user-research/sharing-user-research-findings>
 * Source: <https://www.gov.uk/government/collections/digital-data-and-technology-profession-capability-framework>
 * Licence: Open Government Licence v3.0, <https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/>
 * Contains public sector information licensed under the OGL v3.0. Adapted for coaching use; wording and structure are not the originals.
