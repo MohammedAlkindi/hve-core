@@ -49,9 +49,15 @@ coaching moment.
 * Keep ML-specific experiment guidance in `ml-experimentation`, the reference
   for ML environments, reproducibility, tracking, evaluation, abstractions,
   and production readiness.
+* Keep notebook and dashboard guidance in `ds-analysis-authoring`, the
+  reference for EDA notebook and analytical dashboard composition,
+  visualization selection, and dashboard validation.
+* Keep AI-system evaluation guidance in `ds-evaluation-design`, the reference
+  for evaluation dataset design, difficulty balance, metric selection, and
+  tooling fit.
 * Treat this package as internal foundation knowledge, not a user-selectable
   workflow.
-* Preserve the five Data Science skill boundaries defined in the job registry.
+* Preserve the seven Data Science skill boundaries defined in the job registry.
 
 ## Stop rules
 

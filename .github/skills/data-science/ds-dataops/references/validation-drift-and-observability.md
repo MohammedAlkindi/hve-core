@@ -9,13 +9,13 @@ description: The data-validation versus data-drift distinction with its correct 
 * Microsoft CSE Code-with-Engineering-Playbook, [Data and DataOps Fundamentals, Observability](https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/#observability), documentation licensed CC BY 4.0.
 * Microsoft CSE Code-with-Engineering-Playbook, [Observability in Machine Learning](https://microsoft.github.io/code-with-engineering-playbook/observability/ml-observability/), documentation licensed CC BY 4.0.
 
-Content below is derived from the upstream pages and has been changed. The validation-versus-drift definitions, the remediation pair, and the data-validation practice list stay close to or match upstream wording; other passages are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. The validation-versus-drift distinction comes from the ML Model Production Checklist, not from the DataOps Fundamentals page or the testing page; cite the checklist for it.
+Content below is derived from the upstream pages and has been changed. Term names are preserved as identifiers; the validation-versus-drift definitions, the remediation pair, and the practice list are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. The validation-versus-drift distinction comes from the ML Model Production Checklist, not from the DataOps Fundamentals page or the testing page; cite the checklist for it.
 
 ## Validation and drift are different mechanisms
 
-**Data validation detects errors in the data.** The upstream example is a datum falling outside its expected range.
+**Data validation catches data that is simply wrong.** Upstream illustrates it with a value sitting outside the range it should occupy.
 
-**Data drift detection uncovers legitimate changes in the data** that are truly representative of the phenomenon being modeled, and are not erroneous. The upstream example is user preferences changing.
+**Data drift detection surfaces genuine movement in the data.** These shifts faithfully reflect the phenomenon under study rather than being mistakes in it. Upstream illustrates it with users' preferences changing over time.
 
 Both are worth monitoring. They are not the same signal and they do not share a response.
 
@@ -23,10 +23,10 @@ Before classifying an observed shift as drift, rule out an upstream ingestion or
 
 ## The remediation is asymmetric
 
-| Signal           | What it means                              | What it triggers                      |
-|------------------|--------------------------------------------|---------------------------------------|
-| Validation issue | The data is wrong                          | Re-routing and rectification          |
-| Drift            | The world changed and the data reflects it | Adaptation or retraining of the model |
+| Signal           | What it means                              | What it triggers               |
+|------------------|--------------------------------------------|--------------------------------|
+| Validation issue | The values themselves are wrong            | Reroute and repair the data    |
+| Drift            | The world changed and the data reflects it | Adapt the model, or retrain it |
 
 This asymmetry is the practical point of the distinction. Collapsing both into "trigger investigation" loses it.
 
@@ -34,9 +34,9 @@ This asymmetry is the practical point of the distinction. Collapsing both into "
 
 Upstream names three data-validation best practices:
 
-* Employ automated data-quality testing processes at each stage of the data pipeline.
-* Re-route data that fails quality tests to a separate data store for diagnosis and resolution.
-* Employ end-to-end data observability across freshness, distribution, volume, schema, and lineage.
+* Run automated data-quality tests at every stage of the pipeline.
+* Send records that fail those tests to a separate store where they can be diagnosed and put right.
+* Observe the data end to end across freshness, distribution, volume, schema, and lineage.
 
 "Each stage" means each transformation boundary from Bronze onward. It does not authorize assertions at Bronze landing, which stays a faithful copy of the source so that replay remains possible. See [data-tiers-and-pipeline-invariants.md](data-tiers-and-pipeline-invariants.md) for that rationale.
 

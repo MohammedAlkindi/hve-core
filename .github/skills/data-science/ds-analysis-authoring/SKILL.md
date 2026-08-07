@@ -36,6 +36,7 @@ Produce exploratory notebooks and analytical dashboards whose structure, visuali
 * The deliverable follows the section sequence for its shape, and conditional sections appear only when the data supports them.
 * Every figure is preceded by the question it answers and is followed by an interpretation placeholder or an actual reading.
 * Visualization selection matches the analytical goal, and dense or high-cardinality data is sampled, binned, or truncated deliberately.
+* Every meaningful distinction is encoded in a channel besides colour, and categorical and continuous scales use colourblind-safe palettes.
 * Notebook code stays modular, with repeated transformation logic extracted rather than duplicated across cells.
 * Dashboard caching distinguishes serializable data from global resources, and cross-page interaction state is explicit.
 * Dashboard validation reports functional, data, and responsiveness findings against stated budgets.

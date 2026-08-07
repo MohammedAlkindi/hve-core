@@ -648,6 +648,16 @@ class TestDenylistConfiguration:
             ("x" * 70000, "denylist_too_large"),
             ("\n".join(f"term{index:05d}" for index in range(1001)), "denylist_too_large"),
         ],
+        # Explicit ids keep the generated test id short. Deriving ids from the
+        # parameter values embeds the oversized fixtures in PYTEST_CURRENT_TEST,
+        # which exceeds the 32767-character environment variable limit on Windows.
+        ids=[
+            "empty",
+            "whitespace-only",
+            "term-too-short",
+            "file-too-large",
+            "too-many-terms",
+        ],
     )
     def test_given_unusable_denylist_when_scanned_then_specific_error_code(
         self,

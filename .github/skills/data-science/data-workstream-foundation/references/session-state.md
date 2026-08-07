@@ -65,6 +65,10 @@ jobs:
     class: episodic
     status: never
     invocations: []
+  evaluation:
+    class: episodic
+    status: never
+    invocations: []
   experiment:
     class: episodic
     status: never
@@ -86,6 +90,13 @@ cross_agent_refs: []
 Required blocks are `schema_version`, `project`, `current`, `jobs`, and
 `job_log`. Class-specific job fields must satisfy the lifecycle-class protocol.
 Preserve unknown top-level extension blocks during every update.
+
+The key set of `jobs` must equal the job identifiers in the registry table of
+`job-registry.md`, and each job's `class` must equal that job's registry class.
+Validate this equality on every initialization, mutation, and resume. If a
+registry job has no matching `jobs` key, or a `jobs` key has no matching
+registry row, stop and report the mismatch instead of creating, selecting, or
+silently dropping the job.
 
 ## Disclaimer state
 
@@ -133,7 +144,7 @@ as the session model.
 
 1. Load this reference before reading or mutating state.
 2. Parse the YAML block and validate required blocks, slug agreement, registry
-   jobs, and lifecycle-class fields.
+   jobs, job-key-to-registry equality, and lifecycle-class fields.
 3. Restore `current.job` and `current.class` without selecting a replacement.
 4. For bounded work, restore the phase pointer and gate status.
 5. Review recent `job_log` and `session_log` entries and registered artifacts.

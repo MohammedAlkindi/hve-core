@@ -101,6 +101,12 @@ Replace with the engagement context and catalog scope.
 
 Replace with the rendered diagram or a pointer to it. The declared relationship stays `assumed` until evidence supports a higher confidence.
 
+A diagram never stands alone. Accompany it with the relationship table below, which conveys the same declared facts in text so the section remains readable without seeing the image. Every relationship in the diagram appears as a row, and every row appears in the diagram.
+
+| Relationship                 | Endpoints                     | Cardinality | Minimums              | Join keys                 | Confidence |
+|------------------------------|-------------------------------|-------------|-----------------------|---------------------------|------------|
+| Replace with relationship id | parent to child business name | one-to-many | from `one`, to `zero` | Replace with join columns | assumed    |
+
 ## Entity details
 
 ### Replace with parent business name

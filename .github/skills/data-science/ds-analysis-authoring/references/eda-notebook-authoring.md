@@ -47,6 +47,20 @@ Prefer an interactive plotting library so distributions and outliers remain open
 
 Fixing the correlation scale matters: an auto-scaled correlation matrix visually exaggerates weak relationships, because the color range expands to fill whatever the data happens to contain.
 
+### Color is never the only encoding
+
+Colour carries meaning for readers who can distinguish it. Roughly one in twelve men and one in two hundred women cannot distinguish some colour pairs, and a figure that encodes a distinction in hue alone is unreadable to them. Print and greyscale rendering lose the distinction for everyone.
+
+Encode every meaningful distinction in at least one channel besides colour:
+
+* Categorical series: pair colour with marker shape, line dash pattern, or direct labelling on the series itself.
+* Ordered or diverging scales: pair colour with position, size, or an annotated value, and keep the scale monotonic in lightness so it survives greyscale conversion.
+* Faceted or split distributions: rely on the facet structure or an explicit label rather than fill colour alone to identify each group.
+
+Select a colourblind-safe qualitative palette for categorical encodings, and a perceptually uniform sequential or diverging scale for continuous ones. Avoid a red-to-green ramp, which is the pairing most commonly confused. When a plotting library's default palette is not colourblind-safe, set the palette explicitly rather than accepting the default.
+
+State the encoding in the axis title, the legend, or the figure caption so the reader knows which channel carries the distinction without inferring it from the colours.
+
 ## Composition expectations
 
 * Keep one concept per cell, and keep transformation logic in a cell short enough to read at a glance. Roughly fifteen logical lines is the point at which extraction into a helper is usually warranted.

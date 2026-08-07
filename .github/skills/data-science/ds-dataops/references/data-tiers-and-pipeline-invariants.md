@@ -5,33 +5,33 @@ description: Bronze, Silver, and Gold tier semantics, Bronze-to-Silver validatio
 
 ## Source
 
-Microsoft CSE Code-with-Engineering-Playbook, [Data and DataOps Fundamentals](https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/), documentation licensed CC BY 4.0. Content below is derived from that page and has been changed. Tier definitions, the validation-placement rule, the replay rationale, and the source-control artifact list stay close to or match upstream wording; other passages are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. Statements labelled HVE Core are repository guidance, not playbook rules.
+Microsoft CSE Code-with-Engineering-Playbook, [Data and DataOps Fundamentals](https://microsoft.github.io/code-with-engineering-playbook/design/design-patterns/data-heavy-design-guidance/), documentation licensed CC BY 4.0. Content below is derived from that page and has been changed. Tier names, storage-area names, and artifact classes are preserved as identifiers; the definitions, the validation-placement rule, the replay rationale, and the surrounding guidance are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. Statements labelled HVE Core are repository guidance, not playbook rules.
 
 ## The quality model has three tiers
 
-Upstream defines a common data-quality model with three tiers. Divide the data lake into these three areas.
+Upstream describes a widely used data-quality model built from three tiers, and recommends partitioning the lake along them.
 
 | Tier     | Definition                                                                                                                     | Optimized for        | Typical consumer             |
 |----------|--------------------------------------------------------------------------------------------------------------------------------|----------------------|------------------------------|
-| `bronze` | Raw landing area with no or minimal transformation applied. Treated as an immutable, append-only store.                        | Writes and ingestion | Pipeline replay and recovery |
-| `silver` | Cleansed, semi-processed data conforming to a known schema and predefined data invariants, possibly with further augmentation. | Analysis             | Data scientists              |
-| `gold`   | Highly processed, highly read-optimized data, typically structured as standard fact and dimension tables.                      | Reads                | Business users               |
+| `bronze` | Landing zone for source data as received, with at most minimal shaping. Held immutable and append-only.                        | Writes and ingestion | Pipeline replay and recovery |
+| `silver` | Cleaned, partly processed data meeting a declared schema and declared data invariants, and possibly carrying extra enrichment. | Analysis             | Data scientists              |
+| `gold`   | Heavily processed data tuned for reads, usually laid out as conventional fact and dimension tables.                            | Reads                | Business users               |
 
 ## Three further storage areas are named, and they are not tiers
 
-Upstream separately calls out additional storage areas that are useful when organizing storage: malformed data, intermediate sandbox data, and libraries, packages, and binaries.
+Upstream separately lists further areas worth keeping apart when a lake is organized: malformed data, intermediate sandbox data, and libraries, packages, and binaries.
 
 These are storage areas, not members of the quality model. A workflow may record `malformed` or `sandbox` alongside the three tiers as a practical convenience, but describing five upstream tiers overstates the source.
 
 ## Validation belongs at the Bronze-to-Silver boundary
 
-Validate early. Add data validation between the Bronze and Silver datasets so that every dataset conforms to a specific schema and to known data invariants. Validating at this boundary can also prevent pipeline failures caused by unexpected changes in input data.
+Check the data as soon as it is usable. Put validation on the hop from Bronze into Silver, so what arrives in Silver satisfies a named schema and the invariants declared for it. Screening at that point also keeps surprise changes in the incoming data from breaking the pipeline downstream.
 
-Data that fails validation is re-routed to a record store dedicated to malformed data, for diagnostic purposes.
+Records that fail the check are diverted into a store set aside for malformed data, where they can be investigated.
 
 ### Why not before Bronze landing
 
-Adding validation before data lands in Bronze is tempting and is explicitly not recommended upstream. Bronze exists to hold as close a copy of the source-system data as possible, which enables two distinct replays:
+Adding validation before data lands in Bronze is tempting and is explicitly not recommended upstream. Bronze earns its place by mirroring the source system as faithfully as it can, and that fidelity is what makes two different replays possible:
 
 1. **Replay to test validation logic.** The pipeline can be re-run against a faithful source copy while validation rules are developed or corrected.
 2. **Replay to recover from corruption.** When a bug in transformation code corrupts downstream data, the pipeline is replayed from the faithful copy after the fix is deployed.

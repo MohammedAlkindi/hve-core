@@ -11,7 +11,7 @@ This suite covers every user-invocable hve-core agent with at least one function
 
 The complement to [baseline-equivalence](../baseline-equivalence/README.md) is intentional: baseline-equivalence asserts the customization layer does not alter underlying model behavior beyond documented divergences, while agent-behavior asserts each agent actually performs its declared job.
 
-The suite is organized around five behavioral classes (research-writer, code-reviewer, code-implementor, workitem-manager, planner-coach). Every parent agent belongs to exactly one class, and class membership selects the stimulus shape and grader template used in [stimuli/](stimuli/). The parent-agent table below is the authoritative class assignment; the maintained stimulus inventory contains 62 enrolled agents, including 22 subagents.
+The suite is organized around four behavioral classes (research-writer, code-reviewer, workitem-manager, planner-coach). Every parent agent belongs to exactly one class, and class membership selects the stimulus shape and grader template used in [stimuli/](stimuli/). The parent-agent table below is the authoritative class assignment; the maintained stimulus inventory contains 58 enrolled agents, including 22 subagents.
 
 ## Layout
 
@@ -46,13 +46,12 @@ The drift check is wired into the repository's `ci:eval:lint:vally` npm script i
 
 Each parent agent belongs to exactly one class. The class selects the stimulus shape (a generic prompt the agent should reasonably respond to) and the functional grader (a regex over the agent's response that captures one declared behavior of the class). Placeholder partials authored in Phase 1 use these templates; Phase 2 replaces each placeholder with a tuned, class-specific stimulus per [the plan](../../.copilot-tracking/plans/2026-05-25/per-agent-vally-eval-coverage-plan.md).
 
-| Class           | Members | Prompt Theme                                                    | Grader Regex (case-insensitive)                           |
-|-----------------|---------|-----------------------------------------------------------------|-----------------------------------------------------------|
-| research-writer | 7       | Investigate or document a topic and return a structured writeup | `(summary\|findings\|recommendation\|outline\|sections?)` |
-| code-reviewer   | 8       | Review a diff or artifact and surface concerns                  | `(issue\|risk\|severity\|finding\|recommend\|line \d+)`   |
-| code-implementor  | 5       | Implement or modify code to satisfy a spec                            | `(```\|patch\|diff\|file:\|edit\|add\|modify)`                                             |
-| workitem-manager  | 8       | Convert a raw request into a backlog draft                            | `(title\|summary\|description\|acceptance\|priority\|severity\|repro\|steps)`              |
-| planner-coach     | 12      | Plan, sequence, or coach the user through a non-trivial task          | `(plan\|step \d+\|next\|approach\|consider\|recommend\|phase)`                             |
+| Class            | Members | Prompt Theme                                                    | Grader Regex (case-insensitive)                                               |
+|------------------|---------|-----------------------------------------------------------------|-------------------------------------------------------------------------------|
+| research-writer  | 7       | Investigate or document a topic and return a structured writeup | `(summary\|findings\|recommendation\|outline\|sections?)`                     |
+| code-reviewer    | 8       | Review a diff or artifact and surface concerns                  | `(issue\|risk\|severity\|finding\|recommend\|line \d+)`                       |
+| workitem-manager | 8       | Convert a raw request into a backlog draft                      | `(title\|summary\|description\|acceptance\|priority\|severity\|repro\|steps)` |
+| planner-coach    | 13      | Plan, sequence, or coach the user through a non-trivial task    | `(plan\|step \d+\|next\|approach\|consider\|recommend\|phase)`                |
 
 The grader counts a stimulus as passing when the regex matches the agent's response at least once. This is a behavioral smoke gate: the suite asserts the agent produced an output shaped like its job, not that the output is correct. Correctness is the responsibility of the per-agent integration tests and the baseline-equivalence harness, not this suite.
 
@@ -129,7 +128,7 @@ Agents that analyze code, diffs, or artifacts and surface issues, risks, or reco
 
 **Optional Graders:**
 
-* `header-present` - No code-reviewer agents currently declare a `Start responses with:` directive. This grader is omitted for all 9 members of this class.
+* `header-present` - No code-reviewer agents currently declare a `Start responses with:` directive. This grader is omitted for all 8 members of this class.
 
 #### Worked Example: code-review
 
@@ -211,7 +210,7 @@ stimuli:
 
 Agents that sequence work, plan tasks, coach the user through a process, or orchestrate multi-phase workflows.
 
-**Members (12):** accessibility-planner, agentic-workflows, documentation, dt-coach, dt-learning-tutor, experiment-designer, pptx, privacy-planner, rai-planner, rpi-agent, security-planner, sssc-planner
+**Members (13):** accessibility-planner, agentic-workflows, data-workstream-coach, documentation, dt-coach, dt-learning-tutor, experiment-designer, pptx, privacy-planner, rai-planner, rpi-agent, security-planner, sssc-planner
 
 **Required Graders:**
 
@@ -248,6 +247,7 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 | agile-coach                  | workitem-manager | light     | [.github/agents/project-planning/agile-coach.agent.md](../../.github/agents/project-planning/agile-coach.agent.md)                                   |
 | brd-builder                  | research-writer  | light     | [.github/agents/project-planning/brd-builder.agent.md](../../.github/agents/project-planning/brd-builder.agent.md)                                   |
 | code-review                  | code-reviewer    | light     | [.github/agents/coding-standards/code-review.agent.md](../../.github/agents/coding-standards/code-review.agent.md)                                   |
+| data-workstream-coach        | planner-coach    | light     | [.github/agents/data-science/data-workstream-coach.agent.md](../../.github/agents/data-science/data-workstream-coach.agent.md)                       |
 | dependency-reviewer          | code-reviewer    | light     | [.github/agents/dependency-reviewer.agent.md](../../.github/agents/dependency-reviewer.agent.md)                                                     |
 | documentation                | planner-coach    | light     | [.github/agents/hve-core/documentation.agent.md](../../.github/agents/hve-core/documentation.agent.md)                                               |
 | dt-coach                     | planner-coach    | light     | [.github/agents/design-thinking/dt-coach.agent.md](../../.github/agents/design-thinking/dt-coach.agent.md)                                           |
@@ -275,7 +275,7 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 | system-architecture-reviewer | research-writer  | light     | [.github/agents/project-planning/system-architecture-reviewer.agent.md](../../.github/agents/project-planning/system-architecture-reviewer.agent.md) |
 | ux-ui-designer               | research-writer  | light     | [.github/agents/project-planning/ux-ui-designer.agent.md](../../.github/agents/project-planning/ux-ui-designer.agent.md)                             |
 
-The maintained stimulus inventory totals 62 agents: 40 parent agents plus 22 enrolled subagents whose stimulus partials exist in [stimuli/](stimuli/). Subagents without a matching stimulus partial remain excluded from the matrix run set and are documented separately in the inventory generator and related eval research. [AGENTS.yml](AGENTS.yml) remains generator-owned and is refreshed in the generation phase.
+The maintained stimulus inventory totals 58 agents: 36 parent agents plus 22 enrolled subagents whose stimulus partials exist in [stimuli/](stimuli/). Subagents without a matching stimulus partial remain excluded from the matrix run set and are documented separately in the inventory generator and related eval research. [AGENTS.yml](AGENTS.yml) remains generator-owned and is refreshed in the generation phase.
 
 ## Related Suites
 

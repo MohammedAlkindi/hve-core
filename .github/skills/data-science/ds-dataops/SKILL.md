@@ -77,6 +77,6 @@ This skill never decides what is sensitive. It reads a classification produced e
 
 This pack declares `CC-BY-4.0` because both bodies of content it holds carry that license.
 
-Source pages are Microsoft CSE Code With Engineering Playbook documentation licensed CC BY 4.0. The upstream project applies MIT through a separate `LICENSE-CODE` file to code samples only, which this pack does not reproduce. The references derive from those documentation pages, have been changed, and in many places stay close to or match upstream wording. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires and states that the content has been changed. Each reference cites its own upstream URL and states what it reproduces.
+Source pages are Microsoft CSE Code With Engineering Playbook documentation licensed CC BY 4.0. The upstream project applies MIT through a separate `LICENSE-CODE` file to code samples only, which this pack does not reproduce. The references derive from those documentation pages and have been changed: upstream guidance is paraphrased, and only identifiers and structural names are carried across as facts. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires and states that the content has been changed. Each reference cites its own upstream URL and states what it reproduces.
 
 Content labelled as HVE Core derivation is repository-original material under CC BY 4.0. See [provenance.md](references/provenance.md) for the consolidated source map and derivation labels.

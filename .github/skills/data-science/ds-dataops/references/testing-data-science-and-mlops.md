@@ -5,11 +5,11 @@ description: The five testable operation categories, their concrete pytest techn
 
 ## Source
 
-Microsoft CSE Code-with-Engineering-Playbook, [Testing Data Science and MLOps Code](https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/testing-data-science-and-mlops-code/), documentation licensed CC BY 4.0. Content below is derived from that page and has been changed. The category and mocking-boundary table and the ML unit-test scope guard stay close to or match upstream wording; other passages are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. pytest API names are preserved as identifiers, and upstream code examples are described rather than copied.
+Microsoft CSE Code-with-Engineering-Playbook, [Testing Data Science and MLOps Code](https://microsoft.github.io/code-with-engineering-playbook/ml-and-ai-projects/testing-data-science-and-mlops-code/), documentation licensed CC BY 4.0. Content below is derived from that page and has been changed. Category names and pytest API names are preserved as identifiers; the category descriptions, the mocking boundaries, and the unit-test scope guard are paraphrased. `THIRD-PARTY-NOTICES` carries the attribution CC BY 4.0 requires. Upstream code examples are described rather than copied.
 
 ## Approach
 
-Testing MLOps and data-science code follows the same principles as any other software project. Some scenarios look harder to test, so start with a test design session focused on inputs, outputs, exceptions, and the behavior of data transformations. Designing tests first forces a more modular style in which each function has one purpose and shared functionality is extracted.
+Nothing about MLOps or data-science code changes the principles that govern testing anywhere else. Some situations only look harder to cover, so open with a test design session that works through inputs, outputs, exceptions, and how each data transformation is expected to behave. Deciding on the tests up front pushes the code toward a modular shape where a function does one thing and anything shared is pulled out.
 
 Upstream enumerates five common operations:
 
@@ -21,51 +21,51 @@ Upstream enumerates five common operations:
 
 ## Category, technique, and mocking boundary
 
-| Category                                | What is under test                                                              | Technique                                                                                 | Where mocking stops                                                                                                                                                                                                                                                                                                            |
-|-----------------------------------------|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Saving and loading data                 | The function's own branching and parameter passing, not the third-party library | Patch the module-scoped references and assert call arguments and call counts              | **Mock the I/O boundary.** Mock `isfile` and `read_csv` as referenced inside the module under test. Mock only the specific functions that module references; others run normally.                                                                                                                                              |
-| Saving and loading data, shared samples | Reuse of one sample across several tests                                        | `pytest.fixture` returning the sample, passed as a test parameter                         | No additional mocking. Sample data stays hard-coded and no larger than the tests require.                                                                                                                                                                                                                                      |
-| Transforming data                       | Fixed input to fixed output, one verification per test                          | Separate tests per property; `pytest.mark.parametrize` for input matrices                 | **No mocking.** Transformation logic is exercised directly. This is why transformation code must be separated from data access. When a function mixes the two, recommend splitting it before writing transformation tests. Testing a reshape through a mocked `read_csv` satisfies neither category and defeats the invariant. |
-| Model load or predict                   | Code paths around model load and prediction                                     | Mock load and predict; `pytest.mark.longrunning` to segregate smoke and integration tests | **Mock the model boundary** exactly as file access is mocked. Real model loads belong behind the mark, outside the unit loop.                                                                                                                                                                                                  |
-| Data validation                         | Pipeline robustness against bad input                                           | Test cases for no data supplied, unexpected format, null values, and outliers             | No stated boundary. Inputs are constructed, not mocked.                                                                                                                                                                                                                                                                        |
-| Model testing                           | Model robustness and subgroup behavior                                          | Adversarial and boundary tests; verify accuracy for under-represented classes             | Outside the unit-test boundary entirely. Occurs during training, debugging, and validation.                                                                                                                                                                                                                                    |
+| Category                                | What is under test                                                              | Technique                                                                                 | Where mocking stops                                                                                                                                                                                                                                                                                             |
+|-----------------------------------------|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Saving and loading data                 | The function's own branching and parameter passing, not the third-party library | Patch the module-scoped references and assert call arguments and call counts              | **Mock the I/O boundary.** Replace `isfile` and `read_csv` where the module under test refers to them. Only the names that module calls are replaced; the rest run for real.                                                                                                                                    |
+| Saving and loading data, shared samples | Reuse of one sample across several tests                                        | `pytest.fixture` returning the sample, passed as a test parameter                         | Nothing else is stubbed. Keep the sample inline and no bigger than the assertions need.                                                                                                                                                                                                                         |
+| Transforming data                       | Fixed input to fixed output, one verification per test                          | Separate tests per property; `pytest.mark.parametrize` for input matrices                 | **Nothing is mocked.** The transformation runs for real, which is precisely why it has to sit apart from data access. When a function does both, advise splitting it before any transformation test is written. Checking a reshape through a mocked `read_csv` tests neither category and undoes the invariant. |
+| Model load or predict                   | Code paths around model load and prediction                                     | Mock load and predict; `pytest.mark.longrunning` to segregate smoke and integration tests | **Treat the model as a boundary** and stub it as file access is stubbed. A real load sits behind the mark, off the fast loop.                                                                                                                                                                                   |
+| Data validation                         | Pipeline robustness against bad input                                           | Test cases for no data supplied, unexpected format, null values, and outliers             | No boundary stated. Inputs are built, not stubbed.                                                                                                                                                                                                                                                              |
+| Model testing                           | Model robustness and subgroup behavior                                          | Adversarial and boundary tests; verify accuracy for under-represented classes             | Sits outside unit testing entirely, while the model is trained, debugged, and validated.                                                                                                                                                                                                                        |
 
 ## Saving and loading data
 
-There is no need to test the third-party functions themselves; leave `read_csv` and `isfile` to the pandas and os maintainers. Test only the function's own logic: that it loads when the file exists with the correct index column, that it does not load when the file is absent, and that it returns the expected result.
+The third-party functions do not need your tests; `read_csv` and `isfile` are the responsibility of the pandas and os maintainers. Cover only what the wrapper itself decides: that it reads the file when it is present and uses the right index column, that it skips the read when the file is missing, and that it hands back what callers expect.
 
-Supplying real sample files makes the same test pass on one machine and fail on a build server. Mocking `isfile` and `read_csv` removes that dependency, so no files are needed in the repository and the test behaves identically anywhere.
+Leaning on real sample files is how a test passes on a laptop and fails on a build agent. Stubbing `isfile` and `read_csv` cuts that dependency, so the repository carries no fixture files and the test behaves the same wherever it runs.
 
 ## Transforming data
 
-For cleaning and transformation, test fixed input against fixed output and limit each test to one verification. For example, write one test for output shape and a separate test for padding behavior. Use `pytest.mark.parametrize` to drive different input and expected-output combinations automatically.
+For cleaning and reshaping work, pin a known input to a known output and let each test check one thing. Shape of the result belongs in one test and padding behavior in another. `pytest.mark.parametrize` then feeds the pairs of input and expected output through the same test automatically.
 
 ## Model load or predict
 
-When unit testing, mock model load and model predictions the same way file access is mocked. Loading a real model for smoke or integration tests is legitimate but slower, so those tests must be separable from the unit loop. Upstream's mechanism is the `pytest.mark.longrunning` mark, with the unit loop run as `pytest -v -m "not longrunning"`.
+In a unit test, stub the model load and the predictions exactly as file access is stubbed. Pulling in a real model for a smoke or integration test is legitimate but slow, so those tests have to be separable from the fast loop. Upstream separates them with the `pytest.mark.longrunning` mark and runs the fast loop as `pytest -v -m "not longrunning"`.
 
 ## Scope guard: ML unit tests check code quality
 
-**ML unit tests are not intended to check the accuracy or performance of a model.** They are code-quality checks. The two diagnostic questions are:
+**Unit tests around an ML model are not there to judge its accuracy or its performance.** They inspect the quality of the code. Two questions do the diagnosing:
 
-* Does the model accept correctly shaped inputs and produce correctly shaped outputs?
-* Do the weights of the model update when `fit` runs?
+* Does the model take inputs of the expected shape and return outputs of the expected shape?
+* Do the model weights actually change once `fit` has run?
 
-Because of this, ML model tests deliberately depart from strict unit-testing practice: **not all outside calls are mocked.** Upstream describes them as closer to a narrow integration test and accepts that trade-off. The stated benefit is preventing a poorly configured model from spending hours in training while still producing poor results. Without the non-mocking clause the guidance reads as an inconsistency rather than a deliberate trade-off.
+For that reason these tests knowingly bend strict unit-testing practice: **some external calls are left unstubbed.** Upstream calls the result closer to a narrow integration test and accepts the trade. The payoff it claims is catching a badly configured model before it burns hours in training only to perform poorly. Drop the unstubbed-call clause and the guidance reads as an oversight rather than a considered choice.
 
 Upstream gives three implementation examples for deep-learning models:
 
-* Build the model and compare the input-layer shape to example source data, then compare the output-layer shape to the expected output.
-* Record each layer's weights, run a single training epoch on a dummy dataset, and check only that the values changed.
-* Train on a dummy dataset for a single epoch and validate with dummy data, checking only that the prediction is correctly formatted. This model will not be accurate.
+* Construct the model, then check the input layer against the shape of example source data and the output layer against the shape the output should take.
+* Capture the weights of every layer, run one training epoch over a dummy dataset, and assert only that those values moved.
+* Train for one epoch on a dummy dataset and validate against dummy data, asserting only that the prediction comes back in the right format. Accuracy is not the point and will not be there.
 
 ## Data validation
 
-Include data-validation test cases in unit testing: no data supplied, data not in the expected format, data containing null values, and outliers. These confirm the data-processing pipeline is robust.
+Fold data-validation cases into the unit tests: no data supplied, data not in the expected format, data containing null values, and outliers. Together they show the data-processing pipeline holds up.
 
 ## Model testing
 
-Beyond unit testing, models can be tested, debugged, and validated during training. Two options are named: adversarial and boundary tests to increase robustness, and verifying accuracy for under-represented classes.
+Past unit testing, a model can be exercised, debugged, and validated while it trains. Upstream names two options: adversarial and boundary tests that harden the model, and accuracy checks on under-represented classes.
 
 ## Relationship to the DataOps invariants
 

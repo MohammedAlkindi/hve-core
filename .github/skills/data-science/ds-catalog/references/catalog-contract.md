@@ -93,11 +93,19 @@ After the frontmatter, retain these sections:
 
 1. Overview and engagement context
 2. Entity summary
-3. Entity relationship diagram or a pointer to it
+3. Entity relationship diagram or a pointer to it, always accompanied by its text equivalent
 4. Per-entity detail
 5. Coverage summary
 6. Open questions and access gaps
 7. Data-Science Coaching disclaimer footer
+
+### Diagram text equivalent
+
+A rendered diagram is never the only representation of the declared relationships. Every catalog that carries a diagram, or a pointer to one, also carries a relationship table conveying the same facts in text.
+
+The table records one row per declared relationship, with the endpoints, the cardinality, the endpoint minimums, the join keys, and the confidence. Parity runs both ways: every relationship shown in the diagram appears as a row, and every row appears in the diagram.
+
+This keeps the catalog readable when the diagram cannot be seen or rendered, and it keeps the declared model available to readers who consume the document as text.
 
 ## Attached dataset profiles
 
@@ -146,6 +154,6 @@ Cap illustrative values deliberately. A profile is metadata about a dataset, and
 
 When the engagement has stated analytical intent, record it beside the profile: the objective type, the business questions behind it, the metrics that matter, and what success would look like. Declared intent is what lets a later analysis prioritize; without it, every column looks equally important.
 
-The footer is the canonical Data-Science Coaching disclaimer published by `.github/instructions/shared/disclaimer-language.instructions.md`. Reproduce it verbatim as the last section of every customer-facing catalog, including the template and the complete example.
+The footer is the canonical Data-Science Coaching disclaimer published by `disclaimer-language.instructions.md`. Reproduce it verbatim as the last section of every customer-facing catalog, including the template and the complete example.
 
 Generate tables and diagrams from frontmatter. When narrative and machine facts disagree, correct the narrative or update frontmatter through an explicit enrichment decision.
