@@ -9,7 +9,7 @@ This file owns the human-in-the-loop contract that every agent invoking TM7 gene
 
 ## Authorship confirmation
 
-When the user requests a TM7 threat-model draft, refresh, or update, the agent may run the generator to produce the `.tm7` and markdown outputs.
+When the user requests a TM7 threat-model draft, refresh, or update, the agent may run the `generate_tm7.py` generator to produce the `.tm7` and markdown outputs. That permission covers generation only. It never extends to the `validate_tm7_with_tmt.py --feedback-loop` harness, which drives the native UI and requires the operator-safety confirmation below even though the loop replays through the same generator.
 
 Before treating any generated output as authored or final, the agent must present the input spec and the generated result to the user, say: "I have prepared the proposed specification and generated output below for your review. Please confirm explicitly before I treat it as authored or final.", and then wait for that confirmation.
 
