@@ -17,11 +17,6 @@ on:
         description: "Release version the packaged plugin must carry"
         required: true
         type: string
-      project-release-catalog:
-        description: "Project the requested version and immutable locator without changing the committed catalog"
-        required: false
-        default: false
-        type: boolean
     outputs:
       packages-matrix:
         description: "JSON matrix of plugin packages that were packaged"
@@ -114,22 +109,17 @@ jobs:
         env:
           INPUT_SOURCE_REF: ${{ inputs.source-ref }}
           INPUT_VERSION: ${{ inputs.version }}
-          PROJECT_RELEASE_CATALOG: ${{ inputs.project-release-catalog }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:PROJECT_RELEASE_CATALOG -ne 'true') {
-            # Stable packaging requires committed release state. PreRelease uses
-            # the explicit projection step below because its odd version is ephemeral.
-            $catalog = Get-Content -LiteralPath '.github/plugin/marketplace.json' -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-            $catalogVersion = [string]$catalog['metadata']['version']
-            if ($catalogVersion -cne $env:INPUT_VERSION) {
-              throw "Catalog version $catalogVersion does not match requested version $env:INPUT_VERSION"
-            }
-            foreach ($entry in @($catalog['plugins'])) {
-              $expectedRef = "hve-core-v$env:INPUT_VERSION"
-              if ([string]$entry['source']['ref'] -cne $expectedRef) {
-                throw "Catalog plugin '$($entry['name'])' pins source ref '$($entry['source']['ref'])' but the release requires '$expectedRef'"
-              }
+          $catalog = Get-Content -LiteralPath '.github/plugin/marketplace.json' -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+          $catalogVersion = [string]$catalog['metadata']['version']
+          if ($catalogVersion -cne $env:INPUT_VERSION) {
+            throw "Catalog version $catalogVersion does not match requested version $env:INPUT_VERSION"
+          }
+          foreach ($entry in @($catalog['plugins'])) {
+            $expectedRef = "hve-core-v$env:INPUT_VERSION"
+            if ([string]$entry['source']['ref'] -cne $expectedRef) {
+              throw "Catalog plugin '$($entry['name'])' pins source ref '$($entry['source']['ref'])' but the release requires '$expectedRef'"
             }
           }
 
@@ -140,24 +130,9 @@ jobs:
       - name: Discover marketplace packages
         id: discover
         shell: pwsh
-        env:
-          HVE_PLUGIN_STAGING_ROOT: ${{ runner.temp }}/plugins
-          INPUT_VERSION: ${{ inputs.version }}
-          PROJECT_RELEASE_CATALOG: ${{ inputs.project-release-catalog }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $catalogPath = '.github/plugin/marketplace.json'
-          if ($env:PROJECT_RELEASE_CATALOG -eq 'true') {
-            $catalogPath = 'logs/projected-marketplace.json'
-            & ./scripts/plugins/Generate-Plugins.ps1 `
-              -Channel PreRelease `
-              -ReleaseTag "plugins-v$env:INPUT_VERSION" `
-              -MarketplaceOutputPath $catalogPath
-            if ($LASTEXITCODE -ne 0) {
-              throw "Generate-Plugins.ps1 failed with exit code $LASTEXITCODE"
-            }
-          }
-          & ./scripts/extension/Get-MarketplacePackageMatrix.ps1 -Channel 'PreRelease' -CatalogPath $catalogPath
+          & ./scripts/extension/Get-MarketplacePackageMatrix.ps1 -Channel 'PreRelease' -CatalogPath '.github/plugin/marketplace.json'
 
   package:
     name: Package Plugin ${{ matrix.id }}
@@ -248,26 +223,9 @@ jobs:
         uses: ./.github/actions/setup-ps-modules
 
       - name: Generate committed plugins
-        if: ${{ !inputs.project-release-catalog }}
         env:
           HVE_PLUGIN_STAGING_ROOT: ${{ runner.temp }}/plugins
         run: npm run plugin:generate
-
-      - name: Generate plugins and projected release catalog
-        if: ${{ inputs.project-release-catalog }}
-        shell: pwsh
-        env:
-          HVE_PLUGIN_STAGING_ROOT: ${{ runner.temp }}/plugins
-          INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & ./scripts/plugins/Generate-Plugins.ps1 `
-            -Channel PreRelease `
-            -ReleaseTag "plugins-v$env:INPUT_VERSION" `
-            -MarketplaceOutputPath 'logs/projected-marketplace.json'
-          if ($LASTEXITCODE -ne 0) {
-            throw "Generate-Plugins.ps1 failed with exit code $LASTEXITCODE"
-          }
 
       - name: Verify generated roots match discovered packages
         shell: bash

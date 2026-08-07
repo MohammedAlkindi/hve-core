@@ -34,7 +34,7 @@ env:
 jobs:
   prepare-promotion:
     name: Prepare Pre-Release Promotion
-    # The post-snapshot main catalog synchronization pull request must never
+    # The post-publication main catalog synchronization pull request must never
     # start another promotion. Excluding its head here keeps that guard ahead
     # of every branch and pull request mutation below.
     if: >

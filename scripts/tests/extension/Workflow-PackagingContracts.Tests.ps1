@@ -382,9 +382,7 @@ Describe 'Plugin validation lane' -Tag 'Unit' {
 
     It 'Stages generated package work under runner temp in <Workflow> step <Step>' -ForEach @(
         @{ Workflow = 'plugin-validation.yml'; Job = 'validate'; Step = 'Regenerate plugins from source' }
-        @{ Workflow = 'plugin-package.yml'; Job = 'discover-packages'; Step = 'Discover marketplace packages' }
         @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Generate committed plugins' }
-        @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Generate plugins and projected release catalog' }
         @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Verify generated roots match discovered packages' }
         @{ Workflow = 'plugin-package.yml'; Job = 'package'; Step = 'Package plugin directory' }
     ) {
@@ -1210,12 +1208,28 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $evidence[1] | Should -Match '-ExpectedEvidencePath logs/plugin-release-evidence\.json'
     }
 
-    It 'Avoids projected release catalogs in both channel package lanes' {
+    It 'Removes projected release catalogs from reusable plugin packaging' {
         $plugin = Get-WorkflowDocument -Name 'plugin-package.yml'
-        $projection = $plugin['on']['workflow_call']['inputs']['project-release-catalog']
-        $projection | Should -Not -BeNullOrEmpty
-        [string]$projection['type'] | Should -BeExactly 'boolean'
-        $projection['default'] | Should -BeFalse
+        $plugin['on']['workflow_call']['inputs'].Contains('project-release-catalog') | Should -BeFalse
+
+        $pluginText = Get-WorkflowText -Name 'plugin-package.yml'
+        foreach ($forbidden in @(
+                'project-release-catalog',
+                'PROJECT_RELEASE_CATALOG',
+                'projected-marketplace',
+                '-MarketplaceOutputPath',
+                'Generate-Plugins\.ps1'
+            )) {
+            $pluginText | Should -Not -Match $forbidden
+        }
+
+        foreach ($step in @(
+                (Get-NamedJobStep -Document $plugin -JobName 'discover-packages' -StepName 'Verify version and committed catalog'),
+                (Get-NamedJobStep -Document $plugin -JobName 'discover-packages' -StepName 'Discover marketplace packages'),
+                (Get-NamedJobStep -Document $plugin -JobName 'package' -StepName 'Generate committed plugins')
+            )) {
+            $step.Contains('if') | Should -BeFalse
+        }
 
         $preRelease = Get-WorkflowDocument -Name 'release-prerelease.yml'
         $preRelease['jobs']['plugin-package-prerelease']['with'].Contains('project-release-catalog') | Should -BeFalse
@@ -1255,6 +1269,7 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
                     'refs/tags/plugins-v',
                     'git tag[^\n]*plugins-v',
                     'gh release (create|delete)[^\n]*plugins-v',
+                    '-ReleaseTag\s+["'']?plugins-v',
                     'push --force',
                     'push[^\n]*--delete',
                     'Assert-PluginSnapshotTarget'

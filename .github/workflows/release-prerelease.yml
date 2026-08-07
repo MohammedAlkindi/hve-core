@@ -9,7 +9,7 @@ name: Pre-Release Pipeline
 # release pull request runs release-please in tag-only mode, which creates the tag
 # and draft release at the merge commit. Publication marks the draft as a
 # pre-release with the release App token so the Marketplace workflow receives the
-# published event, and the immutable snapshot advances the main catalog.
+# published event, while canonical release evidence gates the main catalog sync.
 on:
   pull_request:
     types: [closed]
