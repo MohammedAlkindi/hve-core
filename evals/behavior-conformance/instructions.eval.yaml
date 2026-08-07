@@ -138,6 +138,31 @@ stimuli:
         config:
           pattern: "(?i)thank|scope|door|concise|tone|voice|template"
 
+  - name: instruction-backlog-guardrails-conformance
+    prompt: |
+      You are about to create a work item on a tracker while working in a file
+      under `.copilot-tracking/workitems/`, and you have not loaded any backlog
+      skill. Which `.github/instructions/**/*.instructions.md` file applies
+      (cite its path), what must you activate before the mutation, and what do
+      you do when that activation fails?
+    tags:
+      category: behavior-conformance
+      instruction: backlog-guardrails
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: applyTo-evidence
+        config:
+          pattern: "(?i)backlog-guardrails\\.instructions\\.md|project-planning/backlog-guardrails"
+      - type: output-matches
+        name: activation-required
+        config:
+          pattern: "(?i)backlog-management"
+      - type: output-matches
+        name: stop-behavior
+        config:
+          pattern: "(?i)stop|halt|do not proceed|cannot proceed|before the mutation"
+
   - name: instruction-markdown-conformance
     prompt: |
       You are creating or editing a Markdown file at `docs/example.md`. Which
