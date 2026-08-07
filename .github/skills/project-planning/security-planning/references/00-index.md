@@ -28,3 +28,15 @@ This index is the entry point for the reusable security-planning skill. It summa
 ## Attribution
 
 This skill consolidates content previously scattered across Security Planner instruction files and intentionally avoids duplication of the shared security skills already maintained elsewhere in the repository.
+
+Upstream sources summarized by this reference set, each cited in the file that summarizes it:
+
+| Upstream source                                                         | License class                       | Reference file                 |
+|-------------------------------------------------------------------------|-------------------------------------|--------------------------------|
+| STRIDE threat model (Microsoft SDL)                                     | Microsoft Learn documentation terms | `stride-model.md`              |
+| Microsoft Purview sensitivity labels and data classification categories | Microsoft Learn documentation terms | `data-classification.md`       |
+| Open Threat Model (OTM)                                                 | CC BY-SA 4.0                        | `tm7-generation.md`            |
+| NIST SP 800-53 control families                                         | Public domain (17 U.S.C. § 105)     | `nist-control-families.md`     |
+| OWASP, NIST, and MITRE cross-references                                 | See each entry                      | `standards-cross-reference.md` |
+
+Original content in this skill is licensed under the repository's license.

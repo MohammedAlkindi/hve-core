@@ -43,7 +43,7 @@ The remaining flags group as follows:
 * Expectations: `--expected-threat-count` (default `80`) and `--expected-custom-type-count`
 * `-v` / `--verbose` for debug logging
 
-The native harness requires the pinned Microsoft Threat Modeling Tool version and treats the workflow as a local UI Automation workflow that must run on Windows with an interactive desktop session. The run stops as `tmt-unavailable` on non-Windows hosts or when TMT cannot be discovered, and it reports `version-mismatch`, `automation-timeout`, or `unexpected-modal` when the runtime environment diverges from the expected harness contract.
+The native harness requires the pinned Microsoft Threat Modeling Tool version and treats the workflow as a local UI Automation workflow that must run on Windows with an interactive desktop session. On a non-Windows host, or when TMT cannot be discovered, the run stops as `tmt-unavailable` under `--require-tmt` and as `skipped` without it, and it reports `version-mismatch`, `automation-timeout`, or `unexpected-modal` when the runtime environment diverges from the expected harness contract.
 
 The feedback loop is operator-safe by contract: the operator should not interact with the mouse, keyboard, or windows while the harness is running. The harness announces the start of automation, surfaces baseline/refinement candidate progress, and emits a release notice once the loop completes or aborts so the operator knows the computer can be used again. The workflow may open, close, and reopen TMT more than once to complete save/reopen validation.
 
@@ -105,7 +105,7 @@ uv run --project .github/skills/project-planning/security-planning --group windo
   --require-feedback-evidence
 ```
 
-Human approval remains the external review action. The automation writes pending overlays only and keeps the canonical baseline unchanged until a reviewer explicitly promotes a result outside this loop.
+The automation writes pending overlays only and keeps the canonical baseline unchanged. Promotion is an external action; the agent-facing rule is owned by `tm7-generation-workflow.instructions.md`.
 
 ### Agent-assisted visual review
 
@@ -164,7 +164,7 @@ To move a label, move `handle_point` by the required model displacement and pred
 
 #### Constraints
 
-* The agent proposes; it never promotes. `approval_state` stays `pending`, and human semantic review remains the authority for whether a layout is acceptable.
+* `approval_state` stays `pending`; no runtime path promotes an overlay.
 * Semantic identity is immutable. A layout correction may move things; it may never add, remove, or rename an element, flow, or zone. `validate_layout_overlay` enforces this.
 * `surface_rules` may enlarge the canvas. Enlarging trades a clipped diagram for a scrolled one, and it is the only available remedy for genuine viewport overflow, so record why node and connector rules were insufficient. That rationale goes in the review record accompanying the overlay, not in the overlay itself: `provenance` accepts only `evidence_ref`, `generated_at`, and `approval_state`, and any other key is rejected.
 * An agent-authored overlay is evidence, not truth. Record which iteration and which screenshot motivated each rule.
@@ -200,21 +200,21 @@ Because the tool may be mid-open, expect to close a stray Threat Modeling Tool w
 
 Read `status.json` at the evidence root first. It carries the stop reason and the exit code, and it is written even when the run fails, so a missing `status.json` means the process was killed before it could record an outcome.
 
-| Stop reason                      | Exit | What it means                                                                 | Operator action                                                                                          |
-|----------------------------------|------|-------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
-| `automated-ready-pending-human`  | `0`  | Automated gates passed                                                        | Perform the human semantic review before any promotion; this is not an approval                          |
-| `repeated-defect-no-improvement` | `8`  | The same defect persisted across iterations without improvement               | Inspect the findings and the published overlay seed; the defect needs a spec, profile, or layout change  |
-| `max-iterations`                 | `8`  | The bounded iteration budget was exhausted before the gates cleared           | Review the best candidate manually; more iterations are not available by design                          |
-| `evidence-incomplete`            | `7`  | Required per-surface evidence was missing under `--require-feedback-evidence` | Check the iteration bundles for the missing capture, then rerun on a stable desktop session              |
-| `semantic-regression`            | `1`  | A candidate diverged from the baseline model identity                         | Do not promote; treat the overlay as rejected, reconcile the spec, and review the layout intent          |
-| `candidate-generation-failed`    | `2`  | Regenerating a candidate from the spec or overlay failed                      | Fix the generation error reported in `status.json`; the model and spec are untouched                     |
-| `overlay-validation-failed`      | `2`  | A produced overlay failed its own schema or fingerprint validation            | Report the validation message in `status.json`; the model and spec are untouched                         |
-| `harness-error`                  | `2`  | The harness itself failed outside the automation contract                     | Read `status.json` for the failure message; no overlay was published                                     |
-| `skipped`                        | `0`  | TMT was absent and `--require-tmt` was not set                                | None; run on a host with the pinned TMT, or pass `--require-tmt` to make absence a failure               |
-| `tmt-unavailable`                | `3`  | TMT was absent or untrusted, or the host is not Windows                       | Verify the install and rerun `--mode probe`; the harness refuses untrusted executables                   |
-| `version-mismatch`               | `4`  | The discovered TMT is not the pinned version                                  | Install the pinned version or set `--pinned-version` deliberately                                        |
-| `automation-timeout`             | `5`  | A UI Automation step exceeded `--timeout-seconds`                             | Confirm the session is unlocked and interactive, then retry; raise `--timeout-seconds` on a slow machine |
-| `unexpected-modal`               | `6`  | An unrecognized dialog blocked automation                                     | Inspect the final screenshot in the bundle, reproduce the dialog manually, dismiss its cause, then rerun |
+| Stop reason                      | Exit | What it means                                                                  | Operator action                                                                                          |
+|----------------------------------|------|--------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `automated-ready-pending-human`  | `0`  | Automated gates passed                                                         | Perform the human semantic review before any promotion; this is not an approval                          |
+| `repeated-defect-no-improvement` | `8`  | The same defect persisted across iterations without improvement                | Inspect the findings and the published overlay seed; the defect needs a spec, profile, or layout change  |
+| `max-iterations`                 | `8`  | The bounded iteration budget was exhausted before the gates cleared            | Review the best candidate manually; more iterations are not available by design                          |
+| `evidence-incomplete`            | `7`  | Required per-surface evidence was missing under `--require-feedback-evidence`  | Check the iteration bundles for the missing capture, then rerun on a stable desktop session              |
+| `semantic-regression`            | `1`  | A candidate diverged from the baseline model identity                          | Do not promote; treat the overlay as rejected, reconcile the spec, and review the layout intent          |
+| `candidate-generation-failed`    | `2`  | Regenerating a candidate from the spec or overlay failed                       | Fix the generation error reported in `status.json`; the model and spec are untouched                     |
+| `overlay-validation-failed`      | `2`  | A produced overlay failed its own schema or fingerprint validation             | Report the validation message in `status.json`; the model and spec are untouched                         |
+| `harness-error`                  | `2`  | The harness itself failed outside the automation contract                      | Read `status.json` for the failure message; no overlay was published                                     |
+| `skipped`                        | `0`  | TMT was absent and `--require-tmt` was not set                                 | None; run on a host with the pinned TMT, or pass `--require-tmt` to make absence a failure               |
+| `tmt-unavailable`                | `3`  | TMT was absent or untrusted, or the host is not Windows, under `--require-tmt` | Verify the install and rerun `--mode probe`; the harness refuses untrusted executables                   |
+| `version-mismatch`               | `4`  | The discovered TMT is not the pinned version                                   | Install the pinned version or set `--pinned-version` deliberately                                        |
+| `automation-timeout`             | `5`  | A UI Automation step exceeded `--timeout-seconds`                              | Confirm the session is unlocked and interactive, then retry; raise `--timeout-seconds` on a slow machine |
+| `unexpected-modal`               | `6`  | An unrecognized dialog blocked automation                                      | Inspect the final screenshot in the bundle, reproduce the dialog manually, dismiss its cause, then rerun |
 
 #### Evidence
 
@@ -361,6 +361,10 @@ security_test_cases:
     test_type: negative-input
     expected_result: Request is rejected and logged
 ```
+
+`security_test_cases[].test_type` takes one of `negative-input`,
+`malformed-message`, `multi-step-logic`, or `authorization`. The completeness
+check RGAP-05 in the threat-model review reference is keyed to this vocabulary.
 
 ### Semantic target and placement interaction
 

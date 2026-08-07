@@ -86,14 +86,18 @@ copying internal taxonomies. In particular:
 A team can map its local labels onto the generic hints above while preserving a
 review-friendly, public-safe schema.
 
+Sources:
+
+* Microsoft Purview sensitivity labels: <https://learn.microsoft.com/en-us/purview/sensitivity-labels>
+* Microsoft data classification categories (Customer Data, EUII, EUPI, OII): <https://learn.microsoft.com/en-us/compliance/assurance/assurance-data-classification>
+
 ## Private overlay for internal taxonomies
 
 Keep organization-specific classification schemes out of this public reference.
 When a deployment needs internal data-type names, retention policies, or label
-mappings, supply them through a private overlay referenced by
-`state.overlayConfigPath` (an out-of-repo file). The public skill reads the
-overlay when it is present and degrades gracefully to the generic hints above when
-it is absent, so no internal taxonomy is ever embedded here.
+mappings, supply them through a private config overlay referenced by
+`state.overlayConfigPath` (an out-of-repo file), so no internal taxonomy is ever
+embedded here.
 
 ## Usage notes
 

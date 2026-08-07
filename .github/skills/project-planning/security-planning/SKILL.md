@@ -24,21 +24,19 @@ Use this skill when you need to:
 
 When the user asks for a TM7 threat model, the runtime can generate a `.tm7` file and a matching markdown report from the same spec. The generator supports the `pre-populated-comprehensive` and `diagram-only-defer-to-tmt` modes and can update an existing model with `--update`. Use the `generate_tm7.py` and `generate_markdown.py` entry points with `--template` to select a profile.
 
-The `.tm7` output mirrors the Microsoft Threat Modeling Tool's real `SerializableModelData` DataContract and opens in the tool without the deserialization dialog. Fidelity is validated against the tool's own assemblies by `scripts/Deserialize-Tm7.ps1`, which the pytest suite runs when the tool is installed and skips cleanly otherwise. See [references/tm7-generation.md](references/tm7-generation.md) for the verified contract.
+The `.tm7` output mirrors the Microsoft Threat Modeling Tool's real `SerializableModelData` DataContract and deserializes cleanly under the tool's own `DataContractSerializer`. Fidelity is validated against the tool's own assemblies by `scripts/Deserialize-Tm7.ps1`, which the pytest suite runs when the tool is installed and skips cleanly otherwise. See [references/tm7-generation.md](references/tm7-generation.md) for the verified contract.
 
 ### Native TM7 visual feedback workflow
 
 The skill also supports an opt-in, Windows-local feedback loop for the native Microsoft Threat Modeling Tool UI. The feature is off by default. The generator and standard validator keep their existing portable behavior when the feedback flags are absent. Native feedback is enabled only when `validate_tm7_with_tmt.py` is run with `--feedback-loop`, `--spec`, and `--overlay-output`; optional `--overlay-input`, `--max-iterations`, and `--require-feedback-evidence` refine the execution contract.
 
-The current native workflow requires Microsoft Threat Modeling Tool 7.3.51110.1, a Windows desktop session, and UI Automation access. On a non-Windows host, or when no trusted installation is discovered, the run stops as `tmt-unavailable` under `--require-tmt` and as `skipped` without it; a discovered installation at the wrong version stops as `version-mismatch`. The validator uses exit codes `0` for success, `1` for validation failure, `2` for generic error, `3` for missing TMT, `4` for version mismatch, `5` for automation timeout, `6` for unexpected modal, `7` for missing feedback evidence, and `8` for feedback non-convergence.
+The workflow requires Microsoft Threat Modeling Tool 7.3.51110.1, a Windows desktop session, and UI Automation access. The loop is bounded to a baseline run plus at most three refinement iterations. Exit codes, stop reasons, and the discovery-failure rules are defined in the generation reference.
 
 The harness controls TMT windows and may open, close, and reopen the app for save/reopen validation. It emits a start notice before automation begins, progress updates for the baseline and each refinement candidate, and a release notice when the loop completes or aborts so the operator knows when control is returned. These are notices only; the harness does not block on operator acknowledgment. The agent-facing lockout and release obligations that surround a run are owned by `tm7-generation-workflow.instructions.md`.
 
-The loop records one evidence bundle per run under the requested evidence directory. The top level contains `manifest.json`, `status.json`, `action.log`, and the `screenshots/`, `uia/`, `exports/`, `summaries/`, and `logs/` folders. Each iteration writes its own bundle under `iterations/00-baseline` and `iterations/01` through `iterations/03` as needed, with per-surface screenshots, UI Automation snapshots, summaries, and a generated candidate model such as `candidate-00-baseline.tm7` stored in that iteration folder. The loop writes iteration-scoped overlay payloads as `overlay.yaml` in the iteration bundle and a final overlay to the explicit `--overlay-output` path when execution stops. The overlay payload remains in `approval_state: pending`, and no runtime path or flag auto-promotes it to `approved` or rewrites the canonical baseline.
+The loop records one evidence bundle per run under the requested evidence directory, with per-iteration screenshots, UI Automation snapshots, summaries, and candidate models. The overlay payload remains in `approval_state: pending`, and no runtime path or flag auto-promotes it to `approved` or rewrites the canonical baseline.
 
-The current scoring logic keeps deterministic geometry gates separate from advisory screenshot heuristics. Geometry metrics use thresholds of `overlap_ratio > 0.03` for review, `overlap_ratio >= 0.01` for warn, `edge_node_intersections > 2` for review, `edge_crossing_count > 2` for review in non-dense layouts, `min_spacing_ratio < 0.24` for review, and a missing or incomplete surface capture as a review gate.
-
-Screenshot heuristics remain advisory and are not treated as a semantic approval signal. Human semantic review is still the authority for whether a pending overlay is acceptable.
+Scoring keeps deterministic geometry gates separate from advisory screenshot heuristics. Screenshot heuristics are not a semantic approval signal.
 
 A Windows-native example uses the skill's locked Windows dependency group:
 
@@ -53,21 +51,17 @@ uv run --project .github/skills/project-planning/security-planning --group windo
   --require-feedback-evidence
 ```
 
-The overlay contract is versioned and deterministic. It carries layout intent in the `zone_rules`, `node_rules`, `connector_rules`, and `surface_rules` collections, and it is invalidated unless a complete fingerprint block matches on all five of `spec_fingerprint`, `generator_profile_fingerprint`, `surface_identity_fingerprint`, `surface_zone_identity_fingerprint`, and `surface_flow_identity_fingerprint`.
+The overlay contract is versioned and deterministic. It carries layout intent in named rule collections and is invalidated unless its full fingerprint block matches, so a stale overlay is rejected rather than replayed onto a changed model.
 
-The loop is bounded to a baseline run plus at most three refinement iterations, and it stops on a stable reason from `automated-ready-pending-human`, `repeated-defect-no-improvement`, `max-iterations`, `evidence-incomplete`, `semantic-regression`, `candidate-generation-failed`, `overlay-validation-failed`, `tmt-unavailable`, `skipped`, `version-mismatch`, `automation-timeout`, `unexpected-modal`, or `harness-error`. `automated-ready-pending-human` means the automated gates passed and a human review is still required; it is not an approval.
-
-See [references/tm7-generation.md](references/tm7-generation.md) for the full CLI surface, the mode-flag behavior, and the operator runbook covering prerequisites, abort, recovery, and rollback.
+See [references/tm7-generation.md](references/tm7-generation.md) for the full CLI surface, exit codes, stop reasons, geometry thresholds, the evidence-bundle layout, the overlay fingerprint contract, and the operator runbook covering prerequisites, abort, recovery, and rollback.
 
 ### Agent-assisted visual review
 
 Some layout defects never reach a metric. TM7 persists no connector label geometry and UI Automation exposes no label element, so label collisions, unreadable label text, and visual crowding are invisible to the deterministic gates. An agent that reads the iteration screenshots alongside `feedback-manifest.json` and each surface's UI Automation tree can see them and author corrections into the overlay the harness publishes. The capability is documented; it has not yet been demonstrated end to end on a real defect.
 
-Two facts govern that work and cannot be inferred from the artifacts. Rendered geometry is available only from the UI Automation tree, in screen pixels at a uniform 1.5x zoom, so every rule value must be converted to model units. And `handle_point` is the only connector-label lever that reaches the renderer, where TMT draws the label centred on that point; `label_offset` moves nothing that is drawn.
+A stopped run publishes the overlay seed the agent edits. Layout-exhaustion stops write a valid overlay with correct fingerprints and empty rule collections; a correctness or environment stop publishes no seed at all.
 
-A stopped run publishes the overlay seed the agent edits. The layout-exhaustion stops `repeated-defect-no-improvement` and `max-iterations` write a valid overlay with correct fingerprints and all four rule collections empty; a correctness or environment stop publishes no seed at all.
-
-See [references/tm7-generation.md](references/tm7-generation.md) for the protocol, the accepted rule fields, the worked coordinate translation, and the constraints that bound an agent-authored overlay.
+See [references/tm7-generation.md](references/tm7-generation.md) for the protocol, the accepted rule fields, the coordinate translation the rule values require, and the constraints that bound an agent-authored overlay.
 
 > [!CAUTION]
 > **Disclaimer:** This agent is an assistive tool only. It does not provide legal, regulatory, or compliance advice and does not replace professional security review boards, penetration testing teams, compliance auditors, legal counsel, or other qualified human reviewers. The output consists of suggested actions and considerations to support a user's own internal security review and decision-making. All security plans, threat models, security models, and mitigation recommendations generated by this tool must be independently reviewed and validated by appropriate security and compliance reviewers before use. Outputs from this tool do not constitute security approval, compliance certification, or regulatory sign-off.
@@ -78,19 +72,32 @@ The human-in-the-loop contract governing authorship confirmation, native feedbac
 
 Load the reference file that matches the phase or topic you need.
 
-| Reference                                                                          | Topic                                                                                     |
-|------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| [references/00-index.md](references/00-index.md)                                   | Navigation catalog and consolidated attribution                                           |
-| [references/operational-buckets.md](references/operational-buckets.md)             | Operational bucket definitions, GS overlay, and classification guidance                   |
-| [references/stride-model.md](references/stride-model.md)                           | STRIDE methodology, AI extensions, risk matrix, and data-flow analysis                    |
-| [references/standards-cross-reference.md](references/standards-cross-reference.md) | Bucket-to-standards mapping table and component mapping output format                     |
-| [references/nist-control-families.md](references/nist-control-families.md)         | NIST 800-53 priority tiers and NIST AI RMF subcategory mappings                           |
-| [references/backlog-formats.md](references/backlog-formats.md)                     | Security-specific prioritization and RAI work item categories                             |
-| [references/data-classification.md](references/data-classification.md)             | Public-safe data-classification taxonomy, tiers/categories/retention, and schema mapping  |
-| [references/threat-model-review.md](references/threat-model-review.md)             | Threat-model completeness checklist, PASS/INCOMPLETE verdict, and gap list                |
-| [references/tm7-generation.md](references/tm7-generation.md)                       | TM7 input schema, dual-output generation contract, profile mapping, and emission contract |
+| Reference                                                                          | Topic                                                                                                                                                               |
+|------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [references/00-index.md](references/00-index.md)                                   | Navigation catalog and consolidated attribution                                                                                                                     |
+| [references/operational-buckets.md](references/operational-buckets.md)             | Operational bucket definitions, GS overlay, and classification guidance                                                                                             |
+| [references/stride-model.md](references/stride-model.md)                           | STRIDE methodology, AI extensions, risk matrix, and data-flow analysis                                                                                              |
+| [references/standards-cross-reference.md](references/standards-cross-reference.md) | Bucket-to-standards mapping table and component mapping output format                                                                                               |
+| [references/nist-control-families.md](references/nist-control-families.md)         | NIST 800-53 priority tiers and NIST AI RMF subcategory mappings                                                                                                     |
+| [references/backlog-formats.md](references/backlog-formats.md)                     | Security-specific prioritization and RAI work item categories                                                                                                       |
+| [references/data-classification.md](references/data-classification.md)             | Public-safe data-classification taxonomy, tiers/categories/retention, and schema mapping                                                                            |
+| [references/threat-model-review.md](references/threat-model-review.md)             | Threat-model completeness checklist, PASS/INCOMPLETE verdict, and gap list                                                                                          |
+| [references/tm7-generation.md](references/tm7-generation.md)                       | TM7 input schema, dual-output generation contract, profile mapping, emission contract, native feedback loop, overlay and fingerprint contract, and operator runbook |
 
-The skill ships public defaults for the taxonomy and the completeness checklist. Organization-specific internal details such as internal data-type taxonomies, internal auth service names, and internal review-gate steps are supplied through a private overlay referenced by state.overlayConfigPath and are never embedded in the public skill.
+Bundled executable and data resources:
+
+| Resource                                                  | Use                                                                |
+|-----------------------------------------------------------|--------------------------------------------------------------------|
+| `scripts/generate_tm7.py`                                 | Run to build a `.tm7` from a threat-model spec                     |
+| `scripts/generate_markdown.py`                            | Run to render the same spec as a markdown report                   |
+| `scripts/generate_tb7.py`                                 | Run to emit a template file                                        |
+| `scripts/validate_tm7_with_tmt.py`                        | Run for native Windows TMT validation and the opt-in feedback loop |
+| `scripts/Deserialize-Tm7.ps1`                             | Run to check round-trip fidelity against the tool's own assemblies |
+| `assets/schemas/tm7-layout-overlay.schema.json`           | Read as the layout overlay schema                                  |
+| `assets/schemas/tm7-visual-feedback-manifest.schema.json` | Read as the evidence manifest schema                               |
+| `templates/threat-model-spec-example.yaml`                | Copy as the starting point for a new spec                          |
+
+The skill ships public defaults for the taxonomy and the completeness checklist. Organization-specific internal details such as internal data-type taxonomies, internal auth service names, and internal review-gate steps are supplied through a private config overlay referenced by state.overlayConfigPath and are never embedded in the public skill.
 
 ## Attribution
 
