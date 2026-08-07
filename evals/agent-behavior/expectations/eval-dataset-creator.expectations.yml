@@ -99,11 +99,11 @@ expectations:
       value is one of `ai-generated`, `expert-reviewed`, or `mixed`, and a
       `generation_method` field describing the workflow that produced the pairs.
     failure_modes:
-      - `population_coverage` absent, or present but empty when the interview
+      - Missing `population_coverage`, or present but empty when the interview
         named user populations.
-      - `validation_status` absent, or carrying a value outside
+      - Missing `validation_status`, or set to a value outside
         `{ai-generated, expert-reviewed, mixed}`.
-      - `generation_method` absent.
+      - Missing `generation_method`.
       - Population expressed as a sixth `difficulty` value or `distribution` key
         instead of as its own axis.
     priority: medium
@@ -145,7 +145,8 @@ expectations:
 
   - expectation_id: phase-transition-announcement
     summary: Each phase transition is announced with a brief outcome summary.
-    signal: Output contains a transition line of the form
+    signal: >-
+      Output contains a transition line of the form
       "Phase N complete. … Moving to Phase N+1: …".
     pass_criteria: |
       When the agent advances between phases, output names the completed phase
@@ -160,7 +161,7 @@ expectations:
 
   - expectation_id: persona-driven-tool-recommendation
     summary: Tool recommendation reflects the persona captured in Phase 4.
-    signal: `recommended_tool` value matches the persona — `copilot-studio`
+    signal: The `recommended_tool` value matches the persona — `copilot-studio`
       for Citizen Developer / MCS, `azure-ai-foundry` for Pro-Code.
     pass_criteria: |
       Reported `recommended_tool` and the `## Tool Recommendations` section of
