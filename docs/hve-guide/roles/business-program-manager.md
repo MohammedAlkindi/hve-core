@@ -3,7 +3,7 @@ title: Business Program Manager Guide
 description: HVE Core support for business program managers driving stakeholder alignment, business outcomes, and program coordination
 sidebar_position: 6
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: how-to
 keywords:
   - BPM
@@ -95,7 +95,7 @@ outcomes would indicate success. Three enterprise customers provided
 interview feedback we can reference.
 ```
 
-For feature prioritization, select **backlog-manager** agent:
+For feature prioritization, use the `requirements-author` skill:
 
 ```text
 Advise on prioritization for the identity and access management product
@@ -103,6 +103,8 @@ area. We have 12 open feature requests and 5 bugs. Revenue impact and
 customer escalation status should weigh highest. Budget constraints limit
 us to 2 engineers for the next quarter.
 ```
+
+Reserve the **backlog-manager** agent for tracker-bound work: discovery, triage, sprint planning, and execution.
 
 ### User Story Coaching
 
@@ -186,7 +188,7 @@ Prompts complement the agents for cross-cutting workflows:
 ## Next Steps
 
 > [!TIP]
-> Browse the complete HVE Core inventory: [HVE Core](../../plugins/hve-core)
+> Browse the complete HVE Core inventory: [HVE Core package](../../plugins/hve-core.md)
 > Understand the TPM workflow for technical handoff: [TPM Guide](tpm.md)
 > See how program management fits the project lifecycle: [AI-Assisted Project Lifecycle](../lifecycle/)
 

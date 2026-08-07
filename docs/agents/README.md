@@ -3,7 +3,7 @@ title: Agent Systems Catalog
 description: Overview of all hve-core agent systems with workflow documentation and quick links
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-07-15
+ms.date: 2026-08-06
 ms.topic: overview
 keywords:
   - github copilot
@@ -42,6 +42,16 @@ A single human-gated Code Review agent provides pre-PR review on local branches.
 Automates work discovery, triage, sprint planning, task planning, and execution across Azure DevOps, GitHub, and Jira. One set of workflows serves all three: the commands resolve which tracker backs the workspace at runtime, so there is no per-platform variant to choose.
 
 `backlog-plan` covers the read-only half and `backlog-execute` covers every tracker mutation, gated by three-tier autonomy, dry-run preview, and content sanitization. The Backlog Manager agent orchestrates both across a longer session, and the Functional Planner agent converts a PRD into a planned hierarchy. See the [Backlog Management Documentation](backlog/README.md) for workflow guides and per-platform differences.
+
+### Azure DevOps Delivery Workflows
+
+Three workflows have no cross-platform equivalent and remain Azure DevOps only:
+
+| Workflow             | Documentation                                              |
+|----------------------|--------------------------------------------------------------|
+| Build monitoring     | [Build Monitoring](ado-backlog/build-monitoring.md)         |
+| Pull request creation | [Pull Request Creation](ado-backlog/pr-creation.md)        |
+| PRD planning          | [PRD Planning](ado-backlog/prd-planning.md)                |
 
 ## Project Planning
 

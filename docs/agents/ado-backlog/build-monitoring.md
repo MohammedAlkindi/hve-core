@@ -2,7 +2,7 @@
 title: "Build Monitoring Workflow"
 description: "Where Azure DevOps build status, logs, and failure analysis moved after the backlog consolidation"
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: tutorial
 keywords:
   - ado

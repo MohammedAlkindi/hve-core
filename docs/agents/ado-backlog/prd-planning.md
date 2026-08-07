@@ -2,7 +2,7 @@
 title: "PRD Planning Workflow"
 description: "Where PRD-to-work-item hierarchy planning moved after the backlog consolidation"
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: tutorial
 keywords:
   - ado

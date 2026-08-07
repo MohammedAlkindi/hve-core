@@ -3,7 +3,7 @@ title: "Stage 4: Decomposition"
 description: Break product requirements into actionable work items and task hierarchies
 sidebar_position: 6
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: how-to
 keywords:
   - ai-assisted project lifecycle
@@ -31,9 +31,9 @@ You enter Decomposition after completing [Stage 3: Product Definition](product-d
 |------------------------|--------|-------------------------------------|----------------------------------------------------------------|
 | functional-planner     | Agent  | Select **functional-planner** agent | Plan a work item hierarchy from a PRD, read-only               |
 | backlog-manager        | Agent  | Select **backlog-manager** agent    | Work discovery, triage, and backlog management across trackers |
-| backlog-plan my-work   | Prompt | `/backlog-plan my-work`             | Retrieve your assigned work items                              |
-| backlog-plan task-plan | Prompt | `/backlog-plan task-plan`           | Enrich assigned work into an implementation handoff            |
-| backlog-execute run    | Prompt | `/backlog-execute run`              | Apply a reviewed handoff to the tracker                        |
+| backlog-plan my-work   | Skill  | `/backlog-plan my-work`             | Retrieve your assigned work items                              |
+| backlog-plan task-plan | Skill  | `/backlog-plan task-plan`           | Enrich assigned work into an implementation handoff            |
+| backlog-execute run    | Skill  | `/backlog-execute run`              | Apply a reviewed handoff to the tracker                        |
 | backlog-management     | Skill  | Auto-loaded by the Backlog Manager  | Supplies work item planning conventions                        |
 
 ## Role-Specific Guidance

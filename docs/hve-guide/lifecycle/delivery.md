@@ -3,7 +3,7 @@ title: "Stage 8: Delivery"
 description: Merge approved changes, verify builds, and update tracking systems for release
 sidebar_position: 9
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: how-to
 keywords:
   - ai-assisted project lifecycle
@@ -30,22 +30,23 @@ You enter Delivery after [Stage 7: Review](review.md) with an approved pull requ
 
 ## Available Tools
 
-### Prompts
+### Prompts and Skills
 
-| Tool                | Type   | How to Invoke          | Purpose                                      |
-|---------------------|--------|------------------------|----------------------------------------------|
-| git-merge           | Prompt | `/git-merge`           | Merge approved PRs into the target branch    |
-| ado-get-build-info  | Prompt | `/ado-get-build-info`  | Check build status for the current branch    |
-| backlog-execute run | Prompt | `/backlog-execute run` | Apply reviewed work item and backlog updates |
+| Tool                | Type            | How to Invoke          | Purpose                                      |
+|---------------------|-----------------|------------------------|----------------------------------------------|
+| git-merge           | Prompt          | `/git-merge`           | Merge approved PRs into the target branch    |
+| ado-get-build-info  | Prompt          | `/ado-get-build-info`  | Check build status for the current branch    |
+| backlog-execute     | Skill           | `/backlog-execute`     | Apply reviewed work item and backlog updates |
 
 ### Auto-Activated Instructions
 
-| Instruction             | Activates On        | Purpose                                    |
-|-------------------------|---------------------|--------------------------------------------|
-| git-merge               | Merge operations    | Enforces merge, rebase, and conflict rules |
-| backlog-management      | Backlog updates     | Enforces backlog update conventions        |
-| community-interaction   | Public-facing comms | Enforces community communication standards |
-| ado-create-pull-request | PR creation         | Enforces PR creation conventions           |
+| Instruction           | Activates On                          | Purpose                                                    |
+|-----------------------|---------------------------------------|-------------------------------------------------------------|
+| git-merge             | Merge operations                      | Enforces merge, rebase, and conflict rules                 |
+| backlog-guardrails    | Files under a backlog tracking root   | Requires backlog-management before any tracker mutation    |
+| community-interaction | Backlog agent and GitHub reference    | Enforces community communication standards                 |
+
+Backlog conventions and the Azure DevOps pull request protocol are no longer auto-activated instructions. They live in the `backlog-management` skill and load on demand when a workflow activates it.
 
 ## Role-Specific Guidance
 

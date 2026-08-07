@@ -2,7 +2,7 @@
 title: Sprint Planning Workflow
 description: Organize work into iterations, milestones, or sprints with coverage, capacity, and gap analysis
 author: Microsoft
-ms.date: 2026-08-02
+ms.date: 2026-08-06
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -40,12 +40,12 @@ Sprint planning coordinates discovery and triage inline when the backlog is not 
 
 This is the single largest platform difference in the workflow.
 
-| Binding             | Azure DevOps                     | GitHub                           | Jira                                      |
-|---------------------|----------------------------------|----------------------------------|-------------------------------------------|
-| Container           | Iteration Path                   | Milestone                        | Sprint                                    |
-| Window              | Start and end dates on iteration | **Due date only, start derived** | Start and end dates on sprint             |
-| Effort field        | Story Points                     | **None native**                  | Story Points (instance-specific field ID) |
-| Container discovery | Team iteration list              | Repository milestone list        | Board sprint list                         |
+| Binding             | Azure DevOps                     | GitHub                           | Jira                                      | GitHub capability status |
+|---------------------|----------------------------------|----------------------------------|-------------------------------------------|--------------------------|
+| Container           | Iteration Path                   | Milestone                        | Sprint                                    | Supported                |
+| Window              | Start and end dates on iteration | Due date only, start derived     | Start and end dates on sprint             | Configuration required   |
+| Effort field        | Story Points                     | None native                      | Story Points (instance-specific field ID) | Capability gap           |
+| Container discovery | Team iteration list              | Repository milestone list        | Board sprint list                         | Supported                |
 
 ### GitHub capability gaps
 

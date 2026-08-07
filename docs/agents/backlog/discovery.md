@@ -72,7 +72,7 @@ The three paths are identical everywhere. The query surface underneath differs.
 
 | Aspect                 | Azure DevOps                       | GitHub                      | Jira                           |
 |------------------------|------------------------------------|-----------------------------|--------------------------------|
-| Assigned-work query    | `wit_my_work_items`                | `assignee:@me` issue search | JQL `assignee = currentUser()` |
+| Assigned-work query    | `wit_my_work_items`                | `assignee:@me` issue search | Jira Query Language (JQL) `assignee = currentUser()` |
 | Iteration-scoped query | `wit_get_work_items_for_iteration` | Milestone filter            | JQL `sprint in openSprints()`  |
 | Free-text search       | `search_workitem`                  | Issue search qualifiers     | JQL text operators             |
 | Categorization read    | Area Path, Tags, Priority          | Labels                      | Components, Labels, Priority   |
@@ -83,6 +83,13 @@ The three paths are identical everywhere. The query surface underneath differs.
 ## Output Artifacts
 
 Discovery writes to the tracking root for the resolved platform: `.copilot-tracking/workitems/` for Azure DevOps, `.copilot-tracking/github-issues/` for GitHub, `.copilot-tracking/jira-issues/` for Jira.
+
+Discovery output files, all written under `<tracking-root>/discovery/<scope-name>/`:
+
+* `planning-log.md` — search terms, discovered items, and phase tracking.
+* `artifact-analysis.md` — extracted requirements and field values. Artifact-driven path only.
+* `work-items.md` — the source of truth for planned operations. Artifact-driven path only.
+* `handoff.md` — the reviewed summary the next workflow consumes.
 
 ```text
 <tracking-root>/discovery/<scope-name>/

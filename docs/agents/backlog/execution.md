@@ -2,7 +2,7 @@
 title: Execution Workflow
 description: Apply reviewed backlog changes to Azure DevOps, GitHub, or Jira with autonomy gates, dry-run preview, and resumable state
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: tutorial
 keywords:
   - backlog management

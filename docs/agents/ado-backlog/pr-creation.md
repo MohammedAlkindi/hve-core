@@ -2,7 +2,7 @@
 title: "Pull Request Creation Workflow"
 description: "Where Azure DevOps pull request creation moved after the backlog consolidation"
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: tutorial
 keywords:
   - ado

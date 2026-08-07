@@ -48,6 +48,8 @@ Select tone characteristics based on the scenario category. This matrix guides t
 | Security            | Urgent, reassuring      | Process-focused, confidential  | None                           | 2-3 sentences           |
 | Onboarding          | Encouraging, supportive | Mentoring, context-providing   | Permitted (brief)              | 3-4 sentences           |
 
+Where emoji are permitted, place them at the end of a sentence or on their own, never mid-sentence and never as the sole carrier of meaning. A reader using a screen reader hears the emoji name inline, so a mid-sentence emoji interrupts the phrase it sits in. Text must remain complete and unambiguous when every emoji is removed.
+
 ## Scenario Catalog
 
 Each scenario includes a trigger condition, a response template with `{{placeholder}}` syntax, a tone annotation, and the tool sequence for execution.
@@ -71,7 +73,7 @@ Template placeholders used across scenarios:
 
 Triggered when a contributor opens their first issue or PR in the repository. Tone is warm and genuine, encouraging first engagement.
 
-> Welcome to the project, @{{contributor}}! 🎉 Thank you for your first contribution. Please review our [CONTRIBUTING.md](https://github.com/{{owner}}/{{repo}}/blob/main/CONTRIBUTING.md) for guidelines and expectations. A maintainer will review your submission within the next few business days.
+> Welcome to the project, @{{contributor}}. Thank you for your first contribution. Please review our [CONTRIBUTING.md](https://github.com/{{owner}}/{{repo}}/blob/main/CONTRIBUTING.md) for guidelines and expectations. A maintainer will review your submission within the next few business days.
 
 Post via:
 
@@ -121,7 +123,7 @@ Post via:
 
 Triggered when a contributor reaches a meaningful milestone (multiple merged PRs, sustained engagement, significant impact). Tone is warm and celebratory with specific recognition tied to impact.
 
-> Congratulations, @{{contributor}}! 🎉 Your contributions to {{specific_area}} have made a real impact on the project. Thank you for your sustained engagement and the quality of your work.
+> Congratulations, @{{contributor}}. Your contributions to {{specific_area}} have made a real impact on the project. Thank you for your sustained engagement and the quality of your work.
 >
 > The community benefits from contributors like you.
 
@@ -307,7 +309,7 @@ Post via:
 
 Triggered when a contributor picks up an issue labeled `good-first-issue`. Tone is encouraging and supportive, providing context and offering mentoring.
 
-> Welcome, @{{contributor}}! 🎉 Thank you for picking up this issue. Here is some context to get you started: {{specific_area}}.
+> Welcome, @{{contributor}}. Thank you for picking up this issue. Here is some context to get you started: {{specific_area}}.
 >
 > If you have questions during implementation, feel free to comment here. A maintainer will be available to help guide you through the process.
 

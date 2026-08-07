@@ -2,7 +2,7 @@
 title: Why Backlog Management Works
 description: Design principles and cognitive foundations behind the backlog workflow separation
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-06
 ms.topic: concept
 keywords:
   - backlog management

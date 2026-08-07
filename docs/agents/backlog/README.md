@@ -68,41 +68,41 @@ When the signals are ambiguous, the workflow states its inference and asks you t
 
 ## The Workflows
 
-### 🔍 Discovery
+### Discovery workflow
 
 Finds and categorizes work from a user request, a set of documents, or a search. Three paths cover different starting points: user-centric (work assigned to you), artifact-driven (documents, branches, and commits mapped to existing items), and search-based (criteria-driven queries). Discovery produces analysis files that feed triage.
 
 See the [Discovery workflow guide](discovery.md).
 
-### 🏷️ Triage
+### Triage workflow
 
 Classifies existing items and recommends field, label, priority, and status changes. Duplicate detection compares items across several similarity dimensions before noise accumulates.
 
 See the [Triage workflow guide](triage.md).
 
-### 📋 Sprint Planning
+### Sprint Planning workflow
 
 Organizes items into the platform's iteration container with coverage analysis, capacity tracking, and gap detection. A hierarchy coverage matrix analyzes decomposition completeness across levels.
 
 See the [Sprint Planning workflow guide](sprint-planning.md).
 
-### 📝 My Work and Task Planning
+### My Work and Task Planning workflow
 
 Retrieves the work assigned to you, then enriches it into an implementation-ready handoff with an ordered recommendation and reasoning. These are two stages of one flow: retrieve, then enrich.
 
 See the [Task Planning workflow guide](task-planning.md).
 
-### ⚡ Execution
+### Execution workflow
 
 Consumes a reviewed handoff file and applies the planned operations in sequence, tracking each with checkbox progress and per-operation logging. Content sanitization strips internal tracking references before any API call.
 
 See the [Execution workflow guide](execution.md).
 
-### ➕ Single Item
+### Single Item workflow
 
 Creates one item through guided field collection without running the full pipeline. Item types are discovered from your tracker rather than assumed, because the available types differ by platform and by project.
 
-### 🔄 Resume
+### Resume workflow
 
 Rebuilds context from the durable planning artifacts and continues an interrupted workflow without duplicating completed work.
 
