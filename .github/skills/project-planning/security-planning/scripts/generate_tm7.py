@@ -25,6 +25,7 @@ import tm7_visual_feedback
 import yaml
 from tm7_threat_contract import (
     MAX_SPEC_BYTES,
+    THREAT_PROPERTY_KEYS,
     InputTooLargeError,
     ThreatContractError,
     UnsafeXmlError,
@@ -986,6 +987,17 @@ def _map_phase2_threats(
                 target_type_id = profile.get("type_ids", {}).get("data_flow", "GE.DF")
         if target_type_id:
             properties["target_type_id"] = str(target_type_id)
+
+        # A spec threat may supply its own TMT display metadata. Only the keys the
+        # threat contract recognizes are carried forward, so an unrecognized spec key
+        # cannot reach the model. Authored values win over the derived defaults that
+        # build_threat_instance_properties would otherwise substitute.
+        supplied_properties = spec_threat.get("properties")
+        if isinstance(supplied_properties, dict):
+            for key in THREAT_PROPERTY_KEYS:
+                value = supplied_properties.get(key)
+                if value is not None and str(value).strip():
+                    properties[key] = str(value)
 
         base_id = str(spec_threat.get("id", "spec-threat"))
         candidate_id = base_id

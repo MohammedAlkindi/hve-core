@@ -1,6 +1,8 @@
 # cspell:ignore azspeech customercards docproc exfiltrated fileperms ghapi ghmcp ghscan
 # cspell:ignore interactor logsink misdrive mupdf noredirect pdfbounds reposcan retargets
 # cspell:ignore securityplanning soffice tokencache videogif webscan
+# cspell:ignore deltacum deltatocumulative grafana jsonc lgtm otel otlp promql traceql
+# cspell:ignore tagpin pyroscope
 # HVE Core comprehensive threat-model spec
 # Source of truth: docs/security/security-model.md (repo-wide STRIDE model)
 # plus the per-skill SECURITY.md models (mural, jira, gitlab, tts-voiceover, and the
@@ -28,6 +30,48 @@ project_metadata:
     - GitHub Copilot provides baseline AI safety (Microsoft RAI compliance).
     - Contributors act in good faith; PR review provides verification.
     - Consumers implement their own code review of AI-assisted output.
+    - >-
+      Operator-initiated local invocation is trusted and is deliberately not threatened
+      per connector. Flows 28, 29, 30, 31, 32, 33, 34, 36, 37, 38, 40, and 41 represent an
+      authenticated workstation operator starting a skill on their own machine, or that
+      skill returning results to them, entirely inside the Developer Workstation zone. The
+      operator is trusted; the invoked runtimes are not, and each carries its own threats
+      on the connectors where it handles untrusted input or egresses. A compromised
+      workstation is modeled as the same-uid adversary in the per-skill security models
+      rather than duplicated on every invocation edge.
+    - >-
+      Flow 44 carries no distinct threat because the loopback handler and the Mural OAuth
+      client are the same process. The callback is delivered through shared memory after
+      the state parameter is validated, so there is no inter-process interception boundary
+      to model. Hostile callback delivery is covered by OA-3 and OA-5 on flow 07.
+    - >-
+      Flow 43 carries no distinct threat of its own. The authorization response returned
+      to the browser travels over TLS 1.3, and every risk it carries is modeled on the
+      connector where that risk is realized: redirect-target hijack by OA-3 on flow 07,
+      callback forgery by OA-5 on flow 07, authorization-code exposure through browser
+      history or referer by OA-9 on flow 07, and authorization-server mix-up by OA-2 on
+      flow 08, where the client chooses which server receives the code. Restating any of
+      them here would duplicate a threat rather than add one.
+    - >-
+      Flows 35 and 39 cross a modeled zone but introduce no adversary beyond threats
+      already recorded. Flow 35 is workflow-identity HTTPS access to the GitHub API under
+      constrained read permissions, alongside GS-1 and GS-2 on the same API surface. Flow
+      39 is a repository-scoped local read of spec and template files by the generator,
+      whose integrity is covered by SP-1.
+    - >-
+      Flow 47 carries no distinct threat of its own. It is the intra-container render path
+      from the local telemetry store to Grafana, and every risk it carries is modeled where
+      that risk is realized: who may read the corpus by OT-4 on flow 46, who may reach the
+      Grafana session by OT-6 and OT-7 on flow 48, and whether the stored series are
+      trustworthy by OT-2 on flow 45 and OT-9 on flow 49. Restating any of them here would
+      duplicate a threat rather than add one.
+    - >-
+      The copilot-otel-metrics baseline snapshot file under the user cache directory is not
+      modeled as a component. Its own security model records that it holds metric names,
+      service names, service versions, session ids, and trace names but no span content,
+      and that the write path is derived from the environment rather than from any service
+      response, so no hostile service can redirect it. It carries no asset the model does
+      not already track on the telemetry store.
   policy_values:
     cryptography_suites:
       - TLS 1.2+
@@ -58,7 +102,7 @@ trust_zones:
     description: GitHub-hosted repository, LLM API service, and GitHub MCP server (network boundary).
   - id: tz-ext
     name: External Dependencies
-    description: npm registry, GitHub Actions, PowerShell Gallery, and third-party MCP servers.
+    description: npm registry, GitHub Actions, PowerShell Gallery, public container registries, and third-party MCP servers.
   - id: tz-saas
     name: External SaaS APIs
     description: Third-party authorization servers and APIs (Mural, Jira, GitLab, Azure Speech).
@@ -124,6 +168,31 @@ assets:
     description: Threat-model specifications, TM7 payloads, markdown reports, and validation outputs.
     sensitivity: internal
     category: Source
+  - id: asset-prompt-telemetry
+    name: Copilot telemetry corpus (prompt content and usage metrics)
+    kind: data
+    description: >-
+      Spans and metrics exported by the Copilot Chat extension. Observed to carry full prompt
+      text, tool-call arguments and results, and system instructions in plaintext alongside
+      token counts and AIU billing proxies.
+    sensitivity: confidential
+    category: Content
+  - id: asset-editor-settings
+    name: Editor global settings document
+    kind: data
+    description: >-
+      The user's application-scoped settings.json, a JSONC document that may hold API endpoints,
+      internal hostnames, and tokens written there by other extensions.
+    sensitivity: confidential
+    category: Configuration
+  - id: asset-otel-ingest-cred
+    name: Application Insights fleet ingest connection string
+    kind: credential
+    description: >-
+      Static write-side credential distributed identically to every workstation on the
+      organization telemetry path, with no per-user binding and no documented in-place rotation.
+    sensitivity: confidential
+    category: Credential
 
 components:
   # External interactors and platform services
@@ -195,6 +264,14 @@ components:
     name: Scan Target
     kind: external_interactor
     trust_zone_id: tz-ext
+  - id: ext-registry
+    name: Public Container Registry
+    kind: external_interactor
+    trust_zone_id: tz-ext
+  - id: ext-otel-workspace
+    name: Application Insights / Log Analytics Workspace
+    kind: external_interactor
+    trust_zone_id: tz-saas
   # In-scope processes and stores
   - id: comp-artifacts
     name: HVE Core Artifacts
@@ -208,7 +285,7 @@ components:
   - id: comp-workflows
     name: GitHub Actions Workflows
     kind: process
-    asset_ids: [asset-cicd]
+    asset_ids: [asset-cicd, asset-secrets]
     trust_zone_id: tz-cicd
   - id: comp-repo
     name: Repository
@@ -295,6 +372,43 @@ components:
     name: Operator Diagnostics / Log Sinks
     kind: data_store
     trust_zone_id: tz-dev
+  # copilot-otel-metrics runtime surfaces. The local stack sits in tz-dev because container
+  # isolation is a sub-boundary within the workstation rather than a zone of its own, matching
+  # the treatment of comp-devcon. The operator-deployed collector and workspace sit in tz-saas
+  # because they are cloud resources outside the workstation, which is why the local volume and
+  # the Azure workspace are modeled as different trust zones.
+  - id: comp-otel-ingest
+    name: OTel Stack OTLP Receiver (otel-lgtm container entrypoint)
+    kind: process
+    asset_ids: [asset-prompt-telemetry]
+    trust_zone_id: tz-dev
+  - id: comp-otel-store
+    name: Local Telemetry Store (Prometheus, Tempo, Loki, Pyroscope on copilot-otel-data)
+    kind: data_store
+    asset_ids: [asset-prompt-telemetry]
+    trust_zone_id: tz-dev
+  - id: comp-otel-grafana
+    name: Local Grafana Instance (default credentials, loopback)
+    kind: process
+    trust_zone_id: tz-dev
+  - id: comp-otel-helpers
+    name: OTel Reference Helper Scripts
+    kind: process
+    trust_zone_id: tz-dev
+  - id: comp-editor-settings
+    name: VS Code Global settings.json
+    kind: data_store
+    asset_ids: [asset-editor-settings]
+    trust_zone_id: tz-dev
+  - id: comp-otel-iac
+    name: Generated OTel Stack and Azure Templates
+    kind: data_store
+    trust_zone_id: tz-dev
+  - id: comp-otel-collector
+    name: Operator-Deployed OpenTelemetry Collector
+    kind: process
+    asset_ids: [asset-prompt-telemetry, asset-otel-ingest-cred]
+    trust_zone_id: tz-saas
 
 # The repaired generator shares one contiguous z:Id sequence with the bundled
 # KnowledgeBase (no fixed ~35-object ceiling), so the full multi-surface diagram is
@@ -417,6 +531,27 @@ representations:
         - { id: ext-dev }
         - { id: comp-securityplanning }
         - { id: comp-artifacts }
+    - id: dom-otel
+      name: Copilot telemetry capture, storage, and cloud artifact generation
+      description: >-
+        The copilot-otel-metrics skill writes editor settings that turn on OTLP export,
+        generates a local stack and Azure templates, and stands up a loopback telemetry
+        pipeline whose stored payload carries prompt content. The organization path adds an
+        operator-deployed collector and a billed Azure Monitor workspace.
+      trust_zone_ids: [tz-dev, tz-ext, tz-saas]
+      flows: [flow-45, flow-46, flow-47, flow-48, flow-49, flow-50, flow-51, flow-52, flow-53, flow-54, flow-55]
+      elements:
+        - { id: ext-dev }
+        - { id: ext-copilot }
+        - { id: comp-editor-settings }
+        - { id: comp-otel-ingest }
+        - { id: comp-otel-store }
+        - { id: comp-otel-grafana }
+        - { id: comp-otel-helpers }
+        - { id: comp-otel-iac }
+        - { id: ext-registry }
+        - { id: comp-otel-collector }
+        - { id: ext-otel-workspace }
 
 data_flows:
   - id: flow-01
@@ -947,10 +1082,165 @@ data_flows:
     data_sensitivity: confidential
     retention: none
     notes: The loopback handler hands the authorization code back to the Mural OAuth client.
+  - id: flow-45
+    source_ref: ext-copilot
+    target_ref: comp-otel-ingest
+    ordinal: 45
+    label: export telemetry
+    transport: OTLP over loopback HTTP (port 4318 HTTP, 4317 gRPC)
+    encryption: none (plaintext HTTP)
+    authentication: none (receiver accepts any local sender)
+    authorization: none
+    data_sensitivity: confidential
+    retention: persisted in the local store until the volume is removed
+    notes: >-
+      Spans were directly observed carrying copilot_chat.user_request, gen_ai.input.messages,
+      gen_ai.output.messages, gen_ai.tool.call.arguments, gen_ai.tool.call.result, and
+      gen_ai.system_instructions in plaintext with content capture left at its documented default.
+  - id: flow-46
+    source_ref: comp-otel-ingest
+    target_ref: comp-otel-store
+    ordinal: 46
+    label: persist telemetry
+    transport: local file write to the copilot-otel-data volume
+    encryption: none (volume unencrypted at rest)
+    authentication: n/a (same container)
+    authorization: container filesystem permissions
+    data_sensitivity: confidential
+    retention: Prometheus 120 days; Tempo unset, so trace content persists under the image default
+    notes: >-
+      The receiver writes through the container's mount of the named volume. The volume survives
+      docker compose down by design, so teardown does not discard the corpus.
+  - id: flow-47
+    source_ref: comp-otel-store
+    target_ref: comp-otel-grafana
+    ordinal: 47
+    label: render telemetry
+    transport: loopback HTTP (PromQL and TraceQL)
+    encryption: none (plaintext loopback)
+    authentication: none (Prometheus and Tempo expose no authentication)
+    authorization: pre-provisioned datasource uids
+    data_sensitivity: confidential
+    retention: query-time only
+    notes: Intra-container render path; see the flow 47 assumption for why it carries no distinct threat.
+  - id: flow-48
+    source_ref: ext-dev
+    target_ref: comp-otel-grafana
+    ordinal: 48
+    label: authenticate to dashboard UI
+    transport: loopback HTTP to 127.0.0.1:3000
+    encryption: none (plaintext loopback)
+    authentication: Grafana default admin/admin, unchanged by the skill
+    authorization: Grafana administrator role
+    data_sensitivity: confidential
+    retention: Grafana session
+    notes: >-
+      Modeled as the operator connector because it is the credential-accepting path, but the
+      realistic adversary is any same-host process or a second user on a shared workstation.
+  - id: flow-49
+    source_ref: comp-otel-helpers
+    target_ref: comp-otel-store
+    ordinal: 49
+    label: query telemetry service APIs
+    transport: loopback HTTP GET to Prometheus 9090 and Tempo 3200
+    encryption: none (plaintext loopback)
+    authentication: none
+    authorization: none
+    data_sensitivity: confidential
+    retention: terminal output and the baseline snapshot file
+    notes: >-
+      Read-only. Returned label values, service versions, session ids, and trace names are
+      attacker-controllable because ingest is unauthenticated, so results are data and never
+      instructions.
+  - id: flow-50
+    source_ref: comp-otel-helpers
+    target_ref: comp-otel-grafana
+    ordinal: 50
+    label: import dashboard
+    transport: loopback HTTP POST to the Grafana dashboard API
+    encryption: none (plaintext loopback)
+    authentication: basic auth from the environment
+    authorization: Grafana administrator role
+    data_sensitivity: internal
+    retention: persisted dashboard definition
+    notes: >-
+      validate_dashboard.py imports with overwrite true and refuses a non-loopback Grafana
+      unless COPILOT_OTEL_ALLOW_REMOTE=1 is set.
+  - id: flow-51
+    source_ref: ext-registry
+    target_ref: comp-otel-ingest
+    ordinal: 51
+    label: pull stack image
+    transport: HTTPS registry pull
+    encryption: TLS 1.2+
+    authentication: anonymous public pull
+    authorization: public image access
+    data_sensitivity: public
+    retention: cached image layers on the host
+    notes: >-
+      grafana/otel-lgtm:0.29.2 is tag-pinned rather than digest-pinned, with no signature or
+      provenance verification. The single image supplies the receiver, both stores, and Grafana.
+  - id: flow-52
+    source_ref: ext-copilot
+    target_ref: comp-editor-settings
+    ordinal: 52
+    label: upsert settings keys
+    transport: local file write
+    encryption: n/a (local)
+    authentication: workstation user
+    authorization: explicit operator approval of the presented diff
+    data_sensitivity: confidential
+    retention: persistent, with a timestamped backup beside the file
+    notes: >-
+      Per-key upsert over eleven target keys that never reserializes the JSONC document,
+      followed by a re-parse that restores from backup on failure.
+  - id: flow-53
+    source_ref: ext-copilot
+    target_ref: comp-otel-iac
+    ordinal: 53
+    label: write generated artifacts
+    transport: local file write
+    encryption: n/a (local)
+    authentication: workstation user
+    authorization: operator-authorized artifact generation
+    data_sensitivity: internal
+    retention: persistent in the operator workspace
+    notes: >-
+      Compose file, dashboards, collector configuration, Bicep, Terraform, and the Azure CLI
+      script. Inert until the operator runs them; the agent is prohibited from executing them.
+  - id: flow-54
+    source_ref: ext-copilot
+    target_ref: comp-otel-collector
+    ordinal: 54
+    label: export fleet telemetry
+    transport: OTLP over HTTPS
+    encryption: TLS 1.2+
+    authentication: static header credential distributed identically to every workstation
+    authorization: write-side ingestion only
+    data_sensitivity: confidential
+    retention: forwarded to the workspace
+    notes: >-
+      Copilot's exporter can only send a fixed header set, so no request is bound to a
+      particular user or device.
+  - id: flow-55
+    source_ref: comp-otel-collector
+    target_ref: ext-otel-workspace
+    ordinal: 55
+    label: ingest processed telemetry
+    transport: HTTPS to Application Insights
+    encryption: TLS 1.2+
+    authentication: Application Insights connection string held by the collector
+    authorization: workspace ingestion; read governed separately by Azure RBAC
+    data_sensitivity: confidential
+    retention: Log Analytics workspace retention, subject to a 5 GB default daily cap
+    notes: >-
+      The generated collector pipeline deletes the six observed content attributes plus
+      copilot_chat.reasoning_content before export, which is defeated by removing the processor.
 
 threats:
   # ---- Repo-wide STRIDE ----
   - id: S-1
+    asset_ids: [asset-secrets]
     target_ref: comp-workflows
     interaction_ref: flow-05
     category: spoofing
@@ -959,7 +1249,13 @@ threats:
     state: Mitigated
     citations: { stride: [S], nist: [IA-9, SA-12], mitre: [] }
     mitigation_ids: [SC-1, SC-2, SC-3, SC-5]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Attacker compromises an upstream Action repo and replaces a tag with malicious code. Data
+        sensitivity: confidential (Repository secrets and workflow tokens).
   - id: S-2
+    asset_ids: [asset-secrets]
     target_ref: comp-workflows
     interaction_ref: flow-05
     category: spoofing
@@ -968,7 +1264,13 @@ threats:
     state: Mitigated
     citations: { stride: [S], nist: [SA-12], mitre: [] }
     mitigation_ids: [SC-3, SC-4, SC-5]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Malicious package published under the same name or a typosquatted name. Data sensitivity:
+        confidential (Repository secrets and workflow tokens).
   - id: T-1
+    asset_ids: [asset-secrets]
     target_ref: comp-workflows
     interaction_ref: flow-05
     category: tampering
@@ -977,6 +1279,11 @@ threats:
     state: Mitigated
     citations: { stride: [T], nist: [AC-3, CM-3], mitre: [] }
     mitigation_ids: [AC-1, AC-2, CQ-1]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Attacker with write access disables security checks. Data sensitivity: confidential (Repository
+        secrets and workflow tokens).
   - id: T-2
     target_ref: comp-artifacts
     interaction_ref: flow-01
@@ -986,6 +1293,8 @@ threats:
     state: Partially Mitigated
     citations: { stride: [T], nist: [SA-11], mitre: [] }
     mitigation_ids: [AC-2, AC-3, CQ-2, CQ-3]
+    properties:
+      Priority: Medium
   - id: R-1
     target_ref: comp-repo
     interaction_ref: flow-04
@@ -995,7 +1304,10 @@ threats:
     state: Mitigated
     citations: { stride: [R], nist: [AU-2, AU-12], mitre: [] }
     mitigation_ids: [AC-1]
+    properties:
+      Priority: Low
   - id: I-1
+    asset_ids: [asset-secrets]
     target_ref: comp-workflows
     interaction_ref: flow-06
     category: information-disclosure
@@ -1004,6 +1316,11 @@ threats:
     state: Mitigated
     citations: { stride: [I], nist: [SC-28, AU-9], mitre: [] }
     mitigation_ids: [VM-2, VM-3]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Secrets accidentally logged or included in build artifacts. Data sensitivity: confidential
+        (Repository secrets and workflow tokens).
   - id: I-2
     target_ref: comp-artifacts
     interaction_ref: flow-01
@@ -1013,6 +1330,8 @@ threats:
     state: Mitigated
     citations: { stride: [I], nist: [SC-28], mitre: [] }
     mitigation_ids: [AC-3, VM-2]
+    properties:
+      Priority: Low
   - id: D-1
     target_ref: comp-workflows
     interaction_ref: flow-05
@@ -1022,6 +1341,8 @@ threats:
     state: Mitigated
     citations: { stride: [D], nist: [SC-5], mitre: [] }
     mitigation_ids: [AC-4]
+    properties:
+      Priority: Low
   - id: D-2
     target_ref: comp-workflows
     interaction_ref: flow-05
@@ -1031,15 +1352,27 @@ threats:
     state: Mitigated
     citations: { stride: [D], nist: [SC-5, SA-12], mitre: [] }
     mitigation_ids: [SC-4, SC-5]
+    properties:
+      Priority: Low
   - id: E-1
+    asset_ids: [asset-secrets]
     target_ref: comp-workflows
     interaction_ref: flow-05
     category: elevation-of-privilege
     title: Workflow token abuse
     description: Compromised workflow step uses GITHUB_TOKEN beyond intended scope.
-    state: Mitigated
+    state: Mitigated with Documentation
     citations: { stride: [E], nist: [AC-6], mitre: [] }
     mitigation_ids: [AC-4, VM-3]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Compromised workflow step uses GITHUB_TOKEN beyond intended scope. DOCUMENTED ACCEPTED RISK.
+        OpenSSF Scorecard flags security-events: write as overly broad. That permission is required for
+        codeql-action upload-sarif and analyze to publish SARIF results, and the scope reaches only
+        code-scanning alert data: it cannot modify repository content, settings, or secrets. Scorecard's
+        own workflow requires the same permission, creating a circular dependency in its own check.
+        Data sensitivity: confidential (Repository secrets and workflow tokens).
   - id: E-2
     target_ref: comp-repo
     interaction_ref: flow-04
@@ -1050,6 +1383,8 @@ threats:
     citations: { stride: [E], nist: [AC-3, AC-6], mitre: [] }
     mitigation_ids: [AC-1]
   # ---- Dev Container ----
+    properties:
+      Priority: Low
   - id: DC-1
     target_ref: comp-devcon
     interaction_ref: flow-24
@@ -1059,6 +1394,8 @@ threats:
     state: Mitigated
     citations: { stride: [S], nist: [SA-12], mitre: [] }
     mitigation_ids: [SC-6]
+    properties:
+      Priority: Low
   - id: DC-2
     target_ref: comp-devcon
     interaction_ref: flow-23
@@ -1068,6 +1405,8 @@ threats:
     state: Mitigated
     citations: { stride: [T], nist: [CM-3], mitre: [] }
     mitigation_ids: [AC-2, AC-3]
+    properties:
+      Priority: Low
   - id: DC-3
     target_ref: comp-devcon
     interaction_ref: flow-24
@@ -1078,6 +1417,8 @@ threats:
     citations: { stride: [S], nist: [SI-7], mitre: [] }
     mitigation_ids: [SC-6]
   # ---- AI-specific (OWASP LLM / MITRE ATLAS) ----
+    properties:
+      Priority: Low
   - id: AI-1
     target_ref: ext-copilot
     interaction_ref: flow-01
@@ -1087,6 +1428,8 @@ threats:
     state: Partially Mitigated
     citations: { stride: [T], nist: [SA-11], mitre: [] }
     mitigation_ids: [AC-2, AC-3, CQ-2]
+    properties:
+      Priority: Medium
   - id: AI-2
     target_ref: ext-copilot
     interaction_ref: flow-01
@@ -1095,6 +1438,14 @@ threats:
     description: Copilot generates insecure code patterns based on prompt guidance.
     state: Accepted with Documentation
     citations: { stride: [T], nist: [SA-11], mitre: [] }
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Copilot generates insecure code patterns based on prompt guidance. ACCEPTED RISK (with
+        documentation). This repository owns this risk and chose to carry it: prompt guidance
+        discourages insecure patterns but nothing enforces the security quality of generated code. The
+        Microsoft Threat Modeling Tool has no 'accepted' state, so this renders as NotApplicable; see
+        the state-mapping table in docs/planning/threat-models/README.md.
   - id: AI-3
     target_ref: ext-llm
     interaction_ref: flow-02
@@ -1103,6 +1454,14 @@ threats:
     description: Malicious patterns in HVE Core influence Copilot training (GitHub-controlled).
     state: Accepted (Outside Control)
     citations: { stride: [T], nist: [], mitre: [] }
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Malicious patterns in HVE Core influence Copilot training (GitHub-controlled). ACCEPTED RISK
+        (outside control). Training-data influence is owned and operated by GitHub; no control is
+        available to this repository. The Microsoft Threat Modeling Tool has no 'accepted' state, so
+        this renders as NotApplicable; see the state-mapping table in
+        docs/planning/threat-models/README.md.
   - id: AI-4
     target_ref: ext-llm
     interaction_ref: flow-02
@@ -1111,6 +1470,13 @@ threats:
     description: Crafted prompts cause excessive resource consumption in Copilot.
     state: Accepted (Outside Control)
     citations: { stride: [D], nist: [SC-5], mitre: [] }
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Crafted prompts cause excessive resource consumption in Copilot. ACCEPTED RISK (outside
+        control). Model resource consumption is owned and operated by GitHub; no control is available to
+        this repository. The Microsoft Threat Modeling Tool has no 'accepted' state, so this renders as
+        NotApplicable; see the state-mapping table in docs/planning/threat-models/README.md.
   - id: AI-5
     target_ref: ext-ghmcp
     interaction_ref: flow-03
@@ -1120,6 +1486,8 @@ threats:
     state: Mitigated with Documentation
     citations: { stride: [S], nist: [SA-12], mitre: [] }
     mitigation_ids: [SC-3]
+    properties:
+      Priority: Medium
   - id: AI-6
     target_ref: ext-copilot
     interaction_ref: flow-01
@@ -1128,14 +1496,27 @@ threats:
     description: Prompt artifacts cause Copilot to expose sensitive patterns.
     state: Mitigated with Documentation
     citations: { stride: [I], nist: [SC-28], mitre: [] }
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Prompt artifacts cause Copilot to expose sensitive patterns. BACKED BY DOCUMENTATION ONLY. No
+        control in this repository enforces this. Prompt authoring guidance discourages embedding
+        sensitive data and the consumer organization owns what enters a prompt, which is a risk transfer
+        rather than a mitigation.
   - id: AI-7
     target_ref: comp-extension
     interaction_ref: flow-25
     category: elevation-of-privilege
     title: "LLM07 Insecure plugin design"
     description: Extension or MCP server allows unauthorized operations.
-    state: Mitigated
+    state: Mitigated with Documentation
     citations: { stride: [E], nist: [AC-6], mitre: [] }
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Extension or MCP server allows unauthorized operations. BACKED BY DOCUMENTATION ONLY. The
+        extension ships minimal functionality by design and MCP server trust is documented, but nothing
+        verifies or enforces that minimality.
   - id: AI-8
     target_ref: ext-copilot
     interaction_ref: flow-03
@@ -1144,6 +1525,13 @@ threats:
     description: Prompts grant Copilot excessive autonomous capabilities.
     state: Mitigated (Copilot Controls)
     citations: { stride: [E], nist: [AC-6], mitre: [] }
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Prompts grant Copilot excessive autonomous capabilities. MITIGATED BY A THIRD PARTY. Copilot's
+        built-in guardrails and tool confirmation dialogs are owned and operated by GitHub and
+        Microsoft. HVE Core neither implements nor enforces this control and cannot assure its continued
+        presence.
   - id: AI-9
     target_ref: ext-dev
     interaction_ref: flow-04
@@ -1152,6 +1540,14 @@ threats:
     description: Developers accept Copilot output without verification.
     state: Accepted with Documentation
     citations: { stride: [R], nist: [SA-11], mitre: [] }
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Developers accept Copilot output without verification. ACCEPTED RISK (with documentation). This
+        repository owns this risk and chose to carry it: developer verification of AI output is a
+        practice expectation, not an enforced control. The Microsoft Threat Modeling Tool has no
+        'accepted' state, so this renders as NotApplicable; see the state-mapping table in
+        docs/planning/threat-models/README.md.
   - id: AI-11
     target_ref: comp-artifacts
     interaction_ref: flow-01
@@ -1161,14 +1557,24 @@ threats:
     state: Partially Mitigated
     citations: { stride: [T], nist: [SA-11], mitre: [AML.T0043] }
     mitigation_ids: [AC-2, AC-3]
+    properties:
+      Priority: Medium
   - id: AI-12
     target_ref: comp-artifacts
     interaction_ref: flow-01
     category: tampering
     title: "MITRE ATLAS AML.T0048 Evade ML model"
     description: Prompts designed to cause Copilot to bypass security guidance.
-    state: Mitigated
+    state: Partially Mitigated
     citations: { stride: [T], nist: [SA-11], mitre: [AML.T0048] }
+    mitigation_ids: [AC-2, AC-3]
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Prompts designed to cause Copilot to bypass security guidance. PARTIALLY MITIGATED.
+        Branch-protection-required pull-request review and CODEOWNERS ownership of protected paths place
+        a human between an authored prompt and its merge. Security-first prompt design principles are
+        authoring guidance with no automated enforcement.
   # ---- Responsible AI (representative) ----
   - id: RAI-1
     target_ref: ext-copilot
@@ -1179,6 +1585,14 @@ threats:
     state: Partially Mitigated
     citations: { stride: [I], nist: [], mitre: [] }
     mitigation_ids: [CQ-2]
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Prompts inadvertently favor certain coding styles or exclude accessibility. SCOPE NOTE. Five
+        Responsible AI entries are encoded in this model. Nine further RAI entries plus AI-10 are
+        documented in the repository security model but are not encoded here, because their assets are
+        organizational or societal conditions with no trust boundary or adversary on a modeled
+        connector. See the deliberate spec exclusions section in docs/planning/threat-models/README.md.
   - id: RAI-3
     target_ref: ext-copilot
     interaction_ref: flow-02
@@ -1187,6 +1601,12 @@ threats:
     description: Prompts cause Copilot to surface or infer private information.
     state: Mitigated with Documentation
     citations: { stride: [I], nist: [SC-28], mitre: [] }
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Prompts cause Copilot to surface or infer private information. BACKED BY DOCUMENTATION ONLY. No
+        control in this repository prevents a prompt from eliciting private context; privacy-conscious
+        prompt design and consumer guidelines are documentation.
   - id: RAI-3a
     target_ref: comp-scripts
     interaction_ref: flow-26
@@ -1195,6 +1615,8 @@ threats:
     description: Meeting-analyst agent writes sensitive M365 transcripts to local .copilot-tracking files.
     state: Partially Mitigated with Documentation
     citations: { stride: [I], nist: [SC-28, MP-6], mitre: [] }
+    properties:
+      Priority: Medium
   - id: RAI-4
     target_ref: comp-artifacts
     interaction_ref: flow-01
@@ -1204,6 +1626,8 @@ threats:
     state: Mitigated
     citations: { stride: [R], nist: [], mitre: [] }
     mitigation_ids: [CQ-2]
+    properties:
+      Priority: Low
   - id: RAI-13
     target_ref: ext-copilot
     interaction_ref: flow-02
@@ -1212,10 +1636,12 @@ threats:
     description: Prompts cause Copilot to generate plausible but incorrect content.
     state: Partially Mitigated
     citations: { stride: [T], nist: [], mitre: [] }
-  # ---- Mural OAuth (OA-1..OA-17) ----
+  # ---- Mural OAuth ----
+    properties:
+      Priority: Medium
   - id: OA-1
     target_ref: ext-mural-as
-    interaction_ref: flow-08
+    interaction_ref: flow-42
     category: spoofing
     title: Authorization server phishing / spoofed consent page
     description: Attacker directs the user to a look-alike Mural consent page to harvest credentials or coerce a grant.
@@ -1223,10 +1649,16 @@ threats:
     citations: { stride: [S], nist: [IA-2], mitre: [T1539] }
     mitigation_ids: [M-OAUTH-URL]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Attacker directs the user to a look-alike Mural consent page to harvest credentials or coerce a
+        grant. Source: mural skill, bucket B1 (browser to loopback). Gaps: G-TLS-1. See
+        .github/skills/experimental/mural/SECURITY.md.
       source_skill: mural
       bucket: B1
       gap_ids: [G-TLS-1]
   - id: OA-2
+    asset_ids: [asset-oauth-tokens]
     target_ref: comp-mural
     interaction_ref: flow-08
     category: spoofing
@@ -1235,6 +1667,13 @@ threats:
     state: Mitigated by Design
     citations: { stride: [S], nist: [IA-9], mitre: [] }
     mitigation_ids: [M-STATE, M-PKCE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Cross-AS code confusion if the skill ever supports more than one authorization server. Source:
+        mural skill, bucket B2 (CLI to Mural endpoints). Gaps: no gap-register entry covers this failure
+        mode. See .github/skills/experimental/mural/SECURITY.md.
+        Data sensitivity: confidential (Mural OAuth tokens and client secret).
   - id: OA-3
     target_ref: comp-loopback
     interaction_ref: flow-07
@@ -1244,7 +1683,14 @@ threats:
     state: Mitigated
     citations: { stride: [S], nist: [SC-8], mitre: [CAPEC-21] }
     mitigation_ids: [M-PKCE, M-REDIRECT-ALLOWLIST]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Co-resident process races the loopback bind to intercept the authorization code. Source: mural
+        skill, bucket B1 (browser to loopback). Gaps: no gap-register entry covers this failure mode.
+        See .github/skills/experimental/mural/SECURITY.md.
   - id: OA-4
+    asset_ids: [asset-oauth-tokens]
     target_ref: comp-tokencache
     interaction_ref: flow-10
     category: spoofing
@@ -1253,6 +1699,13 @@ threats:
     state: Mitigated
     citations: { stride: [S], nist: [IA-5, SC-28], mitre: [] }
     mitigation_ids: [M-FILEPERMS, M-REDACT]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Leaked client_secret allows an attacker to impersonate the registered OAuth client. Source:
+        mural skill, bucket B3 (on-disk token cache). Gaps: no gap-register entry covers this failure
+        mode. See .github/skills/experimental/mural/SECURITY.md.
+        Data sensitivity: confidential (Mural OAuth tokens and client secret).
   - id: OA-5
     target_ref: comp-loopback
     interaction_ref: flow-07
@@ -1262,6 +1715,12 @@ threats:
     state: Mitigated
     citations: { stride: [T], nist: [SC-8], mitre: [] }
     mitigation_ids: [M-STATE, M-REDIRECT-ALLOWLIST, M-PKCE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Forged callback binds the user session to an attacker's Mural account. Source: mural skill,
+        bucket B1 (browser to loopback). Gaps: no gap-register entry covers this failure mode. See
+        .github/skills/experimental/mural/SECURITY.md.
   - id: OA-6
     target_ref: ext-mural-as
     interaction_ref: flow-08
@@ -1271,6 +1730,12 @@ threats:
     state: Mitigated
     citations: { stride: [T], nist: [SC-8], mitre: [] }
     mitigation_ids: [M-PKCE, M-REDACT]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Observed authorization code replayed at the token endpoint. Source: mural skill, bucket B2 (CLI
+        to Mural endpoints). Gaps: no gap-register entry covers this failure mode. See
+        .github/skills/experimental/mural/SECURITY.md.
   - id: OA-7
     target_ref: comp-logsink
     interaction_ref: flow-14
@@ -1281,6 +1746,11 @@ threats:
     citations: { stride: [R], nist: [AU-2, AU-12], mitre: [] }
     mitigation_ids: [M-AUDIT-EVENTS]
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        No structured client-side audit record for OAuth lifecycle transitions. Source: mural skill,
+        bucket B3 (on-disk token cache). Gaps: G-REP-1, G-REP-2. See
+        .github/skills/experimental/mural/SECURITY.md.
       source_skill: mural
       bucket: B3
       gap_ids: [G-REP-1, G-REP-2]
@@ -1294,6 +1764,11 @@ threats:
     citations: { stride: [I], nist: [AU-9, SC-28], mitre: [T1552.001] }
     mitigation_ids: [M-REDACT, VM-2]
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        A log line emits a request/response body, headers, or URL containing sensitive fields. Source:
+        mural skill, bucket B3 (on-disk token cache). Gaps: G-INF-1, G-INF-4. See
+        .github/skills/experimental/mural/SECURITY.md.
       source_skill: mural
       bucket: B3
       gap_ids: [G-INF-1, G-INF-4]
@@ -1306,7 +1781,14 @@ threats:
     state: Mitigated
     citations: { stride: [I], nist: [SC-8], mitre: [] }
     mitigation_ids: [M-PKCE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Authorization code in the redirect URL leaks via Referer header, history, or extensions. Source:
+        mural skill, bucket B1 (browser to loopback). Gaps: no gap-register entry covers this failure
+        mode. See .github/skills/experimental/mural/SECURITY.md.
   - id: OA-10
+    asset_ids: [asset-oauth-tokens]
     target_ref: comp-tokencache
     interaction_ref: flow-10
     category: information-disclosure
@@ -1316,10 +1798,17 @@ threats:
     citations: { stride: [I], nist: [SC-28, AC-6], mitre: [T1555.003] }
     mitigation_ids: [M-FILEPERMS]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Another local user or process reads the credential cache file. Source: mural skill, bucket B3
+        (on-disk token cache). Gaps: G-INF-2, G-INF-3. See
+        .github/skills/experimental/mural/SECURITY.md.
+        Data sensitivity: confidential (Mural OAuth tokens and client secret).
       source_skill: mural
       bucket: B3
       gap_ids: [G-INF-2, G-INF-3]
   - id: OA-11
+    asset_ids: [asset-oauth-tokens]
     target_ref: comp-tokencache
     interaction_ref: flow-10
     category: information-disclosure
@@ -1328,7 +1817,15 @@ threats:
     state: Partially Mitigated
     citations: { stride: [I], nist: [SC-28], mitre: [] }
     mitigation_ids: [M-REDACT, M-FILEPERMS, M-REVOKE-RUNBOOK]
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Exfiltrated non-rotated refresh token yields access tokens until manual revocation. Source:
+        mural skill, bucket B3 (on-disk token cache). Gaps: G-EOP-2. See
+        .github/skills/experimental/mural/SECURITY.md.
+        Data sensitivity: confidential (Mural OAuth tokens and client secret).
   - id: OA-12
+    asset_ids: [asset-oauth-tokens]
     target_ref: comp-mural
     interaction_ref: flow-08
     category: information-disclosure
@@ -1337,6 +1834,13 @@ threats:
     state: Mitigated
     citations: { stride: [I], nist: [SC-12, SC-13], mitre: [] }
     mitigation_ids: [M-PKCE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Verifier leaks or has weak entropy, enabling code exchange by an interceptor. Source: mural
+        skill, bucket B2 (CLI to Mural endpoints). Gaps: no gap-register entry covers this failure mode.
+        See .github/skills/experimental/mural/SECURITY.md.
+        Data sensitivity: confidential (Mural OAuth tokens and client secret).
   - id: OA-13
     target_ref: ext-mural-as
     interaction_ref: flow-08
@@ -1346,6 +1850,12 @@ threats:
     state: Mitigated
     citations: { stride: [D], nist: [SC-5], mitre: [] }
     mitigation_ids: [M-CACHE-LOCK, M-BACKOFF]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Repeated authorization requests consume the Mural rate-limit budget and lock out the user.
+        Source: mural skill, bucket B2 (CLI to Mural endpoints). Gaps: no gap-register entry covers this
+        failure mode. See .github/skills/experimental/mural/SECURITY.md.
   - id: OA-14
     target_ref: ext-mural-as
     interaction_ref: flow-08
@@ -1355,15 +1865,27 @@ threats:
     state: Mitigated
     citations: { stride: [D], nist: [SC-5], mitre: [] }
     mitigation_ids: [M-CACHE-LOCK]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Concurrent skill processes race to refresh, hammering the token endpoint. Source: mural skill,
+        bucket B2 (CLI to Mural endpoints). Gaps: no gap-register entry covers this failure mode. See
+        .github/skills/experimental/mural/SECURITY.md.
   - id: OA-15
     target_ref: ext-mural-as
-    interaction_ref: flow-08
+    interaction_ref: flow-42
     category: elevation-of-privilege
     title: Scope upgrade / consent phishing
     description: Skill requests broader scopes than required or an attacker tampers with the scope parameter.
     state: Mitigated
     citations: { stride: [E], nist: [AC-6], mitre: [T1528, CAPEC-593] }
     mitigation_ids: [M-SCOPE-HARDCODE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Skill requests broader scopes than required or an attacker tampers with the scope parameter.
+        Source: mural skill, bucket B1 (browser to loopback). Gaps: no gap-register entry covers this
+        failure mode. See .github/skills/experimental/mural/SECURITY.md.
   - id: OA-16
     target_ref: ext-mural-api
     interaction_ref: flow-09
@@ -1374,6 +1896,11 @@ threats:
     citations: { stride: [E], nist: [AC-6, SC-8], mitre: [T1550.001, CAPEC-593] }
     mitigation_ids: [M-REDACT, M-FILEPERMS]
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Stolen bearer token replayed against any Mural API endpoint (no proof-of-possession). Source:
+        mural skill, bucket B1 (browser to loopback). Gaps: G-EOP-1, G-EOP-2. See
+        .github/skills/experimental/mural/SECURITY.md.
       source_skill: mural
       bucket: B1
       gap_ids: [G-EOP-1, G-EOP-2]
@@ -1387,10 +1914,16 @@ threats:
     citations: { stride: [E], nist: [AC-6], mitre: [] }
     mitigation_ids: [M-REVOKE-RUNBOOK]
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Non-rotated refresh token plus long TTL means recovery requires manual revocation. Source: mural
+        skill, bucket B1 (browser to loopback). Gaps: G-EOP-2. See
+        .github/skills/experimental/mural/SECURITY.md.
       source_skill: mural
       bucket: B1
       gap_ids: [G-EOP-2]
   - id: OA-18
+    asset_ids: [asset-oauth-tokens]
     target_ref: comp-mural
     interaction_ref: flow-09
     category: tampering
@@ -1399,11 +1932,18 @@ threats:
     state: Partially Mitigated
     citations: { stride: [T], nist: [SA-12], mitre: [CWE-494] }
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        A compromised or unpinned dependency could alter the runtime behavior of the Mural CLI or its
+        OAuth helpers. Source: mural skill, bucket B2 (CLI to Mural endpoints). Gaps: G-SUP-1. See
+        .github/skills/experimental/mural/SECURITY.md.
+        Data sensitivity: confidential (Mural OAuth tokens and client secret).
       source_skill: mural
       bucket: B2
       gap_ids: [G-SUP-1]
   # ---- Jira (JR-1..7) ----
   - id: JR-1
+    asset_ids: [asset-pats]
     target_ref: comp-jira
     interaction_ref: flow-11
     category: information-disclosure
@@ -1413,10 +1953,17 @@ threats:
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-532] }
     mitigation_ids: [M-REDACT-JIRA]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A raw exception embedding URL/headers/upstream body could surface the bearer token. Source: jira
+        skill, bucket B1 (CLI to Jira API). Gaps: G-REP-1, G-INF-1, G-EOP-1. See
+        .github/skills/jira/jira/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
       source_skill: jira
       bucket: B1
       gap_ids: [G-REP-1, G-INF-1, G-EOP-1]
   - id: JR-2
+    asset_ids: [asset-pats]
     target_ref: comp-jira
     interaction_ref: flow-11
     category: information-disclosure
@@ -1425,7 +1972,14 @@ threats:
     state: Partially Mitigated
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-522] }
     mitigation_ids: [M-REDACT-JIRA]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Reversible base64 Basic credential recovered if it reaches a log or error string. Source: jira
+        skill, bucket B1 (CLI to Jira API). Gaps: G-INF-1. See .github/skills/jira/jira/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   - id: JR-3
+    asset_ids: [asset-pats]
     target_ref: comp-jira
     interaction_ref: flow-11
     category: spoofing
@@ -1435,10 +1989,16 @@ threats:
     citations: { stride: [S], nist: [SC-7], mitre: [CWE-918] }
     mitigation_ids: [M-URL-CANON, M-NOREDIRECT]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A crafted base URL retargets authenticated requests to an attacker origin. Source: jira skill,
+        bucket B1 (CLI to Jira API). Gaps: G-TLS-1. See .github/skills/jira/jira/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
       source_skill: jira
       bucket: B1
       gap_ids: [G-TLS-1]
   - id: JR-4
+    asset_ids: [asset-pats]
     target_ref: comp-jira
     interaction_ref: flow-11
     category: information-disclosure
@@ -1448,10 +2008,16 @@ threats:
     citations: { stride: [I], nist: [SI-11], mitre: [CWE-209] }
     mitigation_ids: [M-REDACT-JIRA, M-BODY-CAP]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A hostile Jira response could embed secrets that leak if echoed verbatim. Source: jira skill,
+        bucket B1 (CLI to Jira API). Gaps: G-SUP-1. See .github/skills/jira/jira/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
       source_skill: jira
       bucket: B1
       gap_ids: [G-SUP-1]
   - id: JR-5
+    asset_ids: [asset-pats]
     target_ref: comp-jira
     interaction_ref: flow-11
     category: information-disclosure
@@ -1460,7 +2026,14 @@ threats:
     state: Partially Mitigated
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-526] }
     mitigation_ids: [M-NO-ENV-DUMP]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A future debug path dumping os.environ could expose the PAT. Source: jira skill, bucket B2
+        (environment credentials). Gaps: G-INF-1. See .github/skills/jira/jira/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   - id: JR-6
+    asset_ids: [asset-pats]
     target_ref: comp-jira
     interaction_ref: flow-11
     category: information-disclosure
@@ -1468,7 +2041,14 @@ threats:
     description: Auto-generated repr() of the frozen dataclass would expose the raw credential.
     state: Open
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-215] }
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Auto-generated repr() of the frozen dataclass would expose the raw credential. Source: jira
+        skill, bucket B1 (CLI to Jira API). Gaps: G-INF-1. See .github/skills/jira/jira/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   - id: JR-7
+    asset_ids: [asset-pats]
     target_ref: comp-jira
     interaction_ref: flow-11
     category: information-disclosure
@@ -1477,8 +2057,15 @@ threats:
     state: Mitigated
     citations: { stride: [I], nist: [SI-11], mitre: [CWE-209] }
     mitigation_ids: [M-BODY-CAP, M-REDACT-JIRA]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Sensitive stdin comment body could leak if embedded in an error or traceback. Source: jira
+        skill, bucket B3 (CLI caller process). Gaps: G-INF-1. See .github/skills/jira/jira/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   # ---- GitLab (GL-1..7) ----
   - id: GL-1
+    asset_ids: [asset-pats]
     target_ref: comp-gitlab
     interaction_ref: flow-12
     category: information-disclosure
@@ -1488,10 +2075,17 @@ threats:
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-532] }
     mitigation_ids: [M-REDACT-GITLAB]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A raw exception or die() message embedding URL/headers/body could surface the token. Source:
+        gitlab skill, bucket B1 (CLI to GitLab API). Gaps: G-REP-1, G-INF-1, G-EOP-1. See
+        .github/skills/gitlab/gitlab/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
       source_skill: gitlab
       bucket: B1
       gap_ids: [G-REP-1, G-INF-1, G-EOP-1]
   - id: GL-2
+    asset_ids: [asset-pats]
     target_ref: comp-gitlab
     interaction_ref: flow-12
     category: information-disclosure
@@ -1499,7 +2093,15 @@ threats:
     description: A globals() dump, repr, or debugger frame could expose the module-global PAT.
     state: Open
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-526] }
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A globals() dump, repr, or debugger frame could expose the module-global PAT. Source: gitlab
+        skill, bucket B2 (environment credentials). Gaps: G-INF-1. See
+        .github/skills/gitlab/gitlab/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   - id: GL-3
+    asset_ids: [asset-pats]
     target_ref: comp-gitlab
     interaction_ref: flow-12
     category: information-disclosure
@@ -1509,10 +2111,17 @@ threats:
     citations: { stride: [I], nist: [AU-9, SC-7], mitre: [CWE-200] }
     mitigation_ids: [M-REDACT-GITLAB, M-NOREDIRECT]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A second HTTP request outside the central helper historically bypassed hardening. Source: gitlab
+        skill, bucket B1 (CLI to GitLab API). Gaps: G-SUP-1. See
+        .github/skills/gitlab/gitlab/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
       source_skill: gitlab
       bucket: B1
       gap_ids: [G-SUP-1]
   - id: GL-4
+    asset_ids: [asset-pats]
     target_ref: comp-gitlab
     interaction_ref: flow-12
     category: information-disclosure
@@ -1521,7 +2130,14 @@ threats:
     state: Partially Mitigated
     citations: { stride: [I], nist: [SI-11], mitre: [CWE-209] }
     mitigation_ids: [M-REDACT-GITLAB]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        die() prints an error string; a raw upstream body could leak secrets. Source: gitlab skill,
+        bucket B1 (CLI to GitLab API). Gaps: G-INF-1. See .github/skills/gitlab/gitlab/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   - id: GL-5
+    asset_ids: [asset-pats]
     target_ref: comp-gitlab
     interaction_ref: flow-12
     category: spoofing
@@ -1531,10 +2147,17 @@ threats:
     citations: { stride: [S], nist: [SC-7], mitre: [CWE-918] }
     mitigation_ids: [M-URL-CANON, M-NOREDIRECT]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A crafted GITLAB_URL retargets authenticated requests to an attacker origin. Source: gitlab
+        skill, bucket B1 (CLI to GitLab API). Gaps: G-TLS-1. See
+        .github/skills/gitlab/gitlab/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
       source_skill: gitlab
       bucket: B1
       gap_ids: [G-TLS-1]
   - id: GL-6
+    asset_ids: [asset-pats]
     target_ref: comp-gitlab
     interaction_ref: flow-12
     category: information-disclosure
@@ -1543,7 +2166,15 @@ threats:
     state: Mitigated
     citations: { stride: [I], nist: [SI-11], mitre: [CWE-209] }
     mitigation_ids: [M-REDACT-GITLAB, M-BODY-CAP]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A hostile GitLab response or CI trace could embed secrets that leak if echoed. Source: gitlab
+        skill, bucket B1 (CLI to GitLab API). Gaps: G-INF-1. See
+        .github/skills/gitlab/gitlab/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   - id: GL-7
+    asset_ids: [asset-pats]
     target_ref: comp-gitlab
     interaction_ref: flow-12
     category: information-disclosure
@@ -1552,8 +2183,15 @@ threats:
     state: Partially Mitigated
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-526] }
     mitigation_ids: [M-NO-ENV-DUMP]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A future debug path dumping os.environ could expose the token. Source: gitlab skill, bucket B2
+        (environment credentials). Gaps: G-INF-1. See .github/skills/gitlab/gitlab/SECURITY.md.
+        Data sensitivity: confidential (Jira and GitLab personal access tokens).
   # ---- TTS Voice-Over (TT-1..7) ----
   - id: TT-1
+    asset_ids: [asset-speaker-notes]
     target_ref: comp-tts
     interaction_ref: flow-13
     category: information-disclosure
@@ -1561,7 +2199,16 @@ threats:
     description: An exception embedding the key or SDK context could surface it in stderr or a log.
     state: Mitigated
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-532] }
+    mitigation_ids: [M-TTS-KEY-SCOPE, M-TTS-ERROR-SCOPE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        An exception embedding the key or SDK context could surface it in stderr or a log. Source:
+        tts-voiceover skill, bucket B2 (environment and Entra credentials). Gaps: no gap-register entry
+        covers this failure mode. See .github/skills/experimental/tts-voiceover/SECURITY.md.
+        Data sensitivity: confidential (Speaker-notes narration content).
   - id: TT-2
+    asset_ids: [asset-speaker-notes]
     target_ref: comp-tts
     interaction_ref: flow-13
     category: information-disclosure
@@ -1569,6 +2216,14 @@ threats:
     description: The composed aad# authorization value could leak via debug print or traceback.
     state: Mitigated
     citations: { stride: [I], nist: [AU-9], mitre: [CWE-522] }
+    mitigation_ids: [M-TTS-KEY-SCOPE, M-TTS-ERROR-SCOPE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        The composed aad# authorization value could leak via debug print or traceback. Source:
+        tts-voiceover skill, bucket B2 (environment and Entra credentials). Gaps: no gap-register entry
+        covers this failure mode. See .github/skills/experimental/tts-voiceover/SECURITY.md.
+        Data sensitivity: confidential (Speaker-notes narration content).
   - id: TT-3
     target_ref: ext-azspeech
     interaction_ref: flow-13
@@ -1578,10 +2233,16 @@ threats:
     state: Partially Mitigated
     citations: { stride: [I], nist: [SC-7, AC-4], mitre: [CWE-200] }
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        All narration text egresses to the Azure Speech region with no classification gate. Source:
+        tts-voiceover skill, bucket B2 (environment and Entra credentials). Gaps: G-INF-1. See
+        .github/skills/experimental/tts-voiceover/SECURITY.md.
       source_skill: tts-voiceover
       bucket: B2
       gap_ids: [G-INF-1]
   - id: TT-4
+    asset_ids: [asset-speaker-notes]
     target_ref: comp-tts
     interaction_ref: flow-13
     category: tampering
@@ -1590,7 +2251,15 @@ threats:
     state: Mitigated
     citations: { stride: [T], nist: [SI-10], mitre: [CWE-91] }
     mitigation_ids: [M-SSML-ESCAPE]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Speaker-notes text interpolated into SSML could inject markup or control elements. Source:
+        tts-voiceover skill, bucket B3 (untrusted content inputs). Gaps: no gap-register entry covers
+        this failure mode. See .github/skills/experimental/tts-voiceover/SECURITY.md.
+        Data sensitivity: confidential (Speaker-notes narration content).
   - id: TT-5
+    asset_ids: [asset-speaker-notes]
     target_ref: comp-tts
     interaction_ref: flow-13
     category: elevation-of-privilege
@@ -1600,10 +2269,17 @@ threats:
     citations: { stride: [E], nist: [SI-10], mitre: [CWE-611, CWE-502] }
     mitigation_ids: [M-SAFE-PARSE]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Malicious content.yaml or PPTX could exploit unsafe YAML or XML external-entity parsing. Source:
+        tts-voiceover skill, bucket B2 (environment and Entra credentials). Gaps: G-TAM-1. See
+        .github/skills/experimental/tts-voiceover/SECURITY.md.
+        Data sensitivity: confidential (Speaker-notes narration content).
       source_skill: tts-voiceover
       bucket: B2
       gap_ids: [G-TAM-1]
   - id: TT-6
+    asset_ids: [asset-speaker-notes]
     target_ref: comp-tts
     interaction_ref: flow-13
     category: elevation-of-privilege
@@ -1612,6 +2288,12 @@ threats:
     state: Partially Mitigated
     citations: { stride: [E], nist: [AC-6, IA-2], mitre: [CWE-269] }
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        The broad credential chain could resolve to an unintended, more-privileged identity. Source:
+        tts-voiceover skill, bucket B3 (untrusted content inputs). Gaps: G-EOP-1. See
+        .github/skills/experimental/tts-voiceover/SECURITY.md.
+        Data sensitivity: confidential (Speaker-notes narration content).
       source_skill: tts-voiceover
       bucket: B3
       gap_ids: [G-EOP-1]
@@ -1625,6 +2307,11 @@ threats:
     citations: { stride: [S], nist: [SC-7, SC-8], mitre: [CWE-918] }
     mitigation_ids: [M-NOREDIRECT]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A tampered region/endpoint could direct content and credential to an attacker endpoint. Source:
+        tts-voiceover skill, bucket B1 (CLI to Azure Speech API). Gaps: G-TLS-1, G-SUP-1. See
+        .github/skills/experimental/tts-voiceover/SECURITY.md.
       source_skill: tts-voiceover
       bucket: B1
       gap_ids: [G-TLS-1, G-SUP-1]
@@ -1639,6 +2326,11 @@ threats:
     mitigation_ids: [M-PP-DENYLIST]
     notes: "Traceability: G-EOP-1; G-TAM-1"
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        A hostile content-extra script could attempt to bypass the documented denylist and reach host
+        capabilities. Source: powerpoint skill, bucket B1. Gaps: G-EOP-1, G-TAM-1. See
+        .github/skills/experimental/powerpoint/SECURITY.md.
       source_skill: powerpoint
       bucket: B1
       gap_ids: [G-EOP-1, G-TAM-1]
@@ -1653,6 +2345,11 @@ threats:
     mitigation_ids: [M-PP-PDFBOUNDS, M-PP-ARGS]
     notes: "Traceability: G-TAM-1; G-TAM-2"
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        A hostile PPTX or PDF can stress or exploit the external parser chain used during export.
+        Source: powerpoint skill, bucket B2. Gaps: G-TAM-1, G-TAM-2, G-SUP-1. See
+        .github/skills/experimental/powerpoint/SECURITY.md.
       source_skill: powerpoint
       bucket: B2
       gap_ids: [G-TAM-1, G-TAM-2, G-SUP-1]
@@ -1667,6 +2364,11 @@ threats:
     mitigation_ids: [M-VG-TIMEOUT]
     notes: "Traceability: G-SUP-1"
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        A crafted video stream could exercise a decoder defect within FFmpeg or ffprobe. Source:
+        video-to-gif skill, bucket B1. Gaps: G-SUP-1. See
+        .github/skills/experimental/video-to-gif/SECURITY.md.
       source_skill: video-to-gif
       bucket: B1
       gap_ids: [G-SUP-1]
@@ -1680,6 +2382,11 @@ threats:
     citations: { stride: [D], nist: [SC-5], mitre: [CWE-400] }
     mitigation_ids: [M-VG-TIMEOUT]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A pathological input or large media file could consume resources before conversion completes.
+        Source: video-to-gif skill, bucket B2. Gaps: G-INF-1. See
+        .github/skills/experimental/video-to-gif/SECURITY.md.
       source_skill: video-to-gif
       bucket: B2
       gap_ids: [G-INF-1]
@@ -1694,6 +2401,11 @@ threats:
     mitigation_ids: [M-CC-ESCAPE]
     notes: "Traceability: G-INF-1"
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Customer or product prose emitted into content.yaml can be exposed in downstream decks. Source:
+        customer-card-render skill, bucket B2. Gaps: G-INF-1, G-SUP-1. See
+        .github/skills/experimental/customer-card-render/SECURITY.md.
       source_skill: customer-card-render
       bucket: B2
       gap_ids: [G-INF-1, G-SUP-1]
@@ -1708,6 +2420,11 @@ threats:
     mitigation_ids: [M-GS-CLI]
     notes: "Traceability: G-SUP-1"
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A tampered PATH or host environment could cause the wrapper to invoke an unexpected gh binary or
+        endpoint. Source: gh-code-scanning skill, bucket B1. Gaps: G-SUP-1, G-TLS-1. See
+        .github/skills/github/gh-code-scanning/SECURITY.md.
       source_skill: gh-code-scanning
       bucket: B1
       gap_ids: [G-SUP-1, G-TLS-1]
@@ -1722,6 +2439,11 @@ threats:
     mitigation_ids: [M-GS-ARGS]
     notes: "Traceability: G-TAM-1"
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A crafted branch argument could alter the requested ref context even though the endpoint path
+        remains constrained. Source: gh-code-scanning skill, bucket B1. Gaps: G-TAM-1. See
+        .github/skills/github/gh-code-scanning/SECURITY.md.
       source_skill: gh-code-scanning
       bucket: B1
       gap_ids: [G-TAM-1]
@@ -1736,6 +2458,11 @@ threats:
     mitigation_ids: [M-VX-REGEX]
     notes: "Traceability: G-TAM-1; G-DOS-1"
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A hostile issue body can misdrive the gate into skip or proceed outcomes that change AI-credit
+        usage. Source: vex skill, bucket B1. Gaps: G-TAM-1, G-DOS-1. See
+        .github/skills/security/vex/SECURITY.md.
       source_skill: vex
       bucket: B1
       gap_ids: [G-TAM-1, G-DOS-1]
@@ -1750,6 +2477,11 @@ threats:
     mitigation_ids: [M-AX-ALLOWLIST]
     notes: "Traceability: G-INF-1"
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        The headless scanner can reach operator-controlled targets that point to internal services.
+        Source: accessibility skill, bucket B1. Gaps: G-INF-1, G-INF-2. See
+        .github/skills/accessibility/accessibility/SECURITY.md.
       source_skill: accessibility
       bucket: B1
       gap_ids: [G-INF-1, G-INF-2]
@@ -1763,6 +2495,11 @@ threats:
     citations: { stride: [D], nist: [SC-5], mitre: [CWE-400] }
     mitigation_ids: [M-AX-TIMEOUT]
     properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A slow or malicious target can consume CPU and memory while the scanner renders it. Source:
+        accessibility skill, bucket B2. Gaps: G-TAM-1, G-SUP-1. See
+        .github/skills/accessibility/accessibility/SECURITY.md.
       source_skill: accessibility
       bucket: B2
       gap_ids: [G-TAM-1, G-SUP-1]
@@ -1775,11 +2512,460 @@ threats:
     state: Partially Mitigated
     citations: { stride: [T], nist: [SA-11], mitre: [CWE-20] }
     mitigation_ids: [M-SP-REVIEW]
-    notes: "Traceability: G-TAM-1; G-INF-1; G-TAM-2; G-DOS-1; G-DOS-2"
+    notes: "Traceability: G-TAM-1; G-TAM-2; G-TAM-3; G-INF-1; G-DOS-1"
     properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        A modified spec or altered generator could shift the generated model away from the intended
+        multi-skill security posture. Source: security-planning skill, bucket B1. Gaps: G-TAM-1,
+        G-TAM-2, G-TAM-3, G-INF-1, G-DOS-1. See
+        .github/skills/project-planning/security-planning/SECURITY.md.
       source_skill: security-planning
       bucket: B1
-      gap_ids: [G-TAM-1, G-INF-1, G-TAM-2, G-DOS-1, G-DOS-2]
+      gap_ids: [G-TAM-1, G-TAM-2, G-TAM-3, G-INF-1, G-DOS-1]
+  # ---- copilot-otel-metrics (B1 ingest, B2 at rest, B3 helpers, B4 image supply chain,
+  # B5 settings mutation, B6 host process control, B7 cloud artifact generation) ----
+  - id: OT-1
+    asset_ids: [asset-prompt-telemetry]
+    target_ref: comp-otel-ingest
+    interaction_ref: flow-45
+    category: information-disclosure
+    title: Prompt content traverses plaintext OTLP ingest
+    description: >-
+      Spans reach the receiver over plaintext HTTP carrying six directly observed content
+      attributes, so redirecting otlpEndpoint away from loopback sends prompt text off the machine.
+    state: Partially Mitigated
+    citations: { stride: [I], nist: [SC-8, SC-28], mitre: [CWE-319] }
+    mitigation_ids: [M-OT-LOOPBACK]
+    notes: "Traceability: G-INF-1; G-TLS-1"
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Spans reach the receiver over plaintext HTTP carrying six directly observed content attributes,
+        so redirecting otlpEndpoint away from loopback sends prompt text off the machine. Source:
+        copilot-otel-metrics skill, bucket B1. Gaps: G-INF-1, G-TLS-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Copilot telemetry corpus (prompt content and usage metrics)).
+      source_skill: copilot-otel-metrics
+      bucket: B1
+      gap_ids: [G-INF-1, G-TLS-1]
+  - id: OT-2
+    asset_ids: [asset-prompt-telemetry]
+    target_ref: comp-otel-ingest
+    interaction_ref: flow-45
+    category: spoofing
+    title: Unauthenticated OTLP receiver accepts injected Copilot series
+    description: >-
+      Any local process submits spans and metrics under the copilot-chat service name with
+      attacker-chosen service_version and session_id values.
+    state: Partially Mitigated
+    citations: { stride: [S], nist: [IA-3, SI-10], mitre: [CWE-306] }
+    mitigation_ids: [M-OT-LOOPBACK, M-OT-BASELINE]
+    notes: "Traceability: G-SPF-1"
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Any local process submits spans and metrics under the copilot-chat service name with
+        attacker-chosen service_version and session_id values. Source: copilot-otel-metrics skill,
+        bucket B1. Gaps: G-SPF-1. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Copilot telemetry corpus (prompt content and usage metrics)).
+      source_skill: copilot-otel-metrics
+      bucket: B1
+      gap_ids: [G-SPF-1]
+  - id: OT-3
+    target_ref: comp-otel-ingest
+    interaction_ref: flow-45
+    category: denial-of-service
+    title: Local flooding and delta-temporality loss degrade the ingest path
+    description: >-
+      Unauthenticated ingest permits volumetric flooding, and a dropped delta metric was observed
+      failing an entire batched write and discarding co-batched cumulative metrics.
+    state: Partially Mitigated
+    citations: { stride: [D], nist: [SC-5], mitre: [CWE-400] }
+    mitigation_ids: [M-OT-DELTACUM, M-OT-LOOPBACK]
+    notes: "Traceability: G-DOS-1"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Unauthenticated ingest permits volumetric flooding, and a dropped delta metric was observed
+        failing an entire batched write and discarding co-batched cumulative metrics. Source:
+        copilot-otel-metrics skill, bucket B1. Gaps: G-DOS-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B1
+      gap_ids: [G-DOS-1]
+  - id: OT-4
+    asset_ids: [asset-prompt-telemetry]
+    target_ref: comp-otel-store
+    interaction_ref: flow-46
+    category: information-disclosure
+    title: Prompt corpus readable at rest in the unencrypted local volume
+    description: >-
+      Any local user with Docker or filesystem access reads the stored corpus, and docker compose
+      down preserves the volume by design. The volume backs all five services the shipped stack
+      runs: Prometheus, Tempo, Loki, Pyroscope, and Grafana.
+    state: Open
+    citations: { stride: [I], nist: [SC-28, MP-6], mitre: [CWE-311] }
+    mitigation_ids: [M-OT-RETENTION]
+    notes: "Traceability: G-INF-1; G-INF-2"
+    properties:
+      Priority: High
+      UserThreatDescription: >-
+        Any local user with Docker or filesystem access reads the stored corpus, and docker compose down
+        preserves the volume by design. The volume backs all five services the shipped stack runs:
+        Prometheus, Tempo, Loki, Pyroscope, and Grafana. Source: copilot-otel-metrics skill, bucket B2.
+        Gaps: G-INF-1, G-INF-2. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Copilot telemetry corpus (prompt content and usage metrics)).
+      source_skill: copilot-otel-metrics
+      bucket: B2
+      gap_ids: [G-INF-1, G-INF-2]
+  - id: OT-5
+    target_ref: comp-otel-store
+    interaction_ref: flow-46
+    category: denial-of-service
+    title: Unbounded trace growth exhausts local storage
+    description: No Tempo retention limit is configured, so a long-running stack can exhaust host disk.
+    state: Open
+    citations: { stride: [D], nist: [SC-5, AU-4], mitre: [CWE-770] }
+    mitigation_ids: [M-OT-RETENTION]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        No Tempo retention limit is configured, so a long-running stack can exhaust host disk. Source:
+        copilot-otel-metrics skill, bucket B2. Gaps: G-INF-2. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B2
+      gap_ids: [G-INF-2]
+  - id: OT-6
+    target_ref: comp-otel-grafana
+    interaction_ref: flow-48
+    category: spoofing
+    title: Published default Grafana credentials accepted from any local process
+    description: >-
+      Grafana ships admin/admin and the skill does not change them, so any local process
+      authenticates as the Grafana administrator.
+    state: Open
+    citations: { stride: [S], nist: [IA-5, AC-3], mitre: [CWE-1392] }
+    mitigation_ids: [M-OT-LOOPBACK]
+    notes: "Traceability: G-SPF-1"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Grafana ships admin/admin and the skill does not change them, so any local process authenticates
+        as the Grafana administrator. Source: copilot-otel-metrics skill, bucket B2. Gaps: G-SPF-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B2
+      gap_ids: [G-SPF-1]
+  - id: OT-7
+    target_ref: comp-otel-grafana
+    interaction_ref: flow-48
+    category: elevation-of-privilege
+    title: Grafana administrator role reachable without additional authority
+    description: >-
+      The highest privilege in the stack is reachable with published default credentials, which is
+      escalation within the stack though not beyond the host user.
+    state: Open
+    citations: { stride: [E], nist: [AC-6], mitre: [CWE-269] }
+    mitigation_ids: [M-OT-LOOPBACK]
+    notes: "Traceability: G-EOP-1; G-SPF-1"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        The highest privilege in the stack is reachable with published default credentials, which is
+        escalation within the stack though not beyond the host user. Source: copilot-otel-metrics skill,
+        bucket B2. Gaps: G-EOP-1, G-SPF-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B2
+      gap_ids: [G-EOP-1, G-SPF-1]
+  - id: OT-8
+    target_ref: comp-otel-helpers
+    interaction_ref: flow-49
+    category: spoofing
+    title: Local port impersonation misleads the verification helpers
+    description: >-
+      A local process binding a stack port before the container does returns fabricated results,
+      so verify.py reports a healthy stack that does not exist.
+    state: Open
+    citations: { stride: [S], nist: [IA-3, SC-8], mitre: [CWE-350] }
+    mitigation_ids: [M-OT-LOOPBACK, M-OT-REMOTE-OPTIN]
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A local process binding a stack port before the container does returns fabricated results, so
+        verify.py reports a healthy stack that does not exist. Source: copilot-otel-metrics skill,
+        bucket B3. Gaps: G-SPF-1, G-TLS-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B3
+      gap_ids: [G-SPF-1, G-TLS-1]
+  - id: OT-9
+    target_ref: comp-otel-helpers
+    interaction_ref: flow-49
+    category: tampering
+    title: Attacker-controlled store content replayed to operator and agent
+    description: >-
+      Label values, session ids, span attributes, and trace names read back by the helpers are
+      attacker-controllable, so embedded text can be acted on as instruction rather than data.
+    state: Partially Mitigated
+    citations: { stride: [T], nist: [SI-10, SC-7], mitre: [CWE-20] }
+    mitigation_ids: [M-OT-DATA-ONLY, M-OT-BASELINE]
+    notes: "Traceability: G-SPF-1"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Label values, session ids, span attributes, and trace names read back by the helpers are
+        attacker-controllable, so embedded text can be acted on as instruction rather than data. Source:
+        copilot-otel-metrics skill, bucket B3. Gaps: G-SPF-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B3
+      gap_ids: [G-SPF-1]
+  - id: OT-10
+    target_ref: comp-otel-grafana
+    interaction_ref: flow-50
+    category: tampering
+    title: Dashboard import overwrites an unrelated dashboard sharing a uid
+    description: validate_dashboard.py imports with overwrite true, replacing any dashboard on the same uid.
+    state: Partially Mitigated
+    citations: { stride: [T], nist: [SI-7, AC-3], mitre: [CWE-284] }
+    mitigation_ids: [M-OT-REMOTE-OPTIN]
+    notes: "Traceability: G-TAM-1"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        validate_dashboard.py imports with overwrite true, replacing any dashboard on the same uid.
+        Source: copilot-otel-metrics skill, bucket B3. Gaps: G-TAM-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B3
+      gap_ids: [G-TAM-1]
+  - id: OT-11
+    asset_ids: [asset-prompt-telemetry]
+    target_ref: comp-otel-ingest
+    interaction_ref: flow-51
+    category: tampering
+    title: Malicious stack image substituted under a mutable tag
+    description: >-
+      The image is tag-pinned with no digest pin and no signature verification, so a republished
+      tag is pulled and run without challenge.
+    state: Open
+    citations: { stride: [T], nist: [SA-12, SI-7], mitre: [CWE-494] }
+    mitigation_ids: [M-OT-TAGPIN]
+    notes: "Traceability: G-SUP-1"
+    properties:
+      Priority: High
+      UserThreatDescription: >-
+        The image is tag-pinned with no digest pin and no signature verification, so a republished tag
+        is pulled and run without challenge. Source: copilot-otel-metrics skill, bucket B4. Gaps:
+        G-SUP-1. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Copilot telemetry corpus (prompt content and usage metrics)).
+      source_skill: copilot-otel-metrics
+      bucket: B4
+      gap_ids: [G-SUP-1]
+  - id: OT-12
+    asset_ids: [asset-prompt-telemetry]
+    target_ref: comp-otel-ingest
+    interaction_ref: flow-51
+    category: elevation-of-privilege
+    title: Compromised stack image executes with Docker daemon authority
+    description: >-
+      A compromised image holds whatever authority the daemon grants, which is root-equivalent on
+      a typical developer workstation.
+    state: Open
+    citations: { stride: [E], nist: [AC-6, CM-7], mitre: [CWE-250] }
+    mitigation_ids: [M-OT-TAGPIN]
+    notes: "Traceability: G-SUP-1; G-EOP-2"
+    properties:
+      Priority: High
+      UserThreatDescription: >-
+        A compromised image holds whatever authority the daemon grants, which is root-equivalent on a
+        typical developer workstation. Source: copilot-otel-metrics skill, bucket B4. Gaps: G-SUP-1,
+        G-EOP-2. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Copilot telemetry corpus (prompt content and usage metrics)).
+      source_skill: copilot-otel-metrics
+      bucket: B4
+      gap_ids: [G-SUP-1, G-EOP-2]
+  - id: OT-13
+    asset_ids: [asset-editor-settings]
+    target_ref: comp-editor-settings
+    interaction_ref: flow-52
+    category: tampering
+    title: Assisted settings write damages a user-owned JSONC file
+    description: >-
+      A naive parse-and-reserialize destroys user comments and formatting, and a concurrent VS Code
+      write can overwrite the change.
+    state: Partially Mitigated
+    citations: { stride: [T], nist: [CM-3, SI-7], mitre: [CWE-664] }
+    mitigation_ids: [M-OT-UPSERT]
+    notes: "Traceability: G-TAM-2; G-REP-1"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A naive parse-and-reserialize destroys user comments and formatting, and a concurrent VS Code
+        write can overwrite the change. Source: copilot-otel-metrics skill, bucket B5. Gaps: G-TAM-2,
+        G-REP-1. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Editor global settings document).
+      source_skill: copilot-otel-metrics
+      bucket: B5
+      gap_ids: [G-TAM-2, G-REP-1]
+  - id: OT-14
+    asset_ids: [asset-editor-settings]
+    target_ref: comp-editor-settings
+    interaction_ref: flow-52
+    category: information-disclosure
+    title: Whole-file settings read brings unrelated values into model context
+    description: >-
+      The upsert requires reading the whole settings document, so endpoints, hostnames, and any
+      tokens other extensions store there enter model context.
+    state: Partially Mitigated
+    citations: { stride: [I], nist: [AC-4, SC-28], mitre: [CWE-200] }
+    mitigation_ids: [M-OT-UPSERT]
+    notes: "Traceability: G-INF-4"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        The upsert requires reading the whole settings document, so endpoints, hostnames, and any tokens
+        other extensions store there enter model context. Source: copilot-otel-metrics skill, bucket B5.
+        Gaps: G-INF-4. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Editor global settings document).
+      source_skill: copilot-otel-metrics
+      bucket: B5
+      gap_ids: [G-INF-4]
+  - id: OT-15
+    target_ref: comp-otel-iac
+    interaction_ref: flow-53
+    category: elevation-of-privilege
+    title: Agent executes a generated file with Docker or cloud authority
+    description: >-
+      Running a generated compose or infrastructure file would convert file-write capability into
+      root-equivalent or subscription-scoped execution with no human decision in between.
+    state: Partially Mitigated
+    citations: { stride: [E], nist: [AC-6, CM-7], mitre: [CWE-269] }
+    mitigation_ids: [M-OT-NOEXEC]
+    notes: "Traceability: G-EOP-4"
+    properties:
+      Priority: Medium
+      UserThreatDescription: >-
+        Running a generated compose or infrastructure file would convert file-write capability into
+        root-equivalent or subscription-scoped execution with no human decision in between. Source:
+        copilot-otel-metrics skill, bucket B6. Gaps: G-EOP-4. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B6
+      gap_ids: [G-EOP-4]
+  - id: OT-16
+    target_ref: comp-otel-iac
+    interaction_ref: flow-53
+    category: elevation-of-privilege
+    title: Generated template over-grants access on deployment
+    description: >-
+      A template granting by default would create a Monitoring Reader role assignment on the
+      workspace without a deliberate operator choice.
+    state: Partially Mitigated
+    citations: { stride: [E], nist: [AC-6, CM-6], mitre: [CWE-732] }
+    mitigation_ids: [M-OT-OPTIN-RBAC]
+    notes: "Traceability: G-EOP-3"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A template granting by default would create a Monitoring Reader role assignment on the workspace
+        without a deliberate operator choice. Source: copilot-otel-metrics skill, bucket B7. Gaps:
+        G-EOP-3. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B7
+      gap_ids: [G-EOP-3]
+  - id: OT-17
+    asset_ids: [asset-prompt-telemetry, asset-otel-ingest-cred]
+    target_ref: comp-otel-collector
+    interaction_ref: flow-54
+    category: spoofing
+    title: Shared fleet ingest credential enables telemetry forgery
+    description: >-
+      Every workstation presents the same static write-side credential with no per-user binding,
+      so anything holding it submits telemetry indistinguishable from a real developer's.
+    state: Open
+    citations: { stride: [S], nist: [IA-2, IA-5], mitre: [CWE-287] }
+    mitigation_ids: [M-OT-DISCLOSE]
+    notes: "Traceability: G-INF-3"
+    properties:
+      Priority: High
+      UserThreatDescription: >-
+        Every workstation presents the same static write-side credential with no per-user binding, so
+        anything holding it submits telemetry indistinguishable from a real developer's. Source:
+        copilot-otel-metrics skill, bucket B7. Gaps: G-INF-3. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+        Data sensitivity: confidential (Copilot telemetry corpus (prompt content and usage metrics), Application Insights fleet ingest connection string).
+      source_skill: copilot-otel-metrics
+      bucket: B7
+      gap_ids: [G-INF-3]
+  - id: OT-18
+    target_ref: comp-otel-collector
+    interaction_ref: flow-54
+    category: repudiation
+    title: Fleet ingest credential cannot be attributed or rotated in place
+    description: >-
+      No submission is attributable to a user or device, and revoking the connection string means
+      recreating the component and redistributing to the whole fleet.
+    state: Open
+    citations: { stride: [R], nist: [AU-10, IA-5], mitre: [CWE-778] }
+    mitigation_ids: [M-OT-DISCLOSE]
+    notes: "Traceability: G-INF-3"
+    properties:
+      Priority: High
+      UserThreatDescription: >-
+        No submission is attributable to a user or device, and revoking the connection string means
+        recreating the component and redistributing to the whole fleet. Source: copilot-otel-metrics
+        skill, bucket B7. Gaps: G-INF-3. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B7
+      gap_ids: [G-INF-3]
+  - id: OT-19
+    target_ref: ext-otel-workspace
+    interaction_ref: flow-55
+    category: information-disclosure
+    title: Prompt content reaches a shared, billed, queryable workspace
+    description: >-
+      Content-bearing span attributes reach shared storage readable by any Monitoring Reader unless
+      they are removed before ingestion, and the removal is defeated by deleting the processor.
+    state: Partially Mitigated
+    citations: { stride: [I], nist: [SC-28, AC-4], mitre: [CWE-359] }
+    mitigation_ids: [M-OT-STRIP, M-OT-CONTENT-PANEL]
+    notes: "Traceability: G-INF-1"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        Content-bearing span attributes reach shared storage readable by any Monitoring Reader unless
+        they are removed before ingestion, and the removal is defeated by deleting the processor.
+        Source: copilot-otel-metrics skill, bucket B7. Gaps: G-INF-1. See
+        .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B7
+      gap_ids: [G-INF-1]
+  - id: OT-20
+    target_ref: ext-otel-workspace
+    interaction_ref: flow-55
+    category: denial-of-service
+    title: Unbounded ingestion inflates cost against a billed backend
+    description: >-
+      The shared credential permits unbounded ingestion against a billed backend, so the practical
+      denial of service is financial rather than availability.
+    state: Partially Mitigated
+    citations: { stride: [D], nist: [SC-5, SA-5], mitre: [CWE-770] }
+    mitigation_ids: [M-OT-QUOTA]
+    notes: "Traceability: G-DOS-2"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        The shared credential permits unbounded ingestion against a billed backend, so the practical
+        denial of service is financial rather than availability. Source: copilot-otel-metrics skill,
+        bucket B7. Gaps: G-DOS-2. See .github/skills/experimental/copilot-otel-metrics/SECURITY.md.
+      source_skill: copilot-otel-metrics
+      bucket: B7
+      gap_ids: [G-DOS-2]
 
 mitigations:
   # Repository-level control catalog
@@ -1949,6 +3135,16 @@ mitigations:
     description: Speaker notes XML-escaped / quoteattr-quoted before insertion into SSML.
     target_refs: [comp-tts]
     citations: { nist: [SI-10] }
+  - id: M-TTS-KEY-SCOPE
+    name: Per-invocation credential read passed only to the Speech SDK
+    description: SPEECH_KEY is read from the environment once per invocation and passed only to SpeechConfig; never persisted, never logged, and the dual-credential warning names the variable rather than its value.
+    target_refs: [comp-tts]
+    citations: { nist: [AU-9, IA-5] }
+  - id: M-TTS-ERROR-SCOPE
+    name: Credential-free synthesis failure reporting
+    description: Synthesis failures log only cancellation.reason and error_details; the token-refresh exception path fires only when acquisition fails, so no credential exists to emit.
+    target_refs: [comp-tts]
+    citations: { nist: [AU-9, SI-11] }
   - id: M-SAFE-PARSE
     name: Safe YAML/OOXML parsing
     description: yaml.safe_load; python-pptx with external-entity resolution disabled.
@@ -2009,6 +3205,76 @@ mitigations:
     description: Threat-model specs and generated outputs are reviewed before being treated as authoritative.
     target_refs: [comp-securityplanning]
     citations: { nist: [SA-11] }
+  - id: M-OT-LOOPBACK
+    name: Loopback-only port publishing for the local telemetry stack
+    description: Every published stack port binds 127.0.0.1, so no listener is reachable off the host.
+    target_refs: [comp-otel-ingest, comp-otel-store, comp-otel-grafana, comp-otel-helpers]
+    citations: { nist: [SC-7] }
+  - id: M-OT-BASELINE
+    name: Pre-enablement baseline snapshot and diff
+    description: baseline.py captures pre-enablement store state and reports discriminators that require real editor activity.
+    target_refs: [comp-otel-ingest, comp-otel-helpers]
+    citations: { nist: [SI-4, AU-6] }
+  - id: M-OT-DELTACUM
+    name: Delta-to-cumulative conversion at ingest
+    description: The otlp-deltatocumulative feature flag replaces metric dropping with conversion, avoiding batched write loss.
+    target_refs: [comp-otel-ingest]
+    citations: { nist: [SC-5] }
+  - id: M-OT-RETENTION
+    name: Bounded metric retention and explicit teardown documentation
+    description: Prometheus retention is set to 120 days, and teardown documentation states the volume-preserving and volume-removing variants.
+    target_refs: [comp-otel-store]
+    citations: { nist: [AU-4, MP-6] }
+  - id: M-OT-REMOTE-OPTIN
+    name: Non-loopback refusal without an explicit opt-in
+    description: validate_dashboard.py refuses a non-loopback Grafana unless COPILOT_OTEL_ALLOW_REMOTE=1 is set.
+    target_refs: [comp-otel-helpers, comp-otel-grafana]
+    citations: { nist: [SC-7, AC-3] }
+  - id: M-OT-DATA-ONLY
+    name: Store contents treated as untrusted data, never instructions
+    description: Helper output, query results, and dashboard content are inspected as data; embedded text is never acted on.
+    target_refs: [comp-otel-helpers]
+    citations: { nist: [SI-10] }
+  - id: M-OT-TAGPIN
+    name: Tag-pinned image with no added capabilities or host mounts
+    description: The stack image is tag-pinned, adds no capabilities, sets no privileged flag, and mounts only the named data volume.
+    target_refs: [comp-otel-ingest]
+    citations: { nist: [SA-12, CM-7] }
+  - id: M-OT-UPSERT
+    name: Backed-up, diff-approved, non-reserializing settings upsert
+    description: Timestamped backup, per-key upsert that never reserializes, approved diff showing only changed lines, and post-write parse with automatic restore.
+    target_refs: [comp-editor-settings]
+    citations: { nist: [CM-3, SI-7, AC-4] }
+  - id: M-OT-NOEXEC
+    name: Generation-only boundary on Docker and infrastructure commands
+    description: docker compose, az deployment, az group create, and terraform apply are printed for the operator and never executed by the agent.
+    target_refs: [comp-otel-iac]
+    citations: { nist: [AC-6, CM-7] }
+  - id: M-OT-OPTIN-RBAC
+    name: Opt-in role assignment with no defaulted inputs
+    description: The Monitoring Reader assignment is opt-in through an empty-by-default parameter, and subscription, region, and naming inputs have no defaults.
+    target_refs: [comp-otel-iac]
+    citations: { nist: [AC-6, CM-6] }
+  - id: M-OT-STRIP
+    name: Collector deletes observed content attributes before export
+    description: The generated pipeline deletes the six observed plaintext content attributes plus copilot_chat.reasoning_content before data reaches storage.
+    target_refs: [comp-otel-collector]
+    citations: { nist: [SC-28, AC-4] }
+  - id: M-OT-CONTENT-PANEL
+    name: Workspace content-attribute counting panel
+    description: The Azure dashboard ships a panel counting content attributes so a workspace receiving content is visible rather than silent.
+    target_refs: [ext-otel-workspace]
+    citations: { nist: [SI-4, AU-6] }
+  - id: M-OT-QUOTA
+    name: Defaulted daily ingestion cap
+    description: dailyQuotaGb defaults to 5 in every generated template, and disabling the cap requires deliberately setting it to -1.
+    target_refs: [ext-otel-workspace, comp-otel-collector]
+    citations: { nist: [SC-5, SA-5] }
+  - id: M-OT-DISCLOSE
+    name: Pre-generation disclosure of the shared-credential exposure
+    description: The Azure path leads with the shared write-side credential, its lack of per-user binding, and the absence of documented in-place rotation before any artifact is generated.
+    target_refs: [comp-otel-collector]
+    citations: { nist: [PL-4, RA-3] }
 
 abuse_cases:
   - id: abuse-01

@@ -1,7 +1,7 @@
 ---
 title: TM7 test fixtures
 description: Provenance, licensing, and maintenance rules for the TM7 test fixtures.
-ms.date: 2026-08-05
+ms.date: 2026-08-07
 ms.topic: reference
 ---
 
@@ -19,7 +19,7 @@ against every `.tm7` in the upstream repository and match none of them.
   is MIT licensed. See the details below.
 * `tmt-reference-threats.tm7` is first-party, authored for this repository.
 * `expected.tm7` and `tmp-sample.tm7` are first-party pinned golden files.
-* `comprehensive-spec.yaml` is first-party, copied from
+* `comprehensive-spec.yaml` is first-party, a pinned regression snapshot of
   `docs/planning/threat-models/hve-core-comprehensive.yaml`.
 
 ### tmt-reference.tm7
@@ -52,8 +52,14 @@ changes results even when the model is semantically unchanged. Replace a
 fixture only with a recorded reason, and update the checksums above in the
 same change.
 
-`comprehensive-spec.yaml` duplicates the repository threat model. Tests assert
-on its structure, including its 80 threats, its per-surface trust zones, and
-identifiers such as `AX-1`, `flow-04`, and `flow-21`. Keep the two copies
-aligned when the repository threat model changes, or the layout and population
-tests will drift from the documented model.
+`comprehensive-spec.yaml` is an intentionally pinned snapshot taken from
+`docs/planning/threat-models/hve-core-comprehensive.yaml`. It is a regression
+baseline, not a mirror, and it is expected to diverge from the shipped spec as
+that spec evolves. Tests assert on its structure, including its 80 threats, its
+per-surface trust zones, and identifiers such as `AX-1`, `flow-04`, and
+`flow-21`. Those assertions protect layout packing and threat population against
+unintended generator changes, which requires a stable input rather than a moving
+one. Resynchronize it only as a deliberate baseline change, in a commit that also
+reviews and updates the affected count and identifier assertions in
+`test_populate_tm7_threats.py`. Do not resynchronize it merely because it differs
+from the shipped spec; that difference is the intended state.

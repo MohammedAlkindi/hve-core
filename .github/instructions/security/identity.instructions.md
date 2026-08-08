@@ -191,7 +191,11 @@ Advance `currentPhase` only when exit criteria for the current phase are satisfi
 
 ## Threat-model SSOT and render workflow
 
-The YAML threat-model spec is the source of truth. The markdown report is rendered from it via `generate_markdown.py`, with structured sections generated from the spec and narrative authored once. When the model changes, edit the YAML spec first and then re-render or re-generate the markdown output rather than editing the rendered artifact directly.
+Threat content flows in one direction: prose model, then spec, then generated outputs.
+
+`docs/security/security-model.md` is the source of truth for threat substance, and the per-skill `SECURITY.md` models are authoritative for their own runtimes. A YAML threat-model spec encodes that analysis in the schema the generators accept; it is the machine-readable projection, not the origin. The `.tm7` and markdown outputs are build artifacts produced by `generate_tm7.py` and `generate_markdown.py`, and are regenerated on demand rather than edited.
+
+When the model changes, author or revise the threat in the prose model first, encode it in the YAML spec second, then regenerate the outputs. Never edit a generated artifact directly, and never introduce a threat into the spec that has no counterpart in the prose model. A spec entry may be deliberately absent when the schema cannot represent it honestly; record that exclusion and its reason in the prose model rather than fabricating a `target_ref` or `interaction_ref` to satisfy the schema.
 
 ## Phase 6 completeness review
 
