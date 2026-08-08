@@ -383,10 +383,21 @@ jobs:
           if ($expectedCount -le 0) {
             throw 'Package discovery produced no package names'
           }
+          # Upstream checkout already validated the tag against the version, so
+          # the prefix alone determines the channel.
+          $channel = if ($env:RELEASE_TAG.StartsWith('prerelease-v', [System.StringComparison]::Ordinal)) {
+            'PreRelease'
+          }
+          elseif ($env:RELEASE_TAG.StartsWith('v', [System.StringComparison]::Ordinal)) {
+            'Stable'
+          }
+          else {
+            throw "Release tag '$env:RELEASE_TAG' does not match a known channel grammar"
+          }
           & ./scripts/plugins/Assert-PluginReleaseEvidence.ps1 `
-            -EvidenceVersion v2 `
             -SourceCommit $env:INPUT_SOURCE_REF `
             -Version $env:INPUT_VERSION `
+            -Channel $channel `
             -ReleaseTag $env:RELEASE_TAG `
             -ExpectedPackageCount $expectedCount `
             -OutputPath logs/plugin-release-evidence.json
@@ -399,10 +410,21 @@ jobs:
           RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           $ErrorActionPreference = 'Stop'
+          # Upstream checkout already validated the tag against the version, so
+          # the prefix alone determines the channel.
+          $channel = if ($env:RELEASE_TAG.StartsWith('prerelease-v', [System.StringComparison]::Ordinal)) {
+            'PreRelease'
+          }
+          elseif ($env:RELEASE_TAG.StartsWith('v', [System.StringComparison]::Ordinal)) {
+            'Stable'
+          }
+          else {
+            throw "Release tag '$env:RELEASE_TAG' does not match a known channel grammar"
+          }
           & ./scripts/plugins/Assert-PluginReleaseEvidence.ps1 `
-            -EvidenceVersion v2 `
             -SourceCommit $env:INPUT_SOURCE_REF `
             -Version $env:INPUT_VERSION `
+            -Channel $channel `
             -ReleaseTag $env:RELEASE_TAG `
             -ExpectedEvidencePath logs/plugin-release-evidence.json `
             -OutputPath logs/plugin-release-evidence-verification.json

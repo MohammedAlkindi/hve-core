@@ -13,7 +13,7 @@ catalog and shared resolved package projection.
 | Generate-Plugins.ps1             | `npm run plugin:generate`  | Materialize plugin packages in external staging |
 | Validate-Marketplace.ps1         | `npm run lint:marketplace` | Validate marketplace.json plugin manifest       |
 | Assert-PluginReleaseEvidence.ps1 | `npm run plugin:evidence`  | Record or verify canonical release evidence     |
-| Modules/PluginHelpers.psm1       | (library)                  | Plugin materialization, manifest, and packaging |
+| Modules/PluginHelpers.psm1       | (library)                  | Plugin materialization and packaging helpers    |
 
 ## Prerequisites
 
@@ -98,9 +98,10 @@ Every entry uses the canonical `.github` source root:
 ```
 
 The `repo` and `path` fields are required, and `path` must be `.github`.
-Main catalog entries omit `ref`. Release catalog entries use the exact
-`hve-core-v<version>` ref matching the package version. Branch refs, commit SHA
-locators, URL locators, and version-mismatched release refs are rejected.
+Main catalog entries omit `ref`. Prerelease catalog entries use the exact
+`prerelease-v<version>` ref, and release catalog entries use the exact
+`v<version>` ref, each matching the package version. Branch refs, commit SHA
+locators, URL locators, and version-mismatched channel refs are rejected.
 
 Component membership is relative to the `.github` source root:
 
@@ -115,12 +116,13 @@ vocabulary.
 
 ## Deterministic Release Evidence
 
-`Assert-PluginReleaseEvidence.ps1` produces canonical evidence v2 by binding
-the immutable source commit, package version, exact `hve-core-v<version>` ref,
-package count, per-package non-vacuity and digests, and total digest into one
-invariant. It derives the file sets from declared canonical git-tracked sources,
-so it needs no generated package tree or staging root and reproduces from a
-clean checkout of the tagged commit.
+`Assert-PluginReleaseEvidence.ps1` produces only canonical evidence v2 by
+binding the immutable source commit, package version, exact channel ref
+(`prerelease-v<version>` or `v<version>`), package count, per-package
+non-vacuity and digests, and total digest into one invariant. It derives the
+file sets from declared canonical git-tracked sources, so it needs no generated
+package tree or staging root and reproduces from a clean checkout of the tagged
+commit.
 
 ```bash
 # Record
@@ -138,13 +140,14 @@ incomplete. `-ExpectedPackageCount` adds a package-count precondition.
 ## Release Publication and Historical Snapshots
 
 Release workflows attach `plugin-release-evidence.json` to the
-`hve-core-v<version>` release and attest it alongside signed plugin ZIPs, SBOM,
-Sigstore, and in-toto assets. Release and prerelease catalogs use the exact
-release ref and remain reviewed, release-gated, and immutable.
+release for the exact `prerelease-v<version>` or `v<version>` channel ref and
+attest it alongside signed plugin ZIPs, SBOM, Sigstore, and in-toto assets.
+Release and prerelease catalogs remain reviewed, release-gated, and immutable.
 
-Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
-and catalogs remain immutable and supported for historical installations. They
-are not deleted, moved, rewritten, or migrated by the current release process.
+Future legacy snapshot publication and evidence v1 are retired, with no
+callable snapshot generation, manifest-writing, or evidence v1 API. Existing
+historical tags, catalogs, and assets remain immutable records. They are not
+deleted, moved, rewritten, or migrated by the current release process.
 
 Remote release-asset and installed-client verification are authorized manual
 actions. Local script and documentation checks do not execute or verify them.

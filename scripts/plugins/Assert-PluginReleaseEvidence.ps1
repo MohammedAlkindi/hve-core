@@ -13,14 +13,10 @@
     content. The digest covers repository-relative paths and file content only,
     so it is reproducible from a clean checkout of the same source commit.
 
-    Evidence v2 is the canonical shape. It digests each package's declared
-    canonical git-tracked source set resolved from the marketplace catalog, so it
-    needs no generated tree and no staging root, and its locator addresses the
-    exact channel release tag, 'prerelease-v<version>' or 'v<version>', without a
-    package path.
-
-    Evidence v1 remains selectable for generated-tree projections. It digests a
-    materialized package tree and its locator addresses 'plugins-v<version>'.
+    Evidence digests each package's declared canonical git-tracked source set
+    resolved from the marketplace catalog, so it needs no generated tree and no
+    staging root, and its locator addresses the exact channel release tag,
+    'prerelease-v<version>' or 'v<version>', without a package path.
 
     Default mode records evidence. Supplying -ExpectedEvidencePath verifies a
     previously recorded document against freshly computed values and fails when
@@ -29,20 +25,13 @@
 .PARAMETER RepoRoot
     Absolute path to the repository root. Defaults to the enclosing repository.
 
-.PARAMETER EvidenceVersion
-    Evidence schema to produce. 'v2' digests declared canonical tracked sources.
-    'v1' digests a generated package tree.
-
 .PARAMETER CatalogPath
     Marketplace catalog declaring package membership, absolute or relative to
-    RepoRoot. Used by v2 only.
+    RepoRoot.
 
 .PARAMETER Channel
-    Release channel whose eligibility policy selects packages. Used by v2 only.
-
-.PARAMETER PluginsDir
-    Generated package tree. When omitted, HVE_PLUGIN_STAGING_ROOT must supply an
-    absolute path outside the repository. Used by v1 only.
+    Release channel whose eligibility policy selects packages and whose tag
+    namespace the release locator addresses.
 
 .PARAMETER SourceCommit
     Full 40-character commit id the evidence was computed from. Resolved from
@@ -52,7 +41,8 @@
     Package version. Read from package.json when omitted.
 
 .PARAMETER ReleaseTag
-    Immutable release tag. Derived from Version when omitted.
+    Immutable channel release tag. Derived from Channel and Version when
+    omitted.
 
 .PARAMETER OutputPath
     Destination for the evidence document, absolute or relative to RepoRoot.
@@ -80,18 +70,11 @@ param(
     [string]$RepoRoot,
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet('v1', 'v2')]
-    [string]$EvidenceVersion = 'v2',
-
-    [Parameter(Mandatory = $false)]
     [string]$CatalogPath = '.github/plugin/marketplace.json',
 
     [Parameter(Mandatory = $false)]
     [ValidateSet('Stable', 'PreRelease')]
     [string]$Channel = 'PreRelease',
-
-    [Parameter(Mandatory = $false)]
-    [string]$PluginsDir,
 
     [Parameter(Mandatory = $false)]
     [string]$SourceCommit,
@@ -119,114 +102,9 @@ Import-Module (Join-Path $PSScriptRoot 'Modules/PluginHelpers.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/MarketplaceHelpers.psm1') -Force
 
-Set-Variable -Name PluginEvidenceSchema -Value 'hve-core/plugin-release-evidence/v1' -Option Constant -Scope Script -Force
 Set-Variable -Name PluginCanonicalEvidenceSchema -Value 'hve-core/plugin-release-evidence/v2' -Option Constant -Scope Script -Force
 
 #region Digest
-
-function Get-PluginContentDigest {
-    <#
-    .SYNOPSIS
-        Computes a deterministic digest over a directory tree.
-
-    .DESCRIPTION
-        Hashes an ordinal-sorted manifest of forward-slash relative paths paired
-        with the SHA-256 of each file's bytes. Timestamps, permissions, sizes,
-        and enumeration order are excluded so the digest reproduces across
-        machines and clean checkouts.
-
-    .PARAMETER Path
-        Absolute path to the directory tree to digest.
-
-    .OUTPUTS
-        [hashtable] Report with Digest, FileCount, and TotalBytes keys.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Path
-    )
-
-    $entries = [System.Collections.Generic.List[string]]::new()
-    $totalBytes = [long]0
-    $fileCount = 0
-
-    if (Test-Path -LiteralPath $Path -PathType Container) {
-        $rootLength = (Get-Item -LiteralPath $Path).FullName.TrimEnd([System.IO.Path]::DirectorySeparatorChar).Length + 1
-        foreach ($file in Get-ChildItem -LiteralPath $Path -File -Recurse -Force) {
-            $relative = $file.FullName.Substring($rootLength).Replace([System.IO.Path]::DirectorySeparatorChar, '/')
-            $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
-            $contentHash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-            $entries.Add("$relative $contentHash")
-            $totalBytes += $bytes.LongLength
-            $fileCount++
-        }
-    }
-
-    $entries.Sort([System.StringComparer]::Ordinal)
-
-    $manifest = if ($entries.Count -eq 0) { '' } else { ($entries -join "`n") + "`n" }
-    $digest = [System.Convert]::ToHexString(
-        [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($manifest))
-    ).ToLowerInvariant()
-
-    return @{
-        Digest     = $digest
-        FileCount  = $fileCount
-        TotalBytes = $totalBytes
-    }
-}
-
-function Get-PluginTreeEvidence {
-    <#
-    .SYNOPSIS
-        Digests a generated package tree and each package within it.
-
-    .PARAMETER PluginsDir
-        Absolute path to the generated package tree.
-
-    .OUTPUTS
-        [hashtable] Report with Digest, Packages, FileCount, and TotalBytes keys.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$PluginsDir
-    )
-
-    if (-not (Test-Path -LiteralPath $PluginsDir -PathType Container)) {
-        throw "Generated package tree not found: $PluginsDir"
-    }
-
-    $packages = @()
-    $packageNames = [System.Collections.Generic.List[string]]::new()
-    foreach ($dir in Get-ChildItem -LiteralPath $PluginsDir -Directory) {
-        $packageNames.Add($dir.Name)
-    }
-    $packageNames.Sort([System.StringComparer]::Ordinal)
-
-    foreach ($name in $packageNames) {
-        $packageReport = Get-PluginContentDigest -Path (Join-Path -Path $PluginsDir -ChildPath $name)
-        $packages += [ordered]@{
-            name      = $name
-            digest    = $packageReport.Digest
-            fileCount = $packageReport.FileCount
-        }
-    }
-
-    $treeReport = Get-PluginContentDigest -Path $PluginsDir
-
-    return @{
-        Digest     = $treeReport.Digest
-        FileCount  = $treeReport.FileCount
-        TotalBytes = $treeReport.TotalBytes
-        Packages   = $packages
-    }
-}
 
 function Get-PluginPathSetDigest {
     <#
@@ -472,74 +350,6 @@ function Get-PluginCanonicalPackageEvidence {
 
 #region Evidence
 
-function New-PluginReleaseEvidenceDocument {
-    <#
-    .SYNOPSIS
-        Builds the evidence document binding source, version, locator, and digest.
-
-    .PARAMETER SourceCommit
-        Full 40-character commit id the snapshot was generated from.
-
-    .PARAMETER Version
-        Package version of the snapshot.
-
-    .PARAMETER Locator
-        Release locator from New-PluginReleaseLocator.
-
-    .PARAMETER TreeEvidence
-        Report from Get-PluginTreeEvidence.
-
-    .OUTPUTS
-        [System.Collections.Specialized.OrderedDictionary] Evidence document.
-    #>
-    [CmdletBinding()]
-    [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$SourceCommit,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Version,
-
-        [Parameter(Mandatory = $true)]
-        [hashtable]$Locator,
-
-        [Parameter(Mandatory = $true)]
-        [hashtable]$TreeEvidence
-    )
-
-    if ($SourceCommit -cnotmatch '^[0-9a-f]{40}$') {
-        throw "Source commit '$SourceCommit' must be a full 40-character lowercase commit id."
-    }
-
-    $expectedRef = "plugins-v$Version"
-    if ($Locator.Ref -ne $expectedRef) {
-        throw "Release locator '$($Locator.Ref)' does not match package version '$Version' (expected '$expectedRef')."
-    }
-
-    # generatedAt is recorded for operators and deliberately excluded from every
-    # compared field, so it can never influence the deterministic invariant.
-    return [ordered]@{
-        schema       = $script:PluginEvidenceSchema
-        sourceCommit = $SourceCommit
-        version      = $Version
-        locator      = [ordered]@{
-            source = 'github'
-            repo   = $Locator.Repo
-            path   = $Locator.PathPrefix
-            ref    = $Locator.Ref
-        }
-        packageCount = @($TreeEvidence.Packages).Count
-        packages     = @($TreeEvidence.Packages)
-        fileCount    = $TreeEvidence.FileCount
-        totalBytes   = $TreeEvidence.TotalBytes
-        digest       = $TreeEvidence.Digest
-        generatedAt  = (Get-Date).ToUniversalTime().ToString('o')
-    }
-}
-
 function New-PluginCanonicalEvidenceDocument {
     <#
     .SYNOPSIS
@@ -591,10 +401,6 @@ function New-PluginCanonicalEvidenceDocument {
     $expectedRefs = @("v$Version", "prerelease-v$Version")
     if ($Locator.Ref -cnotin $expectedRefs) {
         throw "Release locator '$($Locator.Ref)' does not match package version '$Version' (expected '$($expectedRefs -join "' or '")')."
-    }
-
-    if (-not [string]::IsNullOrEmpty([string]$Locator.PathPrefix)) {
-        throw "Canonical release evidence must use a pathless locator, but '$($Locator.PathPrefix)' was supplied."
     }
 
     $packages = @($PackageEvidence.Packages)
@@ -674,9 +480,9 @@ function Compare-PluginReleaseEvidence {
         $differences += "recorded evidence is missing required field 'locator'"
     }
     else {
-        # The compared field set is the union of both shapes, so a v1 path field
-        # recorded against pathless canonical evidence is reported rather than
-        # silently skipped.
+        # The compared field set is the union of both documents, so a locator
+        # field present in only one of them is reported rather than silently
+        # skipped.
         $locatorFields = [System.Collections.Generic.List[string]]::new()
         foreach ($field in @($expectedLocator.Keys) + @($Actual['locator'].Keys)) {
             $name = [string]$field
@@ -730,19 +536,12 @@ function Invoke-PluginReleaseEvidence {
     .PARAMETER RepoRoot
         Absolute path to the repository root directory.
 
-    .PARAMETER EvidenceVersion
-        Evidence schema to produce. 'v2' digests declared canonical tracked
-        sources; 'v1' digests a generated package tree.
-
     .PARAMETER CatalogPath
-        Marketplace catalog declaring package membership. Used by v2 only.
+        Marketplace catalog declaring package membership.
 
     .PARAMETER Channel
-        Release channel whose eligibility policy selects packages. v2 only.
-
-    .PARAMETER PluginsDir
-        Generated package tree. HVE_PLUGIN_STAGING_ROOT is used when omitted.
-        Used by v1 only.
+        Release channel whose eligibility policy selects packages and whose tag
+        namespace the release locator addresses.
 
     .PARAMETER SourceCommit
         Full commit id. Resolved from git when omitted.
@@ -751,7 +550,8 @@ function Invoke-PluginReleaseEvidence {
         Package version. Read from package.json when omitted.
 
     .PARAMETER ReleaseTag
-        Immutable release tag. Derived from the version when omitted.
+        Immutable channel release tag. Derived from the channel and version when
+        omitted.
 
     .PARAMETER OutputPath
         Destination for the evidence document.
@@ -773,18 +573,11 @@ function Invoke-PluginReleaseEvidence {
         [string]$RepoRoot,
 
         [Parameter(Mandatory = $false)]
-        [ValidateSet('v1', 'v2')]
-        [string]$EvidenceVersion = 'v2',
-
-        [Parameter(Mandatory = $false)]
         [string]$CatalogPath = '.github/plugin/marketplace.json',
 
         [Parameter(Mandatory = $false)]
         [ValidateSet('Stable', 'PreRelease')]
         [string]$Channel = 'PreRelease',
-
-        [Parameter(Mandatory = $false)]
-        [string]$PluginsDir,
 
         [Parameter(Mandatory = $false)]
         [string]$SourceCommit,
@@ -806,17 +599,6 @@ function Invoke-PluginReleaseEvidence {
         [int]$ExpectedPackageCount = 0
     )
 
-    $resolvedPluginsDir = ''
-    if ($EvidenceVersion -eq 'v1') {
-        $requestedPluginsDir = if (-not [string]::IsNullOrWhiteSpace($PluginsDir)) {
-            $PluginsDir
-        }
-        else {
-            $env:HVE_PLUGIN_STAGING_ROOT
-        }
-        $resolvedPluginsDir = Assert-PluginStagingRoot -Path $requestedPluginsDir -RepoRoot $RepoRoot
-    }
-
     if ([string]::IsNullOrWhiteSpace($Version)) {
         $packageJsonPath = Join-Path -Path $RepoRoot -ChildPath 'package.json'
         if (-not (Test-Path -LiteralPath $packageJsonPath)) {
@@ -833,51 +615,25 @@ function Invoke-PluginReleaseEvidence {
         $SourceCommit = $SourceCommit.Trim()
     }
 
-    if ($EvidenceVersion -eq 'v1') {
-        $locator = if ([string]::IsNullOrWhiteSpace($ReleaseTag)) {
-            New-PluginReleaseLocator -Version $Version
-        }
-        else {
-            New-PluginReleaseLocator -Tag $ReleaseTag
-        }
-
-        $treeEvidence = Get-PluginTreeEvidence -PluginsDir $resolvedPluginsDir
-        $evidence = New-PluginReleaseEvidenceDocument `
-            -SourceCommit $SourceCommit `
-            -Version $Version `
-            -Locator $locator `
-            -TreeEvidence $treeEvidence
+    $locator = if ([string]::IsNullOrWhiteSpace($ReleaseTag)) {
+        New-PluginReleaseLocator -Version $Version -Channel $Channel
     }
     else {
-        # The supplied tag selects its own namespace; a derived tag follows the
-        # requested channel.
-        $tagPrefix = if (-not [string]::IsNullOrWhiteSpace($ReleaseTag)) {
-            if ($ReleaseTag.StartsWith('prerelease-v', [System.StringComparison]::Ordinal)) { 'prerelease-v' } else { 'v' }
-        }
-        elseif ($Channel -eq 'PreRelease') { 'prerelease-v' }
-        else { 'v' }
-        $locatorArgs = @{ TagPrefix = $tagPrefix; PathPrefix = '' }
-        $locator = if ([string]::IsNullOrWhiteSpace($ReleaseTag)) {
-            New-PluginReleaseLocator -Version $Version @locatorArgs
-        }
-        else {
-            New-PluginReleaseLocator -Tag $ReleaseTag @locatorArgs
-        }
-
-        $packageEvidence = Get-PluginCanonicalPackageEvidence -RepoRoot $RepoRoot -CatalogPath $CatalogPath -Channel $Channel
-        $evidence = New-PluginCanonicalEvidenceDocument `
-            -SourceCommit $SourceCommit `
-            -Version $Version `
-            -Locator $locator `
-            -PackageEvidence $packageEvidence
+        New-PluginReleaseLocator -Tag $ReleaseTag -Channel $Channel
     }
 
-    $locatorPath = if ($evidence.locator.Contains('path')) { " ($($evidence.locator.path))" } else { '' }
+    $packageEvidence = Get-PluginCanonicalPackageEvidence -RepoRoot $RepoRoot -CatalogPath $CatalogPath -Channel $Channel
+    $evidence = New-PluginCanonicalEvidenceDocument `
+        -SourceCommit $SourceCommit `
+        -Version $Version `
+        -Locator $locator `
+        -PackageEvidence $packageEvidence
+
     Write-Host 'Plugin release evidence' -ForegroundColor Cyan
     Write-Host "  Schema:        $($evidence.schema)"
     Write-Host "  Source commit: $($evidence.sourceCommit)"
     Write-Host "  Version:       $($evidence.version)"
-    Write-Host "  Locator:       $($evidence.locator.repo)@$($evidence.locator.ref)$locatorPath"
+    Write-Host "  Locator:       $($evidence.locator.repo)@$($evidence.locator.ref)"
     Write-Host "  Packages:      $($evidence.packageCount)"
     Write-Host ("  Size:          {0:N1} MB in {1} files" -f ($evidence.totalBytes / 1MB), $evidence.fileCount)
     Write-Host "  Digest:        $($evidence.digest)"
@@ -963,10 +719,8 @@ if ($MyInvocation.InvocationName -ne '.') {
 
         $result = Invoke-PluginReleaseEvidence `
             -RepoRoot $resolvedRepoRoot `
-            -EvidenceVersion $EvidenceVersion `
             -CatalogPath $CatalogPath `
             -Channel $Channel `
-            -PluginsDir $PluginsDir `
             -SourceCommit $SourceCommit `
             -Version $Version `
             -ReleaseTag $ReleaseTag `

@@ -3,7 +3,7 @@ title: Adapt HVE Core Package Selections
 description: Choose or switch HVE Core catalog packages while preserving the release architecture
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: how-to
 keywords:
   - migration
@@ -83,10 +83,10 @@ Schema version 2 stores `selection.package`. File records identify components wi
 
 ## Historical Catalog Support
 
-New `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
-and catalogs remain immutable and supported for historical installations; they
-were not deleted or migrated. Current release catalogs and signed package
-assets use the `hve-core-v<version>` release identity.
+New `plugins-v` snapshot publication has stopped. Legacy snapshot and
+component-prefixed release identities, including existing `plugins-v` tags and
+catalogs, are immutable historical records, not future publication targets. No
+migration mutates, deletes, moves, or rewrites them.
 
 ## Verify the Result
 

@@ -650,50 +650,10 @@ Describe 'Invoke-PluginGeneration' -Tag 'Unit' {
         }
     }
 
-    Context 'when projecting a marketplace snapshot' {
-        BeforeEach {
-            New-GeneratorFixture -Root $script:generatorRepo -Entries @(New-RpiEntry) | Out-Null
-            $script:catalogPath = Join-Path $script:generatorRepo '.github/plugin/marketplace.json'
-            $script:catalogBytesBefore = [System.IO.File]::ReadAllBytes($script:catalogPath)
-        }
-
-        It 'Refuses a release tag without an explicit destination' {
-            { Invoke-PluginGeneration -RepoRoot $script:generatorRepo -Refresh -ReleaseTag 'plugins-v4.5.6' } |
-                Should -Throw -ExpectedMessage '*requires -MarketplaceOutputPath*'
-            [System.IO.File]::ReadAllBytes($script:catalogPath) | Should -Be $script:catalogBytesBefore
-        }
-
-        It 'Writes the pinned snapshot to the explicit destination' {
-            Invoke-PluginGeneration -RepoRoot $script:generatorRepo -Refresh -ReleaseTag 'plugins-v4.5.6' `
-                -MarketplaceOutputPath 'out/marketplace.json' | Out-Null
-            $snapshot = Get-Content -LiteralPath (Join-Path $script:generatorRepo 'out/marketplace.json') -Raw | ConvertFrom-Json -AsHashtable
-            @($snapshot['plugins'] | ForEach-Object { $_['source']['ref'] }) | Should -Be @('plugins-v4.5.6')
-        }
-
-        It 'Projects the release version into the catalog and plugin manifest' {
-            Invoke-PluginGeneration -RepoRoot $script:generatorRepo -Refresh -ReleaseTag 'plugins-v4.5.6' `
-                -MarketplaceOutputPath 'out/marketplace.json' | Out-Null
-            $snapshot = Get-Content -LiteralPath (Join-Path $script:generatorRepo 'out/marketplace.json') -Raw | ConvertFrom-Json -AsHashtable
-            $pluginManifest = Get-Content -LiteralPath (Join-Path $script:generatorStagingRoot 'rpi/plugin.json') -Raw | ConvertFrom-Json -AsHashtable
-
-            [string]$snapshot['metadata']['version'] | Should -BeExactly '4.5.6'
-            @($snapshot['plugins'] | ForEach-Object { [string]$_['version'] }) | Should -Be @('4.5.6')
-            [string]$pluginManifest['version'] | Should -BeExactly '4.5.6'
-            [System.IO.File]::ReadAllBytes($script:catalogPath) | Should -Be $script:catalogBytesBefore
-        }
-
-        It 'Leaves the production catalog byte-identical' {
-            Invoke-PluginGeneration -RepoRoot $script:generatorRepo -Refresh -ReleaseTag 'plugins-v4.5.6' `
-                -MarketplaceOutputPath 'out/marketplace.json' | Out-Null
-            [System.IO.File]::ReadAllBytes($script:catalogPath) | Should -Be $script:catalogBytesBefore
-        }
-    }
-
     Context 'when running as a dry run' {
         BeforeEach {
             New-GeneratorFixture -Root $script:generatorRepo -Entries @(New-RpiEntry) | Out-Null
-            $script:dryRunGeneration = Invoke-PluginGeneration -RepoRoot $script:generatorRepo -DryRun `
-                -MarketplaceOutputPath 'out/marketplace.json'
+            $script:dryRunGeneration = Invoke-PluginGeneration -RepoRoot $script:generatorRepo -DryRun
         }
 
         It 'Reports the packages it would generate' {
@@ -702,7 +662,6 @@ Describe 'Invoke-PluginGeneration' -Tag 'Unit' {
 
         It 'Writes nothing to disk' {
             Test-Path -LiteralPath $script:generatorStagingRoot | Should -BeFalse
-            Test-Path -LiteralPath (Join-Path $script:generatorRepo 'out') | Should -BeFalse
         }
     }
 

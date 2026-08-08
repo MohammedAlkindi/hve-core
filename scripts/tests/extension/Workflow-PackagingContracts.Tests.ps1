@@ -816,7 +816,6 @@ Describe 'Pre-release preparation and publication' -Tag 'Unit' {
         $version | Should -HaveCount 1
         $version[0] | Should -Match '\^\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$'
         $version[0] | Should -Match 'prerelease-v\$RELEASE_VERSION'
-        $version[0] | Should -Not -Match 'hve-core-v'
 
         $script:PreReleaseText | Should -Not -Match 'PRE_MAJOR|PRE_MINOR'
         $committedState = @($steps | Where-Object { $_ -match 'STALE_INTENT' })
@@ -939,7 +938,6 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $stateRun | Should -Match ([regex]::Escape('gh release download "$SOURCE_TAG"'))
         $stateRun | Should -Match ([regex]::Escape('refs/remotes/origin/$BASE_BRANCH..$SOURCE_SHA'))
         $stateRun | Should -Not -Match 'SOURCE_SHA=\$\(git rev-parse "refs/remotes/origin/\$SOURCE_BRANCH"\)'
-        $stateRun | Should -Not -Match 'plugins-v\$VERSION|hve-core-v\$VERSION'
 
         # Commit classification and its release-class dispatch are gone: the
         # promoted source version alone selects the next even minor.
@@ -967,7 +965,7 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
     }
 
     # release-please's json extra-files updater writes bare version values and
-    # cannot express the catalog's plugins-v<version> locator. Only the shared
+    # cannot express the catalog's exact release ref locator. Only the shared
     # updater running on the same preparation branch keeps the promoted commit
     # consistent; a downstream lint gate would just fail forever instead.
     It 'Runs release-please against release/stable and exposes validated release outputs' {
@@ -989,7 +987,7 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $validation = @($releaseSteps | Where-Object { $_ -match 'release_created' -and $_ -match 'tag_name' -and $_ -match 'version' -and $_ -match 'sha' })
         $validation | Should -HaveCount 1
         $validation[0] | Should -Match ([regex]::Escape('"v$RELEASE_VERSION"'))
-        $validation[0] | Should -Not -Match 'hve-core-v|prerelease-v'
+        $validation[0] | Should -Not -Match 'prerelease-v'
         $validation[0] | Should -Match 'prepared no release pull request'
         $validation[0] | Should -Match 'changelog-visible commits'
         # Release-please is the sole tag writer, so a managed merge without a
@@ -1040,7 +1038,6 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $sourceGateRun | Should -Match 'git merge-base --is-ancestor "\$SOURCE_SHA" "refs/remotes/pull/\$PR_NUMBER/head"'
         $sourceGateRun | Should -Match 'plugin-release-evidence\.json'
         $sourceGateRun | Should -Match 'CANDIDATE=.*release-please-config\.json'
-        $sourceGateRun | Should -Not -Match 'plugins-v\$CANDIDATE|hve-core-v\$CANDIDATE'
 
         $managedGate = Get-NamedJobStep -Document $script:PublishDocument -JobName 'validate-trigger' -StepName 'Validate managed release intent was consumed'
         [string]$managedGate['run'] | Should -Match 'release-as'
@@ -1273,10 +1270,19 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
                 Where-Object { $_ -match 'Assert-PluginReleaseEvidence\.ps1' })
         $evidence | Should -HaveCount 2
         foreach ($step in $evidence) {
-            $step | Should -Match '-EvidenceVersion v2'
             $step | Should -Match '-SourceCommit \$env:INPUT_SOURCE_REF'
             $step | Should -Match '-Version \$env:INPUT_VERSION'
             $step | Should -Match '-ReleaseTag \$env:RELEASE_TAG'
+
+            # The channel is derived locally from the validated release tag, so
+            # no caller can hand the evidence producer a mismatched channel.
+            $step | Should -Match ([regex]::Escape('$env:RELEASE_TAG.StartsWith(''prerelease-v'', [System.StringComparison]::Ordinal)'))
+            $step | Should -Match ([regex]::Escape('$env:RELEASE_TAG.StartsWith(''v'', [System.StringComparison]::Ordinal)'))
+            $step | Should -Match "'PreRelease'"
+            $step | Should -Match "'Stable'"
+            $step | Should -Match 'does not match a known channel grammar'
+            $step | Should -Match ([regex]::Escape('-Channel $channel'))
+            $step | Should -Not -Match '-EvidenceVersion'
         }
         $evidence[0] | Should -Match '-ExpectedPackageCount \$expectedCount'
         $evidence[0] | Should -Match '-OutputPath logs/plugin-release-evidence\.json'
@@ -1333,23 +1339,34 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
             Should -BeLessThan ([array]::IndexOf($names, 'Upload evidence to GitHub Release'))
     }
 
-    # Historical plugins-v tags stay immutable and keep resolving. Retirement is
-    # prospective only, so no workflow may write that namespace again.
-    It 'Creates, moves, deletes, or force-updates no plugins-v tag in any workflow' {
+    # Historical release tags in both retired namespaces stay immutable and keep
+    # resolving. Retirement is prospective only, so no workflow may create, move,
+    # delete, or force-update either namespace again.
+    It 'Creates, moves, deletes, or force-updates no retired release tag in any workflow' {
         $workflows = @(Get-ChildItem -LiteralPath $script:WorkflowDirectory -Filter '*.yml' -File)
         $workflows | Should -Not -BeNullOrEmpty
         foreach ($workflow in $workflows) {
             $text = Get-Content -LiteralPath $workflow.FullName -Raw -Encoding utf8
+            foreach ($namespace in @('plugins-v', 'hve-core-v')) {
+                foreach ($forbidden in @(
+                        "refs/tags/$namespace",
+                        "git tag[^\n]*$namespace",
+                        "git push[^\n]*$namespace",
+                        "gh release (create|delete|edit|upload|delete-asset)[^\n]*$namespace",
+                        "-ReleaseTag\s+[`"']?$namespace",
+                        "-Tag\s+[`"']?$namespace",
+                        "-BaselineTag\s+[`"']?$namespace"
+                    )) {
+                    $text | Should -Not -Match $forbidden -Because "$($workflow.Name) must not write the retired $namespace namespace"
+                }
+            }
             foreach ($forbidden in @(
-                    'refs/tags/plugins-v',
-                    'git tag[^\n]*plugins-v',
-                    'gh release (create|delete)[^\n]*plugins-v',
-                    '-ReleaseTag\s+["'']?plugins-v',
                     'push --force',
+                    'push[^\n]*--force',
                     'push[^\n]*--delete',
                     'Assert-PluginSnapshotTarget'
                 )) {
-                $text | Should -Not -Match $forbidden -Because "$($workflow.Name) must not write the plugins-v namespace"
+                $text | Should -Not -Match $forbidden -Because "$($workflow.Name) must not force-update, delete, or target a retired release snapshot"
             }
         }
     }
@@ -1607,7 +1624,6 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
         $run | Should -Not -Match ([regex]::Escape('jq -r --arg version "$TARGET_VERSION"'))
         $run | Should -Match ([regex]::Escape('-BaselineTag "$BASELINE_TAG"'))
         $run | Should -Not -Match ([regex]::Escape("-BaselineTag `"$ConstructedBaselineTag`""))
-        $run | Should -Not -Match 'hve-core-v'
         $run.IndexOf('BASELINE_TAG=$(jq', [System.StringComparison]::Ordinal) |
             Should -BeLessThan $run.IndexOf('Update-VersionFiles.ps1', [System.StringComparison]::Ordinal)
 
@@ -1787,7 +1803,6 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
         $run | Should -Match '-CandidateAction Apply'
         $run | Should -Match ([regex]::Escape('-BaselineTag "$BASELINE_TAG"'))
         $run | Should -Not -Match ([regex]::Escape("-BaselineTag `"$ConstructedBaselineTag`""))
-        $run | Should -Not -Match 'hve-core-v'
         $run.IndexOf('BASELINE_TAG=$(git', [System.StringComparison]::Ordinal) |
             Should -BeLessThan $run.IndexOf('Update-VersionFiles.ps1', [System.StringComparison]::Ordinal)
     }
@@ -1810,8 +1825,6 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
         $run | Should -Match 'set -euo pipefail'
         $run | Should -Match ([regex]::Escape('cd "$GITHUB_WORKSPACE/promotion"'))
         $run | Should -Match ([regex]::Escape("CANDIDATE_REF=`"refs/tags/$TagPrefix`$VERSION`""))
-        $run | Should -Not -Match ([regex]::Escape('refs/tags/plugins-v$VERSION'))
-        $run | Should -Not -Match 'hve-core-v'
         $run | Should -Match ([regex]::Escape('git ls-remote origin "$CANDIDATE_REF"'))
         $run | Should -Match ([regex]::Escape("gh api --include `"/repos/`$REPOSITORY/releases/tags/$TagPrefix`$VERSION`""))
 
@@ -2105,7 +2118,6 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
         [string]$stableMonotonic['run'] | Should -Match 'CANDIDATE=.*release-please-config\.json'
         [string]$stableMonotonic['run'] | Should -Match 'BASELINE=.*\.release-please-manifest\.json'
         [string]$stableMonotonic['run'] | Should -Match 'already contained in release/stable'
-        [string]$stableMonotonic['run'] | Should -Not -Match 'plugins-v\$CANDIDATE|hve-core-v\$CANDIDATE'
         # A separate-run gate re-derives parity and advancement from the pull
         # request head, independently of the preparation run that proposed them.
         [string]$stableMonotonic['run'] | Should -Match 'SOURCE_MINOR % 2 == 0'
@@ -2269,7 +2281,6 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
             # Only the projected package path clause is dropped; the evidence
             # addresses the repository at its release tag instead.
             $run | Should -Not -Match 'locator\.path'
-            $run | Should -Not -Match 'plugins-v'
         }
 
         $stableState = Get-NamedJobStep -Document $script:PrepareDocument -JobName 'prepare-promotion' -StepName 'Resolve promotion state'
@@ -2314,22 +2325,23 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
             $text | Should -Match 'release-stable-publish\.yml' -Because "$relativePath must name Stable release-please orchestration"
             $text | Should -Match '(?i)release-please' -Because "$relativePath must name the release authority"
             $text | Should -Match '(?i)draft' -Because "$relativePath must describe the reviewed draft boundary"
-            $text | Should -Not -Match 'plugins-v<version>' -Because "$relativePath must not document a future plugins-v snapshot locator"
             $text | Should -Match '(?i)main' -Because "$relativePath must describe the moving main catalog"
         }
     }
 
-    It 'Requires the implemented release ref, canonical evidence, signed asset, and retirement vocabulary' {
+    # Retirement vocabulary is asserted without naming a retired tag namespace,
+    # so the contract survives the channel-vocabulary rewrite while still
+    # requiring prospective-only retirement and immutable history.
+    It 'Requires canonical evidence, signed release assets, and retirement vocabulary' {
         foreach ($relativePath in $script:ReleaseDocumentationPaths) {
             $text = $script:ReleaseDocumentation[$relativePath]
-            $text | Should -Match 'hve-core-v<version>' -Because "$relativePath must document the exact release ref"
-            $text | Should -Match 'plugin-release-evidence\.json' -Because "$relativePath must document canonical release evidence on the hve-core release"
+            $text | Should -Match 'plugin-release-evidence\.json' -Because "$relativePath must document canonical release evidence on the release"
             $text | Should -Match '(?is)signed\s+plugin ZIPs?' -Because "$relativePath must keep signed plugin ZIPs as release deliverables"
             foreach ($asset in @('SBOM', 'Sigstore', 'in-toto')) {
                 $text | Should -Match ([regex]::Escape($asset)) -Because "$relativePath must keep $asset assets as release deliverables"
             }
-            $text | Should -Match '(?is)future\s+`plugins-v`\s+snapshot publication has stopped' -Because "$relativePath must state prospective-only snapshot retirement"
-            $text | Should -Match '(?is)existing\s+`plugins-v`\s+tags\s+and\s+catalogs\s+remain\s+immutable\s+and\s+supported' -Because "$relativePath must keep historical plugins-v tags and catalogs supported"
+            $text | Should -Match '(?is)snapshot publication has stopped' -Because "$relativePath must state prospective-only snapshot retirement"
+            $text | Should -Match '(?is)tags\s+and\s+catalogs\s+remain\s+immutable\s+and\s+supported' -Because "$relativePath must keep legacy release tags and catalogs supported"
         }
     }
 
@@ -2430,7 +2442,6 @@ Describe 'Catalog release ref and plugin locator consistency' -Tag 'Unit' {
 
         $pluginPackage = Get-WorkflowText -Name 'plugin-package.yml'
         $pluginPackage | Should -Match ([regex]::Escape('$entry[''source''][''ref''] -cne $env:RELEASE_TAG'))
-        $pluginPackage | Should -Not -Match 'hve-core-v'
     }
 
     # The committed catalog is the main channel. Release workflows add exact

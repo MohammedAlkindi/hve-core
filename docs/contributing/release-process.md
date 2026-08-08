@@ -320,10 +320,11 @@ Documentation-only releases may not require an extension publish.
 
 ## Historical Plugin Snapshots
 
-Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
-and catalogs remain immutable and supported for historical installations. Do
-not delete, move, rewrite, or describe them as migrated. Current release
-channels use exact `hve-core-v<version>` refs and canonical release evidence.
+Legacy `plugins-v` snapshot publication has stopped, and component-prefixed
+release identities are retired. Existing tags and catalogs remain immutable
+and supported as historical records only. Neither is a future publication
+namespace. No current automation creates, moves, rewrites, deletes, or
+migrates these identities.
 
 ### Client Version Selection
 

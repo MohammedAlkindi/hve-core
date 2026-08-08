@@ -46,16 +46,6 @@
     Generation fails and names the largest plugins when the ceiling is
     exceeded, catching accidental ingestion of large or undeclared trees.
 
-.PARAMETER ReleaseTag
-    Optional. Immutable 'plugins-v<version>' tag that overrides each marketplace
-    object source in an explicit snapshot projection. Requires
-    -MarketplaceOutputPath: generation never rewrites the production catalog.
-
-.PARAMETER MarketplaceOutputPath
-    Optional. Destination for a projected marketplace snapshot, absolute or
-    relative to the repository root. The production catalog is an input and is
-    never rewritten by generation.
-
 .PARAMETER CatalogPath
     Optional. Marketplace catalog to read, absolute or relative to the
     repository root. Defaults to .github/plugin/marketplace.json.
@@ -75,10 +65,6 @@
 .EXAMPLE
     ./Generate-Plugins.ps1 -Channel Stable
     # Generates plugins with stable-only items
-
-.EXAMPLE
-    ./Generate-Plugins.ps1 -ReleaseTag plugins-v1.2.3 -MarketplaceOutputPath out/marketplace.json
-    # Writes a tag-pinned catalog snapshot without touching the production catalog
 
 .NOTES
     Dependencies: PowerShell-Yaml module, scripts/plugins/Modules/PluginHelpers.psm1
@@ -105,12 +91,6 @@ param(
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 10240)]
     [int]$MaxTotalSizeMB = 40,
-
-    [Parameter(Mandatory = $false)]
-    [string]$ReleaseTag,
-
-    [Parameter(Mandatory = $false)]
-    [string]$MarketplaceOutputPath,
 
     [Parameter(Mandatory = $false)]
     [string]$CatalogPath
@@ -427,13 +407,6 @@ function Invoke-PluginGeneration {
     .PARAMETER MaxTotalSizeMB
         Ceiling in megabytes for the total generated plugins/ tree.
 
-    .PARAMETER ReleaseTag
-        Optional immutable 'plugins-v<version>' tag overriding object sources in
-        an explicit marketplace snapshot.
-
-    .PARAMETER MarketplaceOutputPath
-        Optional destination for a projected marketplace snapshot.
-
     .PARAMETER CatalogPath
         Optional marketplace catalog path, absolute or relative to RepoRoot.
 
@@ -469,22 +442,8 @@ function Invoke-PluginGeneration {
         [int]$MaxTotalSizeMB = 40,
 
         [Parameter(Mandatory = $false)]
-        [string]$ReleaseTag,
-
-        [Parameter(Mandatory = $false)]
-        [string]$MarketplaceOutputPath,
-
-        [Parameter(Mandatory = $false)]
         [string]$CatalogPath
     )
-
-    $releaseLocator = $null
-    if (-not [string]::IsNullOrWhiteSpace($ReleaseTag)) {
-        $releaseLocator = New-PluginReleaseLocator -Tag $ReleaseTag
-        if ([string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
-            throw "ReleaseTag '$ReleaseTag' requires -MarketplaceOutputPath. Generation projects a snapshot to an explicit destination and never rewrites the production catalog."
-        }
-    }
 
     $requestedStagingRoot = if (-not [string]::IsNullOrWhiteSpace($StagingRoot)) {
         $StagingRoot
@@ -504,16 +463,8 @@ function Invoke-PluginGeneration {
         Join-Path -Path $RepoRoot -ChildPath $CatalogPath
     }
 
-    # Read the committed version for ordinary generation. Release projections
-    # derive their effective version from the immutable plugins-v tag.
     $packageJsonPath = Join-Path -Path $RepoRoot -ChildPath 'package.json'
-    $repoVersion = (Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json).version
-    $effectiveVersion = if ($releaseLocator) {
-        $releaseLocator.Ref.Substring('plugins-v'.Length)
-    }
-    else {
-        $repoVersion
-    }
+    $effectiveVersion = (Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json).version
 
     $catalog = Get-MarketplaceCatalog -Path $resolvedCatalogPath
     $allEntries = @($catalog['plugins'])
@@ -656,25 +607,6 @@ function Invoke-PluginGeneration {
         }
     }
 
-    # The catalog is the package-definition input, so generation only projects
-    # snapshots to an explicit destination and never rewrites production.
-    if ($releaseLocator -or -not [string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
-        $marketplaceArgs = @{
-            RepoRoot = $RepoRoot
-            Catalog  = $catalog
-            DryRun   = $DryRun
-        }
-        if ($releaseLocator) {
-            $marketplaceArgs['ReleaseLocator'] = $releaseLocator
-            $marketplaceArgs['Version'] = $effectiveVersion
-        }
-        if (-not [string]::IsNullOrWhiteSpace($MarketplaceOutputPath)) {
-            $marketplaceArgs['OutputPath'] = $MarketplaceOutputPath
-        }
-        Write-MarketplaceManifest @marketplaceArgs
-    }
-
-
     if (-not $DryRun) {
         $sizeReport = Assert-PluginOutputSize -PluginsDir $pluginsDir -MaxTotalSizeMB $MaxTotalSizeMB
         Write-Host ("  Generated size: {0:N1} MB (ceiling {1} MB)" -f $sizeReport.TotalMB, $MaxTotalSizeMB)
@@ -721,12 +653,6 @@ function Start-PluginGeneration {
     .PARAMETER MaxTotalSizeMB
         Forwarded generated-output size ceiling in megabytes.
 
-    .PARAMETER ReleaseTag
-        Forwarded immutable release tag.
-
-    .PARAMETER MarketplaceOutputPath
-        Forwarded marketplace snapshot destination.
-
     .PARAMETER CatalogPath
         Forwarded marketplace catalog path.
 
@@ -760,12 +686,6 @@ function Start-PluginGeneration {
         [int]$MaxTotalSizeMB = 40,
 
         [Parameter(Mandatory = $false)]
-        [string]$ReleaseTag,
-
-        [Parameter(Mandatory = $false)]
-        [string]$MarketplaceOutputPath,
-
-        [Parameter(Mandatory = $false)]
         [string]$CatalogPath
     )
 
@@ -797,8 +717,6 @@ function Start-PluginGeneration {
             -DryRun:$DryRun `
             -Channel $Channel `
             -MaxTotalSizeMB $MaxTotalSizeMB `
-            -ReleaseTag $ReleaseTag `
-            -MarketplaceOutputPath $MarketplaceOutputPath `
             -CatalogPath $CatalogPath
 
         if (-not $result.Success) {
@@ -832,8 +750,6 @@ if ($MyInvocation.InvocationName -ne '.') {
         -DryRun:$DryRun `
         -Channel $Channel `
         -MaxTotalSizeMB $MaxTotalSizeMB `
-        -ReleaseTag $ReleaseTag `
-        -MarketplaceOutputPath $MarketplaceOutputPath `
         -CatalogPath $CatalogPath)
 }
 #endregion
