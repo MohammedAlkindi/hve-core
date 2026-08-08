@@ -461,9 +461,11 @@ def render_mermaid(data: dict[str, Any], heading_level: int = DEFAULT_HEADING_LE
         "```mermaid",
         "erDiagram",
         f"    accTitle: {name} Data Model",
-        f"    accDescr: Entity relationship diagram of {len(data['entities'])} declared "
-        f"entities and {len(data['relationships'])} declared relationships in the "
-        f"{name} catalog.",
+        (
+            f"    accDescr: Entity relationship diagram of {len(data['entities'])} declared "
+            f"entities and {len(data['relationships'])} declared relationships in the "
+            f"{name} catalog."
+        ),
     ]
 
     attributes: dict[str, list[str]] = {entity["id"]: [] for entity in data["entities"]}
@@ -496,15 +498,23 @@ def render_mermaid(data: dict[str, Any], heading_level: int = DEFAULT_HEADING_LE
             data,
             level,
             [
-                "* `||` requires exactly one, `|o` allows zero or one, `}|` requires "
-                "one or many, and `}o` allows zero or many on that side.",
-                "* Attributes list declared join-key field names only. They do not "
-                "declare primary keys, foreign keys, or uniqueness.",
-                "* Labels show the declared join-key pairing. An unmarked label is "
-                "`confirmed`; `(inferred)` and `(assumed)` mark unconfirmed "
-                "relationships.",
-                "* All connectors are solid. Identifying and non-identifying "
-                "semantics are not modelled by this catalog.",
+                (
+                    "* `||` requires exactly one, `|o` allows zero or one, `}|` requires "
+                    "one or many, and `}o` allows zero or many on that side."
+                ),
+                (
+                    "* Attributes list declared join-key field names only. They do not "
+                    "declare primary keys, foreign keys, or uniqueness."
+                ),
+                (
+                    "* Labels show the declared join-key pairing. An unmarked label is "
+                    "`confirmed`; `(inferred)` and `(assumed)` mark unconfirmed "
+                    "relationships."
+                ),
+                (
+                    "* All connectors are solid. Identifying and non-identifying "
+                    "semantics are not modelled by this catalog."
+                ),
             ],
         )
     )
@@ -544,13 +554,19 @@ def render_ascii(data: dict[str, Any], heading_level: int = DEFAULT_HEADING_LEVE
             data,
             level,
             [
-                "* `1` requires exactly one, `0..1` allows zero or one, `1..*` "
-                "requires one or many, and `0..*` allows zero or many on that side.",
+                (
+                    "* `1` requires exactly one, `0..1` allows zero or one, `1..*` "
+                    "requires one or many, and `0..*` allows zero or many on that side."
+                ),
                 "* Each multiplicity sits beside the entity it constrains.",
-                "* Join-key pairs show declared field names only. They do not declare "
-                "primary keys, foreign keys, or uniqueness.",
-                "* An unmarked relationship is `confirmed`; `(inferred)` and "
-                "`(assumed)` mark unconfirmed relationships.",
+                (
+                    "* Join-key pairs show declared field names only. They do not declare "
+                    "primary keys, foreign keys, or uniqueness."
+                ),
+                (
+                    "* An unmarked relationship is `confirmed`; `(inferred)` and "
+                    "`(assumed)` mark unconfirmed relationships."
+                ),
             ],
         )
     )
