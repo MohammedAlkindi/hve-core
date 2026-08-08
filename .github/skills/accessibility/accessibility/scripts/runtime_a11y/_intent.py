@@ -724,6 +724,8 @@ def _open_destination_directory(root_fd: int, parts: tuple[str, ...]) -> int:
                 try:
                     os.mkdir(part, mode=0o755, dir_fd=current_fd)
                 except FileExistsError:
+                    # A concurrent run created the component first. Reopening
+                    # below validates it rather than trusting this creation.
                     pass
                 next_fd = os.open(
                     part,
@@ -803,6 +805,8 @@ def _write_verification_artifact(
                 try:
                     os.close(temporary_fd)
                 except OSError:
+                    # The descriptor never reached a stream, so there is no
+                    # further recovery. The original failure still raises.
                     pass
                 raise
             with stream:
@@ -821,12 +825,14 @@ def _write_verification_artifact(
             src_dir_fd=directory_fd,
             dst_dir_fd=directory_fd,
         )
-        temporary_created = False
     except BaseException as exc:
         try:
+            # Only an entry this invocation created may be removed. A failed
+            # exclusive create means the name belongs to something else.
             if temporary_created and directory_fd >= 0:
                 os.unlink(temporary_name, dir_fd=directory_fd)
         except FileNotFoundError:
+            # Cleanup is best effort; the temporary entry is already gone.
             pass
         if isinstance(exc, ScriptError):
             raise
