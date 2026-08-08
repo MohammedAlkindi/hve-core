@@ -2,7 +2,7 @@
 title: ds-evaluation-design
 description: "Design evaluation datasets and supporting documentation for AI systems and agents, covering the scoping interview, difficulty distribution, dataset contract, sample review, and metric and tooling selection. Use when building or reviewing an evaluation set for a conversational agent, assistant, or retrieval-grounded AI system."
 sidebar_position: 5
-ms.date: 2026-08-05
+ms.date: 2026-08-08
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -42,5 +42,5 @@ adjusted upward for the negative and safety categories while every category stay
 The generated dataset carries both machine-readable forms, with grounding pairs naming the source each answer
 should rest on and refusal pairs asserting the specific action expected rather than merely that the system
 declines. A representative sample spanning the categories is reviewed with the user before the full set is
-finalized, and the accompanying documents record the composition rationale, the metric plan with its
+finalized, and the accompanying evaluation guide records the composition rationale, the metric plan with its
 acceptable bars, and the tooling recommendation with its prerequisites.

@@ -82,4 +82,4 @@ Before finalizing, walk the user through five to eight pairs spanning the catego
 
 Ask for consolidated feedback in one pass: which pairs need changing, what is missing across the set, and whether the detail level is right. Revise the identified pairs, apply the same correction to comparable pairs elsewhere in the set, and offer to regenerate a category when the feedback indicates a systematic problem rather than an isolated one.
 
-Confirm satisfaction before finalizing the full dataset and the supporting documents.
+Confirm satisfaction before finalizing the full dataset and the evaluation guide.
