@@ -96,8 +96,8 @@ recommendation: >
   retention needed for the original scope, so exclude them from the first
   release.
 evidence_refs:
-  - Data Access and Discovery
-  - Hypothesis Testing
+  - Evidence and analysis
+  - Item narratives
 constraints:
   - category: regulatory
     statement: Provider notes retain for 90 days, below the 24-month training window.
@@ -108,14 +108,14 @@ functional_candidates:
     study_item_id: urn:uuid:2a4c6e80-3f19-4b72-a5d8-9e1f3c7b0a25
     statement: Rank incoming claims by predicted adjudication complexity.
     evidence_refs:
-      - Hypothesis Testing
+      - FS-001
     concern_hint: none
 nfr_candidates:
   - candidate_id: NC-01
     study_item_id: urn:uuid:8b1d3f57-6c40-4e29-b7a3-5d0e2f9c4b18
     statement: Triage scores need an explanation a reviewer can act on.
     evidence_refs:
-      - Concept Ideation
+      - FS-002
     concern_hint: responsible-ai
 ```
 
@@ -132,8 +132,8 @@ recommendation: >
   Store-level demand history is too sparse to judge forecast feasibility.
   Revisit after two additional seasonal cycles are captured.
 evidence_refs:
-  - Data Access and Discovery
-  - Data Exploration
+  - Evidence and analysis
+  - Problem definition and desired outcome
 constraints:
   - category: technical
     statement: Only 14 of 190 stores have continuous two-year history.
