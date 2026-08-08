@@ -45,7 +45,7 @@ The handoff carries the `study_revision_id` it was generated from. A reader comp
 | `study_revision_id`     | Required              | UUID URN of the exact study revision this was generated from             |
 | `verdict`               | Required              | One of the four verdicts below                                           |
 | `recommendation`        | Required              | Prose recommendation carried from the study                              |
-| `evidence_refs`         | Required              | Named study sections supporting the recommendation                       |
+| `evidence_sections`     | Required              | Named study sections supporting the recommendation                       |
 | `constraints`           | Required              | Constraints the PRD must respect; each `category` uses the PRD set below |
 | `gaps`                  | Required              | Unresolved evidence gaps, including unmet readiness items                |
 | `functional_candidates` | Forward verdicts only | Proposed capability candidates                                           |
@@ -54,6 +54,29 @@ The handoff carries the `study_revision_id` it was generated from. A reader comp
 Each candidate carries `candidate_id`, `study_item_id`, `statement`, `evidence_refs`, and an advisory `concern_hint`.
 
 Each constraint carries a `category` and a `statement`. The `category` value comes from the PRD's own set and no other: `regulatory`, `contractual`, `technical`, `financial`, `schedule`, `organizational`, or `operational`. Describe the specific limit in `statement`, not by inventing a narrower category name.
+
+## Evidence reference types
+
+The handoff carries two kinds of evidence reference. They sit at different levels, resolve against different parts of the study, and are never interchangeable.
+
+| Field               | Level          | Resolves to                                   |
+|---------------------|----------------|-----------------------------------------------|
+| `evidence_sections` | Top level      | A named section heading in the study          |
+| `evidence_refs`     | Candidate only | An `FS-###` display reference on a study item |
+
+`evidence_sections` values come from this closed set and no other:
+
+* `Recommendation`
+* `Problem definition and desired outcome`
+* `Evidence and analysis`
+* `Item narratives`
+* `Review notes`
+
+Candidate `evidence_refs` values match `FS-[0-9]{3,}` and must resolve to an item `display_ref` in the referenced study, with its matching narrative anchor.
+
+`study_item_id` remains the durable identity. It is the item's UUID URN, and an `FS-###` display reference never substitutes for it. A display reference is a human-facing alias that can be renumbered; the UUID is what survives a revision.
+
+The study interchange block uses its own `evidence_refs` field, whose values are UUID URNs pointing at items of class `evidence`. That field belongs to the study and is unrelated to the handoff's candidate field of the same name. Resolve each against the artifact that declares it.
 
 ## Verdict presence rules
 
@@ -64,7 +87,7 @@ Each constraint carries a `category` and a `statement`. The `category` value com
 | `do-not-proceed`               | Negative  | Both omitted                                                         |
 | `insufficient-evidence`        | Negative  | Both omitted                                                         |
 
-Negative verdicts always retain `recommendation`, `evidence_refs`, `constraints`, and `gaps`.
+Negative verdicts always retain `recommendation`, `evidence_sections`, `constraints`, and `gaps`.
 
 ## Candidate semantics
 
@@ -77,7 +100,9 @@ Candidates are evidence-backed proposals, never final requirements. The producer
 Before publishing, confirm:
 
 * Candidate IDs are unique, and candidate counts match the underlying study records.
-* Every `evidence_refs` entry resolves to a named study section.
+* Every `evidence_sections` entry is drawn from the closed section set above.
+* Every candidate `evidence_refs` entry matches `FS-[0-9]{3,}` and resolves to an item `display_ref` in the referenced study.
+* Every candidate `study_item_id` is the item's UUID URN, not an `FS-###` alias.
 * Constraint categories are drawn from the PRD set: `regulatory`, `contractual`, `technical`, `financial`, `schedule`, `organizational`, or `operational`.
 * `study_revision_id` matches the revision of the finalized study.
 * No `concern_hint` names a final PRD category or a downstream planner.
@@ -95,7 +120,7 @@ recommendation: >
   Adjudicated claims support automated triage. Provider notes lack the
   retention needed for the original scope, so exclude them from the first
   release.
-evidence_refs:
+evidence_sections:
   - Evidence and analysis
   - Item narratives
 constraints:
@@ -131,7 +156,7 @@ verdict: insufficient-evidence
 recommendation: >
   Store-level demand history is too sparse to judge forecast feasibility.
   Revisit after two additional seasonal cycles are captured.
-evidence_refs:
+evidence_sections:
   - Evidence and analysis
   - Problem definition and desired outcome
 constraints:

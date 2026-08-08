@@ -19,7 +19,8 @@ The producer contract is owned by `ds-feasibility`. This reference defines only 
 5. Validate the verdict matrix:
    * `proceed` and `proceed-with-scope-reduction` require both candidate fields.
    * `do-not-proceed` and `insufficient-evidence` forbid both candidate fields and retain recommendation, evidence, constraints, and gaps.
-6. Carry exactly this normalized metadata in Assess output for a new session:
+6. Require top-level `evidence_sections`. Its values name study sections. Candidate-level `evidence_refs` values are `FS-###` display references to study items and are carried through unchanged; this consumer does not resolve either reference against the study.
+7. Carry exactly this normalized metadata in Assess output for a new session:
 
 ```yaml
 kind: feasibility-to-prd-handoff
