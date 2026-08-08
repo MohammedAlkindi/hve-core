@@ -67,7 +67,7 @@ This skill covers evaluation of AI systems whose output is a response: assistant
 ## Stop rules
 
 * Stop and ask when the system's scope, refusal requirements, or grounding sources are unstated. These determine the negative and safety categories, which cannot be inferred from a description of what the system does.
-* Stop and route to `rai-planner` when the interview surfaces a risk that needs assessment rather than a test case.
+* Keep a confirmed, named risk in this skill when the work is selecting a detecting metric or documenting an unmeasured dimension. Stop and route to `rai-planner` when the risk needs assessment, classification, severity, likelihood, approval, or another decision beyond detection coverage.
 * Stop and mark for subject-matter review rather than asserting an expected answer you cannot ground.
 * Stop the durable write when the scan gate is unavailable or reports a high-confidence finding.
 

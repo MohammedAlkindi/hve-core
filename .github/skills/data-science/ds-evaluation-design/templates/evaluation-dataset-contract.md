@@ -23,10 +23,15 @@ Copy these shapes when emitting an evaluation dataset. Produce both forms from t
       "negative": 0,
       "safety": 0
     },
+    "population_coverage": {
+      "confirmed_user_population": 0
+    },
     "approach": "low-code | pro-code",
     "evaluation_mode": ["manual", "batch"],
     "recommended_tooling": "string",
-    "review_state": "draft | sampled | confirmed"
+    "review_state": "draft | sampled | confirmed",
+    "validation_status": "ai-generated | expert-reviewed | mixed",
+    "generation_method": "workflow that produced the pairs"
   },
   "evaluation_pairs": [
     {
@@ -53,6 +58,8 @@ id,query,expected_response,category,difficulty,tools_expected,source_reference,n
 
 Encode `tools_expected` as a semicolon-delimited list, and use an empty value when no tool is expected. Quote any field containing a comma or a line break.
 
+The JSON file is authoritative for dataset-level metadata. The CSV remains a pair-only companion generated from the same evaluation-pair source of truth; it does not duplicate aggregate metadata or add a population column. Consumers that need population coverage, provenance, or review progression read the sibling JSON metadata.
+
 ## Field semantics
 
 | Field               | Meaning                                                                                         |
@@ -67,9 +74,20 @@ Encode `tools_expected` as a semicolon-delimited list, and use an empty value wh
 | `needs_sme_review`  | True when the expected answer could not be grounded during authoring                            |
 | `notes`             | Why this pair exists, or what remains open about it                                             |
 
+Metadata fields have distinct meanings:
+
+| Field                 | Scope and meaning                                                                                                   |
+|-----------------------|---------------------------------------------------------------------------------------------------------------------|
+| `population_coverage` | Dataset-level pair counts keyed by confirmed user population. Counts are non-overlapping and sum to `total_pairs`   |
+| `validation_status`   | Provenance of validation: `ai-generated`, `expert-reviewed`, or `mixed`; defaults to `ai-generated`                 |
+| `generation_method`   | The workflow that produced the pairs, such as `interview-driven-ai-generation`                                      |
+| `review_state`        | Authoring progression through `draft`, `sampled`, and `confirmed`; it is not a substitute for validation provenance |
+
 ## Recorded-distribution rule
 
 The counts in `distribution` must equal the actual number of rows in each category, and their sum must equal `total_pairs`. A recorded distribution that disagrees with the rows makes every downstream coverage claim false. Verify this after any revision that adds pairs, removes pairs, or moves a pair between categories.
+
+The counts in `population_coverage` also sum to `total_pairs`. Difficulty and population answer different questions: difficulty records how demanding a pair is, while population records whose usage the pair is intended to represent.
 
 ## Content rules
 

@@ -2840,8 +2840,9 @@ stimuli:
     prompt: |
       Using the `ds-evaluation-design` skill, explain how to scope and balance
       an evaluation dataset for a grounded support agent. Cover the interview
-      posture, the minimum size, the category balance, and how this differs
-      from evaluating a trained model.
+      posture, the minimum size, the category balance, population coverage,
+      validation provenance, how named risks map to detecting metrics, and how
+      this differs from evaluating a trained model.
     environment:
       skills:
         - ../../.github/skills/data-science/ds-evaluation-design
@@ -2859,4 +2860,12 @@ stimuli:
         name: trained-model-boundary
         config:
           pattern: '(?is)(ml-experimentation).*(trained|model|predictive)'
+      - type: output-matches
+        name: population-and-provenance
+        config:
+          pattern: '(?is)(population_coverage|population coverage).*(validation_status|validation status).*(generation_method|generation method|review_state|review state)'
+      - type: output-matches
+        name: detection-assessment-boundary
+        config:
+          pattern: '(?is)(risk).*(detecting metric|detection coverage|unmeasured).*(rai-planner|assessment|classification|approval)'
 

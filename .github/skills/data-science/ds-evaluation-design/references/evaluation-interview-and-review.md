@@ -15,8 +15,8 @@ Ask one question at a time and wait for the answer. A batched interview produces
 * What business problem or scenario does it address?
 * Which business outcomes is it meant to move?
 * What tasks is it designed to perform, and what is explicitly out of scope?
-* What risks does deploying it carry, including exposure of personal data and the consequences of a confidently wrong answer?
-* Who are its primary users?
+* What risks does deploying it carry, including exposure of personal data and the consequences of a confidently wrong answer? Each named risk must later map to a detecting metric or remain explicitly unmeasured.
+* Who are its primary users? Name each distinct user population, not only job titles, because population coverage is recorded independently from difficulty balance.
 * How readily will those users adopt it, and what stands in the way?
 
 ### Capabilities
@@ -65,7 +65,7 @@ Adjustment rules:
 * Keep every category at or above five percent. A category at zero is an untested claim.
 * When rounding fractional counts, preserve the declared total so the recorded distribution matches the actual rows.
 
-Distribute pairs across user personas as well as categories. A dataset that only reflects the most fluent user overstates readiness.
+Distribute pairs across every confirmed user population as well as categories. Record the pair count per population in `metadata.population_coverage`. Population is an independent coverage axis, never a sixth `difficulty` value or a `distribution` key. The counts are non-overlapping and sum to `total_pairs`; when one request could represent several populations, assign the pair to the population whose usage it is intended to test. A dataset that only reflects the most fluent user overstates readiness.
 
 ## Writing pairs
 
