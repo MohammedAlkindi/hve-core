@@ -39,7 +39,7 @@ Read only the reference that matches the active concern.
 
 * Reproducibility keeps all four elements: dataset names and versions, parameters, code, and environment. Tracking a dataset name without its version is a labelling practice, not reproducibility.
 * Datasets and evaluation are defined consistently enough that experiments are comparable. A tracking framework alone does not deliver comparability.
-* Checklist section headings and short item labels are preserved, and applicability caveats travel with them.
+* Checklist section headings and readiness domains are preserved, and applicability caveats travel with them.
 * Experiment reproducibility stays distinct from pipeline replayability, which
   belongs to `ds-dataops`, the DataOps skill for tier behavior, pipeline
   invariants, validation placement, tests, drift, and operational signals.
@@ -47,7 +47,7 @@ Read only the reference that matches the active concern.
 ## Constraints
 
 * Reproduce only the minimum text necessary for a specific technical point, and paraphrase everything else. Attribute every reference and describe accurately what each reference reproduces.
-* Preserve checklist section headings and short item labels as structural identifiers. Item text is paraphrased; keep each requirement intact rather than restoring upstream phrasing.
+* Preserve checklist section headings as structural identifiers and summarize what each section covers. Do not restore the upstream item lists or reconstruct either checklist locally; link readers to the upstream page for item wording.
 * Label repository conventions as substitutions rather than upstream recommendations. The `uv` environment convention is a repository substitution, not a playbook recommendation.
 * Do not convert a checklist into an unconditional gate. Upstream scopes the production checklist to teams that have already trained a model and permits use-case-specific decisions.
 
@@ -73,8 +73,8 @@ Read only the reference that matches the active concern.
 
 This pack declares `CC-BY-4.0`.
 
-Both references derive from Microsoft CSE Code With Engineering Playbook documentation pages, which are licensed CC BY 4.0. Upstream guidance is paraphrased; headings, item labels, and tool and file names are carried across as identifiers. The upstream project applies MIT through a separate `LICENSE-CODE` file to code samples only, which this pack does not reproduce. Each reference cites its own upstream URL, states that changes were made, and describes what it reproduces.
+Both references derive from Microsoft CSE Code With Engineering Playbook documentation pages, which are licensed CC BY 4.0. Upstream guidance is summarized rather than reproduced; section headings and tool and file names are carried across as identifiers. The upstream project applies MIT through a separate `LICENSE-CODE` file to code samples only, which this pack does not reproduce. Each reference cites its own upstream URL, states that changes were made, and describes what it reproduces.
 
-Explanatory framing, the lifecycle caveat, the routing table, and the `uv` substitution are repository-original.
+Explanatory framing, the lifecycle caveat, the readiness-domain grouping, the routing table, and the `uv` substitution are repository-original.
 
 See [provenance.md](references/provenance.md) for the consolidated source map and derivation labels.
