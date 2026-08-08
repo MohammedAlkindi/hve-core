@@ -1898,7 +1898,7 @@ stimuli:
   - type: output-matches
     name: no-unsupported-cohort-as-affected-users
     config:
-      pattern: (?i)who may be excluded[^\n]*\|[^\n]*(dyslexi|over 70|older adult)
+      pattern: (?i)who may be excluded[^\n]*\|[^\n]*(dyslexia|dyslexic|over 70|older adult)
       negate: true
 - name: ux-ui-designer-human-review-gate
   prompt: |
