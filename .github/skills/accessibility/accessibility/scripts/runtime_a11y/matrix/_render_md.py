@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from runtime_a11y.matrix._model import Matrix
+from runtime_a11y.matrix._provenance import ArtifactMetadata
 
 ACCESSIBILITY_DISCLAIMER = (
     "> [!CAUTION]\n"
@@ -35,6 +36,7 @@ def render_markdown(
     coverage: dict[str, Any],
     out_path: Path,
     repo_slug: str,
+    metadata: ArtifactMetadata | None = None,
 ) -> None:
     """Render a markdown coverage summary for the matrix."""
     lines: list[str] = []
@@ -46,6 +48,12 @@ def render_markdown(
     lines.append(HUMAN_REVIEW_CHECKBOX)
     lines.append("")
     lines.append(f"- Repository: {repo_slug}")
+    if metadata is not None and metadata.quarantined:
+        lines.append(
+            "- Quarantined: derived from a run that ended in an operational "
+            f"failure ({metadata.quarantineReason or 'reason not recorded'}). "
+            "Not a basis for a conformance claim."
+        )
     lines.append("")
     lines.append("## Coverage Summary")
     lines.append("")

@@ -15,28 +15,20 @@ const DEFAULT_VISUAL_REVIEW_STATES = [
 
 // Resolves a configured route against the validated base origin.
 //
-// A route path is a path, never a destination. Navigating a scheme-bearing or
-// protocol-relative value verbatim would leave the origin the loopback guard
-// approved, so those forms are rejected rather than followed.
-export function resolveRouteUrl(rawTarget, baseUrl) {
-  const target = typeof rawTarget === 'string' ? rawTarget.trim() : '';
-  if (!target) {
-    return new URL('/', baseUrl).toString();
-  }
-  if (target.startsWith('//') || /^[a-z][a-z\d+.-]*:/i.test(target)) {
-    throw new Error(
-      `Route paths must be relative to the configured base URL: ${target}`,
-    );
-  }
-  const base = new URL(baseUrl);
-  const resolved = new URL(target, base);
-  if (resolved.origin !== base.origin) {
-    throw new Error(
-      `Route paths must resolve inside the configured origin ${base.origin}: ${target}`,
-    );
-  }
-  return resolved.toString();
-}
+// Re-exported from the shared resolver so the probe, calibration, and visual
+// review paths cannot drift apart on what a route is allowed to reach.
+import { resolveRouteUrl } from './route.mjs';
+
+export { resolveRouteUrl };
+
+// Regions masked in every screenshot. A capture preserves whatever a field
+// contains at the moment it is taken, and accessibility review does not depend
+// on reading entered values.
+const MASKED_SELECTORS = [
+  '[data-pii]',
+  'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit])',
+  'textarea',
+];
 
 function buildRouteSlug(route) {
   const raw = route?.path || route?.route || 'route';
@@ -215,13 +207,25 @@ export async function captureVisualReviewEvidence(config = {}) {
         let maximizeResult = { status: 'unavailable', reason: 'not-attempted' };
         try {
           maximizeResult = await maximizeBrowserWindow({ browser, context, page });
-          await context.tracing.start({ screenshots: true, snapshots: true });
+            // Trace snapshots serialize the DOM, including form field values.
+            // They are captured only when the operator asks for them.
+            await context.tracing.start({
+              screenshots: true,
+              snapshots: Boolean(config?.visualReview?.traceSnapshots),
+            });
           await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
           const actualViewport = await applyVisualReviewState(page, stateName);
           await page.evaluate(() => {
             document.documentElement.style.setProperty('--runtime-a11y-visual-review', 'active');
           });
-          await page.screenshot({ path: screenshotPath, fullPage: true });
+// Capture is bounded to the viewport unless the operator opts into
+            // the full scroll height, and text-entry fields are masked because
+            // a screenshot preserves whatever they happen to contain.
+            await page.screenshot({
+              path: screenshotPath,
+              fullPage: Boolean(config?.visualReview?.fullPage),
+              mask: MASKED_SELECTORS.map((selector) => page.locator(selector)),
+            });
 
           const measurement = await page.evaluate(() => {
             const root = document.documentElement;

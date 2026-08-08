@@ -31,6 +31,9 @@ jobs:
       TARGET_RESULTS: results.json
       # Point this at the runtime_a11y skill package as vendored in your repo.
       HARNESS_DIR: .github/skills/accessibility/accessibility/scripts/runtime_a11y
+      # Point this at the accessibility skill root as vendored in your repo. It
+      # holds pyproject.toml, so uv resolves the harness environment from it.
+      HARNESS_PROJECT_DIR: .github/skills/accessibility/accessibility
       # Gate strictness dial: basic (adequacy probes warn-only), standard
       # (ratchet: adequacy probes block on changed surfaces), comprehensive
       # (adequacy probes block everywhere). Core probes always block.
@@ -108,7 +111,7 @@ jobs:
             echo "::warning::No a11y-runtime.config.json is committed yet; the gate activates once the target adopts it."
             exit 0
           fi
-          uv run python -m runtime_a11y run-all --config "${{ env.TARGET_CONFIG }}" --out "${{ env.TARGET_RESULTS }}" --base-url "${{ env.TARGET_BASE_URL }}"
+          uv run --project "${{ github.workspace }}/${{ env.HARNESS_PROJECT_DIR }}" "${{ github.workspace }}/${{ env.HARNESS_PROJECT_DIR }}/scripts/runtime_a11y/__main__.py" run-all --config "${{ env.TARGET_CONFIG }}" --out "${{ env.TARGET_RESULTS }}" --base-url "${{ env.TARGET_BASE_URL }}"
 
       - name: Enforce accessibility probe failures (tier-graduated)
         if: always()

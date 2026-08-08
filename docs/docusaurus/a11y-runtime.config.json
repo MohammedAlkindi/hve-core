@@ -1,11 +1,11 @@
 {
   "$schema": "./a11y-runtime.config.schema.json",
   "schemaVersion": "2026-07-17",
-  "baseUrl": "http://127.0.0.1:3000",
-  "serveMode": "served",
+  "baseUrl": "http://127.0.0.1:3001",
+  "serveMode": "auto",
   "allowlist": [
-    "http://127.0.0.1:3000",
-    "http://localhost:3000"
+    "http://127.0.0.1:3001",
+    "http://localhost:3001"
   ],
   "routes": [
     {

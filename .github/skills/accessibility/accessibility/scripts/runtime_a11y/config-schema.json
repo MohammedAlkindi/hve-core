@@ -15,7 +15,7 @@
     "serveMode": {
       "type": "string",
       "enum": ["auto", "served", "external", "off"],
-      "description": "Whether the harness starts a dev server (auto), probes an already-served base (served/external), or does nothing (off)."
+      "description": "Server ownership for visual review capture. 'auto' reuses a healthy loopback server or starts and stops one it owns; 'served' requires a loopback server to be running already and fails otherwise; 'external' and 'off' never probe or start a server. 'auto' and 'served' accept loopback base URLs only."
     },
     "allowlist": {
       "type": "array",
@@ -183,6 +183,9 @@
         },
         "publicLoopbackOnly": { "type": "boolean" },
         "rejectPersonalData": { "type": "boolean" },
+        "operatorConfirmedNoPersonalData": { "type": "boolean" },
+        "fullPage": { "type": "boolean" },
+        "traceSnapshots": { "type": "boolean" },
         "routes": {
           "type": "array",
           "items": {

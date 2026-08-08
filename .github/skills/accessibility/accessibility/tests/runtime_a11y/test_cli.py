@@ -287,8 +287,10 @@ def test_visual_review_server_helpers_probe_and_start_handlers(
         def wait(self, timeout: int | None = None) -> None:
             return None
 
-    def fake_popen(command, cwd, stdout, stderr, stdin, text) -> FakeProcess:
-        assert command[0] == "npm"
+    def fake_popen(command, cwd, stdout, stderr, stdin, text, env) -> FakeProcess:
+        assert command[0].lower().endswith("npm") or command[0].lower().endswith(
+            "npm.cmd"
+        )
         return FakeProcess()
 
     monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)
@@ -318,7 +320,7 @@ def test_given_run_all_when_subprocess_returns_probe_data_then_aggregates_result
     mocker.patch(
         "runtime_a11y.__main__.subprocess.run",
         return_value=SimpleNamespace(
-            stdout=json.dumps(canned_probe_document), stderr=""
+            returncode=0, stdout=json.dumps(canned_probe_document), stderr=""
         ),
     )
     mocker.patch.object(cli, "_NODE_MODULES", tmp_path)
@@ -360,6 +362,7 @@ def test_given_calibration_run_when_run_root_override_is_provided_then_subproces
     def fake_run(command, capture_output, text, check, env, cwd):
         captured["env"] = env
         return SimpleNamespace(
+            returncode=0,
             stdout=json.dumps(
                 {
                     "tool": "runtime_a11y",
@@ -413,6 +416,7 @@ def test_calibration_run_passes_base_url_override(
     def fake_run(command, capture_output, text, check, env, cwd):
         captured["env"] = env
         return SimpleNamespace(
+            returncode=0,
             stdout=json.dumps(
                 {
                     "tool": "runtime_a11y",
@@ -525,7 +529,10 @@ def test_given_non_loopback_base_url_override_when_running_then_rejects(
             {
                 "baseUrl": "http://127.0.0.1:3000",
                 "calibration": {"journeys": [{"id": "search-results"}]},
-                "visualReview": {"enabled": True},
+                "visualReview": {
+                    "enabled": True,
+                    "operatorConfirmedNoPersonalData": True,
+                },
             }
         ),
         encoding="utf-8",
@@ -699,7 +706,10 @@ def test_live_notice_finishes_after_owned_cleanup_on_failure(
         json.dumps(
             {
                 "baseUrl": "http://127.0.0.1:3000",
-                "visualReview": {"enabled": True},
+                "visualReview": {
+                    "enabled": True,
+                    "operatorConfirmedNoPersonalData": True,
+                },
                 "calibration": {"journeys": [{"id": "14399"}]},
             }
         ),
@@ -998,6 +1008,7 @@ def test_repo_relative_paths_dispatch_as_absolute(
     def fake_run(command, capture_output, text, check, env, cwd):
         captured["env"] = env
         return SimpleNamespace(
+            returncode=0,
             stdout=json.dumps(
                 {
                     "tool": "runtime_a11y",
@@ -1246,7 +1257,7 @@ def test_given_visual_review_server_when_startup_times_out_then_terminates_and_r
     mocker.patch(
         "runtime_a11y.__main__._probe_visual_review_server", return_value=False
     )
-    values = iter([0.0, 0.0, 21.0, 21.0])
+    values = iter([0.0, 0.0, 901.0, 901.0])
     mocker.patch(
         "runtime_a11y.__main__.time.monotonic", side_effect=lambda: next(values)
     )
@@ -1316,6 +1327,7 @@ def test_given_visual_review_capture_when_subprocess_succeeds_then_manifest_is_w
                 "baseUrl": "http://127.0.0.1:3000",
                 "visualReview": {
                     "enabled": True,
+                    "operatorConfirmedNoPersonalData": True,
                     "evidenceRoot": str(tmp_path / "evidence"),
                 },
             }
@@ -1368,6 +1380,7 @@ def test_given_surface_and_state_filters_when_running_then_only_selected_runs_ex
         state = env["RUNTIME_A11Y_STATE"]
         collected.append((surface_id, state, env["RUNTIME_A11Y_PROBE_ID"]))
         return SimpleNamespace(
+            returncode=0,
             stdout=json.dumps({"probeId": env["RUNTIME_A11Y_PROBE_ID"], "results": []}),
             stderr="",
         )
@@ -1464,6 +1477,7 @@ def test_given_visual_review_selection_with_unknown_values_when_validating_then_
         "baseUrl": "http://127.0.0.1:3000",
         "visualReview": {
             "enabled": True,
+            "operatorConfirmedNoPersonalData": True,
             "routes": [{"path": "/", "surfaceId": "home"}],
             "states": ["desktop", "reflow-320"],
         },
@@ -1513,6 +1527,7 @@ def test_given_capture_when_subprocess_is_unavailable_then_returns_usage_error(
                 "baseUrl": "http://127.0.0.1:3000",
                 "visualReview": {
                     "enabled": True,
+                    "operatorConfirmedNoPersonalData": True,
                     "evidenceRoot": str(tmp_path / "evidence"),
                 },
             }
@@ -1824,6 +1839,65 @@ def test_given_external_surface_route_when_deriving_cases_then_target_is_blocked
     assert case["surface"]["route"] == "https://example.com/dialog"
     assert case["sourceMatrixRef"] == matrix_path.name
     assert case["sourceMatrixMetadata"]["path"] == matrix_path.name
+
+
+def test_given_quarantined_matrix_when_deriving_cases_then_each_case_is_marked(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    payload = json.loads(
+        (
+            Path(__file__).parent / "fixtures" / "aria-at-modal-dialog-matrix.json"
+        ).read_text(encoding="utf-8")
+    )
+    payload["quarantined"] = True
+    payload["operationalFailure"] = {"reason": "screen reader driver never started"}
+    matrix_path = tmp_path / "matrix.json"
+    matrix_path.write_text(json.dumps(payload), encoding="utf-8")
+    runtime_config_path = tmp_path / "runtime.json"
+    runtime_config_path.write_text(
+        json.dumps({"baseUrl": "http://127.0.0.1:3000"}),
+        encoding="utf-8",
+    )
+
+    # Act
+    cases = cli._derive_at_plan_cases(matrix_path, runtime_config_path)
+
+    # Assert
+    assert cases
+    for case in cases:
+        metadata = case["sourceMatrixMetadata"]
+        assert metadata["quarantined"] is True
+        assert metadata["quarantineReason"] == "screen reader driver never started"
+        assert metadata["humanReviewCompleted"] is False
+        assert metadata["path"] == matrix_path.name
+
+
+def test_given_clean_matrix_when_deriving_cases_then_no_quarantine_marker(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    matrix_path = tmp_path / "matrix.json"
+    matrix_path.write_text(
+        (
+            Path(__file__).parent / "fixtures" / "aria-at-modal-dialog-matrix.json"
+        ).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    runtime_config_path = tmp_path / "runtime.json"
+    runtime_config_path.write_text(
+        json.dumps({"baseUrl": "http://127.0.0.1:3000"}),
+        encoding="utf-8",
+    )
+
+    # Act
+    cases = cli._derive_at_plan_cases(matrix_path, runtime_config_path)
+
+    # Assert
+    assert cases
+    metadata = cases[0]["sourceMatrixMetadata"]
+    assert metadata["quarantined"] is False
+    assert "quarantineReason" not in metadata
 
 
 def test_given_probe_command_when_subprocess_fails_then_returns_usage_error(
@@ -2169,3 +2243,239 @@ def test_given_run_at_plan_when_target_is_external_then_requires_allow_external(
     )
 
     assert exit_code == EXIT_USAGE
+
+
+def _visual_review_config(tmp_path: Path, **overrides: object) -> Path:
+    """Write a minimal visual-review config and return its path."""
+    payload: dict[str, object] = {
+        "baseUrl": "http://127.0.0.1:3001",
+        "serveMode": "auto",
+        "visualReview": {"enabled": True, "evidenceRoot": str(tmp_path / "evidence")},
+    }
+    payload.update(overrides)
+    config_path = tmp_path / "visual-review.config.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    return config_path
+
+
+def test_given_missing_node_modules_when_capturing_then_fails_before_touching_server(
+    mocker, tmp_path: Path
+) -> None:
+    # Arrange
+    mocker.patch.object(cli, "_NODE_MODULES", tmp_path / "absent-node-modules")
+    ensure_server = mocker.patch.object(
+        cli, "_ensure_visual_review_server", return_value=(None, False)
+    )
+    start_server = mocker.patch.object(cli, "_start_visual_review_server")
+    probe_server = mocker.patch.object(cli, "_probe_visual_review_server")
+    config_path = _visual_review_config(tmp_path)
+
+    # Act
+    exit_code = cli.main(["capture-visual-review", "--config", str(config_path)])
+
+    # Assert
+    assert exit_code == EXIT_USAGE
+    ensure_server.assert_not_called()
+    start_server.assert_not_called()
+    probe_server.assert_not_called()
+
+
+def test_given_missing_node_modules_when_requiring_then_names_the_install_step(
+    mocker, tmp_path: Path
+) -> None:
+    # Arrange
+    mocker.patch.object(cli, "_NODE_MODULES", tmp_path / "absent-node-modules")
+
+    # Act & Assert
+    with pytest.raises(cli.ScriptError, match="npm ci") as excinfo:
+        cli._require_harness_dependencies("running visual review capture")
+
+    assert excinfo.value.exit_code == EXIT_USAGE
+
+
+def test_given_installed_node_modules_when_requiring_then_allows_execution(
+    mocker, tmp_path: Path
+) -> None:
+    # Arrange
+    installed = tmp_path / "node_modules"
+    installed.mkdir()
+    mocker.patch.object(cli, "_NODE_MODULES", installed)
+
+    # Act & Assert
+    cli._require_harness_dependencies("running visual review capture")
+
+
+@pytest.mark.parametrize("serve_mode", ["external", "off"])
+def test_given_unmanaged_serve_mode_when_ensuring_then_never_probes_or_starts(
+    mocker, serve_mode: str
+) -> None:
+    # Arrange
+    probe = mocker.patch.object(cli, "_probe_visual_review_server")
+    start = mocker.patch.object(cli, "_start_visual_review_server")
+
+    # Act
+    process, owned = cli._ensure_visual_review_server(
+        "http://127.0.0.1:3001", serve_mode
+    )
+
+    # Assert
+    assert (process, owned) == (None, False)
+    probe.assert_not_called()
+    start.assert_not_called()
+
+
+def test_given_served_mode_without_running_server_when_ensuring_then_fails_actionably(
+    mocker,
+) -> None:
+    # Arrange
+    mocker.patch.object(cli, "_probe_visual_review_server", return_value=False)
+    start = mocker.patch.object(cli, "_start_visual_review_server")
+
+    # Act & Assert
+    with pytest.raises(cli.ScriptError, match="serve:preview"):
+        cli._ensure_visual_review_server("http://127.0.0.1:3001", "served")
+
+    start.assert_not_called()
+
+
+def test_given_served_mode_with_running_server_when_ensuring_then_reuses_it(
+    mocker,
+) -> None:
+    # Arrange
+    mocker.patch.object(cli, "_probe_visual_review_server", return_value=True)
+    start = mocker.patch.object(cli, "_start_visual_review_server")
+
+    # Act
+    process, owned = cli._ensure_visual_review_server("http://127.0.0.1:3001", "served")
+
+    # Assert
+    assert (process, owned) == (None, False)
+    start.assert_not_called()
+
+
+@pytest.mark.parametrize("serve_mode", ["auto", "served"])
+def test_given_managed_serve_mode_with_external_host_when_ensuring_then_fails_closed(
+    mocker, serve_mode: str
+) -> None:
+    # Arrange
+    start = mocker.patch.object(cli, "_start_visual_review_server")
+
+    # Act & Assert
+    with pytest.raises(cli.ScriptError, match="loopback"):
+        cli._ensure_visual_review_server("https://docs.example.com", serve_mode)
+
+    start.assert_not_called()
+
+
+def test_given_unknown_serve_mode_when_ensuring_then_rejects_it(mocker) -> None:
+    # Arrange
+    start = mocker.patch.object(cli, "_start_visual_review_server")
+
+    # Act & Assert
+    with pytest.raises(cli.ScriptError, match="Unsupported serveMode"):
+        cli._ensure_visual_review_server("http://127.0.0.1:3001", "sometimes")
+
+    start.assert_not_called()
+
+
+def test_given_auto_mode_when_starting_then_runs_production_preview_on_parsed_target(
+    mocker, tmp_path: Path
+) -> None:
+    # Arrange
+    (tmp_path / "docs" / "docusaurus").mkdir(parents=True, exist_ok=True)
+    mocker.patch.object(cli, "_probe_visual_review_server", return_value=True)
+    mocker.patch.object(cli.shutil, "which", return_value="/usr/bin/npm")
+    popen = mocker.patch.object(
+        cli.subprocess, "Popen", return_value=SimpleNamespace(poll=lambda: None)
+    )
+
+    # Act
+    cli._start_visual_review_server("http://127.0.0.1:3001/")
+
+    # Assert
+    assert popen.call_args.args[0] == ["/usr/bin/npm", "run", "serve:preview"]
+    assert popen.call_args.kwargs["cwd"] == str(tmp_path / "docs" / "docusaurus")
+    assert popen.call_args.kwargs["env"]["HOST"] == "127.0.0.1"
+    assert popen.call_args.kwargs["env"]["PORT"] == "3001"
+
+
+def test_given_windows_npm_shim_when_starting_then_launches_resolved_executable(
+    mocker, tmp_path: Path
+) -> None:
+    # A bare "npm" argument does not launch on Windows, where the executable is
+    # npm.cmd, so the resolved PATH entry must reach Popen.
+    # Arrange
+    (tmp_path / "docs" / "docusaurus").mkdir(parents=True, exist_ok=True)
+    mocker.patch.object(cli, "_probe_visual_review_server", return_value=True)
+    mocker.patch.object(
+        cli.shutil, "which", return_value="C:\\Program Files\\nodejs\\npm.cmd"
+    )
+    popen = mocker.patch.object(
+        cli.subprocess, "Popen", return_value=SimpleNamespace(poll=lambda: None)
+    )
+
+    # Act
+    cli._start_visual_review_server("http://127.0.0.1:3001/")
+
+    # Assert
+    assert popen.call_args.args[0][0] == "C:\\Program Files\\nodejs\\npm.cmd"
+
+
+def test_given_owned_server_on_windows_when_stopping_then_terminates_the_tree(
+    mocker,
+) -> None:
+    # npm runs the server in a child process, so stopping only the npm wrapper
+    # orphans a listener that keeps holding the port.
+    # Arrange
+    mocker.patch.object(cli.sys, "platform", "win32")
+    run = mocker.patch.object(cli.subprocess, "run")
+    process = mocker.MagicMock()
+    process.pid = 4321
+    process.poll.return_value = None
+
+    # Act
+    cli._stop_visual_review_server(process)
+
+    # Assert
+    assert run.call_args.args[0] == ["taskkill", "/T", "/F", "/PID", "4321"]
+    process.terminate.assert_not_called()
+
+
+def test_given_owned_server_on_posix_when_stopping_then_signals_the_process_group(
+    mocker,
+) -> None:
+    # Arrange
+    mocker.patch.object(cli.sys, "platform", "linux")
+    mocker.patch.object(cli.os, "getpgid", return_value=9100, create=True)
+    killpg = mocker.patch.object(cli.os, "killpg", create=True)
+    process = mocker.MagicMock()
+    process.pid = 9100
+    process.poll.return_value = None
+
+    # Act
+    cli._stop_visual_review_server(process)
+
+    # Assert
+    killpg.assert_called_once_with(9100, cli.signal.SIGTERM)
+    process.terminate.assert_not_called()
+
+    # Arrange
+    repo_root = Path(__file__).resolve().parents[6]
+    config = json.loads(
+        (repo_root / "docs" / "docusaurus" / "a11y-runtime.config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    static_server = (
+        repo_root / "docs" / "docusaurus" / "e2e" / "static-server.mjs"
+    ).read_text(encoding="utf-8")
+    playwright_config = (
+        repo_root / "docs" / "docusaurus" / "playwright.config.ts"
+    ).read_text(encoding="utf-8")
+
+    # Assert
+    assert config["serveMode"] == "auto"
+    assert config["baseUrl"] == "http://127.0.0.1:3001"
+    assert "http://127.0.0.1:3001" in config["allowlist"]
+    assert "process.env.PORT ?? 3001" in static_server
+    assert "http://127.0.0.1:3001/" in playwright_config

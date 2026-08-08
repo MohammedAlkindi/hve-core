@@ -3,18 +3,38 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-METHOD_RANK = {
-    "manual-keyboard": 70,
-    "screen-reader": 65,
-    "cognitive-walkthrough": 60,
-    "runtime-automation": 50,
-    "axe-auto": 45,
-    "static-source": 40,
-    "plan-derived": 35,
-}
+_METHODS_PATH = Path(__file__).resolve().parent.parent / "methods.json"
+
+
+def _load_method_vocabulary() -> dict[str, dict[str, Any]]:
+    """Load the shared evidence-method vocabulary.
+
+    The vocabulary is data rather than code because the Node probe runner writes
+    the same method names. Holding one definition keeps the two runtimes from
+    drifting apart on names, ranks, or human-evidence status.
+    """
+    payload = json.loads(_METHODS_PATH.read_text(encoding="utf-8"))
+    return {entry["name"]: entry for entry in payload["methods"]}
+
+
+METHOD_VOCABULARY = _load_method_vocabulary()
+
+METHOD_RANK = {name: entry["rank"] for name, entry in METHOD_VOCABULARY.items()}
+
+# Methods a person performed. The EARL renderer reports these as manual mode.
+HUMAN_EVIDENCE_METHODS = frozenset(
+    name for name, entry in METHOD_VOCABULARY.items() if entry.get("humanEvidence")
+)
+
+# Methods a later automated result must never overwrite during merge.
+OVERWRITE_LOCKED_METHODS = frozenset(
+    name for name, entry in METHOD_VOCABULARY.items() if entry.get("overwriteLocked")
+)
 
 STATUS_PRIORITY = {
     "pass": 4,
@@ -160,3 +180,4 @@ class Matrix:
                 for cell in self.cells
             ],
         }
+

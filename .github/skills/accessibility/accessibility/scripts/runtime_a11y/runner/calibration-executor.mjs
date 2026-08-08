@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { createCalibrationCheckpoint, validateCalibrationCheckpoint } from './calibration-checkpoint.mjs';
 import { processAtPlanCase } from './at-plan-executor.mjs';
 import { launchChrome } from './_shared.mjs';
+import { resolveRouteUrl } from './route.mjs';
 import { captureVisualReviewEvidence } from './visual-review-executor.mjs';
 
 function stripNonAuthoritativePersistedArtifactHashes(value, seen = new WeakMap()) {
@@ -370,7 +371,10 @@ export async function defaultRunAtCase({
   processAtPlanCaseImpl = processAtPlanCase,
 }) {
   const profileFingerprint = journey?.profileFingerprint || buildProfileFingerprint(config, journey);
-  const targetUrl = `${config?.baseUrl || 'http://127.0.0.1:3000'}${journey?.route || '/'}`;
+  const targetUrl = resolveRouteUrl(
+    journey?.route || '/',
+    config?.baseUrl || 'http://127.0.0.1:3000',
+  );
   const surface = {
     id: journey?.surfaceId || journey?.surface?.id || journey?.journeyId || 'surface',
     route: journey?.route || '/',

@@ -20,7 +20,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from runtime_a11y.matrix._model import Cell, Matrix
+from runtime_a11y.matrix._model import HUMAN_EVIDENCE_METHODS, Cell, Matrix
+from runtime_a11y.matrix._provenance import HVE_NAMESPACE, ArtifactMetadata
 
 # Framework identifier -> canonical spec URL used as dct:isPartOf for a criterion.
 _FRAMEWORK_SOURCE = {
@@ -32,7 +33,8 @@ _FRAMEWORK_SOURCE = {
     "defect-scan": "https://github.com/microsoft/hve-core",
 }
 
-_MANUAL_METHODS = {"manual-keyboard", "screen-reader", "cognitive-walkthrough"}
+# Methods a person performed. EARL reports these as manual mode.
+_MANUAL_METHODS = HUMAN_EVIDENCE_METHODS
 
 
 def _identifier_token(*parts: str) -> str:
@@ -94,7 +96,9 @@ def _earl_mode(method: str | None) -> str:
 
 
 def build_earl(
-    matrix: Matrix, coverage: dict[str, Any] | None = None
+    matrix: Matrix,
+    coverage: dict[str, Any] | None = None,
+    metadata: ArtifactMetadata | None = None,
 ) -> dict[str, Any]:
     """Build an EARL JSON-LD document from the coverage matrix.
 
@@ -170,14 +174,26 @@ def build_earl(
         "@context": {
             "earl": "http://www.w3.org/ns/earl#",
             "dct": "http://purl.org/dc/terms/",
-            "hve": "https://github.com/microsoft/hve-core/ns/accessibility#",
+            "hve": HVE_NAMESPACE,
         },
+        **(metadata.to_earl_terms() if metadata is not None else {}),
         "@graph": graph,
     }
 
 
-def render_earl(matrix: Matrix, coverage: dict[str, Any], out_path: Path) -> None:
-    """Write an EARL JSON-LD representation of the matrix results to ``out_path``."""
-    document = build_earl(matrix, coverage)
+def render_earl(
+    matrix: Matrix,
+    coverage: dict[str, Any],
+    out_path: Path,
+    metadata: ArtifactMetadata | None = None,
+) -> None:
+    """Write an EARL JSON-LD representation of the matrix results to ``out_path``.
+
+    This export is designed for machine ingestion by conformance tooling and is
+    read without its Markdown sibling, so the non-attestation and review state
+    travel in the document itself.
+    """
+    document = build_earl(matrix, coverage, metadata)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+

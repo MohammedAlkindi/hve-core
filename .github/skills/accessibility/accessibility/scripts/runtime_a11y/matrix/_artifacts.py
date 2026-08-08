@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from runtime_a11y.matrix._catalog import catalog_provenance
 from runtime_a11y.matrix._model import Matrix
+from runtime_a11y.matrix._provenance import ArtifactMetadata, build_artifact_metadata
 from runtime_a11y.matrix._render_earl import render_earl
 from runtime_a11y.matrix._render_json import render_json
 from runtime_a11y.matrix._render_md import render_markdown
@@ -67,22 +69,32 @@ def render_artifact_bundle(
     output_dir: Path,
     repo_slug: str,
     runtime_config: dict[str, Any] | None = None,
+    metadata: ArtifactMetadata | None = None,
 ) -> ArtifactPaths:
-    """Render the canonical coverage, EARL, and manual-plan artifact bundle."""
+    """Render the canonical coverage, EARL, and manual-plan artifact bundle.
+
+    Metadata is built once and serialized by every export so a consumer reading
+    one artifact alone still sees its provenance and review state.
+    """
     paths = artifact_paths(output_dir, repo_slug)
-    render_json(matrix, coverage, paths.coverage_json)
-    render_markdown(matrix, coverage, paths.coverage_markdown, repo_slug)
-    render_earl(matrix, coverage, paths.earl_jsonld)
+    if metadata is None:
+        metadata = build_artifact_metadata(
+            repository=repo_slug, catalog=catalog_provenance()
+        )
+    render_json(matrix, coverage, paths.coverage_json, metadata)
+    render_markdown(matrix, coverage, paths.coverage_markdown, repo_slug, metadata)
+    render_earl(matrix, coverage, paths.earl_jsonld, metadata)
     render_manual_test_plan_markdown(
         matrix, paths.manual_plan_markdown, repo_slug, runtime_config
     )
     render_manual_test_plan_yaml(
-        matrix, paths.manual_plan_yaml, repo_slug, runtime_config
+        matrix, paths.manual_plan_yaml, repo_slug, runtime_config, metadata
     )
 
     manifest = {
-        "version": 1,
+        "version": 2,
         "repository": repo_slug,
+        "assessment": metadata.to_dict(),
         "artifacts": paths.relative_manifest(output_dir),
     }
     paths.manifest_json.parent.mkdir(parents=True, exist_ok=True)

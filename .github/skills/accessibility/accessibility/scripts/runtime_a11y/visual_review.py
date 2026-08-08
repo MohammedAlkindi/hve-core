@@ -312,6 +312,22 @@ def validate_visual_review_config(config: dict[str, Any]) -> dict[str, Any]:
 
     if visual_review.get("enabled") is True:
         assert_target_allowed(config, allow_external=False)
+        # A full-page screenshot and a Playwright trace capture whatever the
+        # surface renders, including any real data behind it. The harness cannot
+        # detect personal data, so this setting records what the operator
+        # asserts about the target rather than implying a check the tool cannot
+        # perform. Capturing anyway requires setting it to false deliberately.
+        if visual_review.get("rejectPersonalData") is True and not visual_review.get(
+            "operatorConfirmedNoPersonalData"
+        ):
+            raise ScriptError(
+                "Visual review captures full-page screenshots and traces of the "
+                "target, so it must not run against a surface holding personal "
+                "data. Set visualReview.operatorConfirmedNoPersonalData to true "
+                "to confirm the target holds none, or set "
+                "visualReview.rejectPersonalData to false to capture anyway.",
+                EXIT_USAGE,
+            )
 
     try:
         jsonschema.validate(

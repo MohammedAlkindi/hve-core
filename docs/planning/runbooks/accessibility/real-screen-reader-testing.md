@@ -77,6 +77,23 @@ Keep the case-specific commands and expected outcomes in the generated plan rath
 * If the interaction requires a mode change that the test environment cannot reproduce, record the result as not verified and note the limitation.
 * If the target is not supported in the current browser or AT stack, record the limitation explicitly and avoid over-claiming.
 
+### When the run reports that it could not stop the screen reader
+
+The harness starts NVDA, drives it, and then confirms it has actually exited. When it cannot confirm that, it stops the whole run rather than continuing on a machine whose state it can no longer account for.
+
+What happened:
+
+* The harness force-terminates only a screen reader it started. A screen reader you were already running before the run began is left alone.
+* Evidence collected before the failure is still written. It is marked quarantined, which means the findings are real but the run did not finish, so it is not a basis for a conformance claim.
+* No further probes run.
+
+What to do:
+
+1. Check whether a screen reader is still running, and close it if you no longer need it.
+2. If you rely on a screen reader for your own use, restart it. The harness does not restart one for you.
+3. Record the affected result as not verified. An unconfirmed cleanup says nothing about the surface being tested.
+4. Start a new run only after you have confirmed the state of the machine.
+
 ## macOS + VoiceOver (out of current scope)
 
 VoiceOver is not a current automated or manual target for this runbook. The supported real assistive-technology scope is Windows NVDA automation plus human-led Windows JAWS evidence. If VoiceOver is reintroduced as an in-scope target, restore a full macOS + VoiceOver setup and execution section and route it through the same evidence and calibration expectations described here.

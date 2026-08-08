@@ -522,7 +522,11 @@ test('runRealScreenReaderProbe keeps its accessibility result while reporting an
   });
 
   assert.equal(result.ran, true);
-  assert.deepEqual(result.phrases, ['button, Clear search']);
+  assert.equal(result.phraseCount, 1);
+  assert.equal(result.phrases, undefined);
+  assert.equal(result.transcript.sha256.length, 64);
+  assert.equal(result.transcript.retained, false);
+  assert.ok(!result.evidence.includes('Clear search'));
   assert.equal(result.cleanup.driverStarted, true);
   assert.equal(result.cleanup.driverStopped, false);
   assert.match(result.cleanup.stopError, /timed out/);

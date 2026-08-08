@@ -52,11 +52,11 @@ def test_iter_runs_yields_scoped_combinations(monkeypatch) -> None:
     assert runs == [("probe-axe", "web", "default"), ("probe-axe", "web", "dark")]
 
 
-def test_run_probe_raises_on_called_process_error(mocker) -> None:
+def test_run_probe_raises_when_a_failing_probe_produced_no_payload(mocker) -> None:
     mocker.patch.object(cli, "_NODE_MODULES", cli._PACKAGE_DIR)
     mocker.patch(
         "runtime_a11y.__main__.subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, "node", stderr="boom"),
+        return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
     )
 
     with pytest.raises(ScriptError) as excinfo:
@@ -65,6 +65,25 @@ def test_run_probe_raises_on_called_process_error(mocker) -> None:
         )
 
     assert "boom" in str(excinfo.value)
+
+
+def test_run_probe_keeps_a_valid_payload_from_a_failing_probe(mocker) -> None:
+    """An operational failure is not a reason to discard findings already made."""
+    mocker.patch.object(cli, "_NODE_MODULES", cli._PACKAGE_DIR)
+    payload = {"probeId": "probe-real-sr", "results": [{"criterionId": "4.1.2"}]}
+    mocker.patch(
+        "runtime_a11y.__main__.subprocess.run",
+        return_value=SimpleNamespace(
+            returncode=1, stdout=json.dumps(payload), stderr="stop unverified"
+        ),
+    )
+
+    result = cli._run_probe(
+        {}, "probe-real-sr", "web", "default", "http://127.0.0.1:3000", False
+    )
+
+    assert result["results"] == [{"criterionId": "4.1.2"}]
+    assert result["operationalFailure"]["reason"] == "stop unverified"
 
 
 def test_run_probe_raises_when_dependencies_missing(mocker, tmp_path) -> None:
@@ -268,7 +287,7 @@ def test_run_probe_raises_on_invalid_json(mocker) -> None:
     mocker.patch.object(cli, "_NODE_MODULES", cli._PACKAGE_DIR)
     mocker.patch(
         "runtime_a11y.__main__.subprocess.run",
-        return_value=SimpleNamespace(stdout="not json", stderr=""),
+        return_value=SimpleNamespace(returncode=0, stdout="not json", stderr=""),
     )
 
     with pytest.raises(ScriptError):

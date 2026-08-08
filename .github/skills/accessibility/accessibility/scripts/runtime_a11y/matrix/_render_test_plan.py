@@ -12,6 +12,7 @@ from typing import Any
 
 from runtime_a11y.matrix._aria_at import resolve_aria_at_mapping
 from runtime_a11y.matrix._model import Cell, Matrix
+from runtime_a11y.matrix._provenance import ArtifactMetadata
 from runtime_a11y.matrix._render_md import (
     ACCESSIBILITY_DISCLAIMER,
     HUMAN_REVIEW_CHECKBOX,
@@ -364,17 +365,37 @@ def render_manual_test_plan_yaml(
     out_path: Path,
     repo_slug: str,
     runtime_config: dict[str, Any] | None = None,
+    metadata: ArtifactMetadata | None = None,
 ) -> None:
     """Write the machine-readable manual accessibility test plan as YAML."""
     cases = build_manual_test_cases(matrix, runtime_config)
     lines = [
-        "version: 1",
+        "version: 2",
         f"repository: {_yaml_scalar(repo_slug)}",
         "review:",
         "  required: true",
         "  completed: false",
-        "cases:",
     ]
+    if metadata is not None:
+        lines.extend(
+            [
+                "assessment:",
+                f"  generatedAt: {_yaml_scalar(metadata.generatedAt)}",
+                f"  tool: {_yaml_scalar(metadata.tool)}",
+                f"  toolVersion: {_yaml_scalar(metadata.toolVersion)}",
+                "  aiAssisted: true",
+                f"  humanReviewCompleted: {str(metadata.humanReviewCompleted).lower()}",
+                f"  quarantined: {str(metadata.quarantined).lower()}",
+                f"  nonAttestation: {_yaml_scalar(metadata.nonAttestation)}",
+                f"  evidenceLimits: {_yaml_scalar(metadata.evidenceLimits)}",
+            ]
+        )
+        if metadata.quarantined:
+            lines.append(
+                "  quarantineReason: "
+                f"{_yaml_scalar(metadata.quarantineReason or 'reason not recorded')}"
+            )
+    lines.append("cases:")
     if not cases:
         lines[-1] = "cases: []"
     for case in cases:

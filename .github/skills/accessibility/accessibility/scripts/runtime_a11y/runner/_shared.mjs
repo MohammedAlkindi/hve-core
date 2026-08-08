@@ -7,6 +7,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { evaluateAssertion } from './assertions.mjs';
+import { resolveRouteUrl } from './route.mjs';
+import { retainScreenReaderTranscript } from './transcript.mjs';
 import {
   buildProbeResults,
   emitProbeResult,
@@ -119,32 +121,46 @@ async function terminateProcessIds(processIds) {
 
 // Confirms the screen reader actually exited after the driver reported stopping.
 //
-// Only called when this process started the screen reader, so terminating a
-// remnant never disturbs a screen reader the operator was already relying on.
-// Leaving one alive hijacks the machine's speech and blocks the next run's
-// driver startup, so an unresponsive remnant is force-terminated rather than
-// reported as stopped.
+// Termination is limited to processes absent from the pre-start baseline, so a
+// screen reader the operator was already running is never force-terminated.
+// That matters because the operator may depend on it. A remnant this run
+// started is force-terminated instead, since leaving one alive hijacks the
+// machine's speech and blocks the next run's driver startup. A surviving
+// process the run does not own is reported as unverified cleanup rather than
+// killed.
 export async function ensureScreenReaderStopped({
   timeoutMs = 10000,
   pollIntervalMs = 500,
   readProcessIds = readScreenReaderProcessIds,
   terminate = terminateProcessIds,
+  preexistingProcessIds = null,
 } = {}) {
+  const preexisting = new Set(
+    Array.isArray(preexistingProcessIds) ? preexistingProcessIds : [],
+  );
+  const ownedBy = (ids) => ids.filter((id) => !preexisting.has(id));
+
   const deadline = Date.now() + timeoutMs;
   let remaining = await readProcessIds();
-  while (Array.isArray(remaining) && remaining.length > 0 && Date.now() < deadline) {
+  while (
+    Array.isArray(remaining) &&
+    ownedBy(remaining).length > 0 &&
+    Date.now() < deadline
+  ) {
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     remaining = await readProcessIds();
   }
   if (remaining === null) {
     return { stopped: false, terminated: false, reason: 'screen-reader-state-unreadable' };
   }
-  if (remaining.length === 0) {
+
+  const owned = ownedBy(remaining);
+  if (owned.length === 0) {
     return { stopped: true, terminated: false, reason: null };
   }
-  const terminated = await terminate(remaining);
+  const terminated = await terminate(owned);
   const after = await readProcessIds();
-  const stopped = Array.isArray(after) && after.length === 0;
+  const stopped = Array.isArray(after) && ownedBy(after).length === 0;
   return {
     stopped,
     terminated,
@@ -609,13 +625,7 @@ export function resolveTargetUrl(baseUrl, surface) {
   if (!route) {
     return baseUrl;
   }
-
-  try {
-    return new URL(route, baseUrl).toString();
-  } catch {
-    const normalized = route.startsWith('/') ? route : `/${route}`;
-    return `${baseUrl.replace(/\/$/, '')}${normalized}`;
-  }
+  return resolveRouteUrl(route, baseUrl);
 }
 
 export function resolveLocator(page, target) {
@@ -1011,6 +1021,7 @@ export async function runRealScreenReaderProbe(page, {
   const verifyStopped = resolveScreenReaderVerifier(verifyScreenReaderStopped);
   let driver = null;
   let driverStarted = false;
+  let preexistingProcessIds = [];
   // Cleanup is a separate outcome from the accessibility verdict. A run can
   // produce a valid finding and still fail to stop the screen reader, so the
   // facts travel on the result rather than replacing it with a throw.
@@ -1037,6 +1048,10 @@ export async function runRealScreenReaderProbe(page, {
         platform: process.platform,
       };
     } else {
+      // Record which screen-reader processes were already running so cleanup
+      // can tell a remnant this run started from a session the operator was
+      // relying on before it began.
+      preexistingProcessIds = (await readScreenReaderProcessIds()) || [];
       await driver.start();
       driverStarted = true;
       for (const command of probeConfig.commands || []) {
@@ -1064,16 +1079,38 @@ export async function runRealScreenReaderProbe(page, {
         }
       }
 
+      // Assertions are evaluated above against the raw phrases, so verdict
+      // fidelity is unaffected by what leaves this boundary. A screen reader
+      // speaks whatever is on screen, which on an authenticated surface
+      // includes names, addresses, and account details. Only the phrase count
+      // and the assertion outcomes travel onward; the transcript itself is
+      // retained separately and only when explicitly requested.
+      const transcript = retainScreenReaderTranscript(phrases, {
+        surfaceId: surface?.id || null,
+        state,
+      });
+
       result = {
         ran: true,
         supported: true,
-        phrases,
+        phraseCount: phrases.length,
         assertions,
+        transcript,
         driver: snapshot?.driver || driver?.driver || null,
         platform: process.platform,
         targetUrl,
         state,
-        evidence: JSON.stringify({ phrases, assertions, driver: snapshot?.driver || driver?.driver || null }),
+        evidence: JSON.stringify({
+          phraseCount: phrases.length,
+          assertions: assertions.map(({ id, type, status, detail, evidenceType }) => ({
+            id,
+            type,
+            status,
+            detail,
+            evidenceType,
+          })),
+          driver: snapshot?.driver || driver?.driver || null,
+        }),
       };
     }
   } catch (error) {
@@ -1097,7 +1134,7 @@ export async function runRealScreenReaderProbe(page, {
     if (driverStarted) {
       // The driver's stop request is asynchronous and unverified, so cleanup is
       // only recorded as complete once the screen reader is observably gone.
-      const verification = await verifyStopped().catch((error) => ({
+      const verification = await verifyStopped({ preexistingProcessIds }).catch((error) => ({
         stopped: false,
         terminated: false,
         reason: error instanceof Error ? error.message : 'screen-reader-verification-failed',

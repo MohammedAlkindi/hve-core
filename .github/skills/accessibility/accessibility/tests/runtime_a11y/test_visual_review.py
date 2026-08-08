@@ -116,6 +116,7 @@ def test_given_valid_runtime_config_when_validating_then_accepts_opt_in_visual_r
         "baseUrl": "http://127.0.0.1:3000",
         "visualReview": {
             "enabled": True,
+            "operatorConfirmedNoPersonalData": True,
             "evidenceRoot": str(tmp_path / "evidence"),
             "maxArtifactBytes": 512 * 1024 * 1024,
             "allowlist": ["127.0.0.1"],
@@ -132,6 +133,7 @@ def test_given_config_with_over_limit_bytes_when_validating_then_rejects() -> No
         "baseUrl": "http://127.0.0.1:3000",
         "visualReview": {
             "enabled": True,
+            "operatorConfirmedNoPersonalData": True,
             "maxArtifactBytes": 2 * 1024 * 1024 * 1024,
         },
     }
@@ -368,7 +370,7 @@ def test_given_symlink_inside_root_when_normalizing_then_rejects(
 def test_given_credential_query_when_validating_config_then_rejects() -> None:
     config = {
         "baseUrl": "http://127.0.0.1:3000?token=abc",
-        "visualReview": {"enabled": True},
+        "visualReview": {"enabled": True, "operatorConfirmedNoPersonalData": True},
     }
 
     with pytest.raises(ScriptError, match="credential-bearing"):
@@ -441,7 +443,7 @@ def test_given_manifest_and_advisory_state_when_merging_then_pass_is_not_promote
 def test_given_config_with_credentials_when_validating_then_rejects() -> None:
     config = {
         "baseUrl": "https://user:pass@example.com",
-        "visualReview": {"enabled": True},
+        "visualReview": {"enabled": True, "operatorConfirmedNoPersonalData": True},
     }
 
     with pytest.raises(ScriptError, match="credentials"):

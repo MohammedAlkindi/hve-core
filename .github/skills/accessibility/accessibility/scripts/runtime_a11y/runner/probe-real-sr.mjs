@@ -3,6 +3,19 @@
 import { realScreenReaderStatus } from './_core.mjs';
 import { buildProbeResults, emitProbeResult, isScreenReaderCleanupUnproven, runProbeWithPage, runRealScreenReaderProbe } from './_shared.mjs';
 
+// Drivers that operate a real assistive technology. A snapshot from anything
+// else describes a simulation and must not be recorded as screen-reader
+// evidence, which outranks automation and is protected from being overwritten.
+const REAL_AT_DRIVERS = new Set(['nvda']);
+
+export function resolveObservedMethod(snapshot) {
+  const observedByRealAt =
+    snapshot?.ran === true &&
+    snapshot?.supported === true &&
+    REAL_AT_DRIVERS.has(snapshot?.driver);
+  return observedByRealAt ? 'screen-reader' : 'runtime-automation';
+}
+
 export async function runProbe() {
   const payload = await runProbeWithPage(async ({ page, surface, state, targetUrl }) => {
     const snapshot = await runRealScreenReaderProbe(page, { surface, state, targetUrl });
@@ -14,6 +27,7 @@ export async function runProbe() {
       evidence: `${targetUrl} ${JSON.stringify(snapshot)}`,
       decideStatus: realScreenReaderStatus(snapshot),
       informStatus: 'candidate',
+      method: resolveObservedMethod(snapshot),
     });
 
     return {

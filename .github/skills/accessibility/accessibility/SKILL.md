@@ -74,6 +74,14 @@ For the announcement class, the [assistive-technology announcement model](refere
 
 This doctrine and its class taxonomy are repository-original content licensed under CC BY 4.0; the underlying success-criterion definitions remain with WCAG 2.2 as cited in [wcag-22.md](references/frameworks/wcag-22.md).
 
+### Calibration is evidence quality, not a conformance verdict
+
+Calibration establishes that the assistive-technology stack behaves as expected before its output is trusted. Its checkpoints record driver identity, profile fingerprint, and artifact hashes for a journey that passed.
+
+A checkpoint is deliberately not a matrix input. Nothing in the coverage or outcome pipeline reads one, and that separation is intended rather than unfinished. A passing calibration says the harness was working; it does not say the surface satisfies a success criterion. Wiring checkpoints into coverage would turn a statement about the tool into a statement about the product.
+
+If calibration evidence should ever influence coverage, that is new design work requiring its own review: it needs an explicit mapping from a journey to a criterion, surface, and state, and it must respect the same method-adequacy rules as any other evidence.
+
 ### Gate strictness by assessment tier
 
 The enforcement posture for the interaction, announcement, adaptive-rendering, and faux-semantics classes graduates with the assessment depth tier recorded in `riskClassification.tier`, so the gate inherits the rigor a project opted into rather than applying one global switch:
@@ -157,23 +165,84 @@ WCAG success criteria are normative; the axe techniques that surface them are in
 
 The runtime probe harness ([scripts/runtime_a11y](scripts/runtime_a11y)) runs Playwright-based accessibility probes against a project-specific surface inventory and aggregates the results into a coverage matrix. Use the [accessibility-coverage-matrix prompt](../../../prompts/accessibility/accessibility-coverage-matrix.prompt.md) for workflow orchestration, the [accessibility-surface-inventory subagent](../../../agents/accessibility/subagents/accessibility-surface-inventory.agent.md) as the canonical producer of the runtime config, and the shared [real screen reader testing runbook](../../../../docs/planning/runbooks/accessibility/real-screen-reader-testing.md) when human-led assistive-technology evidence is required.
 
-#### Invocation
+#### Harness prerequisites
+
+Complete these once before any runtime-harness command. They are separate from the `scan.py` prerequisites above.
+
+* Python 3.11+ with [uv](https://docs.astral.sh/uv/) available on PATH.
+* Node.js available on PATH, plus system Google Chrome, because the probes target `channel: 'chrome'`.
+* Skill-local Node dependencies installed under [scripts/runtime_a11y](scripts/runtime_a11y). The CLI fails fast with an install hint when they are missing.
+
+Install the harness dependencies from the `scripts/runtime_a11y` directory:
 
 ```bash
-uv run python -m runtime_a11y run-all --config a11y-runtime.config.json --out results.json
-uv run python -m runtime_a11y probe <probeId> --config a11y-runtime.config.json
-uv run python -m runtime_a11y render-artifacts --matrix coverage-matrix-repo.json --output-dir .copilot-tracking/accessibility/coverage --repo-slug repo
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
 ```
 
+```powershell
+$env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'; npm ci
+```
+
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` avoids downloading bundled browsers that the harness never uses.
+
+#### Invocation
+
+Run the harness through its script entrypoint. Invoke it from the skill root, which is the directory holding `pyproject.toml`, so uv resolves the skill's own environment. This matches the invocation convention used by `scan.py` and the other Python skills, and it needs no `PYTHONPATH`.
+
+```bash
+uv run scripts/runtime_a11y/__main__.py run-all --config a11y-runtime.config.json --out results.json
+uv run scripts/runtime_a11y/__main__.py probe <probeId> --config a11y-runtime.config.json
+uv run scripts/runtime_a11y/__main__.py render-artifacts --matrix coverage-matrix-repo.json --output-dir .copilot-tracking/accessibility/coverage --repo-slug repo
+```
+
+To run from any other working directory, pin the skill as the uv project and use the same script path:
+
+```bash
+uv run --project <skill-root> <skill-root>/scripts/runtime_a11y/__main__.py run-all --config a11y-runtime.config.json --out results.json
+```
+
+* `--config` resolves relative to the current working directory.
 * `--out` writes the aggregated JSON document to disk.
-* `--base-url` overrides the configured base URL.
+* `--base-url` overrides the configured base URL. It must remain a loopback origin unless the host is allowlisted or `--allow-external` is supplied.
 * `--trace` captures Playwright traces and screenshots.
 * `--allow-external` confirms intentional probing of a non-loopback host.
 * `render-artifacts` turns a rendered matrix JSON document into the complete coverage evidence bundle.
 
+#### Visual review capture
+
+`capture-visual-review` records deterministic screenshot evidence for the configured surfaces and states. It requires `visualReview.enabled` to be `true` in the runtime config.
+
+```bash
+uv run scripts/runtime_a11y/__main__.py capture-visual-review \
+  --config <path-to>/a11y-runtime.config.json \
+  --run-root .copilot-tracking/accessibility/local-runs/<run-name>
+```
+
+* `--run-root` selects the evidence directory. It resolves relative to the repository root and must land on a child path inside `.copilot-tracking/accessibility/local-runs`. Paths outside that root, and traversal segments, are rejected.
+* Omitting `--run-root` allocates a timestamped run directory beneath that same root.
+* `--visual-surface` and `--visual-state` narrow the capture to specific configured ids.
+* The server the command targets follows `serveMode`. See [Server modes](#server-modes).
+
+#### Server modes
+
+`serveMode` in the runtime config decides whether the harness manages a server for `capture-visual-review`.
+
+| `serveMode` | Behavior                                                                                          |
+|-------------|---------------------------------------------------------------------------------------------------|
+| `auto`      | Reuses a healthy server at the configured loopback origin, otherwise builds and starts one it owns and stops afterward. |
+| `served`    | Requires a server already answering the configured loopback origin, and fails with the expected origin and start command when none responds. |
+| `external`  | Never probes or starts a server. The configured target must already be reachable.                 |
+| `off`       | Never probes or starts a server.                                                                  |
+
+`auto` and `served` accept only loopback origins, because the harness will not manage or health-probe a remote server. A non-loopback target still requires the allowlist or `--allow-external`, and is only valid with `external` or `off`.
+
+Under `auto`, starting an owned server builds the site first, so a capture that has to start its own server takes several minutes before the first screenshot. Leave a server running at the configured origin to skip that cost, which is the reuse path.
+
+The Docusaurus site in this repository is configured for `auto` at `http://127.0.0.1:3001`, which is the same production-build origin the Playwright end-to-end suite uses. Capturing against the production build keeps visual evidence consistent with what continuous integration verifies.
+
 #### Config summary
 
-The harness loads [scripts/runtime_a11y/config-schema.json](scripts/runtime_a11y/config-schema.json) and expects a runtime config with fields such as `baseUrl`, `serveMode`, `allowlist`, `routes`, `surfaces`, and `probeScoping`. The config defines the surfaces and interaction states the probes execute. A runtime guard blocks non-loopback targets unless the host is allowlisted or the caller supplies `--allow-external`.
+The harness loads [scripts/runtime_a11y/config-schema.json](scripts/runtime_a11y/config-schema.json) and expects a runtime config with fields such as `baseUrl`, `serveMode`, `allowlist`, `routes`, `surfaces`, and `probeScoping`. The config defines the surfaces and interaction states the probes execute. A runtime guard blocks non-loopback targets unless the host is allowlisted or the caller supplies `--allow-external`. `serveMode` controls server ownership for visual review capture, described under [Server modes](#server-modes).
 
 #### Probe inventory and adequacy map
 
@@ -241,7 +310,7 @@ The generated manual cases, synthetic or real execution evidence, ACT-style resu
 
 #### Runtime dependencies
 
-The harness resolves its Node dependencies from a skill-local package under [scripts/runtime_a11y](scripts/runtime_a11y) (`package.json` plus committed `package-lock.json`), pinning `playwright@1.61.1`, `@axe-core/playwright@4.12.1`, and `@guidepup/virtual-screen-reader@0.32.1`. Install them once with `npm ci` in that directory (set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, since the harness targets the system Google Chrome browser through `channel: 'chrome'` and needs no bundled browser). The probes then resolve their dependencies from the local `node_modules`; the CLI fails fast with an install hint when `node_modules` is absent.
+The harness resolves its Node dependencies from a skill-local package under [scripts/runtime_a11y](scripts/runtime_a11y) (`package.json` plus committed `package-lock.json`), pinning `playwright@1.61.1`, `@axe-core/playwright@4.12.1`, and `@guidepup/virtual-screen-reader@0.32.1`. Install them once as described under [Harness prerequisites](#harness-prerequisites). The probes then resolve their dependencies from the local `node_modules`; the CLI fails fast with an install hint when `node_modules` is absent, before it probes or starts any server.
 
 #### Testing
 
@@ -251,7 +320,7 @@ The harness is tested in two tiers. Browserless verdict and pure-helper unit tes
 
 Use the ready-to-copy workflow template at [references/ci/accessibility-coverage.workflow-template.yml](references/ci/accessibility-coverage.workflow-template.yml) as the documentation-first integration point for a target project. Copy it into a real workflow under `.github/workflows/` only after the target project commits an `a11y-runtime.config.json` and has a build/serve path that the template can invoke.
 
-The template mirrors the Docusaurus workflow recipe by provisioning system Chrome, setting up Node 24 plus Python and `uv`, building the target, serving it under a configurable base URL, and running `uv run python -m runtime_a11y run-all --config a11y-runtime.config.json --out results.json`. The core high-confidence probes always block: `probe-axe`, `probe-dom-hygiene`, `probe-broken-links`, `probe-console-errors`, `probe-target-size`, `probe-contrast`, and `probe-reflow-resize`. The interaction-state and announcement probes (`probe-keyboard-traversal`, `probe-widget-keyboard`, `probe-live-region`, `probe-aria-tree`, `probe-virtual-sr`, `probe-real-sr`) are the adequate method for the classes static analysis only informs, and their blocking posture follows the `A11Y_TIER` dial defined under [Gate strictness by assessment tier](#gate-strictness-by-assessment-tier): `basic` reports them advisory, `standard` ratchets (blocking on the surfaces listed in `A11Y_RATCHET_SURFACES`), and `comprehensive` blocks them everywhere. The remaining heuristic probes such as `use-of-color`, `hover-focus`, `link-purpose`, `name-in-label`, and `focus-*` are surfaced as informational results so they can guide follow-up work without blocking initial adoption. The real-screen-reader probe stays advisory by default unless a project opts into it through configured expected assertions and a supported OS/AT stack; it returns `candidate` when the platform or AT is unavailable rather than pretending a pass or failure. Decisive coverage of the adaptive-rendering class depends on the target committing the `zoom-200`, `reflow-320`, and text-spacing states in its `a11y-runtime.config.json`.
+The template mirrors the Docusaurus workflow recipe by provisioning system Chrome, setting up Node 24 plus Python and `uv`, building the target, serving it under a configurable base URL, and running the harness script entrypoint with `uv run --project` pinned at the vendored skill root. The core high-confidence probes always block: `probe-axe`, `probe-dom-hygiene`, `probe-broken-links`, `probe-console-errors`, `probe-target-size`, `probe-contrast`, and `probe-reflow-resize`. The interaction-state and announcement probes (`probe-keyboard-traversal`, `probe-widget-keyboard`, `probe-live-region`, `probe-aria-tree`, `probe-virtual-sr`, `probe-real-sr`) are the adequate method for the classes static analysis only informs, and their blocking posture follows the `A11Y_TIER` dial defined under [Gate strictness by assessment tier](#gate-strictness-by-assessment-tier): `basic` reports them advisory, `standard` ratchets (blocking on the surfaces listed in `A11Y_RATCHET_SURFACES`), and `comprehensive` blocks them everywhere. The remaining heuristic probes such as `use-of-color`, `hover-focus`, `link-purpose`, `name-in-label`, and `focus-*` are surfaced as informational results so they can guide follow-up work without blocking initial adoption. The real-screen-reader probe stays advisory by default unless a project opts into it through configured expected assertions and a supported OS/AT stack; it returns `candidate` when the platform or AT is unavailable rather than pretending a pass or failure. Decisive coverage of the adaptive-rendering class depends on the target committing the `zoom-200`, `reflow-320`, and text-spacing states in its `a11y-runtime.config.json`.
 
 The parity reference at [references/ci/probe-spec-parity.md](references/ci/probe-spec-parity.md) maps each runtime probe to the closest existing Docusaurus e2e spec and highlights gaps where no equivalent spec currently exists.
 

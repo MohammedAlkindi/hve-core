@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -47,9 +48,16 @@ from runtime_a11y._config import (
     assert_target_allowed,
     load_validated_config,
 )
-from runtime_a11y._errors import EXIT_SUCCESS, EXIT_USAGE, ScriptError
+from runtime_a11y._errors import (
+    EXIT_FAILURE,
+    EXIT_SUCCESS,
+    EXIT_USAGE,
+    ScriptError,
+)
 from runtime_a11y.matrix import compute_coverage, render_artifact_bundle
+from runtime_a11y.matrix._catalog import apply_criteria_catalog, catalog_provenance
 from runtime_a11y.matrix._model import Matrix
+from runtime_a11y.matrix._provenance import build_artifact_metadata
 from runtime_a11y.matrix._render_test_plan import build_manual_test_cases
 from runtime_a11y.visual_review import (
     build_visual_review_manifest,
@@ -66,6 +74,11 @@ _PROBE_MAP_PATH = _PACKAGE_DIR / "probe-criteria-map.json"
 _NODE_MODULES = _PACKAGE_DIR / "node_modules"
 _REPO_ROOT = _PACKAGE_DIR.parents[5]
 _VISUAL_REVIEW_SERVER_STARTUP_TIMEOUT_SECONDS = 20.0
+# An owned server builds the production site before it listens, and that build
+# dominates startup. A full build of this site was measured at 259 seconds, so
+# the owned-start budget is set well above it. Confirming an already-running
+# server keeps the short budget above, since no build is involved.
+_VISUAL_REVIEW_SERVER_BUILD_TIMEOUT_SECONDS = 900.0
 _VISUAL_REVIEW_SERVER_POLL_INTERVAL_SECONDS = 0.5
 _LIVE_TEST_START_NOTICE = (
     "LIVE ACCESSIBILITY TESTING WILL CONTROL NVDA, CHROME, KEYBOARD FOCUS, "
@@ -82,6 +95,33 @@ def _local_runs_root() -> Path:
     return (_REPO_ROOT / ".copilot-tracking" / "accessibility" / "local-runs").resolve(
         strict=False
     )
+
+
+def _require_harness_dependencies(purpose: str) -> None:
+    """Fail before any server or browser work when Node dependencies are absent.
+
+    Callers invoke this before starting or probing a server so an unprepared
+    checkout reports the install step instead of paying for a server startup
+    first.
+    """
+    if _NODE_MODULES.exists():
+        return
+    raise ScriptError(
+        "Runtime probe dependencies are not installed. Run 'npm ci' in "
+        f"{_PACKAGE_DIR} to install Playwright, axe-core, and the virtual "
+        f"screen reader before {purpose}.",
+        EXIT_USAGE,
+    )
+
+
+def _split_loopback_target(base_url: str) -> tuple[str, int]:
+    """Return the host and port a managed local server must bind."""
+    parsed = urlparse(base_url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return host, port
 
 
 def _is_within(path_value: Path, root_value: Path) -> bool:
@@ -302,13 +342,7 @@ def _run_probe(
     trace: bool,
 ) -> dict[str, Any]:
     """Invoke the Node runner for one probe/surface/state and parse its JSON."""
-    if not _NODE_MODULES.exists():
-        raise ScriptError(
-            "Runtime probe dependencies are not installed. Run 'npm ci' in "
-            f"{_PACKAGE_DIR} to install Playwright, axe-core, and the virtual "
-            "screen reader before running the harness.",
-            EXIT_USAGE,
-        )
+    _require_harness_dependencies("running the harness")
     command = [
         "node",
         str(_RUNNER_INDEX),
@@ -328,7 +362,7 @@ def _run_probe(
             command,
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
             env=env,
             cwd=str(_PACKAGE_DIR),
         )
@@ -338,17 +372,37 @@ def _run_probe(
             f"run 'npm ci' in {_PACKAGE_DIR}, to run runtime probes.",
             EXIT_USAGE,
         ) from exc
-    except subprocess.CalledProcessError as exc:
-        stderr = (exc.stderr or "").strip() or "No probe output captured"
-        raise ScriptError(
-            f"Probe '{probe_id}' failed for surface '{surface_id}' "
-            f"state '{state}': {stderr}"
-        ) from exc
 
-    try:
-        return json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise ScriptError(f"Probe '{probe_id}' returned invalid JSON output") from exc
+    # A probe may produce valid accessibility findings and still report an
+    # operational failure, such as being unable to prove it stopped a screen
+    # reader it started. The finding and the failure are separate facts: the
+    # payload is kept so the evidence is not lost, and the failure is carried
+    # alongside it so the run still fails.
+    payload: dict[str, Any] | None = None
+    if completed.stdout.strip():
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError:
+            payload = None
+
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").strip() or "No probe output captured"
+        if payload is None:
+            raise ScriptError(
+                f"Probe '{probe_id}' failed for surface '{surface_id}' "
+                f"state '{state}': {stderr}"
+            )
+        payload["operationalFailure"] = {
+            "probeId": probe_id,
+            "surfaceId": surface_id,
+            "state": state,
+            "reason": stderr,
+        }
+        return payload
+
+    if payload is None:
+        raise ScriptError(f"Probe '{probe_id}' returned invalid JSON output")
+    return payload
 
 
 def _run_prerequisite_probe(
@@ -357,13 +411,7 @@ def _run_prerequisite_probe(
     trace: bool = False,
 ) -> dict[str, Any]:
     """Probe local calibration prerequisites through the Node executor."""
-    if not _NODE_MODULES.exists():
-        raise ScriptError(
-            "Runtime probe dependencies are not installed. Run 'npm ci' in "
-            f"{_PACKAGE_DIR} to install Playwright, axe-core, and the virtual "
-            "screen reader before running calibration.",
-            EXIT_USAGE,
-        )
+    _require_harness_dependencies("running calibration")
 
     script = (
         "import { pathToFileURL } from 'node:url';"
@@ -471,13 +519,7 @@ def _run_visual_review_capture(
     states: list[str] | None = None,
 ) -> dict[str, Any]:
     """Invoke the Node visual-review runner and parse its JSON payload."""
-    if not _NODE_MODULES.exists():
-        raise ScriptError(
-            "Runtime probe dependencies are not installed. Run 'npm ci' in "
-            f"{_PACKAGE_DIR} to install Playwright, axe-core, and the virtual "
-            "screen reader before running visual review capture.",
-            EXIT_USAGE,
-        )
+    _require_harness_dependencies("running visual review capture")
 
     command = ["node", str(_PACKAGE_DIR / "runner" / "visual-review-executor.mjs")]
     env = {
@@ -773,7 +815,12 @@ def _emit_live_test_finish_notice() -> None:
 
 
 def _start_visual_review_server(base_url: str) -> subprocess.Popen[str]:
-    """Start the local Docusaurus dev server for visual review capture."""
+    """Start the local Docusaurus production preview for visual review capture.
+
+    Capture produces durable visual evidence, so it targets the built site the
+    end-to-end suite also verifies rather than the development bundle, whose
+    rendering Docusaurus documents as differing from production.
+    """
     docs_dir = _REPO_ROOT / "docs" / "docusaurus"
     if not docs_dir.exists():
         raise ScriptError(
@@ -782,7 +829,20 @@ def _start_visual_review_server(base_url: str) -> subprocess.Popen[str]:
             EXIT_USAGE,
         )
 
-    command = ["npm", "run", "start", "--", "--host", "127.0.0.1", "--port", "3000"]
+    host, port = _split_loopback_target(base_url)
+    # Build the site, then serve it. Capture is durable evidence, so it targets
+    # a freshly built production bundle rather than whatever build output
+    # happens to be on disk.
+    # Resolve npm through PATH. On Windows the executable is npm.cmd, which
+    # CreateProcess does not discover from the bare name, so a literal "npm"
+    # argument fails to launch.
+    npm_executable = shutil.which("npm") or "npm"
+    command = [npm_executable, "run", "serve:preview"]
+    # Give the server its own process group so stopping it reaches the child npm
+    # spawns. Windows uses taskkill for the same reason and needs no flag here.
+    group_kwargs: dict[str, Any] = (
+        {} if sys.platform == "win32" else {"start_new_session": True}
+    )
     try:
         process = subprocess.Popen(
             command,
@@ -791,6 +851,8 @@ def _start_visual_review_server(base_url: str) -> subprocess.Popen[str]:
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             text=True,
+            env={**os.environ, "HOST": host, "PORT": str(port)},
+            **group_kwargs,
         )
     except FileNotFoundError as exc:
         raise ScriptError(
@@ -798,13 +860,14 @@ def _start_visual_review_server(base_url: str) -> subprocess.Popen[str]:
             EXIT_USAGE,
         ) from exc
 
-    deadline = time.monotonic() + _VISUAL_REVIEW_SERVER_STARTUP_TIMEOUT_SECONDS
+    deadline = time.monotonic() + _VISUAL_REVIEW_SERVER_BUILD_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if _probe_visual_review_server(base_url):
             return process
         if process.poll() is not None:
             raise ScriptError(
-                "Visual review server exited before becoming ready.",
+                "Visual review server exited before becoming ready. Confirm "
+                f"'npm run serve:preview' succeeds in {docs_dir}.",
                 EXIT_USAGE,
             )
         time.sleep(_VISUAL_REVIEW_SERVER_POLL_INTERVAL_SECONDS)
@@ -827,6 +890,36 @@ def _start_visual_review_server(base_url: str) -> subprocess.Popen[str]:
     )
 
 
+def _terminate_owned_server(process: subprocess.Popen[str]) -> None:
+    """Stop a spawned server and every descendant it created.
+
+    npm runs the server in a child process, so stopping only the npm wrapper
+    orphans that child while it still holds the port. A later capture would then
+    find a listener this command does not own and reuse it instead of serving a
+    freshly built site.
+    """
+    pid = getattr(process, "pid", None)
+    if pid is not None:
+        if sys.platform == "win32":
+            # TerminateProcess stops only the named process. taskkill /T walks
+            # the tree, which is the only way to reach npm's server child.
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+            )
+            return
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+            return
+        except (OSError, ProcessLookupError):
+            pass
+
+    terminate = getattr(process, "terminate", None)
+    if callable(terminate):
+        terminate()
+
+
 def _stop_visual_review_server(process: subprocess.Popen[str] | None) -> None:
     """Stop a process created by this command without touching an existing server."""
     if process is None:
@@ -834,9 +927,7 @@ def _stop_visual_review_server(process: subprocess.Popen[str] | None) -> None:
     if process.poll() is not None:
         return
     try:
-        terminate = getattr(process, "terminate", None)
-        if callable(terminate):
-            terminate()
+        _terminate_owned_server(process)
         wait = getattr(process, "wait", None)
         if callable(wait):
             wait(timeout=5)
@@ -848,15 +939,53 @@ def _stop_visual_review_server(process: subprocess.Popen[str] | None) -> None:
             kill()
 
 
-def _ensure_visual_review_server(base_url: str) -> _VisualReviewServerLease:
-    """Reuse a healthy server or start one owned by this invocation.
+def _ensure_visual_review_server(
+    base_url: str, serve_mode: str = "auto"
+) -> _VisualReviewServerLease:
+    """Resolve server ownership for the configured serve mode.
 
     A startup failure is raised with its cause. Returning an unowned lease would
     be indistinguishable from reusing a healthy server, so capture would proceed
     against a server that is not running.
     """
+    mode = (serve_mode or "auto").strip().lower()
+    if mode in {"external", "off"}:
+        # The caller owns reachability. Probing would imply this command can
+        # manage a target it is not allowed to start or stop.
+        return _VisualReviewServerLease(None, False)
+
+    if mode not in {"auto", "served"}:
+        raise ScriptError(
+            f"Unsupported serveMode '{serve_mode}'. Use auto, served, external, "
+            "or off.",
+            EXIT_USAGE,
+        )
+
+    # auto and served manage or health-check a local server, so they accept only
+    # loopback targets. A non-loopback target remains valid under external/off
+    # once the existing allowlist or --allow-external guard authorizes it.
+    host = (urlparse(base_url).hostname or "").lower()
+    if host not in LOOPBACK_HOSTS:
+        raise ScriptError(
+            f"serveMode '{mode}' manages a local server and requires a loopback "
+            f"base URL, but '{base_url}' resolves to host '{host}'. Use "
+            "serveMode 'external' or 'off' for a target this command must not "
+            "manage.",
+            EXIT_USAGE,
+        )
+
     if _probe_visual_review_server(base_url):
         return _VisualReviewServerLease(None, False)
+
+    if mode == "served":
+        raise ScriptError(
+            f"serveMode 'served' expects a server already answering {base_url}. "
+            "Start it first (for example 'npm run serve:preview' in "
+            "docs/docusaurus), or set serveMode to 'auto' to let this command "
+            "start and stop its own server.",
+            EXIT_USAGE,
+        )
+
     return _VisualReviewServerLease(_start_visual_review_server(base_url), True)
 
 
@@ -1013,9 +1142,17 @@ def run(
     surface_filter: str | None = None,
     state_filter: str | None = None,
 ) -> dict[str, Any]:
-    """Execute the scoped runs and aggregate normalized probe results."""
+    """Execute the scoped runs and aggregate normalized probe results.
+
+    An operational failure stops the run. The harness has just shown it cannot
+    account for the state of the machine, so it does not keep driving it. The
+    evidence collected up to that point is retained and the document is marked
+    quarantined, because a run that did not finish is not a basis for a
+    conformance claim even though its findings are real.
+    """
     runs: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
+    operational_failure: dict[str, Any] | None = None
     for probe_id, surface_id, state in _iter_runs(
         config,
         probe_filter,
@@ -1032,13 +1169,24 @@ def run(
         )
         for item in payload.get("results", []):
             results.append(item)
-    return {
+
+        operational_failure = payload.get("operationalFailure")
+        if operational_failure:
+            if payload.get("cleanup"):
+                operational_failure["cleanup"] = payload["cleanup"]
+            break
+
+    document = {
         "tool": "runtime_a11y",
         "runAt": datetime.now(timezone.utc).isoformat(),
         "baseUrl": base_url,
         "runs": runs,
         "results": results,
     }
+    if operational_failure:
+        document["quarantined"] = True
+        document["operationalFailure"] = operational_failure
+    return document
 
 
 def _write_output(document: dict[str, Any], out_path: Path | None) -> None:
@@ -1134,7 +1282,16 @@ def _derive_at_plan_cases(
         allow_external=allow_external,
         require_target=require_target,
     )
-    matrix = Matrix.from_dict(payload)
+    matrix = apply_criteria_catalog(Matrix.from_dict(payload))
+    # A test plan derived from a quarantined matrix is still worth running for
+    # triage, but the operator reading a case has to be told the source run did
+    # not complete. Carrying the marker on each case means it survives selection,
+    # execution, and result export rather than living only on a wrapper document.
+    source_metadata = build_artifact_metadata(
+        catalog=catalog_provenance(),
+        quarantined=bool(payload.get("quarantined")),
+        quarantine_reason=(payload.get("operationalFailure") or {}).get("reason"),
+    ).to_dict()
     manual_cases = build_manual_test_cases(matrix, runtime_config)
     cases: list[dict[str, Any]] = []
     runtime_config_payload = _sanitize_runtime_config(runtime_config)
@@ -1205,6 +1362,7 @@ def _derive_at_plan_cases(
                 "sourceMatrixMetadata": {
                     "path": _safe_source_matrix_reference(matrix_path),
                     "sha256": hashlib.sha256(payload_bytes).hexdigest(),
+                    **source_metadata,
                 },
                 "ariaAtReferences": [
                     aria_at.get("sourceUrl"),
@@ -1247,13 +1405,24 @@ def _render_artifacts(
             "Matrix JSON must contain non-empty criteria and surfaces arrays.",
             EXIT_USAGE,
         )
+    matrix = apply_criteria_catalog(matrix)
     coverage = payload.get("coverage") or compute_coverage(matrix)
+    # A matrix derived from a quarantined run stays usable for triage, but every
+    # artifact it produces says so rather than presenting itself as a completed
+    # assessment.
+    metadata = build_artifact_metadata(
+        repository=repo_slug,
+        catalog=catalog_provenance(),
+        quarantined=bool(payload.get("quarantined")),
+        quarantine_reason=(payload.get("operationalFailure") or {}).get("reason"),
+    )
     paths = render_artifact_bundle(
         matrix,
         coverage,
         output_dir,
         repo_slug,
         runtime_config=runtime_config,
+        metadata=metadata,
     )
     return {
         "tool": "runtime_a11y",
@@ -1454,8 +1623,13 @@ def _cmd_run_at_plan(args: argparse.Namespace) -> int:
             EXIT_USAGE,
         ) from exc
     if args.list:
+        # The listing is what an operator reads before committing to a manual
+        # run, so it repeats the source-run marker instead of only naming cases.
+        source_metadata = cases[0]["sourceMatrixMetadata"] if cases else {}
         _write_output(
             {
+                "quarantined": bool(source_metadata.get("quarantined")),
+                "quarantineReason": source_metadata.get("quarantineReason"),
                 "cases": [
                     {
                         "id": case["caseId"],
@@ -1568,6 +1742,9 @@ def _cmd_capture_visual_review(args: argparse.Namespace) -> int:
     base_url = _resolve_guarded_base_url(
         config, args.base_url, allow_external=args.allow_external
     )
+    # Check dependencies before any server work so an unprepared checkout does
+    # not pay for a build and server startup before reporting the install step.
+    _require_harness_dependencies("running visual review capture")
     run_root = (
         _resolve_repo_path(args.run_root, kind="--run-root")
         if args.run_root is not None
@@ -1579,7 +1756,9 @@ def _cmd_capture_visual_review(args: argparse.Namespace) -> int:
     server_process = None
     server_owned = False
     try:
-        server_process, server_owned = _ensure_visual_review_server(base_url)
+        server_process, server_owned = _ensure_visual_review_server(
+            base_url, config.get("serveMode", "auto")
+        )
         payload = _run_visual_review_capture(
             config,
             base_url,
@@ -1724,7 +1903,9 @@ def _cmd_run_calibration(args: argparse.Namespace) -> int:
     _emit_live_test_start_notice(run_root, len(journey_ids))
     try:
         if (config.get("visualReview") or {}).get("enabled") is True:
-            server_process, server_owned = _ensure_visual_review_server(base_url)
+            server_process, server_owned = _ensure_visual_review_server(
+                base_url, config.get("serveMode", "auto")
+            )
         payload = _run_calibration_session(
             config_for_execution,
             base_url,
@@ -1784,6 +1965,20 @@ def main(argv: list[str] | None = None) -> int:
         return exc.exit_code
 
     _write_output(document, args.out)
+    if document.get("quarantined"):
+        # Evidence is persisted first so a failed run is still diagnosable, then
+        # the operational failure is reported. An unverified screen-reader stop
+        # means the operator should confirm the state of their machine, and
+        # their own assistive technology, before running anything further.
+        failure = document.get("operationalFailure") or {}
+        print(
+            "Error: run stopped after an operational failure "
+            f"({failure.get('reason', 'reason not recorded')}). "
+            "Evidence collected before the failure was written and is marked "
+            "quarantined. Confirm the machine state before starting another run.",
+            file=sys.stderr,
+        )
+        return EXIT_FAILURE
     return EXIT_SUCCESS
 
 

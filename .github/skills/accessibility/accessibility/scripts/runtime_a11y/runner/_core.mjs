@@ -47,6 +47,7 @@ export async function buildProbeResults({
   decideStatus = 'pass',
   informStatus = 'candidate',
   statusByCriterion = null,
+  method = 'runtime-automation',
 }) {
   const entry = await loadProbeCriteriaMap(probeId);
   return buildResultsFromEntry({
@@ -58,6 +59,7 @@ export async function buildProbeResults({
     decideStatus,
     informStatus,
     statusByCriterion,
+    method,
   });
 }
 
@@ -72,6 +74,7 @@ export function buildResultsFromEntry({
   decideStatus = 'pass',
   informStatus = 'candidate',
   statusByCriterion = null,
+  method = 'runtime-automation',
 }) {
   const results = [];
   const criteriaList = [
@@ -98,7 +101,7 @@ export function buildResultsFromEntry({
       surfaceId,
       state,
       status,
-      method: 'runtime-automation',
+      method,
       evidence: `${probeId} evaluated ${redactUrl(evidence)} for ${item.criterionId}`,
       severity: item.criterionId === '2.5.8' ? 'moderate' : 'minor',
     });
