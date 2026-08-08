@@ -107,6 +107,11 @@ jobs:
           # transformers; CNRI-Python is a permissive PSF-style license. The
           # moderation eval is an internal test harness, not a distributed
           # product.
+          # pkg:pypi/pyyaml is MIT licensed per its own source repository, but
+          # its PyPI metadata declares no SPDX expression, so the action cannot
+          # match it against allow-licenses. It is a direct dependency of the
+          # architecture-diagrams, ds-catalog, and ds-feasibility skills, which
+          # parse YAML through yaml.SafeLoader.
           allow-dependencies-licenses: >-
             pkg:pypi/lxml,
             pkg:pypi/typing-extensions,
@@ -126,6 +131,7 @@ jobs:
             pkg:pypi/safetensors,
             pkg:pypi/regex,
             pkg:pypi/tqdm,
+            pkg:pypi/pyyaml,
             pkg:npm/dompurify,
             pkg:npm/lunr-languages,
             pkg:npm/%40github/copilot,
