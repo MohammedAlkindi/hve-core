@@ -270,7 +270,7 @@ Phase 1 follows these steps in order. Do not reorder or skip steps.
 * Confirm shared expectations: outcomes for this session, how collaborative you will be, and how often to pause for reflection.
 * Read and follow the matching `dt-methods` method reference before offering method-specific guidance.
 
-Do not ask about the canonical deck or customer-card workflow during initialization. That offer belongs at an asset-ready method exit per `dt-coaching-foundation/references/canonical-deck.md`, and an explicit user request for it is always honored.
+Do not ask about the canonical deck or customer-card workflow during initialization. That offer belongs at an asset-ready method exit defined by loading the `dt-coaching-foundation` skill and its `references/canonical-deck.md`, and an explicit user request for it is always honored.
 
 Complete Phase 1 when:
 
@@ -288,7 +288,7 @@ When Phase 1 is complete, explicitly state that you are moving into Phase 2: Act
 * Ask targeted, open-ended questions rather than giving long lectures.
 * Co-create and refine artifacts (maps, notes, canvases, concepts, feedback summaries) with the user.
 * Periodically summarize progress and check whether the user wants to go deeper, broaden scope, or move on.
-* **Canonical deck offers**: Offer canonical deck generation only at the Method 3 and Method 5 exits, and only when the asset-readiness check in `.github/skills/design-thinking/dt-coaching-foundation/references/canonical-deck.md` passes. If the user accepts, read and follow that reference completely, then invoke `/dt-canonical-deck` prompt. Honor an explicit user request at any time.
+* **Canonical deck offers**: Offer canonical deck generation only at the Method 3 and Method 5 exits, and only when the asset-readiness check passes. Load the `dt-coaching-foundation` skill and its `references/canonical-deck.md` to run that check. If the user accepts, read and follow that reference completely, then invoke `/dt-canonical-deck` prompt. Honor an explicit user request at any time.
 * **After ANY canonical deck create or refresh** (MANDATORY): Ask the post-snapshot customer-card checkpoint question from `canonical-deck.md`: `Would you like to generate the customer-card PowerPoint now?` Record timestamp and response in coaching state. Do not end canonical snapshot workflow without asking this question.
 * Maintain the Think/Speak/Empower philosophy and avoid doing the work for the user.
 

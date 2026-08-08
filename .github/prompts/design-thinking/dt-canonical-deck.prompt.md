@@ -22,7 +22,7 @@ Single prompt that handles both canonical deck and customer-card build flows.
 
 1. Canonical workflow is available on request at any time, and offered automatically only at eligible asset-ready method exits.
 2. Decline is valid and non-blocking. Do not gate method transitions.
-3. Apply canonical workflow rules from `.github/skills/design-thinking/dt-coaching-foundation/references/canonical-deck.md`.
+3. Apply canonical workflow rules by loading the `dt-coaching-foundation` skill and its `references/canonical-deck.md`.
 
 ## Step 1: Resolve Project Slug
 
