@@ -138,8 +138,7 @@ def apply_criteria_catalog(
     because an unlisted criterion has no reviewed adequacy rule behind it.
     """
     catalog = {
-        (entry.framework, entry.id): entry
-        for entry in load_criteria_catalog(base_dir)
+        (entry.framework, entry.id): entry for entry in load_criteria_catalog(base_dir)
     }
 
     criteria: list[Criterion] = []
@@ -196,7 +195,5 @@ def catalog_provenance(base_dir: str | Path | None = None) -> dict[str, Any]:
         }
     return {
         "partitions": partitions,
-        "reviewed": all(
-            entry["reviewedBy"] for entry in partitions.values()
-        ),
+        "reviewed": all(entry["reviewedBy"] for entry in partitions.values()),
     }

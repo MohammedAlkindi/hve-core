@@ -196,4 +196,3 @@ def render_earl(
     document = build_earl(matrix, coverage, metadata)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-

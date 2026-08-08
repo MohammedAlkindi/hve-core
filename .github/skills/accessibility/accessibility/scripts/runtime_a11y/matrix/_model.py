@@ -180,4 +180,3 @@ class Matrix:
                 for cell in self.cells
             ],
         }
-

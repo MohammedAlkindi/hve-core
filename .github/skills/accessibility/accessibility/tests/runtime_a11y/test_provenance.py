@@ -24,9 +24,7 @@ def _matrix() -> Matrix:
                 adequateMethods={"screen-reader", "runtime-automation"},
             )
         ],
-        surfaces=[
-            Surface(id="home", name="Home", platform="web", states=["default"])
-        ],
+        surfaces=[Surface(id="home", name="Home", platform="web", states=["default"])],
         cells=[
             Cell(
                 criterionId="4.1.2",

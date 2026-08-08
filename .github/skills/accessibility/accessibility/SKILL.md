@@ -227,12 +227,12 @@ uv run scripts/runtime_a11y/__main__.py capture-visual-review \
 
 `serveMode` in the runtime config decides whether the harness manages a server for `capture-visual-review`.
 
-| `serveMode` | Behavior                                                                                          |
-|-------------|---------------------------------------------------------------------------------------------------|
-| `auto`      | Reuses a healthy server at the configured loopback origin, otherwise builds and starts one it owns and stops afterward. |
+| `serveMode` | Behavior                                                                                                                                     |
+|-------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `auto`      | Reuses a healthy server at the configured loopback origin, otherwise builds and starts one it owns and stops afterward.                      |
 | `served`    | Requires a server already answering the configured loopback origin, and fails with the expected origin and start command when none responds. |
-| `external`  | Never probes or starts a server. The configured target must already be reachable.                 |
-| `off`       | Never probes or starts a server.                                                                  |
+| `external`  | Never probes or starts a server. The configured target must already be reachable.                                                            |
+| `off`       | Never probes or starts a server.                                                                                                             |
 
 `auto` and `served` accept only loopback origins, because the harness will not manage or health-probe a remote server. A non-loopback target still requires the allowlist or `--allow-external`, and is only valid with `external` or `off`.
 

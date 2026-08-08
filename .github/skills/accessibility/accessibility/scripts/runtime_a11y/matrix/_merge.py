@@ -86,4 +86,3 @@ def merge_updates(matrix: Matrix, updates: list[CandidateUpdate]) -> Matrix:
                 )
                 break
     return Matrix(criteria=matrix.criteria, surfaces=matrix.surfaces, cells=cells)
-

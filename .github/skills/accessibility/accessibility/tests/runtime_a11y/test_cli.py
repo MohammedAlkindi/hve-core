@@ -287,10 +287,17 @@ def test_visual_review_server_helpers_probe_and_start_handlers(
         def wait(self, timeout: int | None = None) -> None:
             return None
 
-    def fake_popen(command, cwd, stdout, stderr, stdin, text, env) -> FakeProcess:
+    # Accepts **kwargs because the caller passes platform-specific process-group
+    # arguments. Pinning the signature to one platform's argument set makes this
+    # fake pass on Windows and fail on Linux for a reason unrelated to the test.
+    def fake_popen(
+        command, cwd, stdout, stderr, stdin, text, env, **kwargs
+    ) -> FakeProcess:
         assert command[0].lower().endswith("npm") or command[0].lower().endswith(
             "npm.cmd"
         )
+        if sys.platform != "win32":
+            assert kwargs.get("start_new_session") is True
         return FakeProcess()
 
     monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)

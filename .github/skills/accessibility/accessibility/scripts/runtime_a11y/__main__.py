@@ -1637,7 +1637,7 @@ def _cmd_run_at_plan(args: argparse.Namespace) -> int:
                         "automationExclusionReason": case["automationExclusionReason"],
                     }
                     for case in cases
-                ]
+                ],
             },
             None,
         )
