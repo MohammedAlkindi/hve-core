@@ -27,6 +27,12 @@ BLOCK_PATTERN = re.compile(
     re.escape(BEGIN_MARKER) + r"\s*```yaml\s*(.*?)\s*```\s*" + re.escape(END_MARKER),
     re.DOTALL,
 )
+# Deterministic scan bounds used instead of backtracking across the whole study.
+BLOCK_OPEN_PATTERN = re.compile(re.escape(BEGIN_MARKER) + r"[^\S\n]*\n?[^\S\n]*```yaml")
+BLOCK_CLOSE_PATTERN = re.compile(r"```[^\S\n]*\n?[^\S\n]*" + re.escape(END_MARKER))
+# A fence opens on three or more backticks or tildes indented no more than three
+# spaces. A backtick info string may not contain a backtick.
+FENCE_PATTERN = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 
 # A study allocates a requirement only when an item identity or a narrative
 # heading is itself an FR or NFR reference. Prose citations remain valid.
@@ -158,13 +164,74 @@ def build_format_checker() -> FormatChecker:
 
 
 def extract_profile_yaml(markdown: str) -> str:
-    """Extract the one authoritative profile block."""
-    blocks = BLOCK_PATTERN.findall(markdown)
+    """Extract the one authoritative profile block.
+
+    Scans forward deterministically instead of applying a lazy pattern across
+    the whole study, so a study carrying many unterminated begin markers cannot
+    force quadratic backtracking before the block count is known.
+    """
+    blocks: list[str] = []
+    search_from = 0
+    while True:
+        opening = BLOCK_OPEN_PATTERN.search(markdown, search_from)
+        if opening is None:
+            break
+        closing = BLOCK_CLOSE_PATTERN.search(markdown, opening.end())
+        if closing is None:
+            break
+        blocks.append(markdown[opening.end() : closing.start()].strip("\r\n"))
+        search_from = closing.end()
+        if len(blocks) > 1:
+            break
     if len(blocks) != 1:
         raise FeasibilityValidationError(
             "study must contain exactly one named FEASIBILITY-STUDY-INTERCHANGE block"
         )
     return blocks[0]
+
+
+def _blank_lines(text: str) -> str:
+    """Return a line- and column-preserving blank replacement."""
+    return re.sub(r"[^\r\n]", " ", text)
+
+
+def _strip_fenced_blocks(markdown: str) -> str:
+    """Blank every CommonMark fenced code block.
+
+    A fence closes on the same character, at the same length or longer, with no
+    info string. Content is blanked rather than deleted so removed regions
+    cannot splice neighbouring text into a match.
+    """
+    stripped: list[str] = []
+    open_fence: str | None = None
+    for line in markdown.split("\n"):
+        match = FENCE_PATTERN.match(line)
+        marker = match.group("fence") if match else ""
+        info = match.group("info") if match else ""
+        if open_fence is None:
+            if marker and not (marker[0] == "`" and "`" in info):
+                open_fence = marker
+                stripped.append("")
+                continue
+            stripped.append(line)
+            continue
+        if (
+            marker
+            and marker[0] == open_fence[0]
+            and len(marker) >= len(open_fence)
+            and not info.strip()
+        ):
+            open_fence = None
+        stripped.append("")
+    return "\n".join(stripped)
+
+
+def narrative_text(markdown: str) -> str:
+    """Return prose with the authoritative block and fenced code blanked."""
+    without_block = BLOCK_PATTERN.sub(
+        lambda match: _blank_lines(match.group(0)), markdown
+    )
+    return _strip_fenced_blocks(without_block)
 
 
 def _assert_json_compatible(value: Any, path: str = "$") -> None:
@@ -198,9 +265,18 @@ def parse_profile(markdown: str) -> dict[str, Any]:
         parsed = yaml.load(extract_profile_yaml(markdown), Loader=UniqueKeyLoader)
     except yaml.YAMLError as error:
         raise FeasibilityValidationError(_sanitize_yaml_error(error)) from error
+    except RecursionError as error:
+        raise FeasibilityValidationError(
+            "profile block is nested too deeply"
+        ) from error
     if not isinstance(parsed, dict):
         raise FeasibilityValidationError("profile block must parse to an object")
-    _assert_json_compatible(parsed)
+    try:
+        _assert_json_compatible(parsed)
+    except RecursionError as error:
+        raise FeasibilityValidationError(
+            "profile block is nested too deeply"
+        ) from error
     return parsed
 
 
@@ -254,7 +330,7 @@ def requirement_allocation_errors(
                 f"{display_ref} cannot allocate an FR or NFR identifier as its "
                 "own display_ref"
             )
-    for heading_ref in REQUIREMENT_HEADING_PATTERN.findall(markdown):
+    for heading_ref in REQUIREMENT_HEADING_PATTERN.findall(narrative_text(markdown)):
         errors.append(
             f"narrative heading cannot allocate FR or NFR identifier {heading_ref}"
         )
@@ -403,7 +479,7 @@ def validate_profile(
             errors.append(f"{item['display_ref']} merge lineage needs two predecessors")
 
     expected_anchors = {item["display_ref"] for item in items}
-    actual_anchors = NARRATIVE_ANCHOR_PATTERN.findall(markdown)
+    actual_anchors = NARRATIVE_ANCHOR_PATTERN.findall(narrative_text(markdown))
     duplicate_anchors = _duplicates(actual_anchors)
     if duplicate_anchors:
         errors.append(

@@ -708,3 +708,29 @@ def test_given_cli_invocation_when_main_runs_then_validates_the_example(
     # Assert
     assert result == 0
     assert '"valid": true' in capsys.readouterr().out
+
+
+def test_given_deeply_nested_yaml_when_parsed_then_raises_catalog_error() -> None:
+    # Arrange
+    frontmatter = _frontmatter("deep: " + "[" * 5000 + "]" * 5000 + "\n")
+
+    # Act / Assert
+    with pytest.raises(CatalogValidationError):
+        parse_catalog(frontmatter)
+
+
+def test_given_deeply_nested_yaml_when_run_then_reports_operational_error(
+    tmp_path, capsys
+) -> None:
+    # Arrange
+    catalog = tmp_path / "deep-catalog.md"
+    catalog.write_text(
+        _frontmatter("deep: " + "[" * 5000 + "]" * 5000 + "\n"), encoding="utf-8"
+    )
+
+    # Act
+    result = run(catalog, allowed_roots=[tmp_path])
+
+    # Assert
+    assert result == 2
+    assert "validate_catalog:" in capsys.readouterr().err

@@ -195,9 +195,18 @@ def parse_catalog(markdown: str) -> dict[str, Any]:
         parsed = yaml.load(extract_frontmatter(markdown), Loader=UniqueKeyLoader)
     except yaml.YAMLError as error:
         raise CatalogValidationError(_sanitize_yaml_error(error)) from error
+    except RecursionError as error:
+        raise CatalogValidationError(
+            "catalog frontmatter is nested too deeply"
+        ) from error
     if not isinstance(parsed, dict):
         raise CatalogValidationError("catalog frontmatter must be an object")
-    _assert_json_compatible(parsed)
+    try:
+        _assert_json_compatible(parsed)
+    except RecursionError as error:
+        raise CatalogValidationError(
+            "catalog frontmatter is nested too deeply"
+        ) from error
     return parsed
 
 

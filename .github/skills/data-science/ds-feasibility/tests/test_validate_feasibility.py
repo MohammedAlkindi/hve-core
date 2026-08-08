@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import time
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from validate_feasibility import (
     BEGIN_MARKER,
     END_MARKER,
+    NARRATIVE_ANCHOR_PATTERN,
     FeasibilityValidationError,
     _assert_json_compatible,
     _is_rfc3339_date_time,
@@ -24,6 +26,7 @@ from validate_feasibility import (
     extract_profile_yaml,
     load_schema,
     main,
+    narrative_text,
     parse_profile,
     read_study_text,
     requirement_allocation_errors,
@@ -529,3 +532,50 @@ def test_given_cli_invocation_when_main_runs_then_validates_the_example(
     # Assert
     assert result == 0
     assert '"valid": true' in capsys.readouterr().out
+
+
+def test_given_many_unterminated_begin_markers_when_extracted_then_fails_quickly() -> (
+    None
+):
+    # Arrange
+    hostile = (f"{BEGIN_MARKER}\n```yaml\n" * 20000) + "never closed\n"
+
+    # Act
+    started = time.monotonic()
+    with pytest.raises(FeasibilityValidationError):
+        extract_profile_yaml(hostile)
+    elapsed = time.monotonic() - started
+
+    # Assert
+    assert elapsed < 5.0
+
+
+def test_given_deeply_nested_yaml_when_parsed_then_raises_feasibility_error() -> None:
+    # Arrange
+    study = _block("deep: " + "[" * 5000 + "]" * 5000 + "\n")
+
+    # Act / Assert
+    with pytest.raises(FeasibilityValidationError):
+        parse_profile(study)
+
+
+def test_given_requirement_heading_in_fence_when_checked_then_not_allocated() -> None:
+    # Arrange
+    markdown = "```text\n### FR-101: fenced sample\n```\n"
+
+    # Act
+    errors = requirement_allocation_errors([], markdown)
+
+    # Assert
+    assert errors == []
+
+
+def test_given_anchor_inside_fence_when_narrative_read_then_anchor_is_ignored() -> None:
+    # Arrange
+    markdown = "```text\n### FS-001: fenced anchor\n```\n### FS-002: real anchor\n"
+
+    # Act
+    anchors = NARRATIVE_ANCHOR_PATTERN.findall(narrative_text(markdown))
+
+    # Assert
+    assert anchors == ["FS-002"]
