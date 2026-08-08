@@ -941,8 +941,7 @@ class TestManualDecidingCustom:
         return _SIMPLE_RECORD.replace(
             "        method: runtime-automation\n"
             "        assert: probe-keyboard-traversal\n",
-            "        method: cognitive-walkthrough\n"
-            "        assert: custom\n",
+            "        method: cognitive-walkthrough\n        assert: custom\n",
         ).replace("        blocking: true\n", "        blocking: true\n" + override)
 
     def test_given_deciding_custom_without_review_when_checked_then_uncovered(

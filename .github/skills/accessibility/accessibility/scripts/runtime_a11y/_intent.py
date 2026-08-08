@@ -186,9 +186,7 @@ def _load_probe_adequacy() -> dict[str, dict[str, set[tuple[str, str, str]]]]:
 def _surface_states(config: dict[str, Any]) -> dict[str, set[str]]:
     """Project one runtime config into a surface-to-state lookup."""
     return {
-        str(surface["id"]): {
-            str(state["state"]) for state in surface.get("states", [])
-        }
+        str(surface["id"]): {str(state["state"]) for state in surface.get("states", [])}
         for surface in config.get("surfaces", [])
         if isinstance(surface, dict) and surface.get("id")
     }
@@ -678,9 +676,11 @@ def _require_secure_write_support() -> None:
     """Require the POSIX handle-relative primitives used by artifact writes."""
     required_dir_fd = (os.open, os.mkdir, os.stat, os.rename, os.unlink)
     flags = ("O_DIRECTORY", "O_NOFOLLOW")
-    if os.name != "posix" or any(
-        function not in os.supports_dir_fd for function in required_dir_fd
-    ) or any(not hasattr(os, flag) for flag in flags):
+    if (
+        os.name != "posix"
+        or any(function not in os.supports_dir_fd for function in required_dir_fd)
+        or any(not hasattr(os, flag) for flag in flags)
+    ):
         raise ScriptError(
             "Secure verification artifact writes require POSIX dir_fd, "
             "O_DIRECTORY, and O_NOFOLLOW support",
@@ -779,8 +779,7 @@ def _write_verification_artifact(
         relative = absolute_destination.relative_to(approved_root)
     except ValueError as exc:
         raise ScriptError(
-            f"Verification destination escapes the record directory: "
-            f"{destination}",
+            f"Verification destination escapes the record directory: {destination}",
             EXIT_USAGE,
         ) from exc
     if relative.name in {"", ".", ".."}:
