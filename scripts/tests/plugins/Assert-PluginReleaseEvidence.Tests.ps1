@@ -608,7 +608,7 @@ Describe 'New-PluginCanonicalEvidenceDocument' -Tag 'Unit' {
         $script:canonicalPackages = Get-PluginCanonicalPackageEvidence -RepoRoot $script:documentCanonicalRepo `
             -CatalogPath '.github/plugin/marketplace.json' -Channel PreRelease
         $script:canonicalLocator = New-PluginReleaseLocator -Version '9.9.9' -Repo 'contoso/contoso-hve' `
-            -TagPrefix 'hve-core-v' -PathPrefix ''
+            -TagPrefix 'prerelease-v' -PathPrefix ''
         $script:canonicalDocument = New-PluginCanonicalEvidenceDocument -SourceCommit $script:SourceCommit `
             -Version '9.9.9' -Locator $script:canonicalLocator -PackageEvidence $script:canonicalPackages
     }
@@ -625,9 +625,9 @@ Describe 'New-PluginCanonicalEvidenceDocument' -Tag 'Unit' {
             )
         }
 
-        It 'Binds a pathless hve-core-v locator' {
+        It 'Binds a pathless channel release locator' {
             @($script:canonicalDocument['locator'].Keys) | Should -Be @('source', 'repo', 'ref')
-            $script:canonicalDocument['locator']['ref'] | Should -BeExactly 'hve-core-v9.9.9'
+            $script:canonicalDocument['locator']['ref'] | Should -BeExactly 'prerelease-v9.9.9'
             $script:canonicalDocument['locator']['repo'] | Should -BeExactly 'contoso/contoso-hve'
             ($script:canonicalDocument | ConvertTo-Json -Depth 10) | Should -Not -Match '"path"'
             ($script:canonicalDocument | ConvertTo-Json -Depth 10) | Should -Not -Match '"sha"'
@@ -649,7 +649,7 @@ Describe 'New-PluginCanonicalEvidenceDocument' -Tag 'Unit' {
         }
 
         It 'Refuses a locator that declares a package path' {
-            $pathed = New-PluginReleaseLocator -Version '9.9.9' -TagPrefix 'hve-core-v' -PathPrefix 'plugins'
+            $pathed = New-PluginReleaseLocator -Version '9.9.9' -TagPrefix 'prerelease-v' -PathPrefix 'plugins'
             { New-PluginCanonicalEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
                     -Locator $pathed -PackageEvidence $script:canonicalPackages } |
                 Should -Throw -ExpectedMessage '*must use a pathless locator*'
@@ -687,7 +687,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
         $env:HVE_PLUGIN_STAGING_ROOT = ''
         $script:canonicalRunRepo = New-CanonicalEvidenceRepository -Root (Join-Path $TestDrive ([System.Guid]::NewGuid().ToString()))
         $script:canonicalRun = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-            -SourceCommit $script:SourceCommit -ReleaseTag 'hve-core-v9.9.9' `
+            -SourceCommit $script:SourceCommit -ReleaseTag 'prerelease-v9.9.9' `
             -OutputPath 'logs/plugin-release-evidence.json'
     }
 
@@ -699,7 +699,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
 
         It 'Records the canonical schema and pathless locator' {
             $script:canonicalRun.Evidence['schema'] | Should -BeExactly 'hve-core/plugin-release-evidence/v2'
-            $script:canonicalRun.Evidence['locator']['ref'] | Should -BeExactly 'hve-core-v9.9.9'
+            $script:canonicalRun.Evidence['locator']['ref'] | Should -BeExactly 'prerelease-v9.9.9'
             $script:canonicalRun.Evidence['locator'].Contains('path') | Should -BeFalse
         }
 
@@ -714,7 +714,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
     Context 'when verifying recorded canonical evidence' {
         It 'Self-verifies through the expected-evidence mode' {
             $verify = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-                -SourceCommit $script:SourceCommit -ReleaseTag 'hve-core-v9.9.9' `
+                -SourceCommit $script:SourceCommit -ReleaseTag 'prerelease-v9.9.9' `
                 -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
             $verify.Success | Should -BeTrue
             $verify.ErrorCount | Should -Be 0
@@ -725,7 +725,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
                 -RelativePath '.github/agents/rpi/rpi-planner.agent.md' `
                 -Content "---`ndescription: Plans RPI work`n---`n`n# Tampered`n" | Out-Null
             $verify = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-                -SourceCommit $script:SourceCommit -ReleaseTag 'hve-core-v9.9.9' `
+                -SourceCommit $script:SourceCommit -ReleaseTag 'prerelease-v9.9.9' `
                 -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
             $verify.Success | Should -BeFalse
             ($verify.Errors -join ' ') | Should -Match "package 'rpi' digest disagreement"
@@ -738,7 +738,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
             )
             Add-PluginFixtureCatalog -RepoRoot $script:canonicalRunRepo -Entries $entries -Version '9.9.9' | Out-Null
             $verify = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-                -SourceCommit $script:SourceCommit -ReleaseTag 'hve-core-v9.9.9' `
+                -SourceCommit $script:SourceCommit -ReleaseTag 'prerelease-v9.9.9' `
                 -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
             $verify.Success | Should -BeFalse
             ($verify.Errors -join ' ') | Should -Match "package 'ado' is recorded in evidence but absent from the snapshot"
@@ -746,7 +746,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
 
         It 'Refuses evidence computed from a different source commit' {
             $verify = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-                -SourceCommit 'fedcba9876543210fedcba9876543210fedcba98' -ReleaseTag 'hve-core-v9.9.9' `
+                -SourceCommit 'fedcba9876543210fedcba9876543210fedcba98' -ReleaseTag 'prerelease-v9.9.9' `
                 -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
             $verify.Success | Should -BeFalse
             ($verify.Errors -join ' ') | Should -Match 'sourceCommit disagreement'
@@ -758,7 +758,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
             $recorded['locator']['path'] = 'plugins'
             Set-Content -LiteralPath $recordedPath -Value ($recorded | ConvertTo-Json -Depth 10) -Encoding utf8NoBOM
             $verify = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-                -SourceCommit $script:SourceCommit -ReleaseTag 'hve-core-v9.9.9' `
+                -SourceCommit $script:SourceCommit -ReleaseTag 'prerelease-v9.9.9' `
                 -OutputPath '' -ExpectedEvidencePath 'logs/plugin-release-evidence.json'
             $verify.Success | Should -BeFalse
             ($verify.Errors -join ' ') | Should -Match "locator.path disagreement: recorded 'plugins'"
@@ -768,14 +768,14 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
     Context 'when a package count precondition is supplied' {
         It 'Accepts the resolved package count' {
             $run = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-                -SourceCommit $script:SourceCommit -ReleaseTag 'hve-core-v9.9.9' `
+                -SourceCommit $script:SourceCommit -ReleaseTag 'prerelease-v9.9.9' `
                 -OutputPath '' -ExpectedPackageCount 2
             $run.Success | Should -BeTrue
         }
 
         It 'Refuses a package count the catalog does not meet' {
             $run = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `
-                -SourceCommit $script:SourceCommit -ReleaseTag 'hve-core-v9.9.9' `
+                -SourceCommit $script:SourceCommit -ReleaseTag 'prerelease-v9.9.9' `
                 -OutputPath '' -ExpectedPackageCount 3
             $run.Success | Should -BeFalse
             ($run.Errors -join ' ') | Should -Match 'package count precondition failed: expected 3, snapshot has 2'

@@ -16,7 +16,8 @@
     Evidence v2 is the canonical shape. It digests each package's declared
     canonical git-tracked source set resolved from the marketplace catalog, so it
     needs no generated tree and no staging root, and its locator addresses the
-    ordinary 'hve-core-v<version>' release tag without a package path.
+    exact channel release tag, 'prerelease-v<version>' or 'v<version>', without a
+    package path.
 
     Evidence v1 remains selectable for generated-tree projections. It digests a
     materialized package tree and its locator addresses 'plugins-v<version>'.
@@ -546,9 +547,9 @@ function New-PluginCanonicalEvidenceDocument {
 
     .DESCRIPTION
         Binds the immutable source commit, the package version, the pathless
-        'hve-core-v<version>' locator, and the canonical package digests. The
-        locator carries no package path because the evidence addresses the
-        repository at the release tag rather than a projected package tree.
+        channel release locator, and the canonical package digests. The locator
+        carries no package path because the evidence addresses the repository
+        at the release tag rather than a projected package tree.
 
     .PARAMETER SourceCommit
         Full 40-character commit id the evidence was computed from.
@@ -587,9 +588,9 @@ function New-PluginCanonicalEvidenceDocument {
         throw "Source commit '$SourceCommit' must be a full 40-character lowercase commit id."
     }
 
-    $expectedRef = "hve-core-v$Version"
-    if ($Locator.Ref -ne $expectedRef) {
-        throw "Release locator '$($Locator.Ref)' does not match package version '$Version' (expected '$expectedRef')."
+    $expectedRefs = @("v$Version", "prerelease-v$Version")
+    if ($Locator.Ref -cnotin $expectedRefs) {
+        throw "Release locator '$($Locator.Ref)' does not match package version '$Version' (expected '$($expectedRefs -join "' or '")')."
     }
 
     if (-not [string]::IsNullOrEmpty([string]$Locator.PathPrefix)) {
@@ -848,7 +849,14 @@ function Invoke-PluginReleaseEvidence {
             -TreeEvidence $treeEvidence
     }
     else {
-        $locatorArgs = @{ TagPrefix = 'hve-core-v'; PathPrefix = '' }
+        # The supplied tag selects its own namespace; a derived tag follows the
+        # requested channel.
+        $tagPrefix = if (-not [string]::IsNullOrWhiteSpace($ReleaseTag)) {
+            if ($ReleaseTag.StartsWith('prerelease-v', [System.StringComparison]::Ordinal)) { 'prerelease-v' } else { 'v' }
+        }
+        elseif ($Channel -eq 'PreRelease') { 'prerelease-v' }
+        else { 'v' }
+        $locatorArgs = @{ TagPrefix = $tagPrefix; PathPrefix = '' }
         $locator = if ([string]::IsNullOrWhiteSpace($ReleaseTag)) {
             New-PluginReleaseLocator -Version $Version @locatorArgs
         }

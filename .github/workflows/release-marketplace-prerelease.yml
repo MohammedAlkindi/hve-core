@@ -47,14 +47,14 @@ jobs:
           set -euo pipefail
           if [[ "$EVENT_NAME" == "release" ]]; then
             TAG="$EVENT_TAG"
-            if ! [[ "$TAG" =~ ^hve-core-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if ! [[ "$TAG" =~ ^prerelease-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::Release tag has an invalid pre-release version form"
               exit 1
             fi
-            VERSION="${TAG#hve-core-v}"
+            VERSION="${TAG#prerelease-v}"
             echo "Resolved version from release tag: $VERSION"
           else
-            VERSION="${MANUAL_VERSION#hve-core-v}"
+            VERSION="${MANUAL_VERSION#prerelease-v}"
             VERSION="${VERSION#v}"
             if [ -n "$VERSION" ] && ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::Manual version has an invalid MAJOR.MINOR.PATCH form"
@@ -71,9 +71,9 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           VERSION="$INPUT_VERSION"
-          # Strip leading 'v' or 'hve-core-v' prefix if present
+          # Strip the channel tag prefix if present
+          VERSION="${VERSION#prerelease-v}"
           VERSION="${VERSION#v}"
-          VERSION="${VERSION#hve-core-v}"
 
           # Auto-detect from latest pre-release tag when no version specified
           if [ -z "$VERSION" ]; then
@@ -81,7 +81,7 @@ jobs:
               -q '[.[] | select(.isPrerelease)] | .[0].tagName // empty' \
               -R "$REPOSITORY")
             if [ -n "$TAG" ]; then
-              VERSION="${TAG#hve-core-v}"
+              VERSION="${TAG#prerelease-v}"
               echo "📦 Auto-detected pre-release version: $VERSION"
             else
               echo "::error::No pre-release found. Provide a version manually (e.g., 3.1.44)"
@@ -105,7 +105,7 @@ jobs:
 
           echo "✅ Valid pre-release version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=hve-core-v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=prerelease-v$VERSION" >> "$GITHUB_OUTPUT"
 
   package:
     name: Package Pre-Release Extensions

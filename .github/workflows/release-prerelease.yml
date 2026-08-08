@@ -64,6 +64,8 @@ jobs:
       - name: Validate release-please outputs
         id: release-pr
         env:
+          EVENT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           MERGED_HEAD: ${{ github.event.pull_request.head.ref }}
           PRS_CREATED: ${{ steps.release.outputs.prs_created }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}
@@ -72,6 +74,7 @@ jobs:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
           RELEASE_BODY: ${{ steps.release.outputs.body }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -92,12 +95,54 @@ jobs:
             exit 1
           fi
 
+          # Release-please is the sole tag writer. A managed rerun creates
+          # nothing, so the release it already created at this immutable merge
+          # commit is recovered into the job outputs from the manifest at that
+          # commit rather than from the moving branch. validate-release keeps
+          # sole ownership of tag-target and channel-state classification.
+          if [ "$MERGED_HEAD" = 'release-please--branches--release/prerelease' ] && [ "$RELEASE_CREATED" != 'true' ]; then
+            RELEASE_VERSION=$(gh api \
+              "/repos/$REPOSITORY/contents/.release-please-prerelease-manifest.json?ref=$EVENT_SHA" \
+              --jq '.content' 2>/dev/null | base64 --decode | jq -r '.["."] // ""' || true)
+            if ! printf '%s' "$RELEASE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::.release-please-prerelease-manifest.json at $EVENT_SHA carries no MAJOR.MINOR.PATCH root version; rerun tag-only creation before retrying downstream jobs"
+              exit 1
+            fi
+            RELEASE_TAG="prerelease-v$RELEASE_VERSION"
+            # Release-please creates the release as a draft, and a draft is
+            # absent from /releases/tags/{tag}. The release list is paginated
+            # and matched on exact tag_name instead, so a transport, auth, or
+            # parse failure is terminal rather than an absent release.
+            if ! RELEASE_LIST=$(gh api --paginate "/repos/$REPOSITORY/releases?per_page=100"); then
+              echo "::error::Unable to list releases for $REPOSITORY while recovering $RELEASE_TAG; resolve the failure before rerunning"
+              exit 1
+            fi
+            if ! MATCHED_RELEASES=$(printf '%s' "$RELEASE_LIST" |
+              jq -s --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]'); then
+              echo "::error::Unable to parse the release list while recovering $RELEASE_TAG"
+              exit 1
+            fi
+            MATCH_COUNT=$(printf '%s' "$MATCHED_RELEASES" | jq 'length')
+            if [ "$MATCH_COUNT" -gt 1 ]; then
+              echo "::error::$RELEASE_TAG matches $MATCH_COUNT GitHub releases; reconcile the duplicates before rerunning"
+              exit 1
+            fi
+            if [ "$MATCH_COUNT" -eq 0 ]; then
+              echo "::error::release-please created no tag or release for merged managed head $MERGED_HEAD; rerun tag-only creation before retrying downstream jobs"
+              exit 1
+            fi
+            RELEASE_BODY=$(printf '%s' "$MATCHED_RELEASES" | jq -r '.[0].body // ""')
+            RELEASE_SHA="$EVENT_SHA"
+            RELEASE_CREATED='true'
+            echo "Recovered existing $RELEASE_TAG at $EVENT_SHA for merged managed head $MERGED_HEAD"
+          fi
+
           if [ "$RELEASE_CREATED" = 'true' ]; then
             if ! printf '%s' "$RELEASE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
               echo "::error::release-please reported an invalid version"
               exit 1
             fi
-            if [ "$RELEASE_TAG" != "hve-core-v$RELEASE_VERSION" ]; then
+            if [ "$RELEASE_TAG" != "prerelease-v$RELEASE_VERSION" ]; then
               echo "::error::release-please tag $RELEASE_TAG does not match version $RELEASE_VERSION"
               exit 1
             fi
@@ -172,22 +217,81 @@ jobs:
           jq 'del(.packages["."]["release-as"])' "$CONFIG" > "$CONFIG.sync"
           mv "$CONFIG.sync" "$CONFIG"
 
-          pwsh -NoProfile -File "$GITHUB_WORKSPACE/scripts/release/Update-VersionFiles.ps1" \
-              -Version "$VERSION" \
-              -CatalogRefMode Exact \
-              -RepoRoot "$RELEASE_REPO" \
-              -ManifestPath .release-please-prerelease-manifest.json \
-              -SkipPluginGenerate
-
-          cd "$RELEASE_REPO"
-          if git diff --quiet; then
-            echo "Preparation already carries $VERSION and locator hve-core-v$VERSION"
-            exit 0
+          # Candidate membership is rebuilt from the retained record and the
+          # immutable source it names, never from the moving branch, the pull
+          # request body, or transient job state.
+          RECORD="$RELEASE_REPO/.github/plugin/release-candidate.json"
+          SOURCE_COMMIT=$(jq -r '.sourceCommit // ""' "$RECORD")
+          if ! printf '%s' "$SOURCE_COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::release-candidate.json carries no full immutable source commit"
+            exit 1
+          fi
+          git -C "$RELEASE_REPO" fetch --no-tags --depth 1 origin "$SOURCE_COMMIT"
+          git -C "$RELEASE_REPO" fetch --no-tags --depth 1 origin \
+            '+refs/heads/release/prerelease:refs/remotes/origin/release/prerelease'
+          BASELINE=$(git -C "$RELEASE_REPO" show \
+            'refs/remotes/origin/release/prerelease:.release-please-prerelease-manifest.json' | jq -r '.["."] // ""')
+          if ! printf '%s' "$BASELINE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::release/prerelease carries no MAJOR.MINOR.PATCH baseline version"
+            exit 1
           fi
 
+          # The retained record must still describe the branch it advances
+          # from, so the baseline identity is read from the same immutable
+          # remote ref instead of rebuilt from the baseline version. A coherent
+          # baseline is a complete catalog at its own metadata version carrying
+          # one uniform locator: the reserved OMITTED locator when no entry
+          # names a ref, otherwise the one non-empty ref they all share.
+          # Historical entries carry a string-form source, which names no ref
+          # and therefore reads as omitted.
+          BASELINE_TAG=$(git -C "$RELEASE_REPO" show \
+            'refs/remotes/origin/release/prerelease:.github/plugin/marketplace.json' |
+            jq -r '
+              (.metadata.version // "") as $version
+              | [.plugins[] | (.version // "")] as $versions
+              | [.plugins[]
+                 | if (.source | type) == "object" then (.source.ref // null) else null end] as $refs
+              | if ($version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+                   and ($versions | length) > 0
+                   and ($versions | all(. == $version))
+                then
+                  if ($refs | all(. == null))
+                  then "OMITTED"
+                  elif ($refs | all(type == "string" and length > 0))
+                       and (($refs | unique) | length) == 1
+                  then $refs[0]
+                  else ""
+                  end
+                else ""
+                end
+            ')
+          if [ -z "$BASELINE_TAG" ] || [[ "$BASELINE_TAG" == *$'\n'* || "$BASELINE_TAG" == *$'\r'* ]]; then
+            echo "::error::release/prerelease .github/plugin/marketplace.json does not carry one uniform baseline locator across a complete catalog at its own metadata version"
+            exit 1
+          fi
+
+          CANDIDATE_SOURCE_CATALOG="$RUNNER_TEMP/candidate-source-marketplace.json"
+          git -C "$RELEASE_REPO" show "$SOURCE_COMMIT:.github/plugin/marketplace.json" > "$CANDIDATE_SOURCE_CATALOG"
+
+          pwsh -NoProfile -File "$GITHUB_WORKSPACE/scripts/release/Update-VersionFiles.ps1" \
+              -Version "$VERSION" \
+              -Channel PreRelease \
+              -RepoRoot "$RELEASE_REPO" \
+              -ManifestPath .release-please-prerelease-manifest.json \
+              -SkipPluginGenerate \
+              -CandidateAction Apply \
+              -CandidateSourceCommit "$SOURCE_COMMIT" \
+              -CandidateSourceCatalog "$CANDIDATE_SOURCE_CATALOG" \
+              -BaselineTag "$BASELINE_TAG"
+
+          cd "$RELEASE_REPO"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add --update
+          git add --all
+          if git diff --cached --quiet; then
+            echo "Preparation already carries $VERSION, its candidate record, and locator prerelease-v$VERSION"
+            exit 0
+          fi
           git commit -m "chore(release): sync committed versions and plugin locator to $VERSION"
           git push origin "HEAD:refs/heads/$RELEASE_BRANCH"
   validate-release:
@@ -202,6 +306,8 @@ jobs:
       version: ${{ needs.release-please.outputs.version }}
       tag_name: ${{ needs.release-please.outputs.tag_name }}
       sha: ${{ github.sha }}
+      release-state: ${{ steps.classify.outputs.release-state }}
+      release-id: ${{ steps.classify.outputs.release-id }}
     steps:
       - name: Verify trusted release identity
         env:
@@ -233,8 +339,8 @@ jobs:
             echo "::error::Pre-release version $RELEASE_VERSION has an even minor"
             exit 1
           fi
-          if [ "$RELEASE_TAG" != "hve-core-v$RELEASE_VERSION" ]; then
-            echo "::error::Release tag $RELEASE_TAG does not match hve-core-v$RELEASE_VERSION"
+          if [ "$RELEASE_TAG" != "prerelease-v$RELEASE_VERSION" ]; then
+            echo "::error::Release tag $RELEASE_TAG does not match prerelease-v$RELEASE_VERSION"
             exit 1
           fi
       - name: Checkout release/prerelease history
@@ -255,6 +361,140 @@ jobs:
             exit 1
           fi
           git checkout --detach "$RELEASE_SHA"
+      # A draft release is invisible to the workflow token, so classification
+      # reads it through the release App token instead. Job permissions stay
+      # contents: read; App token capability is granted separately.
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v2.0.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      # Release-please owns tag and release creation. A retry may only
+      # reconcile a tag that already targets this managed merge and a release
+      # whose channel state is compatible; every other state is terminal.
+      - name: Classify tag and release recovery state
+        id: classify
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          # Remote tag identity is authoritative. A transport, auth, or fetch
+          # failure is terminal, so a stale local tag from an older checkout can
+          # never satisfy classification.
+          if ! REMOTE_TAG=$(git ls-remote --tags --refs origin "refs/tags/$RELEASE_TAG"); then
+            echo "::error::Unable to read refs/tags/$RELEASE_TAG from origin; resolve the failure before rerunning"
+            exit 1
+          fi
+          if [ -z "$REMOTE_TAG" ]; then
+            echo "::error::$RELEASE_TAG does not exist; rerun release-please tag-only creation"
+            exit 1
+          fi
+          git fetch --no-tags origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          if ! TAG_SHA=$(git rev-parse --verify --end-of-options "refs/tags/$RELEASE_TAG^{commit}" 2>/dev/null); then
+            echo "::error::$RELEASE_TAG does not exist; rerun release-please tag-only creation"
+            exit 1
+          fi
+          if [ "$TAG_SHA" != "$RELEASE_SHA" ]; then
+            echo "::error::$RELEASE_TAG targets $TAG_SHA instead of the managed merge $RELEASE_SHA"
+            exit 1
+          fi
+
+          # Release-please creates the release as a draft, and a draft is absent
+          # from /releases/tags/{tag}. The release list is paginated and matched
+          # on exact tag_name instead, so a transport, auth, or parse failure is
+          # terminal rather than an absent release.
+          if ! RELEASE_LIST=$(gh api --paginate "/repos/$REPOSITORY/releases?per_page=100"); then
+            echo "::error::Unable to list releases for $REPOSITORY; resolve the failure before rerunning"
+            exit 1
+          fi
+          if ! MATCHED_RELEASES=$(printf '%s' "$RELEASE_LIST" |
+            jq -s --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]'); then
+            echo "::error::Unable to parse the release list for $RELEASE_TAG"
+            exit 1
+          fi
+          MATCH_COUNT=$(printf '%s' "$MATCHED_RELEASES" | jq 'length')
+          if [ "$MATCH_COUNT" -gt 1 ]; then
+            echo "::error::$RELEASE_TAG matches $MATCH_COUNT GitHub releases; reconcile the duplicates before rerunning"
+            exit 1
+          fi
+          if [ "$MATCH_COUNT" -eq 0 ]; then
+            echo "::error::$RELEASE_TAG has no GitHub release; rerun release-please release creation"
+            exit 1
+          fi
+          RELEASE_ID=$(printf '%s' "$MATCHED_RELEASES" | jq -r '.[0].id')
+          RELEASE_STATE=$(printf '%s' "$MATCHED_RELEASES" | jq -r '.[0] | [.draft, .prerelease] | @tsv')
+          DRAFT=$(printf '%s' "$RELEASE_STATE" | cut -f1)
+          PRERELEASE=$(printf '%s' "$RELEASE_STATE" | cut -f2)
+          if [ "$DRAFT" != 'true' ] && [ "$PRERELEASE" != 'true' ]; then
+            echo "::error::$RELEASE_TAG is already published without the pre-release flag"
+            exit 1
+          fi
+          # Draft resumes the ordinary downstream jobs. A matching published
+          # release is completed creation and publication, so downstream jobs
+          # verify its assets instead of rebuilding them.
+          RECOVERY_STATE='draft'
+          if [ "$DRAFT" != 'true' ]; then
+            RECOVERY_STATE='published'
+          fi
+          echo "release-state=$RECOVERY_STATE" >> "$GITHUB_OUTPUT"
+          echo "release-id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          echo "Resuming $RELEASE_TAG at $TAG_SHA (draft=$DRAFT prerelease=$PRERELEASE state=$RECOVERY_STATE)"
+      # A matching published release already carries its immutable asset set,
+      # so it is verified rather than rebuilt or clobbered. Incomplete evidence
+      # is terminal; an explicitly missing Marketplace publication stays with
+      # the existing manual dispatch outside this workflow.
+      - name: Verify published release assets
+        if: ${{ steps.classify.outputs.release-state == 'published' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_ID: ${{ steps.classify.outputs.release-id }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          ASSETS=$(gh api --paginate "/repos/$REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
+          if [ -z "$ASSETS" ]; then
+            echo "::error::published $RELEASE_TAG carries no release assets"
+            exit 1
+          fi
+
+          INCOMPLETE=0
+          for required in 'dependencies.spdx.json' 'plugin-release-evidence.json'; do
+            if ! grep -Fxq -- "$required" <<<"$ASSETS"; then
+              echo "::error::published $RELEASE_TAG is missing required asset $required"
+              INCOMPLETE=1
+            fi
+          done
+
+          VSIX_COUNT=0
+          ZIP_COUNT=0
+          while IFS= read -r asset; do
+            case "$asset" in
+              *.vsix) VSIX_COUNT=$((VSIX_COUNT + 1)) ;;
+              *.zip) ZIP_COUNT=$((ZIP_COUNT + 1)) ;;
+              *) continue ;;
+            esac
+            for sidecar in "$asset.spdx.json" "$asset.sigstore.json" "$asset.intoto.jsonl"; do
+              if ! grep -Fxq -- "$sidecar" <<<"$ASSETS"; then
+                echo "::error::published $RELEASE_TAG is missing $sidecar for $asset"
+                INCOMPLETE=1
+              fi
+            done
+          done <<<"$ASSETS"
+
+          if [ "$VSIX_COUNT" -eq 0 ] || [ "$ZIP_COUNT" -eq 0 ]; then
+            echo "::error::published $RELEASE_TAG carries $VSIX_COUNT VSIX and $ZIP_COUNT plugin ZIP assets; both are required"
+            INCOMPLETE=1
+          fi
+          if [ "$INCOMPLETE" -ne 0 ]; then
+            echo "::error::published $RELEASE_TAG has incomplete release assets; reconcile it before rerunning"
+            exit 1
+          fi
+          echo "Verified $VSIX_COUNT VSIX and $ZIP_COUNT plugin ZIP assets with complete sidecars on published $RELEASE_TAG"
       - name: Verify committed pre-release state
         env:
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
@@ -271,7 +511,7 @@ jobs:
           done
 
           if ! jq -e --arg version "$RELEASE_VERSION" '
-            all(.plugins[]; .version == $version and .source.ref == ("hve-core-v" + $version))
+            all(.plugins[]; .version == $version and .source.ref == ("prerelease-v" + $version))
           ' .github/plugin/marketplace.json >/dev/null; then
             echo "::error::Catalog versions or immutable plugin locators are inconsistent"
             exit 1
@@ -289,6 +529,19 @@ jobs:
             echo "::error::release-please-prerelease-config.json still carries release-as $STALE_INTENT"
             exit 1
           fi
+      # The candidate record stays in the tagged commit as evidence, so the
+      # released catalog is proved against the same digest the managed head
+      # reproduced before merge.
+      - name: Verify retained candidate record
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File ./scripts/release/Update-VersionFiles.ps1 \
+              -Version "$RELEASE_VERSION" \
+              -Channel PreRelease \
+              -RepoRoot "$PWD" \
+              -CandidateAction Verify
   close-milestone:
     name: Close Pre-Release Milestone
     needs:
@@ -321,6 +574,9 @@ jobs:
     name: Package VS Code Extensions (Pre-Release)
     needs:
       - validate-release
+    # A verified published release is complete. Skipping the roots keeps every
+    # dependent attest, upload, provenance, and publication job skipped too.
+    if: ${{ needs.validate-release.outputs.release-state != 'published' }}
     uses: ./.github/workflows/extension-package.yml
     with:
       source-ref: ${{ needs.validate-release.outputs.sha }}
@@ -332,10 +588,12 @@ jobs:
     name: Package Plugins (Pre-Release)
     needs:
       - validate-release
+    if: ${{ needs.validate-release.outputs.release-state != 'published' }}
     uses: ./.github/workflows/plugin-package.yml
     with:
       source-ref: ${{ needs.validate-release.outputs.sha }}
       source-policy: release-tag
+      release-tag: ${{ needs.validate-release.outputs.tag_name }}
       version: ${{ needs.validate-release.outputs.version }}
     permissions:
       contents: write
@@ -346,6 +604,7 @@ jobs:
     name: Generate Dependency SBOM
     needs:
       - validate-release
+    if: ${{ needs.validate-release.outputs.release-state != 'published' }}
     runs-on: ubuntu-latest
     permissions:
       # write required for gh release upload to attach SBOM to the release

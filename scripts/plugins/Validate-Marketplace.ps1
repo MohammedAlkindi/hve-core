@@ -13,8 +13,9 @@
     locator of every entry.
 
     Every source is a GitHub object locator rooted at .github. Entries either
-    omit ref uniformly or use an exact hve-core-v<version> release tag. Bare
-    package names and commit SHA locators are rejected.
+    omit ref uniformly, as the Main channel does, or pin one uniform exact
+    channel tag: prerelease-v<version> for PreRelease and v<version> for
+    Stable. Bare package names and commit SHA locators are rejected.
 
 .EXAMPLE
     ./Validate-Marketplace.ps1 -OutputPath 'logs/marketplace-validation-results.json'
@@ -155,8 +156,8 @@ function Test-PluginObjectSource {
 
     .DESCRIPTION
         Checks the GitHub source type, repository locator, canonical source
-        path, and optional immutable hve-core-v<version> tag. Commit SHA
-        locators are rejected.
+        path, and optional immutable channel tag. Commit SHA locators are
+        rejected.
 
     .PARAMETER Source
         Object-form source value from marketplace.json.
@@ -205,13 +206,13 @@ function Test-PluginObjectSource {
         if ($ref -isnot [string] -or [string]::IsNullOrWhiteSpace($ref)) {
             $sourceErrors += "object source 'ref' must be a non-empty string when provided"
         }
-        elseif ($ref -notmatch '^hve-core-v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-            $sourceErrors += "object source 'ref' must use the immutable 'hve-core-v<version>' tag form"
+        elseif ($ref -cnotmatch '^(?:prerelease-)?v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            $sourceErrors += "object source 'ref' must use the immutable 'prerelease-v<version>' or 'v<version>' tag form"
         }
     }
 
     if ($Source.Contains('sha')) {
-        $sourceErrors += "object source 'sha' is not supported; omit ref or use an immutable 'hve-core-v<version>' ref"
+        $sourceErrors += "object source 'sha' is not supported; omit ref or use an immutable 'prerelease-v<version>' or 'v<version>' ref"
     }
 
     return [string[]]$sourceErrors
@@ -479,6 +480,7 @@ function Invoke-MarketplaceValidation {
     else {
         $seenNames = @{}
         $sourceRefPresence = @()
+        $sourceRefChannels = @()
 
         foreach ($plugin in $manifest.plugins) {
             $pluginName = $plugin.name
@@ -513,9 +515,16 @@ function Invoke-MarketplaceValidation {
                     $pluginErrors += "object source path must be '$expectedPath'"
                 }
                 if ($sourceValue.Contains('ref') -and -not [string]::IsNullOrWhiteSpace([string]$plugin['version'])) {
-                    $expectedRef = "hve-core-v$($plugin['version'])"
-                    if ([string]$sourceValue['ref'] -cne $expectedRef) {
-                        $pluginErrors += "object source ref must match package version '$expectedRef'"
+                    $channelRefs = [ordered]@{
+                        PreRelease = "prerelease-v$($plugin['version'])"
+                        Stable     = "v$($plugin['version'])"
+                    }
+                    $refChannel = @($channelRefs.Keys | Where-Object { $channelRefs[$_] -ceq [string]$sourceValue['ref'] })
+                    if ($refChannel.Count -eq 0) {
+                        $pluginErrors += "object source ref must match package version '$($channelRefs['PreRelease'])' or '$($channelRefs['Stable'])'"
+                    }
+                    else {
+                        $sourceRefChannels += $refChannel[0]
                     }
                 }
             }
@@ -550,6 +559,10 @@ function Invoke-MarketplaceValidation {
 
         if (@($sourceRefPresence | Sort-Object -Unique).Count -gt 1) {
             $catalogErrors += 'object source ref must be either omitted from every entry or present on every entry'
+        }
+
+        if (@($sourceRefChannels | Sort-Object -Unique).Count -gt 1) {
+            $catalogErrors += 'object source ref must use one uniform release channel namespace across every entry'
         }
     }
 

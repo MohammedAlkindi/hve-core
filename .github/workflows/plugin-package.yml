@@ -13,6 +13,10 @@ on:
         description: "Trusted provenance policy for the immutable source"
         required: true
         type: string
+      release-tag:
+        description: "Exact channel release tag the packaged plugin is bound to"
+        required: true
+        type: string
       version:
         description: "Release version the packaged plugin must carry"
         required: true
@@ -46,6 +50,7 @@ jobs:
           SOURCE_REF: ${{ inputs.source-ref }}
           SOURCE_POLICY: ${{ inputs.source-policy }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           set -euo pipefail
           if [ -z "${SOURCE_REF}" ]; then
@@ -62,6 +67,10 @@ jobs:
           fi
           if [[ ! "${INPUT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::version must use MAJOR.MINOR.PATCH form"
+            exit 1
+          fi
+          if [ "${RELEASE_TAG}" != "v${INPUT_VERSION}" ] && [ "${RELEASE_TAG}" != "prerelease-v${INPUT_VERSION}" ]; then
+            echo "::error::release-tag must be prerelease-v${INPUT_VERSION} or v${INPUT_VERSION}"
             exit 1
           fi
 
@@ -81,9 +90,9 @@ jobs:
               ;;
             'release-tag')
               git fetch --quiet --no-tags origin \
-                "refs/tags/hve-core-v${INPUT_VERSION}:refs/tags/hve-core-v${INPUT_VERSION}"
+                "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
               tag_commit=$(git rev-parse --verify --end-of-options \
-                "refs/tags/hve-core-v${INPUT_VERSION}^{commit}")
+                "refs/tags/${RELEASE_TAG}^{commit}")
               if [ "${tag_commit}" != "${SOURCE_REF}" ]; then
                 echo "::error::release tag does not resolve to source-ref"
                 exit 1
@@ -109,6 +118,7 @@ jobs:
         env:
           INPUT_SOURCE_REF: ${{ inputs.source-ref }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           $ErrorActionPreference = 'Stop'
           $catalog = Get-Content -LiteralPath '.github/plugin/marketplace.json' -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
@@ -117,9 +127,8 @@ jobs:
             throw "Catalog version $catalogVersion does not match requested version $env:INPUT_VERSION"
           }
           foreach ($entry in @($catalog['plugins'])) {
-            $expectedRef = "hve-core-v$env:INPUT_VERSION"
-            if ([string]$entry['source']['ref'] -cne $expectedRef) {
-              throw "Catalog plugin '$($entry['name'])' pins source ref '$($entry['source']['ref'])' but the release requires '$expectedRef'"
+            if ([string]$entry['source']['ref'] -cne $env:RELEASE_TAG) {
+              throw "Catalog plugin '$($entry['name'])' pins source ref '$($entry['source']['ref'])' but the release requires '$env:RELEASE_TAG'"
             }
           }
 
@@ -155,6 +164,7 @@ jobs:
           SOURCE_REF: ${{ inputs.source-ref }}
           SOURCE_POLICY: ${{ inputs.source-policy }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           set -euo pipefail
           if [ -z "${SOURCE_REF}" ]; then
@@ -171,6 +181,10 @@ jobs:
           fi
           if [[ ! "${INPUT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::version must use MAJOR.MINOR.PATCH form"
+            exit 1
+          fi
+          if [ "${RELEASE_TAG}" != "v${INPUT_VERSION}" ] && [ "${RELEASE_TAG}" != "prerelease-v${INPUT_VERSION}" ]; then
+            echo "::error::release-tag must be prerelease-v${INPUT_VERSION} or v${INPUT_VERSION}"
             exit 1
           fi
 
@@ -190,9 +204,9 @@ jobs:
               ;;
             'release-tag')
               git fetch --quiet --no-tags origin \
-                "refs/tags/hve-core-v${INPUT_VERSION}:refs/tags/hve-core-v${INPUT_VERSION}"
+                "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
               tag_commit=$(git rev-parse --verify --end-of-options \
-                "refs/tags/hve-core-v${INPUT_VERSION}^{commit}")
+                "refs/tags/${RELEASE_TAG}^{commit}")
               if [ "${tag_commit}" != "${SOURCE_REF}" ]; then
                 echo "::error::release tag does not resolve to source-ref"
                 exit 1
@@ -268,7 +282,7 @@ jobs:
 
   # Canonical release evidence is repository-wide rather than per package, so a
   # single non-matrix writer records it and attaches it to the release. Every
-  # catalog consumer reads this asset from the hve-core-v<version> release.
+  # catalog consumer reads this asset from the exact channel release tag.
   publish-evidence:
     name: Publish Canonical Release Evidence
     needs: discover-packages
@@ -290,6 +304,7 @@ jobs:
           SOURCE_REF: ${{ inputs.source-ref }}
           SOURCE_POLICY: ${{ inputs.source-policy }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           set -euo pipefail
           if [ -z "${SOURCE_REF}" ]; then
@@ -306,6 +321,10 @@ jobs:
           fi
           if [[ ! "${INPUT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::version must use MAJOR.MINOR.PATCH form"
+            exit 1
+          fi
+          if [ "${RELEASE_TAG}" != "v${INPUT_VERSION}" ] && [ "${RELEASE_TAG}" != "prerelease-v${INPUT_VERSION}" ]; then
+            echo "::error::release-tag must be prerelease-v${INPUT_VERSION} or v${INPUT_VERSION}"
             exit 1
           fi
 
@@ -325,9 +344,9 @@ jobs:
               ;;
             'release-tag')
               git fetch --quiet --no-tags origin \
-                "refs/tags/hve-core-v${INPUT_VERSION}:refs/tags/hve-core-v${INPUT_VERSION}"
+                "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
               tag_commit=$(git rev-parse --verify --end-of-options \
-                "refs/tags/hve-core-v${INPUT_VERSION}^{commit}")
+                "refs/tags/${RELEASE_TAG}^{commit}")
               if [ "${tag_commit}" != "${SOURCE_REF}" ]; then
                 echo "::error::release tag does not resolve to source-ref"
                 exit 1
@@ -357,6 +376,7 @@ jobs:
           DISCOVERED_NAMES: ${{ needs.discover-packages.outputs.names }}
           INPUT_SOURCE_REF: ${{ inputs.source-ref }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           $ErrorActionPreference = 'Stop'
           $expectedCount = @($env:DISCOVERED_NAMES | ConvertFrom-Json).Count
@@ -367,7 +387,7 @@ jobs:
             -EvidenceVersion v2 `
             -SourceCommit $env:INPUT_SOURCE_REF `
             -Version $env:INPUT_VERSION `
-            -ReleaseTag "hve-core-v$env:INPUT_VERSION" `
+            -ReleaseTag $env:RELEASE_TAG `
             -ExpectedPackageCount $expectedCount `
             -OutputPath logs/plugin-release-evidence.json
 
@@ -376,13 +396,14 @@ jobs:
         env:
           INPUT_SOURCE_REF: ${{ inputs.source-ref }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           $ErrorActionPreference = 'Stop'
           & ./scripts/plugins/Assert-PluginReleaseEvidence.ps1 `
             -EvidenceVersion v2 `
             -SourceCommit $env:INPUT_SOURCE_REF `
             -Version $env:INPUT_VERSION `
-            -ReleaseTag "hve-core-v$env:INPUT_VERSION" `
+            -ReleaseTag $env:RELEASE_TAG `
             -ExpectedEvidencePath logs/plugin-release-evidence.json `
             -OutputPath logs/plugin-release-evidence-verification.json
 
@@ -402,7 +423,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          TAG: hve-core-v${{ inputs.version }}
+          TAG: ${{ inputs.release-tag }}
         run: |
           set -euo pipefail
           gh release upload "$TAG" \

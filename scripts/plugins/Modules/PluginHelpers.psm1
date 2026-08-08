@@ -509,9 +509,10 @@ function New-PluginReleaseLocator {
     Accepts an explicit tag in the selected namespace or derives one from a
     package version.
 
-    Two tag namespaces are selectable. 'hve-core-v' addresses an ordinary release
-    tag on the source repository. 'plugins-v' addresses a projected package tree
-    and remains available for generated-tree projections.
+    Three tag namespaces are selectable. 'v' addresses a Stable release tag and
+    'prerelease-v' addresses a PreRelease release tag on the source repository.
+    'plugins-v' addresses a projected package tree and remains available for
+    generated-tree projections.
 
     Commit-SHA catalog locators are not part of the production contract.
 
@@ -538,7 +539,7 @@ function New-PluginReleaseLocator {
     New-PluginReleaseLocator -Version '1.2.3'
 
     .EXAMPLE
-    New-PluginReleaseLocator -Version '1.2.3' -TagPrefix 'hve-core-v' -PathPrefix ''
+    New-PluginReleaseLocator -Version '1.2.3' -TagPrefix 'v' -PathPrefix ''
     #>
     [CmdletBinding(DefaultParameterSetName = 'Tag')]
     [OutputType([hashtable])]
@@ -555,7 +556,7 @@ function New-PluginReleaseLocator {
         [string]$Repo = 'microsoft/hve-core',
 
         [Parameter(Mandatory = $false)]
-        [ValidateSet('plugins-v', 'hve-core-v')]
+        [ValidateSet('plugins-v', 'prerelease-v', 'v')]
         [string]$TagPrefix = 'plugins-v',
 
         [Parameter(Mandatory = $false)]

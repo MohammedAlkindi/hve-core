@@ -90,8 +90,21 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/promotion"
 
+          # The anchor is both the changelog commit cutoff and the seed identity,
+          # so it is captured from the current source configuration before any
+          # target-owned restore can replace that file with a copy the seeded
+          # branch predates or never carried.
+          BOOTSTRAP_SHA=$(jq -r '.packages["."]["bootstrap-sha"] // ""' "$TARGET_CONFIG")
+          if ! printf '%s' "$BOOTSTRAP_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::$TARGET_CONFIG carries no lowercase 40-character bootstrap-sha anchor"
+            exit 1
+          fi
+
+          # A release branch is seeded and protected by hand. The config anchor
+          # names the exact commit it is created at; this workflow never creates
+          # or moves a branch.
           if ! git ls-remote --exit-code --heads origin "$BASE_BRANCH" >/dev/null 2>&1; then
-            echo "::notice::$BASE_BRANCH does not exist yet; create and protect it before promotions can open"
+            echo "::notice::$BASE_BRANCH does not exist yet; create it at $TARGET_CONFIG bootstrap-sha $BOOTSTRAP_SHA and protect it before promotions can open"
             echo "continue=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -129,9 +142,35 @@ jobs:
             exit 0
           fi
 
-          PRERELEASE_BASELINE=$(git show "refs/remotes/origin/$BASE_BRANCH:$TARGET_MANIFEST" | jq -r '.["."] // ""')
+          # The seed commit predates branch-local PreRelease release-please
+          # state, and the first reviewed promotion is what introduces it from
+          # the merged source. Until then the baseline comes from the seeded
+          # catalog, and only while the branch still sits on the exact anchor.
+          if TARGET_MANIFEST_JSON=$(git show "refs/remotes/origin/$BASE_BRANCH:$TARGET_MANIFEST" 2>/dev/null); then
+            PRERELEASE_BASELINE=$(printf '%s' "$TARGET_MANIFEST_JSON" | jq -r '.["."] // ""')
+          else
+            BASE_TIP=$(git rev-parse "refs/remotes/origin/$BASE_BRANCH")
+            if [ "$BASE_TIP" != "$BOOTSTRAP_SHA" ]; then
+              echo "::error::$BASE_BRANCH carries no $TARGET_MANIFEST and its tip $BASE_TIP is not the $TARGET_CONFIG bootstrap-sha $BOOTSTRAP_SHA"
+              exit 1
+            fi
+            PRERELEASE_BASELINE=$(git show "refs/remotes/origin/$BASE_BRANCH:.github/plugin/marketplace.json" | jq -r '
+              (.metadata.version // "") as $version
+              | [.plugins[] | (.version // "")] as $versions
+              | if ($version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+                   and ($versions | length) > 0
+                   and ($versions | all(. == $version))
+                then $version
+                else ""
+                end
+            ')
+            if [ -z "$PRERELEASE_BASELINE" ]; then
+              echo "::error::$BASE_BRANCH seed .github/plugin/marketplace.json carries no complete MAJOR.MINOR.PATCH catalog version"
+              exit 1
+            fi
+          fi
           if [[ "$PRERELEASE_BASELINE" == *$'\n'* || "$PRERELEASE_BASELINE" == *$'\r'* || ! "$PRERELEASE_BASELINE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::$BASE_BRANCH $TARGET_MANIFEST has no MAJOR.MINOR.PATCH version"
+            echo "::error::$BASE_BRANCH resolved no MAJOR.MINOR.PATCH PreRelease baseline version"
             exit 1
           fi
           PRERELEASE_MINOR=${PRERELEASE_BASELINE#*.}
@@ -143,6 +182,7 @@ jobs:
 
           {
             echo "continue=true"
+            echo "bootstrap-sha=$BOOTSTRAP_SHA"
             echo "source-sha=$SOURCE_SHA"
             echo "prerelease-baseline=$PRERELEASE_BASELINE"
           } >> "$GITHUB_OUTPUT"
@@ -183,7 +223,7 @@ jobs:
 
           # A transport or authentication failure aborts under set -e
           # instead of reporting the identity as available.
-          CANDIDATE_REF="refs/tags/hve-core-v$VERSION"
+          CANDIDATE_REF="refs/tags/prerelease-v$VERSION"
           OCCUPIED=$(git ls-remote origin "$CANDIDATE_REF")
           if [ -n "$OCCUPIED" ]; then
             echo "::error::Candidate release identity $CANDIDATE_REF already exists"
@@ -194,25 +234,26 @@ jobs:
           # identity is free. A success means it is occupied, and every
           # auth, rate-limit, or transport outcome fails closed.
           set +e
-          PROBE=$(gh api --include "/repos/$REPOSITORY/releases/tags/hve-core-v$VERSION" 2>&1)
+          PROBE=$(gh api --include "/repos/$REPOSITORY/releases/tags/prerelease-v$VERSION" 2>&1)
           PROBE_EXIT=$?
           set -e
           if [ "$PROBE_EXIT" -eq 0 ]; then
-            echo "::error::A GitHub release already exists for hve-core-v$VERSION"
+            echo "::error::A GitHub release already exists for prerelease-v$VERSION"
             exit 1
           fi
           if ! printf '%s\n' "$PROBE" | grep -Eq '^HTTP/[0-9.]+ 404|\(HTTP 404\)'; then
             STATUS_LINE=$(printf '%s\n' "$PROBE" | grep -m1 -E '^HTTP/[0-9.]+ [0-9]{3}' || true)
-            echo "::error::Release lookup for hve-core-v$VERSION returned no explicit not-found result: ${STATUS_LINE:-no HTTP status}"
+            echo "::error::Release lookup for prerelease-v$VERSION returned no explicit not-found result: ${STATUS_LINE:-no HTTP status}"
             exit 1
           fi
 
-          echo "Release identity hve-core-v$VERSION is unoccupied"
+          echo "Release identity prerelease-v$VERSION is unoccupied"
 
       - name: Refresh the promotion head
         id: promote
         if: ${{ steps.state.outputs.continue == 'true' }}
         env:
+          BOOTSTRAP_SHA: ${{ steps.state.outputs.bootstrap-sha }}
           PRERELEASE_BASELINE: ${{ steps.state.outputs.prerelease-baseline }}
           SOURCE_SHA: ${{ steps.state.outputs.source-sha }}
           VERSION: ${{ steps.resolve.outputs.version }}
@@ -230,7 +271,8 @@ jobs:
             'package.json' \
             'package-lock.json' \
             'extension/templates/package.template.json' \
-            '.github/plugin/marketplace.json')
+            '.github/plugin/marketplace.json' \
+            '.github/plugin/release-candidate.json')
 
           merge_ref() {
             local ref="$1"
@@ -265,9 +307,37 @@ jobs:
           merge_ref "$SOURCE_SHA" theirs
 
           # Target-owned release state is restored whole, so a promotion
-          # never carries a source changelog, config, or manifest forward.
-          git checkout "refs/remotes/origin/$BASE_BRANCH" -- \
-            CHANGELOG.md "$TARGET_CONFIG" "$TARGET_MANIFEST"
+          # never carries a source changelog or manifest forward.
+          # The complete previous marketplace is restored with them: candidate
+          # membership reaches the branch only through the managed release
+          # pull request, which rebuilds it from the record written below.
+          # A seeded branch can predate its branch-local manifest, so that one
+          # is restored only when the base already carries it and the first
+          # reviewed promotion introduces it from the merged source instead of
+          # failing on an absent path. The channel config is restored further
+          # below, once the derived baseline locator establishes who owns it.
+          restore_from_base() {
+            local mode="$1"
+            shift
+            local path
+            local present=()
+            for path in "$@"; do
+              if git cat-file -e "refs/remotes/origin/$BASE_BRANCH:$path" 2>/dev/null; then
+                present+=("$path")
+              elif [ "$mode" = 'required' ]; then
+                echo "::error::$BASE_BRANCH carries no $path"
+                exit 1
+              else
+                echo "::notice::$BASE_BRANCH carries no $path; the merged source copy becomes its first branch-local state"
+              fi
+            done
+            if [ "${#present[@]}" -gt 0 ]; then
+              git checkout "refs/remotes/origin/$BASE_BRANCH" -- "${present[@]}"
+            fi
+          }
+
+          restore_from_base required CHANGELOG.md .github/plugin/marketplace.json
+          restore_from_base optional "$TARGET_MANIFEST"
 
           TARGET_VERSION=$(jq -r '.["."] // ""' "$TARGET_MANIFEST")
           if [ "$TARGET_VERSION" != "$PRERELEASE_BASELINE" ]; then
@@ -275,24 +345,100 @@ jobs:
             exit 1
           fi
 
-          # Shared files keep their merged source content; only the
-          # target version fields and the immutable plugin locator are
-          # restored.
+          # The baseline identity is the exact locator the restored target
+          # catalog already carries, never one rebuilt from the baseline
+          # version. A coherent baseline is a complete catalog at its own
+          # metadata version carrying one uniform locator: the reserved OMITTED
+          # locator when no entry names a ref, otherwise the one non-empty ref
+          # they all share. Historical entries carry a string-form source, which
+          # names no ref and therefore reads as omitted.
+          BASELINE_TAG=$(jq -r '
+            (.metadata.version // "") as $version
+            | [.plugins[] | (.version // "")] as $versions
+            | [.plugins[]
+               | if (.source | type) == "object" then (.source.ref // null) else null end] as $refs
+            | if ($version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+                 and ($versions | length) > 0
+                 and ($versions | all(. == $version))
+              then
+                if ($refs | all(. == null))
+                then "OMITTED"
+                elif ($refs | all(type == "string" and length > 0))
+                     and (($refs | unique) | length) == 1
+                then $refs[0]
+                else ""
+                end
+              else ""
+              end
+          ' .github/plugin/marketplace.json)
+          if [ -z "$BASELINE_TAG" ] || [[ "$BASELINE_TAG" == *$'\n'* || "$BASELINE_TAG" == *$'\r'* ]]; then
+            echo "::error::Restored .github/plugin/marketplace.json does not carry one uniform baseline locator across a complete catalog at its own metadata version"
+            exit 1
+          fi
+
+          # The captured config anchor owns the seeded branch identity. It comes
+          # from the current source configuration, never from the restored
+          # target copy the seed can predate. OMITTED describes the ref-less
+          # bootstrap catalog, so it is coherent only while the target branch
+          # still sits on that seed commit.
+          if ! printf '%s' "$BOOTSTRAP_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Captured bootstrap-sha anchor is not a lowercase 40-character commit id"
+            exit 1
+          fi
+          # The derived baseline locator decides who owns the channel config.
+          # A ref-less bootstrap catalog is the hand-seeded first cutover, and
+          # the historical seed predates current tag, draft, and versioning
+          # policy, so the merged source config is what establishes it. Every
+          # later promotion restores the target-owned config instead, keeping
+          # ordinary steady-state release settings on the branch.
+          if [ "$BASELINE_TAG" = 'OMITTED' ]; then
+            BASE_TIP=$(git rev-parse "refs/remotes/origin/$BASE_BRANCH")
+            if [ "$BASE_TIP" != "$BOOTSTRAP_SHA" ]; then
+              echo "::error::$BASE_BRANCH carries the ref-less bootstrap catalog but its tip $BASE_TIP is not the $TARGET_CONFIG bootstrap-sha $BOOTSTRAP_SHA"
+              exit 1
+            fi
+            echo "::notice::$BASE_BRANCH is still at its bootstrap seed; the merged source $TARGET_CONFIG becomes its first branch-local release configuration"
+          else
+            restore_from_base optional "$TARGET_CONFIG"
+          fi
+
+          # The record is the only candidate authority. It names one immutable
+          # source commit and the deterministic transform the managed release
+          # pull request must reproduce byte for byte.
+          CANDIDATE_SOURCE_CATALOG="$RUNNER_TEMP/candidate-source-marketplace.json"
+          git show "$SOURCE_SHA:.github/plugin/marketplace.json" > "$CANDIDATE_SOURCE_CATALOG"
+
+          # Shared files keep their merged source content; the target version
+          # fields, the restored prior catalog, and the candidate record are
+          # rewritten from target-owned and immutable-source state.
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/scripts/release/Update-VersionFiles.ps1" \
               -Version "$TARGET_VERSION" \
-              -CatalogRefMode Exact \
+              -Channel PreRelease \
               -RepoRoot "$PWD" \
               -SkipManifest \
-              -SkipPluginGenerate
+              -SkipPluginGenerate \
+              -CandidateAction Record \
+              -CandidateVersion "$VERSION" \
+              -CandidateSourceCommit "$SOURCE_SHA" \
+              -CandidateSourceCatalog "$CANDIDATE_SOURCE_CATALOG" \
+              -BaselineTag "$BASELINE_TAG"
 
-          # Exact release intent is written last so it always reflects
-          # the restored target configuration.
-          jq --arg version "$VERSION" '.packages["."]["release-as"] = $version' \
-            "$TARGET_CONFIG" > "$TARGET_CONFIG.promotion"
+          # The captured changelog cutoff and the exact release intent are
+          # written last, so the effective target configuration carries both
+          # whether it was restored from the branch or merged from the source.
+          jq --arg version "$VERSION" --arg bootstrap "$BOOTSTRAP_SHA" '
+            .packages["."]["bootstrap-sha"] = $bootstrap
+            | .packages["."]["release-as"] = $version
+          ' "$TARGET_CONFIG" > "$TARGET_CONFIG.promotion"
           mv "$TARGET_CONFIG.promotion" "$TARGET_CONFIG"
           WRITTEN_INTENT=$(jq -r '.packages["."]["release-as"] // ""' "$TARGET_CONFIG")
           if [ "$WRITTEN_INTENT" != "$VERSION" ]; then
             echo "::error::$TARGET_CONFIG carries release-as $WRITTEN_INTENT instead of $VERSION"
+            exit 1
+          fi
+          WRITTEN_ANCHOR=$(jq -r '.packages["."]["bootstrap-sha"] // ""' "$TARGET_CONFIG")
+          if [ "$WRITTEN_ANCHOR" != "$BOOTSTRAP_SHA" ]; then
+            echo "::error::$TARGET_CONFIG carries bootstrap-sha $WRITTEN_ANCHOR instead of $BOOTSTRAP_SHA"
             exit 1
           fi
 
@@ -354,15 +500,15 @@ jobs:
           | PreRelease baseline | \`${PRERELEASE_BASELINE}\` |
           | Exact release intent | \`${VERSION}\` |
 
-          Target-owned changelog, release-please config, and manifest come from
-          \`${BASE_BRANCH}\`. Shared package and catalog files keep their promoted
-          source content with only the target version fields and the immutable
-          plugin locator restored.
+          Target-owned changelog, release-please config, manifest, and the
+          complete previous marketplace come from \`${BASE_BRANCH}\`. Candidate
+          membership reaches the branch only through the managed release pull
+          request, which rebuilds it from the recorded immutable source.
 
           After this pull request merges, \`release-prerelease.yml\` runs
           release-please on \`${BASE_BRANCH}\`. Release-please then opens its
           separately reviewed release pull request, and merging that pull request
-          is the immutable \`hve-core-v${VERSION}\` tag boundary.
+          is the immutable \`prerelease-v${VERSION}\` tag boundary.
 
           ---
           *Managed automatically by the pre-release promotion workflow. Auto-merge is not enabled.*"

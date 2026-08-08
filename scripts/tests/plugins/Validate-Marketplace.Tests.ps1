@@ -147,9 +147,12 @@ Describe 'Test-PluginObjectSource' -Tag 'Unit' {
             $sourceErrors | Should -HaveCount 0
         }
 
-        It 'Accepts an exact release ref' {
+        It 'Accepts an exact channel release ref' -ForEach @(
+            @{ Ref = 'v9.9.9' }
+            @{ Ref = 'prerelease-v9.9.9' }
+        ) {
             $sourceErrors = @(Test-PluginObjectSource -Source ([ordered]@{
-                        source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'hve-core-v9.9.9'
+                        source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = $Ref
                     }))
             $sourceErrors | Should -HaveCount 0
         }
@@ -164,10 +167,11 @@ Describe 'Test-PluginObjectSource' -Tag 'Unit' {
             @{ Label = 'a missing source path'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve' }; Pattern = "missing required field 'path'" }
             @{ Label = 'an escaping source path'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github/../etc' }; Pattern = 'must not escape the source repository' }
             @{ Label = 'a blank ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = '' }; Pattern = "'ref' must be a non-empty string when provided" }
-            @{ Label = 'a branch ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'main' }; Pattern = "must use the immutable 'hve-core-v<version>' tag form" }
-            @{ Label = 'a legacy plugin ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'plugins-v9.9.9' }; Pattern = "must use the immutable 'hve-core-v<version>' tag form" }
-            @{ Label = 'a sha ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = '0123456789abcdef0123456789abcdef01234567' }; Pattern = "must use the immutable 'hve-core-v<version>' tag form" }
-            @{ Label = 'a sha field'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'hve-core-v9.9.9'; sha = '0123456789abcdef0123456789abcdef01234567' }; Pattern = "'sha' is not supported" }
+            @{ Label = 'a branch ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'main' }; Pattern = "must use the immutable 'prerelease-v<version>' or 'v<version>' tag form" }
+            @{ Label = 'a legacy plugin ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'plugins-v9.9.9' }; Pattern = "must use the immutable 'prerelease-v<version>' or 'v<version>' tag form" }
+            @{ Label = 'a retired component ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'hve-core-v9.9.9' }; Pattern = "must use the immutable 'prerelease-v<version>' or 'v<version>' tag form" }
+            @{ Label = 'a sha ref'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = '0123456789abcdef0123456789abcdef01234567' }; Pattern = "must use the immutable 'prerelease-v<version>' or 'v<version>' tag form" }
+            @{ Label = 'a sha field'; Source = @{ source = 'github'; repo = 'contoso/contoso-hve'; path = '.github'; ref = 'v9.9.9'; sha = '0123456789abcdef0123456789abcdef01234567' }; Pattern = "'sha' is not supported" }
         ) {
             $sourceErrors = @(Test-PluginObjectSource -Source $Source)
             $sourceErrors | Should -Not -BeNullOrEmpty
@@ -303,22 +307,26 @@ Describe 'Invoke-MarketplaceValidation' -Tag 'Unit' {
             New-ValidatorFixture -Root $script:validatorRepo | Out-Null
             Set-CatalogEntry -Root $script:validatorRepo -Mutation {
                 param($catalog)
-                $catalog['plugins'][0]['source']['ref'] = 'hve-core-v1.0.0'
+                $catalog['plugins'][0]['source']['ref'] = 'v1.0.0'
             }
 
             $run = Get-ValidationReport -Root $script:validatorRepo
             (Get-ReportError -Report $run.Report) -join ' ' |
-                Should -Match "object source ref must match package version 'hve-core-v9\.9\.9'"
+                Should -Match "object source ref must match package version 'prerelease-v9\.9\.9' or 'v9\.9\.9'"
         }
     }
 
     Context 'when source ref presence defines the catalog shape' {
-        It 'Accepts exact release refs on every entry' {
+        It 'Accepts one uniform channel namespace on every entry' -ForEach @(
+            @{ Ref = 'v9.9.9' }
+            @{ Ref = 'prerelease-v9.9.9' }
+        ) {
             New-ValidatorFixture -Root $script:validatorRepo -AddSecondPackage | Out-Null
+            $channelRef = $Ref
             Set-CatalogEntry -Root $script:validatorRepo -Mutation {
                 param($catalog)
                 foreach ($entry in $catalog['plugins']) {
-                    $entry['source']['ref'] = 'hve-core-v9.9.9'
+                    $entry['source']['ref'] = $channelRef
                 }
             }
 
@@ -331,12 +339,25 @@ Describe 'Invoke-MarketplaceValidation' -Tag 'Unit' {
             New-ValidatorFixture -Root $script:validatorRepo -AddSecondPackage | Out-Null
             Set-CatalogEntry -Root $script:validatorRepo -Mutation {
                 param($catalog)
-                $catalog['plugins'][0]['source']['ref'] = 'hve-core-v9.9.9'
+                $catalog['plugins'][0]['source']['ref'] = 'v9.9.9'
             }
 
             $run = Get-ValidationReport -Root $script:validatorRepo
             (Get-ReportError -Report $run.Report) -join ' ' |
                 Should -Match 'object source ref must be either omitted from every entry or present on every entry'
+        }
+
+        It 'Rejects mixed channel namespaces across entries' {
+            New-ValidatorFixture -Root $script:validatorRepo -AddSecondPackage | Out-Null
+            Set-CatalogEntry -Root $script:validatorRepo -Mutation {
+                param($catalog)
+                $catalog['plugins'][0]['source']['ref'] = 'v9.9.9'
+                $catalog['plugins'][1]['source']['ref'] = 'prerelease-v9.9.9'
+            }
+
+            $run = Get-ValidationReport -Root $script:validatorRepo
+            (Get-ReportError -Report $run.Report) -join ' ' |
+                Should -Match 'object source ref must use one uniform release channel namespace across every entry'
         }
     }
 
@@ -381,10 +402,11 @@ Describe 'Invoke-MarketplaceValidation' -Tag 'Unit' {
 
         It 'Reports a case-mismatched release ref' {
             New-ValidatorFixture -Root $script:validatorRepo | Out-Null
-            Set-CatalogEntry -Root $script:validatorRepo -Mutation { param($catalog) $catalog['plugins'][0]['source']['ref'] = 'Hve-core-v9.9.9' }
+            Set-CatalogEntry -Root $script:validatorRepo -Mutation { param($catalog) $catalog['plugins'][0]['source']['ref'] = 'V9.9.9' }
 
             $run = Get-ValidationReport -Root $script:validatorRepo
-            (Get-ReportError -Report $run.Report) -join ' ' | Should -Match "object source ref must match package version 'hve-core-v9\.9\.9'"
+            (Get-ReportError -Report $run.Report) -join ' ' |
+                Should -Match "object source ref must match package version 'prerelease-v9\.9\.9' or 'v9\.9\.9'"
         }
 
         It 'Reports a sha locator field' {

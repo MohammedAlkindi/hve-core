@@ -49,29 +49,44 @@ Describe 'New-PluginReleaseLocator' -Tag 'Unit' {
 
     Context 'when a canonical release locator is requested' {
         BeforeAll {
-            $script:canonicalLocator = New-PluginReleaseLocator -Version '1.2.3' -TagPrefix 'hve-core-v' -PathPrefix ''
+            $script:canonicalLocator = New-PluginReleaseLocator -Version '1.2.3' -TagPrefix 'v' -PathPrefix ''
         }
 
-        It 'Derives the ordinary release tag' {
-            $script:canonicalLocator.Ref | Should -BeExactly 'hve-core-v1.2.3'
+        It 'Derives the Stable release tag' {
+            $script:canonicalLocator.Ref | Should -BeExactly 'v1.2.3'
+        }
+
+        It 'Derives the PreRelease release tag' {
+            (New-PluginReleaseLocator -Version '1.2.3' -TagPrefix 'prerelease-v' -PathPrefix '').Ref |
+                Should -BeExactly 'prerelease-v1.2.3'
         }
 
         It 'Produces a pathless locator' {
             $script:canonicalLocator.PathPrefix | Should -BeExactly ''
         }
 
-        It 'Accepts an explicit ordinary release tag' {
-            (New-PluginReleaseLocator -Tag 'hve-core-v4.5.6' -TagPrefix 'hve-core-v' -PathPrefix '').Ref |
-                Should -BeExactly 'hve-core-v4.5.6'
+        It 'Accepts an explicit Stable release tag' {
+            (New-PluginReleaseLocator -Tag 'v4.5.6' -TagPrefix 'v' -PathPrefix '').Ref |
+                Should -BeExactly 'v4.5.6'
         }
 
-        It 'Rejects a projected snapshot tag in the canonical namespace' {
-            { New-PluginReleaseLocator -Tag 'plugins-v1.2.3' -TagPrefix 'hve-core-v' -PathPrefix '' } |
-                Should -Throw -ExpectedMessage "*must use the immutable 'hve-core-v<version>' tag form*"
+        It 'Rejects a projected snapshot tag in the Stable namespace' {
+            { New-PluginReleaseLocator -Tag 'plugins-v1.2.3' -TagPrefix 'v' -PathPrefix '' } |
+                Should -Throw -ExpectedMessage "*must use the immutable 'v<version>' tag form*"
         }
 
-        It 'Rejects an ordinary release tag in the projected namespace' {
-            { New-PluginReleaseLocator -Tag 'hve-core-v1.2.3' } |
+        It 'Rejects a PreRelease tag in the Stable namespace' {
+            { New-PluginReleaseLocator -Tag 'prerelease-v1.2.3' -TagPrefix 'v' -PathPrefix '' } |
+                Should -Throw -ExpectedMessage "*must use the immutable 'v<version>' tag form*"
+        }
+
+        It 'Rejects the retired component namespace' {
+            { New-PluginReleaseLocator -Tag 'hve-core-v1.2.3' -TagPrefix 'v' -PathPrefix '' } |
+                Should -Throw -ExpectedMessage "*must use the immutable 'v<version>' tag form*"
+        }
+
+        It 'Rejects a channel release tag in the projected namespace' {
+            { New-PluginReleaseLocator -Tag 'v1.2.3' } |
                 Should -Throw -ExpectedMessage "*must use the immutable 'plugins-v<version>' tag form*"
         }
     }
