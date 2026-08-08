@@ -23,6 +23,7 @@
     "lint:plugin-output": "pwsh -NoProfile -File scripts/plugins/Assert-NoTrackedPluginOutput.ps1",
     "lint:hooks": "pwsh -File scripts/linting/Validate-HookManifests.ps1 -OutputPath logs/hook-manifest-validation-results.json",
     "lint:design-intent": "pwsh -NoProfile -File scripts/linting/Validate-DesignIntent.ps1 -OutputPath logs/design-intent-validation-results.json",
+    "design-intent:schema:sync": "pwsh -NoProfile -File scripts/linting/Sync-DesignIntentSchema.ps1",
     "lint:version-consistency": "pwsh -NoProfile -Command \"./scripts/security/Test-ActionVersionConsistency.ps1 -FailOnMismatch -Format Json -OutputPath logs/action-version-consistency-results.json\"",
     "lint:permissions": "pwsh -NoProfile -Command \"& './scripts/security/Test-WorkflowPermissions.ps1' -FailOnViolation\"",
     "lint:extension-artifact-naming": "pwsh -NoProfile -File scripts/linting/Test-ExtensionArtifactNaming.ps1",

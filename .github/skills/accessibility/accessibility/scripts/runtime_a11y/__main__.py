@@ -257,6 +257,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="Path to a results document produced by run-all",
     )
     verify_intent.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Optional runtime config used to validate surface and state bindings",
+    )
+    verify_intent.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -296,14 +302,47 @@ def _project_intent(args: argparse.Namespace) -> int:
     return EXIT_SUCCESS
 
 
+def _warn_override_conflicts(
+    record: dict[str, Any], assertions: list[dict[str, Any]]
+) -> None:
+    """Report each conclusive disagreement between a probe and its override.
+
+    The gate fails closed on a conclusive disagreement. The artifact does not
+    reproduce human-authored override fields, so diagnostics read the authored
+    record to report the override outcome accurately.
+    """
+    override_outcomes = {
+        (intent_item.get("id"), expectation.get("id")): (
+            expectation.get("override") or {}
+        ).get("outcome")
+        for intent_item in record.get("intents", [])
+        for expectation in intent_item.get("expectations", [])
+    }
+    for item in assertions:
+        if not item.get("overrideConflict"):
+            continue
+        override_outcome = override_outcomes.get(
+            (item["intentId"], item["expectationId"])
+        )
+        print(
+            "Warning: design intent override conflict: "
+            f"intent '{item['intentId']}' expectation '{item['expectationId']}'; "
+            f"observed outcome '{item['outcome']}'; "
+            f"override outcome '{override_outcome}'.",
+            file=sys.stderr,
+        )
+
+
 def _verify_intent(args: argparse.Namespace) -> int:
     """Generate a verification artifact and report blocking intent drift."""
     raw_text = intent.read_record_text(args.record)
-    record = intent.parse_record(raw_text, args.record)
+    config = load_validated_config(args.config) if args.config else None
+    record = intent.parse_record(raw_text, args.record, config)
     destination, document = intent.generate(
         args.record, args.results, args.out, prepared=(raw_text, record)
     )
     print(f"Wrote {destination}")
+    _warn_override_conflicts(record, document["assertions"])
     blocking = intent.evaluate_blocking(record, document["assertions"])
     if blocking == intent.BLOCKING_FAILED:
         print(

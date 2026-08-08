@@ -7,7 +7,7 @@ user-invocable: false
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-08-06"
+  last_updated: "2026-08-07"
 ---
 
 # Accessibility — Skill Entry
@@ -197,7 +197,7 @@ The harness uses `npx` at run time to install pinned dependencies `playwright@1.
 
 ### CI regression gate
 
-Use the ready-to-copy workflow template at [references/ci/accessibility-coverage.workflow-template.yml](references/ci/accessibility-coverage.workflow-template.yml) as the documentation-first integration point for a target project. Copy it into a real workflow under `.github/workflows/` only after the target project commits an `a11y-runtime.config.json` and has a build/serve path that the template can invoke.
+Use the ready-to-copy workflow template at [references/ci/accessibility-coverage.workflow-template.yml](references/ci/accessibility-coverage.workflow-template.yml) as the documentation-first integration point for a target project. Copy it into a real workflow under `.github/workflows/` only after the target project commits an `a11y-runtime.config.json` and has a build/serve path that the template can invoke. Once authored `*.intent.yaml` records exist, the template fails closed if the config or current-run results are missing.
 
 The template mirrors the Docusaurus workflow recipe by provisioning system Chrome, setting up Node 24 plus Python and `uv`, building the target, serving it under a configurable base URL, and running `uv run python -m runtime_a11y run-all --config a11y-runtime.config.json --out results.json`. It treats the high-confidence probes as blocking failures: `probe-axe`, `probe-dom-hygiene`, `probe-broken-links`, `probe-console-errors`, `probe-target-size`, `probe-contrast`, and `probe-reflow-resize`. The heuristic probes such as `use-of-color`, `hover-focus`, `link-purpose`, `name-in-label`, `keyboard-traversal`, `widget-keyboard`, `aria-tree`, and `focus-*` are surfaced as informational results so they can guide follow-up work without blocking initial adoption.
 
@@ -241,12 +241,15 @@ Expectations whose criteria a probe only informs resolve to `cantTell` in normal
 
 A `custom` expectation reports `untested` whether or not the record carries a human `override`. The adapter records only observed runtime outcome in the artifact. Human override remains authoritative in the record itself and is not merged into the generated artifact outcome.
 
-Interpretation is two-layered by contract:
+Interpretation is two-layered by contract, and the generated artifact now carries both layers on every assertion:
 
-* `observedOutcome` is the generated artifact field `outcome`.
-* `effectiveOutcome` is derived by policy as `override.outcome` when present, otherwise `observedOutcome`.
+* `observedOutcome` is the generated artifact field `outcome`. An override never replaces it.
+* `effectiveOutcome` applies fail-safe precedence. Either an observed or human `failed` outcome yields `failed`; human `passed` settles only `untested`, `cantTell`, or `inapplicable`; otherwise the observed outcome remains. This is the value the gate applies.
+* `overrideConflict` is `true` only when the observed and authored override outcomes are each `passed` or `failed` and differ. An override that settles an `untested`, `cantTell`, or `inapplicable` expectation is the documented use, not a conflict.
 
-Pairing and adequacy enforcement is repository-internal in this repository through `scripts/linting/Validate-DesignIntent.ps1` and related tests. A consuming project that adopts the record format but does not run an equivalent validator still gets verification output, but does not get authoring-contract enforcement.
+A conclusive conflict fails closed. `verify-intent` writes one `Warning:` line to stderr for each conflicting assertion, names the intent, expectation, observed outcome, and override outcome, and returns design-intent drift when the conflicting expectation blocks.
+
+The shipped Python verifier rejects duplicate YAML keys, validates the complete authored schema, and enforces semantic checks for dates, filename and runtime-config bindings, duplicate identifiers, method pairing, and probe adequacy before writing an artifact. This repository's PowerShell validator independently enforces the same contract for source and generated-artifact validation.
 
 #### Exit codes
 

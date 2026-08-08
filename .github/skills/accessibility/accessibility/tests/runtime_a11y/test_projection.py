@@ -69,6 +69,21 @@ decidedOn: "2026-01-01"
 decidedBy:
   - A. Person
 version: 1
+intents:
+  - id: INT-001
+    conveys: The surface has a documented intent.
+    rationale: "Projection requires one valid authored intent."
+    audience: [Users]
+    evidence: assumed
+    binding: {state: default}
+    expectations:
+      - id: EXP-001
+        method: cognitive-walkthrough
+        assert: custom
+        detail: A reviewer confirms the intent.
+        criteria: [wcag-22:1.3.1]
+        role: informs
+        blocking: false
 """
 
 

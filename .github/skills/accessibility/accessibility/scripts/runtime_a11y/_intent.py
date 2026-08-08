@@ -18,15 +18,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import secrets
+import stat
 from datetime import datetime, timezone
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Iterable
 
+import jsonschema
 import yaml
+from yaml.constructor import ConstructorError
 
 from runtime_a11y._errors import EXIT_USAGE, ScriptError
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 ASSERTED_BY = "runtime_a11y intent adapter"
 
 # EARL-derived outcome vocabulary, ordered worst first. An expectation is one
@@ -44,6 +50,57 @@ _STATUS_TO_OUTCOME = {
 }
 
 _CUSTOM_ASSERT = "custom"
+_AXE_PROBE_ID = "probe-axe"
+_AXE_METHOD = "axe-auto"
+_RUNTIME_METHOD = "runtime-automation"
+
+
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects duplicate mapping keys."""
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeySafeLoader,
+    node: yaml.MappingNode,
+    deep: bool = False,
+) -> dict[Any, Any]:
+    """Construct one mapping, failing closed on a duplicate key."""
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+def _load_authored_schema() -> dict[str, Any]:
+    """Load the generated packaged copy of the authored-record schema."""
+    schema_path = files("runtime_a11y").joinpath("design-intent.schema.json")
+    try:
+        payload = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ScriptError(
+            "Packaged Design Intent authored schema is missing or invalid",
+            EXIT_USAGE,
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ScriptError(
+            "Packaged Design Intent authored schema must be a JSON object",
+            EXIT_USAGE,
+        )
+    return payload
 
 
 def compute_intent_digest(raw_text: str) -> str:
@@ -67,19 +124,176 @@ def read_record_text(record_path: Path) -> str:
         ) from exc
 
 
-def parse_record(raw_text: str, record_path: Path) -> dict[str, Any]:
-    """Parse an authored record, requiring a YAML mapping at the root."""
+def parse_record(
+    raw_text: str,
+    record_path: Path,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Parse and validate an authored Design Intent Record."""
     try:
-        record = yaml.safe_load(raw_text)
+        record = yaml.load(raw_text, Loader=_UniqueKeySafeLoader)
     except yaml.YAMLError as exc:
         raise ScriptError(
-            f"Design intent record is not valid YAML: {record_path}"
+            f"Design intent record is not valid YAML: {record_path}: {exc}"
         ) from exc
     if not isinstance(record, dict):
         raise ScriptError(
             f"Design intent record must parse to a mapping: {record_path}"
         )
+    try:
+        jsonschema.Draft202012Validator(_load_authored_schema()).validate(record)
+    except jsonschema.ValidationError as exc:
+        location = ".".join(str(part) for part in exc.absolute_path) or "<root>"
+        raise ScriptError(
+            f"Design intent record violates the authored schema at "
+            f"{location}: {exc.message}",
+            EXIT_USAGE,
+        ) from exc
+    _validate_record_semantics(record, record_path, config)
     return record
+
+
+def _validate_calendar_date(value: str, label: str) -> None:
+    """Reject an ISO-looking date that is not a real calendar date."""
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ScriptError(f"{label} '{value}' is not a real calendar date") from exc
+
+
+def _load_probe_adequacy() -> dict[str, dict[str, set[tuple[str, str, str]]]]:
+    """Load the packaged probe adequacy map into deciding/informing sets."""
+    map_path = files("runtime_a11y").joinpath("probe-criteria-map.json")
+    payload = json.loads(map_path.read_text(encoding="utf-8"))
+    adequacy: dict[str, dict[str, set[tuple[str, str, str]]]] = {}
+    for probe in payload.get("probes", []):
+        probe_id = str(probe.get("probeId", ""))
+        entry = {"decides": set(), "informs": set()}
+        for relation in ("decides", "informs"):
+            for item in probe.get(relation, []):
+                for state in item.get("states", []):
+                    entry[relation].add(
+                        (
+                            str(item.get("framework", "")),
+                            str(item.get("criterionId", "")),
+                            str(state),
+                        )
+                    )
+        adequacy[probe_id] = entry
+    return adequacy
+
+
+def _surface_states(config: dict[str, Any]) -> dict[str, set[str]]:
+    """Project one runtime config into a surface-to-state lookup."""
+    return {
+        str(surface["id"]): {
+            str(state["state"]) for state in surface.get("states", [])
+        }
+        for surface in config.get("surfaces", [])
+        if isinstance(surface, dict) and surface.get("id")
+    }
+
+
+def _validate_record_semantics(
+    record: dict[str, Any],
+    record_path: Path,
+    config: dict[str, Any] | None,
+) -> None:
+    """Apply authored-record rules not fully expressed by JSON Schema."""
+    surface_id = str(record["surfaceId"])
+    stem = record_path.name.removesuffix(".intent.yaml")
+    if stem != surface_id:
+        raise ScriptError(
+            f"Record surfaceId '{surface_id}' does not match filename "
+            f"'{record_path.name}'"
+        )
+
+    _validate_calendar_date(str(record["decidedOn"]), "decidedOn")
+    surfaces = _surface_states(config) if config is not None else None
+    if surfaces is not None and surface_id not in surfaces:
+        raise ScriptError(
+            f"Record surfaceId '{surface_id}' is not declared in the runtime config"
+        )
+    adequacy = _load_probe_adequacy()
+    intent_ids: set[str] = set()
+    expectation_ids: set[str] = set()
+    for intent in record["intents"]:
+        intent_id = str(intent["id"])
+        if intent_id in intent_ids:
+            raise ScriptError(f"Duplicate intent id '{intent_id}'")
+        intent_ids.add(intent_id)
+        state = str(intent["binding"]["state"])
+        if (
+            surfaces is not None
+            and state != "default"
+            and state not in surfaces[surface_id]
+        ):
+            raise ScriptError(
+                f"Intent '{intent_id}' binds undeclared state '{state}' for "
+                f"surface '{surface_id}'"
+            )
+        for expectation in intent["expectations"]:
+            expectation_id = str(expectation["id"])
+            if expectation_id in expectation_ids:
+                raise ScriptError(f"Duplicate expectation id '{expectation_id}'")
+            expectation_ids.add(expectation_id)
+            _validate_expectation_semantics(expectation, intent_id, state, adequacy)
+
+
+def _validate_expectation_semantics(
+    expectation: dict[str, Any],
+    intent_id: str,
+    state: str,
+    adequacy: dict[str, dict[str, set[tuple[str, str, str]]]],
+) -> None:
+    """Validate method pairing and override date semantics."""
+    expectation_id = str(expectation["id"])
+    assert_id = str(expectation["assert"])
+    method = str(expectation["method"])
+    if assert_id == _AXE_PROBE_ID and method != _AXE_METHOD:
+        raise ScriptError(
+            f"Expectation '{expectation_id}' in intent '{intent_id}' asserts "
+            f"'{assert_id}', which requires method '{_AXE_METHOD}'"
+        )
+    if assert_id not in {_CUSTOM_ASSERT, _AXE_PROBE_ID} and method != _RUNTIME_METHOD:
+        raise ScriptError(
+            f"Expectation '{expectation_id}' in intent '{intent_id}' asserts "
+            f"'{assert_id}', which requires method '{_RUNTIME_METHOD}'"
+        )
+    override = expectation.get("override")
+    if isinstance(override, dict):
+        _validate_calendar_date(
+            str(override["reviewedOn"]),
+            f"Expectation '{expectation_id}' override.reviewedOn",
+        )
+    if assert_id == _CUSTOM_ASSERT:
+        return
+    if assert_id not in adequacy:
+        raise ScriptError(
+            f"Expectation '{expectation_id}' in intent '{intent_id}' asserts "
+            f"unknown probe '{assert_id}'"
+        )
+    requires_deciding = expectation["role"] == "decides" or expectation["blocking"]
+    for reference in expectation["criteria"]:
+        framework, criterion = split_criterion_reference(str(reference))
+        key = (framework, criterion, state)
+        probe = adequacy[assert_id]
+        if requires_deciding and key not in probe["decides"]:
+            raise ScriptError(
+                f"Expectation '{expectation_id}' in intent '{intent_id}' claims "
+                f"a deciding result that probe '{assert_id}' does not provide "
+                f"for '{reference}' in state '{state}'"
+            )
+        if (
+            not requires_deciding
+            and key not in probe["decides"]
+            and key not in probe["informs"]
+        ):
+            raise ScriptError(
+                f"Expectation '{expectation_id}' in intent '{intent_id}' "
+                f"references unsupported criterion '{reference}' for probe "
+                f"'{assert_id}' in state '{state}'"
+            )
 
 
 def load_results(results_path: Path) -> dict[str, Any]:
@@ -173,10 +387,41 @@ def build_assertions(
             # it to evaluate_blocking would raise only after the artifact
             # exists, leaving a misleading file behind.
             is_blocking(expectation)
-            assertions.append(
-                _build_assertion(intent_id, expectation, surface_id, state, rows)
+            assertion = _build_assertion(
+                intent_id, expectation, surface_id, state, rows
             )
+            assertions.append(_with_override_fields(assertion, expectation))
     return assertions
+
+
+_CONCLUSIVE_OUTCOMES = frozenset({"passed", "failed"})
+
+
+def _with_override_fields(
+    assertion: dict[str, Any], expectation: dict[str, Any]
+) -> dict[str, Any]:
+    """Add the contract's effective outcome and conflict flag to one assertion.
+
+    'outcome' stays the observed probe result and is never overwritten, so the
+    artifact keeps saying what the run actually saw. 'effectiveOutcome' carries
+    the authored override when present, matching the outcome the gate applies.
+
+    'overrideConflict' is true only when observation and override are each
+    conclusive and disagree. An override that settles an untested, cantTell, or
+    inapplicable expectation is the documented use, not a conflict, so flagging
+    it would train consumers to ignore the signal.
+    """
+    observed = assertion["outcome"]
+    effective = _effective_outcome(expectation, observed)
+    override = expectation.get("override")
+    authored = override.get("outcome") if isinstance(override, dict) else None
+    assertion["effectiveOutcome"] = effective
+    assertion["overrideConflict"] = (
+        observed in _CONCLUSIVE_OUTCOMES
+        and authored in _CONCLUSIVE_OUTCOMES
+        and observed != authored
+    )
+    return assertion
 
 
 def _iter_intents(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -249,8 +494,9 @@ def _build_assertion(
     assert_id = str(expectation.get("assert", ""))
 
     if assert_id == _CUSTOM_ASSERT:
-        # A custom assertion names no registered implementation, so no probe
-        # result can settle it. The contract already holds it non-blocking.
+        # A custom assertion has no runtime probe, so its observed outcome is
+        # untested. Informational custom assertions do not gate. A deciding
+        # custom assertion may be settled only by its authored override.
         return {
             "intentId": intent_id,
             "expectationId": expectation_id,
@@ -371,17 +617,18 @@ BLOCKING_UNCOVERED = "uncovered"
 def _effective_outcome(expectation: dict[str, Any], observed: str) -> str:
     """Return the gate-level outcome for one expectation.
 
-    The artifact records the observed outcome only. The exit code is the
-    consumer-facing signal, so it applies the contract's effective outcome:
-    'override.outcome' when a human authored one, otherwise the observed value.
-    Without this, a blocking expectation settled by a documented human review
-    on a platform no probe can drive would gate forever.
+    Either an observed or human-authored failure is authoritative. A documented
+    human pass settles only an unresolved observation; it never masks a current
+    observed failure. This preserves manual settlement for platforms no probe
+    can drive while failing closed on conclusive disagreement.
     """
     override = expectation.get("override")
     if isinstance(override, dict):
         outcome = override.get("outcome")
-        if isinstance(outcome, str) and outcome:
-            return outcome
+        if observed == "failed" or outcome == "failed":
+            return "failed"
+        if observed in {"untested", "cantTell", "inapplicable"} and outcome == "passed":
+            return "passed"
     return observed
 
 
@@ -410,7 +657,11 @@ def evaluate_blocking(record: dict[str, Any], assertions: list[dict[str, Any]]) 
         expectation = blocking.get((item["intentId"], item["expectationId"]))
         if expectation is None:
             continue
-        outcome = _effective_outcome(expectation, item["outcome"])
+        outcome = item.get("effectiveOutcome") or _effective_outcome(
+            expectation, item["outcome"]
+        )
+        if item.get("overrideConflict"):
+            return BLOCKING_FAILED
         if outcome == "failed":
             return BLOCKING_FAILED
         if outcome in ("untested", "cantTell"):
@@ -421,6 +672,176 @@ def evaluate_blocking(record: dict[str, Any], assertions: list[dict[str, Any]]) 
 def default_output_path(record_path: Path, surface_id: str) -> Path:
     """Return the contract location for a record's verification artifact."""
     return record_path.parent / ".verification" / f"{surface_id}.earl.json"
+
+
+def _require_secure_write_support() -> None:
+    """Require the POSIX handle-relative primitives used by artifact writes."""
+    required_dir_fd = (os.open, os.mkdir, os.stat, os.rename, os.unlink)
+    flags = ("O_DIRECTORY", "O_NOFOLLOW")
+    if os.name != "posix" or any(
+        function not in os.supports_dir_fd for function in required_dir_fd
+    ) or any(not hasattr(os, flag) for flag in flags):
+        raise ScriptError(
+            "Secure verification artifact writes require POSIX dir_fd, "
+            "O_DIRECTORY, and O_NOFOLLOW support",
+            EXIT_USAGE,
+        )
+
+
+def _open_absolute_directory(path: Path) -> int:
+    """Open one absolute directory path without following any symlink."""
+    absolute = Path(os.path.abspath(path))
+    current_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in absolute.parts[1:]:
+            next_fd = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=current_fd,
+            )
+            os.close(current_fd)
+            current_fd = next_fd
+        return current_fd
+    except OSError as exc:
+        os.close(current_fd)
+        raise ScriptError(
+            f"Verification output root is unsafe: {absolute}", EXIT_USAGE
+        ) from exc
+
+
+def _open_destination_directory(root_fd: int, parts: tuple[str, ...]) -> int:
+    """Open or safely create destination parents relative to one root handle."""
+    current_fd = os.dup(root_fd)
+    try:
+        for part in parts:
+            try:
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_fd,
+                )
+            except FileNotFoundError:
+                try:
+                    os.mkdir(part, mode=0o755, dir_fd=current_fd)
+                except FileExistsError:
+                    pass
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_fd,
+                )
+            os.close(current_fd)
+            current_fd = next_fd
+        return current_fd
+    except OSError as exc:
+        os.close(current_fd)
+        raise ScriptError(
+            "Verification output parent is unsafe or not a directory",
+            EXIT_USAGE,
+        ) from exc
+
+
+def _reject_unsafe_final_entry(directory_fd: int, name: str) -> None:
+    """Reject an existing destination that is not a regular file."""
+    try:
+        metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ScriptError(
+            f"Verification destination is unreadable: {name}", EXIT_USAGE
+        ) from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ScriptError(
+            f"Verification destination is not a regular file: {name}",
+            EXIT_USAGE,
+        )
+
+
+def _write_verification_artifact(
+    record_path: Path,
+    destination: Path,
+    document: dict[str, Any],
+) -> Path:
+    """Write one artifact atomically beneath the authored-record directory."""
+    _require_secure_write_support()
+    # The contract stores records under <project>/design-intent/. Default output
+    # stays below that directory, while an explicit --out may select another
+    # location inside the same consuming project root.
+    record_directory = Path(os.path.abspath(record_path.parent))
+    approved_root = (
+        record_directory.parent
+        if record_directory.name == "design-intent"
+        else record_directory
+    )
+    absolute_destination = Path(os.path.abspath(destination))
+    try:
+        relative = absolute_destination.relative_to(approved_root)
+    except ValueError as exc:
+        raise ScriptError(
+            f"Verification destination escapes the record directory: "
+            f"{destination}",
+            EXIT_USAGE,
+        ) from exc
+    if relative.name in {"", ".", ".."}:
+        raise ScriptError("Verification destination needs a filename", EXIT_USAGE)
+
+    root_fd = _open_absolute_directory(approved_root)
+    directory_fd = -1
+    temporary_created = False
+    temporary_name = f".{relative.name}.{secrets.token_hex(8)}.tmp"
+    try:
+        directory_fd = _open_destination_directory(root_fd, relative.parent.parts)
+        _reject_unsafe_final_entry(directory_fd, relative.name)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        temporary_fd = os.open(temporary_name, flags, 0o600, dir_fd=directory_fd)
+        temporary_created = True
+        try:
+            payload = json.dumps(document, indent=2) + "\n"
+            try:
+                stream = os.fdopen(temporary_fd, "w", encoding="utf-8")
+            except Exception:
+                try:
+                    os.close(temporary_fd)
+                except OSError:
+                    pass
+                raise
+            with stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except Exception:
+            raise
+
+        # This check detects tampering. Handle-relative rename below provides
+        # the atomic replacement and does not follow a destination symlink.
+        _reject_unsafe_final_entry(directory_fd, relative.name)
+        os.rename(
+            temporary_name,
+            relative.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        temporary_created = False
+    except BaseException as exc:
+        try:
+            if temporary_created and directory_fd >= 0:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        if isinstance(exc, ScriptError):
+            raise
+        if not isinstance(exc, OSError):
+            raise
+        raise ScriptError(
+            f"Failed to write verification artifact safely: {destination}",
+            EXIT_USAGE,
+        ) from exc
+    finally:
+        if directory_fd >= 0:
+            os.close(directory_fd)
+        os.close(root_fd)
+    return absolute_destination
 
 
 def generate(
@@ -461,6 +882,5 @@ def generate(
     document = build_verification(record, raw_text, results, timestamp)
 
     destination = out_path or default_output_path(record_path, surface_id)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-    return destination, document
+    written = _write_verification_artifact(record_path, destination, document)
+    return written, document

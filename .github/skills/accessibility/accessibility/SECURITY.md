@@ -301,7 +301,8 @@ Two properties bound this flow. The adapter reads declarative fields needed to e
 ### Tampering
 
 * Authored record edits can change gate behavior because `blocking` and assertion metadata are input to the enforcement decision.
-* Mitigations are contract and parser controls: typed shape guards, boolean-only `blocking`, identifier validation before write, and deterministic digest binding to the exact record revision.
+* Mitigations are contract and parser controls: duplicate-key rejection, authored-schema and semantic validation in the shipped Python verifier, boolean-only `blocking`, identifier validation before write, and deterministic digest binding to the exact record revision.
+* Verification artifacts are contained beneath the consuming project root. Existing parents are opened with directory and no-follow semantics, missing parents are created and reopened handle-relatively, final entries must be regular files, and writes use an exclusive temporary file plus handle-relative atomic rename.
 
 ### Repudiation
 
@@ -319,14 +320,16 @@ Two properties bound this flow. The adapter reads declarative fields needed to e
 
 ### Elevation of Privilege
 
-* Not applicable. The verification and projection paths parse local data and write files; they execute no shell and perform no privileged transition.
+* A repository-controlled symlink or parent swap could otherwise redirect the runner's file permissions onto another writable target.
+* The verifier retains directory handles, performs no path-based write after validation, rejects symlink/non-regular targets, and fails closed on platforms without the required POSIX no-follow and `dir_fd` primitives.
 
 ### Risk Rating
 
-| Threat                                                                         | Likelihood | Impact | Residual Risk | Status                                |
-|--------------------------------------------------------------------------------|------------|--------|---------------|---------------------------------------|
-| Authoring-contract bypass in a consuming project without equivalent validation | Med        | Med    | Med           | Accepted boundary (repository-scoped) |
-| Malformed record causing ambiguous runtime behavior                            | Low        | Med    | Low           | Mitigated (typed guards, fail-closed) |
+| Threat                                                                         | Likelihood | Impact | Residual Risk | Status                                                    |
+|--------------------------------------------------------------------------------|------------|--------|---------------|-----------------------------------------------------------|
+| Authoring-contract bypass in a consuming project without equivalent validation | Med        | Med    | Med           | Accepted boundary (repository-scoped)                     |
+| Malformed record causing ambiguous runtime behavior                            | Low        | Med    | Low           | Mitigated (typed guards, fail-closed)                     |
+| Repository-controlled symlink redirects verification output                    | Low        | High   | Low           | Mitigated (containment, no-follow handles, atomic rename) |
 
 ## Enterprise Readiness Gaps
 

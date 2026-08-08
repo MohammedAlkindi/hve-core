@@ -64,7 +64,8 @@ These pairings are enforced, so a mismatch fails validation:
 
 * `assert: probe-axe` requires `method: axe-auto`.
 * Any other probe id requires `method: runtime-automation`.
-* `assert: custom` requires `role: informs` and `blocking: false`, because no registered implementation exists to settle it.
+* `assert: custom` is informational by default: `role: informs` and `blocking: false`.
+* A user-invoked manual review path uses `assert: custom`, `role: decides`, and `blocking: true`. Without an override it remains uncovered; a complete passed or failed override settles it.
 
 An expectation with `role: informs` can never be blocking.
 
@@ -74,9 +75,22 @@ An `override` records a human verdict that no generator may alter. It requires `
 
 Authority constraints apply. `override` is always valid for `assert: custom` and is otherwise valid only on a deciding expectation (`role: decides`).
 
-The override lives on the authored record and stays readable without any generated artifact. The verification artifact reports only what the run observed (`observedOutcome`) and does not merge the override into its own `outcome` field. The contract-level `effectiveOutcome` is derived by the consumer as `override.outcome` when present, otherwise `observedOutcome`. The shipped `verify-intent` command applies that same derivation when it decides its exit code, so a blocking expectation settled by a documented human review does not gate the build while the artifact still records what the probe actually saw.
+For a deciding custom expectation, the base observation is `untested`. A complete passed override settles it, a complete failed override blocks, and a missing override remains uncovered. Incomplete overrides are invalid under the schema. Manual review has no automatic expiry; users replace or remove it explicitly.
 
-Pairing and adequacy enforcement is repository-internal in this project through `scripts/linting/Validate-DesignIntent.ps1` and related tests. Consuming projects that adopt this contract but do not run an equivalent validator still get verification output, but they do not get authoring-contract enforcement.
+The override lives on the authored record and stays readable without any generated artifact. The verification artifact keeps its `outcome` field as the observed run result and never merges the override into it. It also emits `effectiveOutcome`, which applies fail-safe precedence: either observed or human `failed` yields `failed`; human `passed` settles only `untested`, `cantTell`, or `inapplicable`; otherwise the observed outcome remains. `overrideConflict` is `true` only when observed and human outcomes are each `passed` or `failed` and differ.
+
+A conclusive conflict fails the gate. The shipped `verify-intent` command returns design-intent drift and writes one `Warning:` line to stderr for each conflicting assertion, so CI cannot stay green while the artifact reports a current failure against an older human pass.
+
+The shipped Python verifier rejects duplicate YAML keys, validates the complete authored schema, and enforces semantic checks for dates, filename and runtime-config bindings, duplicate identifiers, method pairing, and probe adequacy before writing an artifact. This repository's PowerShell validator independently enforces the same contract for source and generated-artifact validation.
+
+## Version compatibility matrix
+
+| Input or output       | Supported contract                 | CLI behavior                                                                                               | Migration and rejection behavior                                                                                       |
+|-----------------------|------------------------------------|------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| Authored record       | `schemaVersion: "1.0"`             | `verify-intent` accepts the record after schema and semantic validation                                    | Existing complete overrides remain valid and unchanged. Any other authored schema version fails before artifact write. |
+| Verification artifact | `schemaVersion: "1.1"`             | The Python adapter emits 1.1 with observed `outcome`, fail-safe `effectiveOutcome`, and `overrideConflict` | The repository validator accepts 1.1. Any other verification schema version fails schema validation.                   |
+| Manual review         | Existing 1.0 `override` object     | Passed review settles an unresolved observation; failed review blocks; no review remains uncovered         | No second object or automatic expiry is introduced. Users replace or remove the existing override explicitly.          |
+| Conclusive conflict   | Authored 1.0 plus verification 1.1 | A blocking conflict returns design-intent drift and emits a warning                                        | A human pass never masks a current observed failure.                                                                   |
 
 ## Choosing what to declare
 

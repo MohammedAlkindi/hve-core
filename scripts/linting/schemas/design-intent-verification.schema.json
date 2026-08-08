@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "surfaceId", "intentDigest", "assertedBy", "timestamp", "assertions"],
   "properties": {
     "schemaVersion": {
-      "const": "1.0",
+      "const": "1.1",
       "description": "Contract version of this generated artifact."
     },
     "surfaceId": {
@@ -41,7 +41,7 @@
   "$defs": {
     "assertion": {
       "type": "object",
-      "required": ["intentId", "expectationId", "outcome", "mode", "pointer", "info"],
+      "required": ["intentId", "expectationId", "outcome", "effectiveOutcome", "overrideConflict", "mode", "pointer", "info"],
       "properties": {
         "intentId": {
           "type": "string",
@@ -54,7 +54,16 @@
         "outcome": {
           "type": "string",
           "enum": ["passed", "failed", "cantTell", "inapplicable", "untested"],
-          "description": "EARL-derived outcome vocabulary."
+          "description": "EARL-derived outcome vocabulary. Always the observed probe result; an authored override never replaces it."
+        },
+        "effectiveOutcome": {
+          "type": "string",
+          "enum": ["passed", "failed", "cantTell", "inapplicable", "untested"],
+          "description": "Contract-level effective outcome. Either observed or human failed yields failed; a human pass settles only unresolved observations; otherwise the observed outcome remains. This is the value the gate applies."
+        },
+        "overrideConflict": {
+          "type": "boolean",
+          "description": "True only when observed outcome and authored override outcome are each passed or failed and differ. A human override that settles an untested, cantTell, or inapplicable expectation is not a conflict."
         },
         "mode": {
           "type": "string",
@@ -84,7 +93,7 @@
           "$comment": "An inapplicable result must say why it did not apply."
         }
       ],
-      "$comment": "No human-authored field appears here. This schema records observedOutcome only (the probe result in 'outcome'). Effective outcome is a contract-level interpretation: authored override.outcome when present, otherwise observedOutcome."
+      "$comment": "No human-authored field appears here. 'outcome' records observedOutcome only. 'effectiveOutcome' applies fail-safe precedence across observation and authored override. 'overrideConflict' marks a conclusive disagreement between observed and authored outcomes."
     }
   }
 }

@@ -113,10 +113,39 @@ Describe 'Design Intent schemas' -Tag 'Unit' {
         Test-Json -Json ($record | ConvertTo-Json -Depth 20) -Schema $schema | Should -BeTrue
     }
 
+    It 'Generated runtime authored schema is byte-identical after synchronization' {
+        $runtimeSchemaPath = Join-Path $script:repoRoot '.github/skills/accessibility/accessibility/scripts/runtime_a11y/design-intent.schema.json'
+        if (-not (Test-Path -LiteralPath $runtimeSchemaPath -PathType Leaf)) {
+            Set-ItResult -Skipped -Because 'generated runtime schema copy has not been synchronized yet'
+            return
+        }
+
+        (Get-FileHash -LiteralPath $runtimeSchemaPath -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $script:authoredSchemaPath -Algorithm SHA256).Hash
+    }
+
     It 'Artifact fixture conforms to the verification schema' {
         $schema = Get-Content -LiteralPath $script:verificationSchemaPath -Raw
         $json = Get-Content -LiteralPath (Get-ArtifactPath -Root $script:fixtureRoot) -Raw
         Test-Json -Json $json -Schema $schema | Should -BeTrue
+    }
+
+    It 'Rejects unsupported <Kind> schema version' -ForEach @(
+        @{ Kind = 'authored' }
+        @{ Kind = 'verification' }
+    ) {
+        if ($Kind -eq 'authored') {
+            $schema = Get-Content -LiteralPath $script:authoredSchemaPath -Raw
+            $document = ConvertFrom-Yaml -Yaml (Get-Content -LiteralPath (Get-AuthoredPath -Root $script:fixtureRoot) -Raw) -Ordered
+        }
+        else {
+            $schema = Get-Content -LiteralPath $script:verificationSchemaPath -Raw
+            $document = Get-Content -LiteralPath (Get-ArtifactPath -Root $script:fixtureRoot) -Raw | ConvertFrom-Json
+        }
+        $document.schemaVersion = '2.0'
+
+        Test-Json -Json ($document | ConvertTo-Json -Depth 20) -Schema $schema -ErrorAction SilentlyContinue |
+            Should -BeFalse
     }
 
     It 'Authored schema assert enum matches the current runtime probe vocabulary' {
@@ -284,10 +313,10 @@ Describe 'Design Intent validator rejects authored violations' -Tag 'Unit' {
         (Invoke-Validator -Root $root).Codes | Should -Contain 'schema-violation'
     }
 
-    It 'Rejects a custom assertion that claims a deciding result' {
+    It 'Accepts a custom deciding expectation without a review for uncovered gating' {
         $root = New-FixtureRoot -Name 'custom-deciding'
         Set-AuthoredText -Root $root -Pattern 'assert: custom\n        detail: A reviewer walks the summary aloud and confirms the reading order matches the visual grouping\.\n        criteria:\n          - wcag-22:1\.3\.2\n        role: informs\n        blocking: false' -Replacement "assert: custom`n        detail: A reviewer walks the summary aloud.`n        criteria:`n          - wcag-22:1.3.2`n        role: decides`n        blocking: true"
-        (Invoke-Validator -Root $root).Codes | Should -Contain 'schema-violation'
+        (Invoke-Validator -Root $root).Codes | Should -Not -Contain 'schema-violation'
     }
 }
 
