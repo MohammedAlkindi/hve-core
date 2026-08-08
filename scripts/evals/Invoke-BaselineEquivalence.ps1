@@ -142,7 +142,7 @@ function Assert-SupportedTier {
         [string]$Tier
     )
 
-    $supported = @('devloop', 'ci')
+    $supported = @('devloop', 'calibration', 'ci')
     if ($supported -contains $Tier) { return }
 
     $migrated = @{ 'pr' = 'devloop'; 'nightly' = 'ci' }
@@ -203,7 +203,7 @@ function Resolve-ModelList {
         [string]$ModelOverride
     )
 
-    if ($Tier -eq 'ci') {
+    if ($Tier -in @('calibration', 'ci')) {
         # Two standard-tier models rather than a premium sweep. `gpt-5.5` carried a
         # 7.5x cost multiplier for no measured gain in cross-vendor signal, and
         # `claude-sonnet-latest` produced no trajectories at all, so a floating alias
@@ -268,7 +268,7 @@ function New-DryRunSummary {
     )
 
     return [ordered]@{
-        schemaVersion            = '2.0.0'
+        schemaVersion            = '2.1.0'
         agent                    = $Agent
         tier                     = $Tier
         model                    = $Model
@@ -282,6 +282,10 @@ function New-DryRunSummary {
         winRate                  = 0.0
         invariantFailures        = 0
         runHealthFailures        = 0
+        invocationEvidence       = @()
+        invocationFailures       = 0
+        comparisonCalibration    = @()
+        comparisonStatus         = 'dry-run'
         divergenceGuardFailures  = 0
         equivalenceGate          = 'dry-run'
         documentedDivergenceGate = 'dry-run'
@@ -706,6 +710,9 @@ if ($MyInvocation.InvocationName -ne '.') {
         $totalEquivalentTies = 0
         $totalDivergence = 0
         $dataQualityDiagnostics = [System.Collections.Generic.List[string]]::new()
+        $invocationEvidence = [System.Collections.Generic.List[object]]::new()
+        $invocationFailures = 0
+        $comparisonCalibration = [System.Collections.Generic.List[object]]::new()
 
         # Policy and invariant membership come from the canonical library, because the
         # comparison JSONL identifies stimuli by name only.
@@ -889,6 +896,33 @@ if ($MyInvocation.InvocationName -ne '.') {
             $aRunDir = $baselineRunDir
             $bRunDir = Resolve-LatestRunDir -OutputDir $bDir
 
+            $invocationTally = Measure-AgentInvocationEvidence `
+                -RunDir $bRunDir `
+                -StimulusNames @($canonicalPolicy.Keys) `
+                -ExpectedTrials $customizedTrials
+            $invocationEvidence.Add([ordered]@{
+                    model               = $model
+                    expected            = $invocationTally.Expected
+                    observed            = $invocationTally.Observed
+                    failed              = $invocationTally.Failed
+                    missing             = $invocationTally.Missing
+                    duplicate           = $invocationTally.Duplicate
+                    wrongPath           = $invocationTally.WrongPath
+                    malformed           = $invocationTally.Malformed
+                    hasCompleteEvidence  = $invocationTally.HasCompleteEvidence
+                })
+            $modelInvocationFailures = [int]$invocationTally.Failed + [int]$invocationTally.Missing +
+                [int]$invocationTally.Duplicate + [int]$invocationTally.WrongPath + [int]$invocationTally.Malformed
+            $invocationFailures += $modelInvocationFailures
+            if ($modelInvocationFailures -gt 0) {
+                $dataQualityViolations += $modelInvocationFailures
+                Write-Host "   Agent invocation: $($invocationTally.Observed) of $($invocationTally.Expected) trials have complete evidence; $modelInvocationFailures failure(s)" -ForegroundColor Yellow
+            }
+            else {
+                Write-Host "   Agent invocation: $($invocationTally.Observed) of $($invocationTally.Expected) trials have complete evidence" -ForegroundColor DarkGray
+            }
+            foreach ($diagnostic in @($invocationTally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
+
             # The documented-divergence gate reads per-guard conformance from the
             # customized run. This is the only place those results exist: comparison
             # JSONL carries winners, not grader detail, and the run's own 0.7 scoring
@@ -990,6 +1024,18 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
                 foreach ($diagnostic in @($tally.Diagnostics)) { $dataQualityDiagnostics.Add($diagnostic) }
 
+                $comparisonCalibration.Add([ordered]@{
+                        model                 = $model
+                        policy                = 'equivalent-only'
+                        status                = 'report-only'
+                        scoreCount            = $tally.EquivalentScoreCount
+                        meanScore             = $tally.EquivalentMeanScore
+                        stdDev                = $tally.EquivalentStdDev
+                        ciLow                 = $tally.EquivalentCiLow
+                        ciHigh                = $tally.EquivalentCiHigh
+                        perStimulus           = $tally.EquivalentPerStimulus
+                    })
+
                 $totalRuns += $tally.Total
                 $totalTies += $tally.Ties
                 $totalBaselineWins  += $tally.BaselineWins
@@ -1033,7 +1079,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             # A breaking contract change. Consumers reject an unsupported major version
             # rather than reading absent fields as zeros, which is how a dropped field
             # previously degraded into a plausible-looking healthy run.
-            schemaVersion            = '2.0.0'
+            schemaVersion            = '2.1.0'
             agent                    = $Agent
             tier                     = $Tier
             model                    = $primaryModel
@@ -1047,6 +1093,8 @@ if ($MyInvocation.InvocationName -ne '.') {
             winRate                  = [math]::Round($aggregateWinRate, 4)
             invariantFailures        = $invariantFailures
             runHealthFailures        = $runHealthFailures
+            invocationEvidence       = @($invocationEvidence)
+            invocationFailures       = $invocationFailures
             divergenceGuardFailures  = $divergenceGuardFailures
             divergenceGuardsEvaluated = $divergenceGuardsEvaluated
             failedDivergenceGuards   = @(Get-DiagnosticSample -Diagnostics $failedDivergenceGuards -Max 50)
@@ -1057,6 +1105,8 @@ if ($MyInvocation.InvocationName -ne '.') {
             equivalentTies           = $totalEquivalentTies
             divergenceTrials         = $totalDivergence
             tieRatio                 = if ($totalEquivalent -gt 0) { [math]::Round($totalEquivalentTies / $totalEquivalent, 4) } else { 0.0 }
+            comparisonCalibration    = @($comparisonCalibration)
+            comparisonStatus         = 'report-only'
             dataQualityDiagnostics   = @(Get-DiagnosticSample -Diagnostics $dataQualityDiagnostics -Max 50)
             equivalenceGate          = $gates.EquivalenceGate
             documentedDivergenceGate = $gates.DocumentedDivergenceGate

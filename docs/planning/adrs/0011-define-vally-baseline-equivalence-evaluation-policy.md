@@ -1,9 +1,9 @@
 ---
 id: "0011"
 title: "Define the Vally baseline-equivalence evaluation policy"
-description: "Fix the rubric source, gate separation, tier exit semantics, model scope, and judge-error posture for the baseline-equivalence suite so its verdict means one auditable thing."
+description: "Define launch-based agent invocation, authoritative evidence, report-only comparison calibration, model scope, and trial posture for the baseline-equivalence suite."
 author: "HVE Core Maintainers"
-ms.date: "2026-08-06"
+ms.date: "2026-08-07"
 ms.topic: "reference"
 status: "proposed"
 proposed_date: "2026-08-01"
@@ -47,7 +47,7 @@ asr_triggers:
     note: "Trigger-shaped names invited a caller to select an exit policy by accident."
 success_criteria:
   - metric: "gate-separation"
-    target: "every run reports equivalenceGate and documentedDivergenceGate independently, and verdict is the worse of the two"
+    target: "every run separates authoritative deterministic and structural evidence from report-only comparative and boundary evidence"
     measurement_window: "every baseline-equivalence run"
     source: "scripts/evals/lib/EquivalenceParsing.psm1 and scripts/tests/evals/EquivalenceParsing.Tests.ps1"
   - metric: "structural-fail-closed"
@@ -115,37 +115,19 @@ The driver therefore passes `--eval-spec evals/baseline-equivalence/compare.eval
 Deterministic validation rejects any missing, duplicated, unknown, or policy-mismatched entry before a run is paid for.
 The judge model is passed explicitly as `--judge-model`, defaulting to `claude-haiku-4.5`, so both the rubric and the judge are visible in the command.
 
-**2. Two gates are evaluated and reported independently.** The equivalence gate asks whether behavior that should not change stayed the same, reading the tie ratio over the equivalent-policy population only.
-The documented-divergence gate asks whether declared customization guards held, reading per-guard conformance from the customized run. The `verdict` is the worse of the two.
-The 40 stimuli carry an explicit comparison policy tag: 35 `equivalent` and 5 `documented-divergence`, so intended divergence never enters the equivalence denominator.
+**2. Agent invocation is part of the treatment and must be evidenced.** The baseline sends the canonical question as one prompt. The customized variant follows the repository's established conformance pattern: turn 0 launches `.github/agents/hve-core/rpi-agent.agent.md`, and turn 1 sends the same canonical question.
+Copying an agent file into a workspace is not invocation. Every customized `model|stimulus|trial` identity must have one successful structured read of the exact staged agent path with non-empty RPI Agent content. Failed reads, wrong paths, missing identities, duplicates, and malformed evidence are structural failures.
 
-The statistic is the equivalent-only tie ratio rather than a confidence interval.
-Vally's comparison summary reports its bounds over every compared stimulus, including the ones the suite expects to diverge, so a strong expected win among the documented-divergence stimuli could move the interval away from zero and fail equivalence even when every equivalent trial was unchanged.
-`ciLow` and `ciHigh` remain in the summary as reporting-only diagnostics and are not gate inputs.
+**3. Comparison is report-only calibration until valid post-launch evidence supports a non-inferiority policy.** The 40 stimuli carry 35 `equivalent` and 5 `documented-divergence` policies. Signed scores, mean, standard deviation, 95% confidence bounds, and per-stimulus dispersion are computed separately for each model over the equivalent-policy population only. Documented-divergence outcomes cannot move those estimates.
+Tie ratio and Vally's all-policy aggregate fields remain diagnostics. No comparative pass or fail state exists until a later human-owned decision defines score direction, hypotheses, numeric degradation margin, confidence level, boundary inequality, missing-bound behavior, and a rule forbidding pass-seeking recalibration. Historical values from before launch-based invocation are not comparable to the first valid calibration.
 
-The floor is `tieRatio >= 0.80`, inherited from the tie-ratio heuristic the Vally 0.6-era driver used rather than derived from the current corpus.
-It is provisional and is calibrated together with the configured trial count, because the two interact: at `runs: 5` across 35 equivalent stimuli the denominator is 175 trials, so the floor tolerates at most 35 non-tie trials and each trial moves the ratio by roughly half a percent.
-Reducing the run count shrinks the denominator and makes the same floor materially more volatile, so neither value may be changed alone.
+**4. Tiers separate local iteration from two-model calibration while preserving authoritative evidence.** `devloop` runs one selected model and remains advisory. `calibration` and `ci` run the fixed pair `gpt-5.6-luna` and `claude-sonnet-4.6`. Comparison and boundary guards are report-only at every current tier. Deterministic invariants, successful agent invocation, run health, and structural data quality remain authoritative in `calibration` and `ci`; structural failures fail closed even in `devloop`.
+The former `pr` and `nightly` names remain rejected rather than aliased.
 
-Two different acts must not be confused. Lowering the floor or the trial count to make a failing run pass is prohibited: it would remove the regression protection the gate exists to provide.
-Revalidating the floor against evidence is a separate, legitimate act, and it is now owed.
-The floor was inherited from an era when the judge received an explicit equivalence rubric; that rubric was lost in the 0.10-to-0.11 migration and the floor was not revisited, so the threshold and the statistic it reads were decoupled.
-Restoring the contract restores the statistic the floor assumes, and the first clean run under the restored contract is the evidence that should inform whether `0.80` is retained, revalidated, or replaced. Until that evidence exists, the value stands unchanged.
-
-An empty equivalent population is a structural failure rather than a below-floor statistical result.
-A ratio computed from zero trials is not a low score; it is the absence of the measurement the gate exists to make, and reporting it as a statistical miss would send diagnosis toward the customization instead of the configuration that emptied the population.
-
-**3. Tiers name their exit policy, not their trigger.** `devloop` is advisory and always exits 0. `ci` is authoritative and exits 1 on a failing verdict. The former `pr` and `nightly` names are rejected with a migration message rather than aliased, because they carried different exit policies and a silent alias would let a stale caller select the wrong one.
-
-**4. Structural failures fail closed at every tier; statistical results are advisory only in `devloop`.** A run with zero trials or any data-quality violation reports `fail` even on `devloop`.
-An incomplete comparison cannot evidence equivalence regardless of who ran it, and reporting a pass from the records that happened to survive would assert something the run did not measure.
-Invariant, run-health, and guard-conformance failures downgrade to `warn` on `devloop` and `fail` on `ci`. A run that evaluated no divergence guards fails closed, because no signal is not conformance.
-
-**5. Judge errors are counted and reported, not enforced.** `judgeErrors` and `judgeErrorRate` appear in every summary but do not gate.
+**5. Judge errors are counted and structural exclusions fail closed.** `judgeErrors` and `judgeErrorRate` appear in every summary. Any missing or judge-excluded comparison population is a data-quality violation and invalidates calibration rather than silently reducing the denominator.
 Their acceptable bar is unresolved pending the calibration work, and a gate that enforces an uncalibrated threshold asserts a standard no one has validated.
 A judge failure is not silently tolerated: a comparison that yields no records the judge could score is a run-health failure, so an unusable judge already fails closed without a numeric budget.
-The equivalence tie-ratio floor is enforced despite also being provisional, because a suite that measures equivalence without ever failing on it provides no regression protection; it is recorded as calibrated-forward rather than validated.
-Model scope follows cost: `devloop` resolves an explicit `-Model` override, then the agent's frontmatter `model:` hint, then the low-cost default `gpt-5.6-luna`; `ci` sweeps the fixed standard-tier pair `gpt-5.6-luna` and `claude-sonnet-4.6`. No floating alias such as `latest` is used, because an alias can resolve to a model the account cannot execute and that surfaces as an empty run rather than a model-selection error.
+Model scope follows cost: `devloop` resolves an explicit `-Model` override, then the agent's frontmatter `model:` hint, then the low-cost default `gpt-5.6-luna`; `calibration` and `ci` sweep the fixed pair. No floating alias such as `latest` is used.
 
 **6. Stage 1 measures one subject; the multi-agent sweep is staged behind it.** The corpus backlinks nine agents, but its customization-boundary stimuli and their guards encode the RPI agent's contract, so scoring another agent against them would fail for reasons unrelated to equivalence.
 Backlinks therefore identify related artifacts rather than authorize equivalence subjects: the dedicated harness runs `rpi-agent` only, and the corpus is excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus runs that reported success without evidencing anything.
@@ -162,24 +144,23 @@ A grader whose outcome records how that model chose to respond cannot distinguis
 This is not a mechanism for quieting a failing check. It is available only where the grader measures the baseline model rather than the customization, the grader keeps executing and reporting so a change stays visible, and the reasoning is recorded with the stimulus.
 Threshold and run-count relaxation remain prohibited regardless.
 
-The reporting contract carries `schemaVersion: "2.0.0"`. Consumers reject an unsupported major version loudly rather than reading absent fields as zeros, which previously let a renamed field degrade a successful run into a silent `runs=0` and `verdict=unknown`.
+The reporting contract carries `schemaVersion: "2.1.0"`. Consumers reject an unsupported major version loudly rather than reading absent fields as zeros. Version 2.1 adds invocation evidence and per-model report-only calibration fields while preserving the 2.x structural contract.
 
 ### Consequences
 
-* Good, because a reviewer can tell from the summary alone whether a run failed because customization changed something it should not have, or because a declared guard did not hold.
+* Good, because a reviewer can tell from the summary whether authoritative delivery or data evidence failed, while comparative and boundary behavior remains explicitly report-only.
 * Good, because the judge model and rubric source are visible in the invocation, so two runs of the same commit are comparable.
 * Good, because an incomplete or structurally broken run can never report a pass, at any tier.
 * Good, because the local loop stays non-blocking, so contributors are not gated on a model-backed statistical result while iterating.
-* Bad, because two gates and a schema version are more surface to understand than one verdict, and the reporting contract is now a versioned interface that downstream consumers must track.
-* Bad, because judge-error enforcement remains open until calibration completes, so the suite currently detects a class of problem it does not yet gate on.
-* Bad, because the enforced tie-ratio floor is inherited rather than calibrated against the current corpus, so an early authoritative failure may reflect the threshold rather than a real regression until PR evidence accumulates.
+* Bad, because the versioned reporting contract and separate evidence classes are more surface for downstream consumers to track.
+* Bad, because comparative non-inferiority remains unclassified until valid post-launch evidence supports a margin and confidence policy.
 * Neutral, because this policy adds no production telemetry emitter. The suite's observable outputs are the summary contract and CI artifacts, which are evaluation evidence rather than service telemetry, so no trace, metric, or log instrumentation is introduced.
 
 ### Confirmation
 
 This decision remains `proposed` until a qualified human reviewer approves it and a later human-owned change records the acceptance.
 Approval of the migration pull request alone does not confirm or adopt it.
-The gate separation, fail-closed rules, population reconciliation, and contract-version rejection are each covered by tests in `scripts/tests/evals/EquivalenceParsing.Tests.ps1` and `scripts/tests/evals/Invoke-VallyEvals.Tests.ps1`, and those tests were verified to fail when the corresponding rule is removed.
+The authoritative/report-only separation, fail-closed rules, population reconciliation, invocation evidence, and contract-version rejection are covered by tests in `scripts/tests/evals/EquivalenceParsing.Tests.ps1`, `scripts/tests/evals/Invoke-BaselineEquivalence.Tests.ps1`, and `scripts/tests/evals/Invoke-VallyEvals.Tests.ps1`.
 
 ## Pros and Cons of the Options
 

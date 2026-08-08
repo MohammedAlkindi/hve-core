@@ -101,7 +101,7 @@ BeforeAll {
             stimuli = @(
                 @{
                     name    = 'shared-basic'
-                    prompt  = 'What is 2 + 2?'
+                    turns   = @('Launch .github/agents/hve-core/rpi-agent.agent.md', 'What is 2 + 2?')
                     tags    = @{ category = 'baseline-equivalence'; subcategory = 'factual-recall'; policy = 'equivalent' }
                     graders = @(
                         @{ type = 'output-matches'; name = 'answers-four'; config = @{ pattern = '4' } }
@@ -110,7 +110,7 @@ BeforeAll {
                 },
                 @{
                     name    = 'bleed-guarded'
-                    prompt  = 'Tell me a short joke.'
+                    turns   = @('Launch .github/agents/hve-core/rpi-agent.agent.md', 'Tell me a short joke.')
                     tags    = @{ category = 'baseline-equivalence'; subcategory = 'instruction-bleed'; policy = 'equivalent' }
                     graders = @(
                         @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
@@ -119,7 +119,7 @@ BeforeAll {
                 },
                 @{
                     name    = 'true-divergence'
-                    prompt  = 'Edit the README.'
+                    turns   = @('Launch .github/agents/hve-core/rpi-agent.agent.md', 'Edit the README.')
                     tags    = @{ category = 'baseline-equivalence'; subcategory = 'customization-boundary'; policy = 'documented-divergence' }
                     graders = @(
                         @{ type = 'output-matches'; name = 'non-empty'; config = @{ pattern = '\S' } }
@@ -168,11 +168,26 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
             $result = Invoke-SyncCheck
             @($result.violations | Where-Object { $_.field -eq 'customized_disallow' }).Count | Should -Be 0
         }
+
+        It 'Accepts the customized launch turn before the canonical question' {
+            $result = Invoke-SyncCheck
+            @($result.violations | Where-Object { $_.field -eq 'prompt' }).Count | Should -Be 0
+        }
     }
 
     Context 'Drift detection' {
         It 'Fails when a prompt differs from canonical' {
-            $result = Invoke-SyncCheck -Mutate { param($b) $b.Customized.stimuli[0].prompt = 'What is 3 + 3?' }
+            $result = Invoke-SyncCheck -Mutate { param($b) $b.Customized.stimuli[0].turns[1] = 'What is 3 + 3?' }
+            @($result.violations | Where-Object { $_.field -eq 'prompt' }).Count | Should -Be 1
+        }
+
+        It 'Fails when the customized launch target drifts' {
+            $result = Invoke-SyncCheck -Mutate { param($b) $b.Customized.stimuli[0].turns[0] = 'Launch .github/agents/other.agent.md' }
+            @($result.violations | Where-Object { $_.field -eq 'prompt' }).Count | Should -Be 1
+        }
+
+        It 'Fails when the customized stimulus adds an extra turn' {
+            $result = Invoke-SyncCheck -Mutate { param($b) $b.Customized.stimuli[0].turns += 'Extra turn.' }
             @($result.violations | Where-Object { $_.field -eq 'prompt' }).Count | Should -Be 1
         }
 

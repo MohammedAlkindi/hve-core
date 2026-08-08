@@ -469,6 +469,60 @@ function Get-EquivalenceListField {
     return @($Stimulus.$Field | ForEach-Object { [string]$_ })
 }
 
+function Get-EquivalenceQuestion {
+    <#
+    .SYNOPSIS
+        Returns the effective user question and validates the executable stimulus shape.
+    .DESCRIPTION
+        Baseline and canonical stimuli use a single `prompt`. The customized
+        baseline-equivalence spec uses exactly two turns: the established RPI Agent
+        launch directive followed by the canonical user question. Keeping this rule
+        here lets synchronization accept that intentional treatment while rejecting
+        extra turns or a drifted launch target.
+    .OUTPUTS
+        [hashtable] With keys Question and Error.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        $Stimulus,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('canonical', 'baseline', 'customized')]
+        [string]$Kind
+    )
+
+    if ($null -eq $Stimulus) { return @{ Question = ''; Error = 'Stimulus is missing.' } }
+
+    $hasPrompt = $Stimulus.ContainsKey('prompt') -and -not [string]::IsNullOrWhiteSpace([string]$Stimulus.prompt)
+    $turns = @(if ($Stimulus.ContainsKey('turns') -and $null -ne $Stimulus.turns) { $Stimulus.turns })
+
+    if ($Kind -ne 'customized') {
+        if (-not $hasPrompt -or $turns.Count -gt 0) {
+            return @{ Question = ''; Error = "$Kind stimuli must declare one prompt and no turns." }
+        }
+        return @{ Question = [string]$Stimulus.prompt; Error = $null }
+    }
+
+    if ($hasPrompt -or $turns.Count -ne 2) {
+        return @{ Question = ''; Error = 'Customized stimuli must declare exactly two turns and no prompt.' }
+    }
+
+    $expectedLaunch = 'Launch .github/agents/hve-core/rpi-agent.agent.md'
+    if ([string]$turns[0] -ne $expectedLaunch) {
+        return @{ Question = ''; Error = "Customized stimulus launch turn must be '$expectedLaunch'." }
+    }
+
+    $question = [string]$turns[1]
+    if ([string]::IsNullOrWhiteSpace($question)) {
+        return @{ Question = ''; Error = 'Customized stimulus user question is empty.' }
+    }
+
+    return @{ Question = $question; Error = $null }
+}
+
 function ConvertTo-ComparableTagText {
     <#
     .SYNOPSIS
@@ -624,6 +678,14 @@ function Test-EquivalenceStimulusSync {
         $canonicalStimulus = $canonicalMap[$name]
         $canonicalGraders = Get-EquivalenceGraderName -Stimulus $canonicalStimulus
         $canonicalTags = ConvertTo-ComparableTagText -Tags $canonicalStimulus.tags
+        $canonicalQuestion = Get-EquivalenceQuestion -Stimulus $canonicalStimulus -Kind 'canonical'
+        if ($canonicalQuestion.Error) {
+            $violations.Add(@{
+                    stimulusName = $name
+                    field        = 'prompt'
+                    message      = "Canonical stimulus '$name' has an invalid question shape: $($canonicalQuestion.Error)"
+                })
+        }
 
         $missingFromAny = $false
         foreach ($executable in $executables) {
@@ -639,11 +701,19 @@ function Test-EquivalenceStimulusSync {
 
             $executableStimulus = $executable.Map[$name]
 
-            if ([string]$canonicalStimulus.prompt -ne [string]$executableStimulus.prompt) {
+            $executableQuestion = Get-EquivalenceQuestion -Stimulus $executableStimulus -Kind $executable.Label
+            if ($executableQuestion.Error) {
                 $violations.Add(@{
                         stimulusName = $name
                         field        = 'prompt'
-                        message      = "Prompt for '$name' differs between $CanonicalPath and $($executable.Path). Mirror the canonical prompt verbatim."
+                        message      = "Stimulus '$name' in $($executable.Path) has an invalid question shape: $($executableQuestion.Error)"
+                    })
+            }
+            elseif ([string]$canonicalQuestion.Question -ne [string]$executableQuestion.Question) {
+                $violations.Add(@{
+                        stimulusName = $name
+                        field        = 'prompt'
+                        message      = "User question for '$name' differs between $CanonicalPath and $($executable.Path). Mirror the canonical question verbatim."
                     })
             }
 

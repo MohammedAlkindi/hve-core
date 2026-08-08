@@ -52,6 +52,7 @@ function Measure-CompareTrials {
 
     $ties = 0; $baselineWins = 0; $treatmentWins = 0; $total = 0
     $equivalentTies = 0; $equivalentTotal = 0
+    $equivalentScores = [System.Collections.Generic.List[double]]::new()
     $divergenceTotal = 0
     $summaryCount = 0
     $judgeErrors = 0
@@ -86,7 +87,7 @@ function Measure-CompareTrials {
             if (-not $stimulus) { continue }
             $name = if ($stimulus.PSObject.Properties['stimulusName']) { [string]$stimulus.stimulusName } else { '<unknown>' }
             if (-not $perStimulus.ContainsKey($name)) {
-                $perStimulus[$name] = @{ Ties = 0; BaselineWins = 0; TreatmentWins = 0; JudgeErrors = 0 }
+                $perStimulus[$name] = @{ Ties = 0; BaselineWins = 0; TreatmentWins = 0; JudgeErrors = 0; Scores = [System.Collections.Generic.List[double]]::new() }
             }
 
             $policy = if ($StimulusPolicy -and $StimulusPolicy.ContainsKey($name)) { [string]$StimulusPolicy[$name] } else { '' }
@@ -113,6 +114,7 @@ function Measure-CompareTrials {
                 }
 
                 $winner = if ($trial.PSObject.Properties['winner']) { [string]$trial.winner } else { '' }
+                $hasScore = $trial.PSObject.Properties['score'] -and $null -ne $trial.score
                 switch ($winner) {
                     'tie' {
                         $ties++; $total++; $perStimulus[$name].Ties += 1
@@ -129,6 +131,17 @@ function Measure-CompareTrials {
                     default {
                         $malformedLines++
                         $diagnostics.Add("Unrecognized winner '$winner' for stimulus '$name'.")
+                    }
+                }
+                if ($isEquivalent -and $winner -in @('tie', 'baseline', 'treatment')) {
+                    if ($hasScore) {
+                        $score = [double]$trial.score
+                        $equivalentScores.Add($score)
+                        $perStimulus[$name].Scores.Add($score)
+                    }
+                    else {
+                        $malformedLines++
+                        $diagnostics.Add("Equivalent comparison trial for stimulus '$name' has no signed score.")
                     }
                 }
             }
@@ -174,13 +187,45 @@ function Measure-CompareTrials {
     $attempted = $total + $judgeErrors
     $judgeErrorRate = if ($attempted -gt 0) { $judgeErrors / $attempted } else { 0.0 }
     $tieRatio = if ($equivalentTotal -gt 0) { $equivalentTies / $equivalentTotal } else { 0.0 }
+    $equivalentMeanScore = if ($equivalentScores.Count -gt 0) { ($equivalentScores | Measure-Object -Average).Average } else { 0.0 }
+    $equivalentVariance = if ($equivalentScores.Count -gt 1) {
+        ($equivalentScores | ForEach-Object { [math]::Pow($_ - $equivalentMeanScore, 2) } | Measure-Object -Sum).Sum / ($equivalentScores.Count - 1)
+    }
+    else { 0.0 }
+    $equivalentStdDev = [math]::Sqrt($equivalentVariance)
+    $equivalentStandardError = if ($equivalentScores.Count -gt 0) { $equivalentStdDev / [math]::Sqrt($equivalentScores.Count) } else { 0.0 }
+    $equivalentMargin = 1.96 * $equivalentStandardError
+    $equivalentPerStimulus = @{}
+    foreach ($name in $perStimulus.Keys) {
+        $scores = @($perStimulus[$name].Scores)
+        if ($scores.Count -eq 0) { continue }
+        $stimulusMean = ($scores | Measure-Object -Average).Average
+        $stimulusVariance = if ($scores.Count -gt 1) {
+            ($scores | ForEach-Object { [math]::Pow($_ - $stimulusMean, 2) } | Measure-Object -Sum).Sum / ($scores.Count - 1)
+        }
+        else { 0.0 }
+        $equivalentPerStimulus[$name] = [ordered]@{
+            count   = $scores.Count
+            mean    = [math]::Round($stimulusMean, 4)
+            stdDev  = [math]::Round([math]::Sqrt($stimulusVariance), 4)
+        }
+    }
+    $reportedPerStimulus = @{}
+    foreach ($name in $perStimulus.Keys) {
+        $reportedPerStimulus[$name] = [ordered]@{
+            Ties          = $perStimulus[$name].Ties
+            BaselineWins  = $perStimulus[$name].BaselineWins
+            TreatmentWins = $perStimulus[$name].TreatmentWins
+            JudgeErrors   = $perStimulus[$name].JudgeErrors
+        }
+    }
 
     return @{
         Total              = $total
         Ties               = $ties
         BaselineWins       = $baselineWins
         TreatmentWins      = $treatmentWins
-        PerStimulus        = $perStimulus
+        PerStimulus        = $reportedPerStimulus
         SummaryCount       = $summaryCount
         MeanScore          = [math]::Round($meanScore, 4)
         WinRate            = [math]::Round($winRate, 4)
@@ -195,6 +240,12 @@ function Measure-CompareTrials {
         ComparisonRecords  = $comparisonRecords
         EquivalentTotal    = $equivalentTotal
         EquivalentTies     = $equivalentTies
+        EquivalentScoreCount = $equivalentScores.Count
+        EquivalentMeanScore = [math]::Round($equivalentMeanScore, 4)
+        EquivalentStdDev   = [math]::Round($equivalentStdDev, 4)
+        EquivalentCiLow    = [math]::Round($equivalentMeanScore - $equivalentMargin, 4)
+        EquivalentCiHigh   = [math]::Round($equivalentMeanScore + $equivalentMargin, 4)
+        EquivalentPerStimulus = $equivalentPerStimulus
         DivergenceTotal    = $divergenceTotal
         TieRatio           = [math]::Round($tieRatio, 4)
         Diagnostics        = @($diagnostics)
@@ -240,6 +291,186 @@ function Resolve-ExpectedInstanceCount {
     }
 
     return $expected
+}
+
+function Measure-AgentInvocationEvidence {
+    <#
+    .SYNOPSIS
+        Reconciles successful RPI Agent file reads across a customized run.
+    .DESCRIPTION
+        A staged agent file is not evidence that the model loaded it. This parser
+        requires one successful structured read per expected stimulus and trial. The
+        tool call must target the exact staged agent path, the correlated result must
+        succeed, and returned content must identify the RPI Agent artifact.
+
+        Missing, duplicate, failed, wrong-path, and malformed evidence is counted so
+        callers can fail closed instead of treating absence as successful delivery.
+    .OUTPUTS
+        [hashtable] Invocation evidence counts, diagnostics, and per-model identity.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$RunDir,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$StimulusNames,
+
+        [Parameter(Mandatory = $false)]
+        [int]$ExpectedTrials = 1,
+
+        [Parameter(Mandatory = $false)]
+        [string]$AgentRelativePath = '.github/agents/hve-core/rpi-agent.agent.md'
+    )
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    $expectedKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $observed = @{}
+    $recordCounts = @{}
+    $failed = 0
+    $wrongPath = 0
+    $malformed = 0
+    $model = ''
+    $trialCount = if ($ExpectedTrials -gt 0) { $ExpectedTrials } else { 1 }
+
+    foreach ($stimulus in @($StimulusNames)) {
+        if ([string]::IsNullOrWhiteSpace($stimulus)) { continue }
+        for ($trial = 0; $trial -lt $trialCount; $trial++) {
+            [void]$expectedKeys.Add("$stimulus||$trial")
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RunDir) -or -not (Test-Path -LiteralPath $RunDir -PathType Container)) {
+        $diagnostics.Add('Customized run directory is missing for invocation evidence.')
+        return @{
+            Model = ''; Expected = $expectedKeys.Count; Observed = 0; Failed = 0
+            Missing = $expectedKeys.Count; Duplicate = 0; WrongPath = 0; Malformed = 0
+            HasCompleteEvidence = $false; Diagnostics = @($diagnostics)
+        }
+    }
+
+    $files = @(Get-ChildItem -LiteralPath $RunDir -Filter 'results.jsonl' -Recurse -File -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) {
+        $diagnostics.Add('No results.jsonl found under the customized run directory for invocation evidence.')
+    }
+
+    $normalizedAgentPath = ($AgentRelativePath -replace '\\', '/').TrimStart('/')
+    $contentMarker = '(?i)(name:\s*RPI Agent|#\s+RPI Agent)'
+
+    foreach ($file in $files) {
+        foreach ($line in Get-Content -LiteralPath $file.FullName -Encoding utf8) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try {
+                $record = $line | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+            }
+            catch {
+                $malformed++
+                $diagnostics.Add('Malformed line in customized results.jsonl while reading invocation evidence.')
+                continue
+            }
+            if (-not $record.PSObject.Properties['stimulus']) { continue }
+            $trialIndex = $null
+            if ($record.PSObject.Properties['trialIndex'] -and $null -ne $record.trialIndex) {
+                $trialIndex = [int]$record.trialIndex
+            }
+            elseif ($record.PSObject.Properties['itemId'] -and [string]$record.itemId -match '::trial-(\d+)$') {
+                $trialIndex = [int]$Matches[1]
+            }
+            if ($null -eq $trialIndex) {
+                $malformed++
+                $diagnostics.Add("Invocation record for stimulus '$($record.stimulus)' has no trial index.")
+                continue
+            }
+            if ($record.PSObject.Properties['model'] -and $record.model) { $model = [string]$record.model }
+
+            $key = "$([string]$record.stimulus)||$trialIndex"
+            if (-not $expectedKeys.Contains($key)) { continue }
+            $recordCounts[$key] = 1 + $(if ($recordCounts.ContainsKey($key)) { [int]$recordCounts[$key] } else { 0 })
+            if (-not ($record.PSObject.Properties['trajectory'] -and $record.trajectory -and
+                    $record.trajectory.PSObject.Properties['events'] -and $record.trajectory.events)) {
+                $malformed++
+                $diagnostics.Add("Invocation record '$key' has no trajectory events.")
+                continue
+            }
+
+            $candidateCalls = @{}
+            $recordHasSuccessfulRead = $false
+            $recordHasWrongPath = $false
+            foreach ($trajectoryEvent in @($record.trajectory.events)) {
+                if (-not $trajectoryEvent -or -not $trajectoryEvent.PSObject.Properties['type'] -or -not $trajectoryEvent.PSObject.Properties['data']) { continue }
+                if ($trajectoryEvent.type -eq 'tool_call') {
+                    $arguments = if ($trajectoryEvent.data.PSObject.Properties['arguments']) {
+                        $trajectoryEvent.data.arguments | ConvertTo-Json -Depth 20 -Compress
+                    }
+                    else { '' }
+                    $normalizedArguments = $arguments -replace '\\\\', '/'
+                    $mentionsAgent = $normalizedArguments -match [regex]::Escape($normalizedAgentPath)
+                    $isRead = ([string]$trajectoryEvent.data.toolName -eq 'view') -or
+                        ($normalizedArguments -match '(?i)(Get-Content|\bcat\b|\bhead\b)')
+                    if ($mentionsAgent -and $isRead -and $trajectoryEvent.data.PSObject.Properties['toolCallId']) {
+                        $candidateCalls[[string]$trajectoryEvent.data.toolCallId] = $true
+                    }
+                    elseif ($normalizedArguments -match 'rpi-agent\.agent\.md' -and -not $mentionsAgent) {
+                        $recordHasWrongPath = $true
+                    }
+                    continue
+                }
+
+                if ($trajectoryEvent.type -ne 'tool_result' -or -not $trajectoryEvent.data.PSObject.Properties['toolCallId']) { continue }
+                $callId = [string]$trajectoryEvent.data.toolCallId
+                if (-not $candidateCalls.ContainsKey($callId)) { continue }
+
+                $success = $trajectoryEvent.data.PSObject.Properties['success'] -and [bool]$trajectoryEvent.data.success
+                $resultText = if ($trajectoryEvent.data.PSObject.Properties['result'] -and $trajectoryEvent.data.result) {
+                    $trajectoryEvent.data.result | ConvertTo-Json -Depth 30 -Compress
+                }
+                else { '' }
+                if ($success -and $resultText -match $contentMarker) {
+                    $recordHasSuccessfulRead = $true
+                }
+            }
+            if ($recordHasSuccessfulRead) {
+                $observed[$key] = 1
+            }
+            elseif ($candidateCalls.Count -gt 0) {
+                $failed++
+                $diagnostics.Add("Invocation read for '$key' failed or returned no RPI Agent content.")
+            }
+            elseif ($recordHasWrongPath) {
+                $wrongPath++
+                $diagnostics.Add("Invocation record '$key' referenced an unexpected RPI Agent path.")
+            }
+        }
+    }
+
+    $missing = 0
+    $duplicate = 0
+    foreach ($key in $expectedKeys) {
+        $recordCount = if ($recordCounts.ContainsKey($key)) { [int]$recordCounts[$key] } else { 0 }
+        if ($recordCount -gt 1) {
+            $duplicate += ($recordCount - 1)
+            $diagnostics.Add("Invocation evidence for '$key' has $recordCount trial records; expected exactly one.")
+        }
+        if (-not $observed.ContainsKey($key)) {
+            $missing++
+            $diagnostics.Add("Invocation evidence is missing for '$key'.")
+        }
+    }
+
+    $observedCount = @($observed.Keys | Where-Object { [int]$observed[$_] -gt 0 }).Count
+    $complete = $expectedKeys.Count -gt 0 -and $observedCount -eq $expectedKeys.Count -and
+        $failed -eq 0 -and $missing -eq 0 -and $duplicate -eq 0 -and $wrongPath -eq 0 -and $malformed -eq 0
+
+    return @{
+        Model = $model; Expected = $expectedKeys.Count; Observed = $observedCount
+        Failed = $failed; Missing = $missing; Duplicate = $duplicate
+        WrongPath = $wrongPath; Malformed = $malformed
+        HasCompleteEvidence = $complete; Diagnostics = @($diagnostics)
+    }
 }
 
 function Compare-DeclaredInstanceCoverage {
@@ -625,20 +856,12 @@ function Measure-InvariantFailures {
 function Get-EquivalenceGateResults {
     <#
     .SYNOPSIS
-        Computes the equivalence and documented-divergence gates and the overall verdict.
+        Computes authoritative evidence status and report-only comparison status.
     .DESCRIPTION
-        Two questions are being asked, and folding them into one verdict made neither
-        answerable. The equivalence gate asks whether behavior that should not change
-        stayed the same; it reads the tie ratio over the equivalent-policy population
-        only. The documented-divergence gate asks whether declared customization guards
-        actually held; it reads per-guard conformance from the customized run.
-
-        The statistic is the equivalent-only tie ratio rather than a confidence
-        interval. Vally's `compare` summary reports bounds over every compared stimulus,
-        including the ones the suite expects to diverge, so a strong expected win among
-        the documented-divergence stimuli could move the interval away from zero and
-        fail equivalence even when every equivalent trial was unchanged. `ciLow` and
-        `ciHigh` remain in the summary as reporting-only diagnostics.
+        Deterministic invariants, run health, delivery, and structural data quality are
+        authoritative. Comparative estimates, tie ratio, and documented-divergence
+        guards are report-only until valid post-launch evidence supports a calibrated
+        non-inferiority policy.
 
         An empty equivalent population is a structural failure rather than a below-floor
         statistical result. A ratio computed from zero trials is not a low score; it is
@@ -651,8 +874,9 @@ function Get-EquivalenceGateResults {
         pass from the records that happened to survive would assert something the run
         did not measure.
 
-        Tier controls severity, not correctness. `devloop` downgrades a failing gate to
-        `warn` so local iteration stays non-blocking; `ci` reports it as `fail`.
+        Tier controls local iteration severity. `devloop` downgrades invariant and run-
+        health failures to warning; `calibration` and `ci` keep authoritative evidence
+        blocking. Structural data-quality failures fail closed at every tier.
 
         The judge-error budget is deliberately not enforced. Its threshold is unresolved
         pending calibration, so judge errors are counted and reported without gating.
@@ -681,7 +905,8 @@ function Get-EquivalenceGateResults {
     # the other structural conditions so it fails closed at both tiers.
     $emptyEquivalentPopulation = ($EquivalentTotal -le 0)
 
-    # Equivalence gate.
+    # Authoritative deterministic and structural gate. Comparative statistics do not
+    # participate until a separately approved margin and confidence policy exists.
     $equivalence = 'pass'
     if ($Runs -le 0) {
         $equivalence = 'fail'
@@ -692,32 +917,14 @@ function Get-EquivalenceGateResults {
     elseif ($InvariantFailures -gt 0 -or $DataQualityViolations -gt 0 -or $RunHealthFailures -gt 0) {
         $equivalence = 'fail'
     }
-    elseif ($TieRatio -lt $TieRatioFloor) {
-        $equivalence = 'fail'
-    }
 
     # A structurally broken run fails closed at both tiers. Only a statistical or
     # guard-conformance result is advisory in devloop.
     $structural = ($Runs -le 0) -or ($DataQualityViolations -gt 0) -or $emptyEquivalentPopulation
     $equivalenceGate = if ($structural) { $equivalence } else { & $downgrade $equivalence }
 
-    # Documented-divergence gate.
-    $divergence = 'pass'
-    if (-not $DivergenceHasSignal) {
-        # No guard signal is not conformance. A customized run that produced no guard
-        # results cannot evidence that its declared divergence held.
-        $divergence = 'fail'
-    }
-    elseif ($DivergenceGuardFailures -gt 0) {
-        $divergence = 'fail'
-    }
-    $divergenceGate = & $downgrade $divergence
-
-    $verdict = 'pass'
-    foreach ($gate in @($equivalenceGate, $divergenceGate)) {
-        if ($gate -eq 'fail') { $verdict = 'fail'; break }
-        if ($gate -eq 'warn') { $verdict = 'warn' }
-    }
+    $divergenceGate = 'report-only'
+    $verdict = $equivalenceGate
 
     return @{
         EquivalenceGate          = $equivalenceGate
@@ -1261,6 +1468,7 @@ function Get-AppliedArtifacts {
 
 Export-ModuleMember -Function `
     Measure-CompareTrials, `
+    Measure-AgentInvocationEvidence, `
     Measure-InvariantFailures, `
     Measure-DeclaredInvariantFailures, `
     Get-EquivalenceGateResults, `

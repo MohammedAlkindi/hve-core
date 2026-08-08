@@ -85,7 +85,7 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         It 'Declares the reporting contract version' {
             # Consumers reject an unsupported major version rather than reading absent
             # fields as zeros, so the dry-run summary must carry it too.
-            $script:Summary.schemaVersion | Should -Be '2.0.0'
+            $script:Summary.schemaVersion | Should -Be '2.1.0'
         }
 
         It 'Carries no legacy A/B keys' {
@@ -170,6 +170,25 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
                 $line | Should -Match '--eval-spec evals/baseline-equivalence/compare\.eval\.yml'
                 $line | Should -Match '--judge-model claude-haiku-4\.5'
             }
+        }
+    }
+
+    Context 'Calibration tier expansion' {
+        BeforeEach {
+            & $script:ScriptPath `
+                -Agent 'rpi-agent' `
+                -Tier 'calibration' `
+                -RepoRoot $script:RepoRoot `
+                -OutputPath $script:OutputPath `
+                -WhatIf *> $null
+            $script:Summary = Get-Content -LiteralPath $script:OutputPath -Raw | ConvertFrom-Json
+        }
+
+        It 'Plans the fixed two-model population' {
+            $script:Summary.tier | Should -Be 'calibration'
+            $script:Summary.plannedCommands.Count | Should -Be 6
+            ($script:Summary.plannedCommands -join "`n") | Should -Match 'gpt-5\.6-luna'
+            ($script:Summary.plannedCommands -join "`n") | Should -Match 'claude-sonnet-4\.6'
         }
     }
 

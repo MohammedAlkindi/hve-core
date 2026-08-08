@@ -298,6 +298,213 @@ Describe 'Measure-CompareTrials data-quality accounting' -Tag 'Unit' {
     }
 }
 
+Describe 'Measure-CompareTrials equivalent-only calibration estimates' -Tag 'Unit' {
+    It 'Excludes documented-divergence scores from the calibration estimate' {
+        $record = [ordered]@{
+            type    = 'comparison'
+            summary = [ordered]@{ meanScore = 0.9; ciLow = 0.8; ciHigh = 1.0; winRate = 1.0 }
+            stimuli = @(
+                [ordered]@{
+                    stimulusName = 'equivalent-stimulus'
+                    trials = @(
+                        [ordered]@{ trialIndex = 0; winner = 'tie'; score = 0.0 },
+                        [ordered]@{ trialIndex = 1; winner = 'baseline'; score = -0.4 },
+                        [ordered]@{ trialIndex = 2; winner = 'treatment'; score = 0.4 }
+                    )
+                },
+                [ordered]@{
+                    stimulusName = 'expected-divergence'
+                    trials = @(
+                        [ordered]@{ trialIndex = 0; winner = 'treatment'; score = 1.0 },
+                        [ordered]@{ trialIndex = 1; winner = 'treatment'; score = 1.0 },
+                        [ordered]@{ trialIndex = 2; winner = 'treatment'; score = 1.0 }
+                    )
+                }
+            )
+        }
+        $policies = @{ 'equivalent-stimulus' = 'equivalent'; 'expected-divergence' = 'documented-divergence' }
+        $result = Measure-CompareTrials -Lines @($record | ConvertTo-Json -Depth 10 -Compress) -StimulusPolicy $policies
+
+        $result.MeanScore | Should -Be 0.9
+        $result.EquivalentScoreCount | Should -Be 3
+        $result.EquivalentMeanScore | Should -Be 0.0
+        $result.EquivalentStdDev | Should -Be 0.4
+        $result.EquivalentPerStimulus.Keys | Should -Contain 'equivalent-stimulus'
+        $result.EquivalentPerStimulus.Keys | Should -Not -Contain 'expected-divergence'
+    }
+
+    It 'Counts an equivalent winner without a signed score as malformed' {
+        $record = [ordered]@{
+            type    = 'comparison'
+            stimuli = @([ordered]@{
+                    stimulusName = 'equivalent-stimulus'
+                    trials = @([ordered]@{ trialIndex = 0; winner = 'tie' })
+                })
+        }
+        $result = Measure-CompareTrials `
+            -Lines @($record | ConvertTo-Json -Depth 10 -Compress) `
+            -StimulusPolicy @{ 'equivalent-stimulus' = 'equivalent' }
+
+        $result.MalformedRecords | Should -Be 1
+        $result.EquivalentScoreCount | Should -Be 0
+    }
+}
+
+Describe 'Measure-AgentInvocationEvidence' -Tag 'Unit' {
+    BeforeAll {
+        function New-InvocationRecord {
+            param(
+                [string]$Stimulus = 'stim-1',
+                [int]$Trial = 0,
+                [string]$Path = '/tmp/trial/.github/agents/hve-core/rpi-agent.agent.md',
+                [bool]$Success = $true,
+                [string]$Content = "---`nname: RPI Agent`n---`n# RPI Agent"
+            )
+
+            return [ordered]@{
+                type       = 'trial-result'
+                stimulus   = $Stimulus
+                model      = 'gpt-5.6-luna'
+                trialIndex = $Trial
+                trajectory = [ordered]@{
+                    events = @(
+                        [ordered]@{
+                            type = 'tool_call'
+                            data = [ordered]@{
+                                toolName   = 'view'
+                                toolCallId = "call-$Stimulus-$Trial"
+                                arguments  = [ordered]@{ path = $Path }
+                            }
+                        },
+                        [ordered]@{
+                            type = 'tool_result'
+                            data = [ordered]@{
+                                toolName   = 'view'
+                                toolCallId = "call-$Stimulus-$Trial"
+                                success    = $Success
+                                result     = [ordered]@{ content = $Content }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        function Write-InvocationRun {
+            param([object[]]$Records, [string[]]$RawLines)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString())
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            $lines = @($Records | ForEach-Object { $_ | ConvertTo-Json -Depth 20 -Compress }) + @($RawLines)
+            Set-Content -LiteralPath (Join-Path $root 'results.jsonl') -Value $lines -Encoding utf8NoBOM
+            return $root
+        }
+    }
+
+    It 'Accepts one successful exact-path read with returned agent content per trial' {
+        $root = Write-InvocationRun -Records @(
+            (New-InvocationRecord -Trial 0),
+            (New-InvocationRecord -Trial 1)
+        )
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1') -ExpectedTrials 2
+
+        $result.Model | Should -Be 'gpt-5.6-luna'
+        $result.Expected | Should -Be 2
+        $result.Observed | Should -Be 2
+        $result.HasCompleteEvidence | Should -BeTrue
+    }
+
+    It 'Falls back to the Vally itemId trial suffix when trialIndex is absent' {
+        $record = New-InvocationRecord
+        $record.Remove('trialIndex')
+        $record['itemId'] = 'spec::main::gpt-5.6-luna::stim-1::trial-0'
+        $root = Write-InvocationRun -Records @($record)
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Observed | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeTrue
+    }
+
+    It 'Fails closed when a correlated read fails' {
+        $root = Write-InvocationRun -Records @((New-InvocationRecord -Success $false))
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Failed | Should -Be 1
+        $result.Missing | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeFalse
+    }
+
+    It 'Rejects a wrong agent path even when content looks valid' {
+        $root = Write-InvocationRun -Records @((New-InvocationRecord -Path '/tmp/trial/.github/agents/other/rpi-agent.agent.md'))
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.WrongPath | Should -Be 1
+        $result.Missing | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeFalse
+    }
+
+    It 'Rejects a successful path mention whose result has no agent content' {
+        $root = Write-InvocationRun -Records @((New-InvocationRecord -Content 'file exists'))
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Failed | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeFalse
+    }
+
+    It 'Counts missing trial identities' {
+        $root = Write-InvocationRun -Records @((New-InvocationRecord -Trial 0))
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1') -ExpectedTrials 2
+
+        $result.Missing | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeFalse
+    }
+
+    It 'Tolerates multiple successful read attempts inside one trial record' {
+        $record = New-InvocationRecord
+        $duplicateCall = [ordered]@{
+            type = 'tool_call'
+            data = [ordered]@{
+                toolName   = 'view'
+                toolCallId = 'call-duplicate'
+                arguments  = [ordered]@{ path = '/tmp/trial/.github/agents/hve-core/rpi-agent.agent.md' }
+            }
+        }
+        $duplicateResult = [ordered]@{
+            type = 'tool_result'
+            data = [ordered]@{
+                toolName   = 'view'
+                toolCallId = 'call-duplicate'
+                success    = $true
+                result     = [ordered]@{ content = "---`nname: RPI Agent`n---`n# RPI Agent" }
+            }
+        }
+        $record.trajectory.events += @($duplicateCall, $duplicateResult)
+        $root = Write-InvocationRun -Records @($record)
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Duplicate | Should -Be 0
+        $result.HasCompleteEvidence | Should -BeTrue
+    }
+
+    It 'Counts duplicate trial records for one identity' {
+        $root = Write-InvocationRun -Records @(
+            (New-InvocationRecord),
+            (New-InvocationRecord)
+        )
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Duplicate | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeFalse
+    }
+
+    It 'Counts malformed result lines' {
+        $root = Write-InvocationRun -Records @((New-InvocationRecord)) -RawLines @('{not-json')
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Malformed | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeFalse
+    }
+}
+
 Describe 'Measure-DeclaredInvariantFailures' -Tag 'Unit' {
     BeforeAll {
         function New-RunFixture {
@@ -524,25 +731,22 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
         (Get-EquivalenceGateResults -Runs 0 -InvariantFailures 0 -Tier 'ci' @script:Healthy @script:Population).EquivalenceGate | Should -Be 'fail'
     }
 
-    It 'Returns pass when the equivalent tie ratio meets the floor' {
+    It 'Returns pass when authoritative evidence is clean' {
         $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'devloop' @script:Healthy @script:Population
         $r.EquivalenceGate | Should -Be 'pass'
         $r.Verdict | Should -Be 'pass'
     }
 
-    It 'Passes at exactly the tie-ratio floor' {
-        # The floor is inclusive. Pinning the boundary keeps a later refactor from
-        # turning the documented rule into a strictly-greater comparison.
-        $r = Get-EquivalenceGateResults -Runs 10 -TieRatio 0.80 -EquivalentTotal 175 -InvariantFailures 0 -Tier 'ci' @script:Healthy
+    It 'Does not let tie ratio affect the authoritative result' {
+        $r = Get-EquivalenceGateResults -Runs 10 -TieRatio 0.01 -EquivalentTotal 175 -InvariantFailures 0 -Tier 'calibration' @script:Healthy
         $r.EquivalenceGate | Should -Be 'pass'
+        $r.Verdict | Should -Be 'pass'
     }
 
-    It 'Fails on the authoritative tier just below the floor' {
-        (Get-EquivalenceGateResults -Runs 10 -TieRatio 0.79 -EquivalentTotal 175 -InvariantFailures 0 -Tier 'ci' @script:Healthy).EquivalenceGate | Should -Be 'fail'
-    }
-
-    It 'Downgrades a below-floor tie ratio to warn on the advisory tier' {
-        (Get-EquivalenceGateResults -Runs 10 -TieRatio 0.79 -EquivalentTotal 175 -InvariantFailures 0 -Tier 'devloop' @script:Healthy).EquivalenceGate | Should -Be 'warn'
+    It 'Reports documented divergence as report-only regardless of guard outcomes' {
+        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'calibration' -DivergenceHasSignal $false -DivergenceGuardFailures 4 @script:Population
+        $r.DocumentedDivergenceGate | Should -Be 'report-only'
+        $r.Verdict | Should -Be 'pass'
     }
 
     It 'Fails closed at both tiers when the equivalent population is empty' {
@@ -583,27 +787,6 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
         $r.Verdict | Should -Be 'fail'
     }
 
-    It 'Fails the divergence gate when a declared guard fails' {
-        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $true -DivergenceGuardFailures 1 @script:Population
-        $r.DocumentedDivergenceGate | Should -Be 'fail'
-        $r.EquivalenceGate | Should -Be 'pass'
-        $r.Verdict | Should -Be 'fail'
-    }
-
-    It 'Fails the divergence gate when the customized run produced no guard signal' {
-        # No signal is not conformance. Treating an absent result as a pass is the
-        # defect that made the retired signature subsystem look healthy for months.
-        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'ci' -DivergenceHasSignal $false @script:Population
-        $r.DocumentedDivergenceGate | Should -Be 'fail'
-        $r.Verdict | Should -Be 'fail'
-    }
-
-    It 'Downgrades a failing divergence gate to warn on the advisory tier' {
-        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 0 -Tier 'devloop' -DivergenceHasSignal $true -DivergenceGuardFailures 2 @script:Population
-        $r.DocumentedDivergenceGate | Should -Be 'warn'
-        $r.Verdict | Should -Be 'warn'
-    }
-
     It 'Fails the equivalence gate when the run reports run-health failures' {
         # RunHealthFailures was renamed from divergenceFailures and measures whether
         # the run itself completed cleanly. A run with unparseable compare output
@@ -625,8 +808,14 @@ Describe 'Get-EquivalenceGateResults' -Tag 'Unit' {
 
     It 'Reports the two gates independently' {
         $r = Get-EquivalenceGateResults -Runs 10 -TieRatio 0.5 -EquivalentTotal 10 -InvariantFailures 0 -Tier 'ci' @script:Healthy
+        $r.EquivalenceGate | Should -Be 'pass'
+        $r.DocumentedDivergenceGate | Should -Be 'report-only'
+    }
+
+    It 'Keeps invariant failures authoritative in calibration tier' {
+        $r = Get-EquivalenceGateResults -Runs 10 -InvariantFailures 1 -Tier 'calibration' @script:Healthy @script:Population
         $r.EquivalenceGate | Should -Be 'fail'
-        $r.DocumentedDivergenceGate | Should -Be 'pass'
+        $r.Verdict | Should -Be 'fail'
     }
 }
 

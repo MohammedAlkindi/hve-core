@@ -63,7 +63,10 @@
     to point at a stub script.
 
 .PARAMETER EquivalenceTier
-    Tier passed to the equivalence driver (`devloop` or `ci`). Defaults to `devloop`.
+    Tier passed to the equivalence driver (`devloop`, `calibration`, or `ci`).
+    Defaults to `devloop`. `calibration` runs the fixed two-model set while keeping
+    comparison and divergence evidence report-only; deterministic and structural
+    failures remain authoritative.
     Applies only when `-EnableBaselineEquivalence` is set. Per DD-01, `devloop`
     equivalence dispatch is advisory: failures surface in summary JSON but do
     not increment `failedSpecs` or change exit code. This ValidateSet must stay in
@@ -113,7 +116,7 @@ param(
     [string]$Model = 'gpt-5.6-luna',
     [string]$VallyCommand = 'vally',
     [string]$EquivalenceDriverPath,
-    [ValidateSet('devloop','ci')]
+    [ValidateSet('devloop','calibration','ci')]
     [string]$EquivalenceTier = 'devloop',
     [switch]$EnableBaselineEquivalence,
 
@@ -918,6 +921,7 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
         $runHealthFail = 0
         $guardFail = 0
         $dataQualityFail = 0
+        $invocationFail = 0
         $verdict = 'unknown'
         $equivalenceGate = 'unknown'
         $divergenceGate = 'unknown'
@@ -948,6 +952,7 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
                     $runHealthFail   = [int]$equivSummary.runHealthFailures
                     $guardFail       = [int]$equivSummary.divergenceGuardFailures
                     $dataQualityFail = [int]$equivSummary.dataQualityViolations
+                    $invocationFail  = if ($equivSummary.PSObject.Properties['invocationFailures']) { [int]$equivSummary.invocationFailures } else { 0 }
                     $verdict         = [string]$equivSummary.verdict
                     $equivalenceGate = [string]$equivSummary.equivalenceGate
                     $divergenceGate  = [string]$equivSummary.documentedDivergenceGate
@@ -963,11 +968,11 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
             $verdict = 'fail'
         }
 
-        # Data-quality violations belong in the failed-assertion total. Without them a
-        # structurally failed advisory run reported verdict fail alongside zero failed
-        # assertions and every trial counted as passed, which is unreadable exactly
-        # where the advisory tier makes the summary the only output.
-        $assertionsFailed = $invFail + $runHealthFail + $guardFail + $dataQualityFail
+        # Deterministic, run-health, delivery, and structural data-quality failures are
+        # authoritative. Divergence guard results are comparative policy evidence and
+        # remain report-only until a later calibration decision makes them a gate.
+        $assertionsFailed = $invFail + $runHealthFail + $dataQualityFail
+        $advisoryAssertionsFailed = $guardFail
         $assertionsPassed = [Math]::Max(0, $runs - $assertionsFailed)
 
         $equivalenceResults.Add([ordered]@{
@@ -980,10 +985,12 @@ if ($EnableBaselineEquivalence -and $shardOwnsEquivalence) {
             trials                   = $runs
             assertionsPassed         = $assertionsPassed
             assertionsFailed         = $assertionsFailed
+            advisoryAssertionsFailed = $advisoryAssertionsFailed
             invariantFailures        = $invFail
             runHealthFailures        = $runHealthFail
             divergenceGuardFailures  = $guardFail
             dataQualityViolations    = $dataQualityFail
+            invocationFailures       = $invocationFail
             resultsPath              = "logs/baseline-equivalence-$agentSlug.json"
         }) | Out-Null
 

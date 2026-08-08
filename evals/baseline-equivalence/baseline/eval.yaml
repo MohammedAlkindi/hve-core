@@ -20,7 +20,7 @@ environment:
     - src: ../seed-workspace
       dest: .
 defaults:
-  runs: 5
+  runs: 3
   timeout: 300s
   executor: copilot-sdk
 scoring:

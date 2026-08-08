@@ -1115,7 +1115,7 @@ exit 9
         @($summary.equivalence).Count | Should -Be 0
     }
 
-    It 'Reads the 2.0.0 equivalence contract and reports both gates' {
+    It 'Reads the 2.0.0 equivalence contract and reports authoritative and advisory evidence separately' {
         $spec = @'
 name: agent-spec
 stimuli:
@@ -1177,6 +1177,8 @@ exit 0
         $entry.equivalenceGate | Should -Be 'pass'
         $entry.documentedDivergenceGate | Should -Be 'fail'
         $entry.divergenceGuardFailures | Should -Be 2
+        $entry.assertionsFailed | Should -Be 0
+        $entry.advisoryAssertionsFailed | Should -Be 2
     }
 
     It 'Fails loudly on an unsupported equivalence contract version' {
@@ -1370,6 +1372,71 @@ exit 3
         @($summary.equivalence)[0].assertionsFailed | Should -Be 0
         @($summary.equivalence)[0].exitCode | Should -Be 3
         $summary.totals.failedSpecs | Should -Be 1
+    }
+
+    It 'Forwards calibration tier and keeps comparative guard failures advisory' {
+        $spec = @'
+name: agent-spec
+stimuli:
+  - name: s1
+    prompt: hi
+    tags:
+        agent: sample-agent
+'@
+        $artifacts = @(
+            @{ kind = 'agent'; artifactId = 'sample-agent'; path = '.github/agents/hve-core/sample-agent.agent.md'; status = 'M' }
+        )
+        $fx = New-EvalFixture -Artifacts $artifacts -Specs @(@{ Name = 'agent.yaml'; Yaml = $spec })
+
+        $driverPath = Join-Path $fx.Root 'calibration-equivalence.ps1'
+        $driver = @'
+[CmdletBinding()]
+param([string]$Agent, [string]$Tier, [string]$Model, [string]$RepoRoot, [string]$OutputPath)
+
+$summary = [ordered]@{
+    schemaVersion            = '2.0.0'
+    runs                     = 120
+    invariantFailures        = 0
+    runHealthFailures        = 0
+    divergenceGuardFailures  = 7
+    dataQualityViolations    = 0
+    equivalenceGate          = 'pass'
+    documentedDivergenceGate = 'report-only'
+    verdict                  = 'pass'
+    receivedTier             = $Tier
+}
+$dir = Split-Path -Parent $OutputPath
+if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+exit 0
+'@
+        Set-Content -LiteralPath $driverPath -Value $driver -Encoding utf8
+
+        $env:STUB_VALLY_MODE = 'pass'
+        try {
+            & pwsh -NoProfile -File $script:ScriptPath `
+                -ManifestPath $fx.ManifestPath `
+                -EvalRoot $fx.EvalRoot `
+                -LogsDir $fx.LogsDir `
+                -RepoRoot $fx.Root `
+                -VallyCommand $script:StubPath `
+                -EquivalenceDriverPath $driverPath `
+                -EnableBaselineEquivalence `
+                -EquivalenceSubject 'sample-agent' `
+                -EquivalenceTier calibration `
+                -SkipInputModeration `
+                -SkipOutputModeration *> $null
+        }
+        finally {
+            Remove-Item Env:\STUB_VALLY_MODE -ErrorAction SilentlyContinue
+        }
+
+        $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
+        $entry = @($summary.equivalence)[0]
+        $entry.tier | Should -Be 'calibration'
+        $entry.assertionsFailed | Should -Be 0
+        $entry.advisoryAssertionsFailed | Should -Be 7
+        $summary.totals.failedSpecs | Should -Be 0
     }
 
     It 'Forwards the devloop tier and keeps a failing verdict advisory' {
