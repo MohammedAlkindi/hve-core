@@ -5,7 +5,7 @@ description: Produce a source-labelled current-context and user-needs asset from
 
 # Frame needs
 
-Use this mode when the practitioner already has context or evidence and needs a durable statement of user needs. Use M6 in `ux-coaching` instead when they need help deciding what the problem actually is.
+Use this mode when the practitioner already has context or evidence and needs a durable statement of user needs. Use the problem-framing moment in `ux-coaching` instead when they need help deciding what the problem actually is.
 
 ## Inputs
 

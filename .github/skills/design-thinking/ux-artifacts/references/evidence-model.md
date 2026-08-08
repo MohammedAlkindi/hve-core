@@ -18,6 +18,8 @@ This reference defines how evidence moves into and out of `ux-artifacts`. It is 
 
 `Unresolved` is a disposition, not an evidence class. Do not count unresolved items as support for an artifact conclusion.
 
+`Assumed` covers what the concept or product demands, not what a named group of people experiences. It never authorizes an unsupported claim about a specific disability, demographic, age, language, literacy, or comparable cohort. Record a capability demand as `Assumed` with its plausibility and validation path, and leave the affected population `Unknown` until `Observed` or `Reported` evidence supports it. Technical conformance or capability guidance can support a demand; it is not evidence of a named cohort's experience.
+
 ## Source ingestion
 
 `source` can be either:
@@ -73,11 +75,26 @@ Every file begins with `<!-- markdownlint-disable-file -->` and uses this common
 * <open questions, decisions, owners, or None>
 ```
 
-The selected mode reference owns the sections that follow.
+The selected mode reference owns the sections that follow, and every file ends with the `## Human Review` section below.
 
-## M6 to journey transfer
+## Human review gate
 
-A completed M6 coaching output can be a `map-journey` source when the caller passes its `output_ref` explicitly.
+Every mode output is AI-assisted scaffolding that a person may copy into a durable record. Each file therefore ends with this section, after the mode-specific body:
+
+```markdown
+## Human Review
+
+> [!CAUTION]
+> **Disclaimer:** This agent is an assistive coaching tool only. It does not conduct user research, observe stakeholders, or speak for the people whose problems you are designing for, and it does not replace primary research, direct stakeholder contact, design review, or product and strategy decision authority. Personas, problem statements, journey maps, empathy maps, concept tests, and other Design Thinking artifacts produced with this tool are scaffolding for your own research and synthesis — not substitutes for real stakeholder voice or observed behavior. Validate all AI-generated assumptions, personas, themes, and insights against actual stakeholders before treating any Design Thinking artifact as a basis for product, design, or strategy commitments. Outputs from this tool do not constitute validated research findings or design approval.
+
+- [ ] Reviewed and validated by a qualified human reviewer
+```
+
+Emit the caution verbatim and leave the checkbox unchecked. Only a human may check it. Never mark it complete, remove it, or treat its presence as evidence that review occurred.
+
+## Problem-framing to journey transfer
+
+A completed problem-framing coaching output can be a `map-journey` source when the caller passes its `output_ref` explicitly.
 
 1. Read the supplied output file, not coaching state.
 2. Preserve its current-experience statements, user needs, evidence, assumptions, and unresolved items.

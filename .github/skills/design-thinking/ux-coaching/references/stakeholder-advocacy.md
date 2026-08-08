@@ -1,9 +1,9 @@
 ---
-title: 'UX Coaching M14: Making the Case to a Sceptic'
-description: UX coaching reference for the M14 stakeholder-advocacy moment; load when a practitioner needs to make an evidence-backed case to an unconvinced stakeholder.
+title: 'UX Coaching Stakeholder Advocacy: Making the Case to a Sceptic'
+description: UX coaching reference for the stakeholder-advocacy moment; load when a practitioner needs to make an evidence-backed case to an unconvinced stakeholder.
 ---
 
-# M14: Making the Case to a Sceptic
+# Stakeholder Advocacy: Making the Case to a Sceptic
 
 The practitioner has a finding, a recommendation, or a design, and someone who matters is unconvinced.
 

@@ -1,6 +1,6 @@
 ---
 title: "UX artifact mode: Map journey"
-description: Produce an evidence-labelled staged journey from supplied current-experience evidence or an explicit M6 output pointer.
+description: Produce an evidence-labelled staged journey from supplied current-experience evidence or an explicit problem-framing output pointer.
 ---
 
 # Map journey
@@ -14,7 +14,7 @@ Use this mode when current-experience evidence exists and the practitioner needs
 * Current-experience sequence or known stages
 * Actions, thoughts, pain points, and outcomes supported by the source
 
-When `source` is a completed M6 output, follow the pointer-first transfer in [evidence-model.md](evidence-model.md). Never read coaching state directly.
+When `source` is a completed problem-framing output, follow the pointer-first transfer in [evidence-model.md](evidence-model.md). Never read coaching state directly.
 
 ## Output body
 
@@ -54,7 +54,7 @@ After the common evidence sections, write:
 * The journey has a supported scenario and at least one stage.
 * Every populated row carries a basis and source.
 * Assumptions and unresolved gaps remain visible.
-* A completed M6 source is consumed without re-framing or duplicated intake.
+* A completed problem-framing source is consumed without re-framing or duplicated intake.
 
 ## Stop conditions
 

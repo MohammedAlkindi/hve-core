@@ -1,9 +1,9 @@
 ---
-title: 'UX Coaching M13: Running a Critique'
-description: UX coaching reference for the M13 critique moment; load when a practitioner needs to run a design review that surfaces issues rather than approval.
+title: 'UX Coaching Critique: Running a Critique'
+description: UX coaching reference for the critique moment; load when a practitioner needs to run a design review that surfaces issues rather than approval.
 ---
 
-# M13: Running a Critique
+# Critique: Running a Critique
 
 The practitioner is about to put a design, flow, or artifact in front of other people and wants useful feedback rather than opinions.
 

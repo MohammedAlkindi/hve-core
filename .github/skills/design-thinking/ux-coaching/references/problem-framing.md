@@ -1,9 +1,9 @@
 ---
-title: 'UX Coaching M6: Deciding What the Problem Actually Is'
-description: UX coaching reference for the M6 problem-framing moment; load when a practitioner needs to establish what problem they are solving before design begins.
+title: 'UX Coaching Problem Framing: Deciding What the Problem Actually Is'
+description: UX coaching reference for the problem-framing moment; load when a practitioner needs to establish what problem they are solving before design begins.
 ---
 
-# M6: Deciding What the Problem Actually Is
+# Problem Framing: Deciding What the Problem Actually Is
 
 The practitioner has a task, often already shaped as a solution, and needs to know what problem they are actually solving before anyone builds anything.
 

@@ -74,7 +74,7 @@ Each mode writes one current Markdown file:
 .copilot-tracking/ux-artifacts/{project-slug}/{subject-slug}/prepare-handoff.md
 ```
 
-Every output starts with `<!-- markdownlint-disable-file -->`, then records project, subject, mode, current status, source references, and separate `Observed`, `Reported`, `Assumed`, and `Unresolved` sections before its mode-specific body. Git or caller history owns prior versions.
+Every output starts with `<!-- markdownlint-disable-file -->`, then records project, subject, mode, current status, source references, and separate `Observed`, `Reported`, `Assumed`, and `Unresolved` sections before its mode-specific body. Every output ends with a `## Human Review` section carrying the Design Thinking Coaching caution verbatim and an unchecked qualified-human-review checkbox, as defined in [references/evidence-model.md](references/evidence-model.md). Git or caller history owns prior versions.
 
 ## Evidence authority
 
@@ -82,7 +82,7 @@ Every output starts with `<!-- markdownlint-disable-file -->`, then records proj
 
 The written asset is the authoritative record of what the work claims and what remains uncertain. A Figma, FigJam, or Mural rendering is a projection of that asset and never supersedes it. When a projection and the asset disagree, the asset governs.
 
-A completed M6 coaching output reaches `map-journey` only when the user or caller passes its `output_ref` as `source`. Preserve its evidence strength and unresolved items. Do not rerun M6 or rewrite its record.
+A completed problem-framing coaching output reaches `map-journey` only when the user or caller passes its `output_ref` as `source`. Preserve its evidence strength and unresolved items. Do not rerun problem framing or rewrite its record.
 
 ## Source handling
 
@@ -105,6 +105,8 @@ The GOV.UK user-need form used by `frame-needs` is public sector information lic
 * Destination mapping returns content shape and intent without authenticating, selecting tools, or writing externally.
 * A destination request that omits a required destination input returns a missing-destination result rather than an inferred value.
 * The written asset stays authoritative; a rendered projection never becomes the source of record.
+* Every mode output ends with the human-review gate, and its checkbox is never marked complete by this skill.
+* An unsupported named cohort never appears as an affected population; it stays `Unknown` with a named research gap.
 * Technical accessibility conformance and COGA guidance remain owned by `accessibility`.
 
 ## Constraints
@@ -115,13 +117,15 @@ The GOV.UK user-need form used by `frame-needs` is public sector information lic
 * Do not create a Figma or Mural file, call an external tool, authenticate, discover destinations, or infer write consent.
 * Do not render a visual artifact or embed a second representation of an asset's own content.
 * Do not create or restate a Design Intent Record schema. Point build-checkable design decisions to `accessibility`.
+* Do not check the human-review checkbox, omit it, or claim that review occurred. Only a human may mark it.
+* Do not name a specific disability, demographic, age, language, literacy, or comparable cohort as excluded without `Observed` or `Reported` support.
 * Do not reproduce uncertain JTBD material, cite-only standards, or unverified framework text.
 
 ## Stop rules
 
 * Stop when the selected asset is complete and its evidence classes and unresolved items are explicit.
 * Stop with the missing-evidence result when supplied context cannot support the requested asset. Do not fill gaps with assumptions unless the asset labels them as assumed.
-* Stop when the user actually needs M6, M13, or M14 coaching, and name `ux-coaching` without invoking it.
+* Stop when the user actually needs problem-framing, critique, or stakeholder-advocacy coaching, and name `ux-coaching` without invoking it.
 * Stop before external destination execution. Return destination intent to the invoking agent or user.
 * Stop with the missing-destination result when a destination request omits a required destination input. Name the missing inputs instead of choosing them.
 

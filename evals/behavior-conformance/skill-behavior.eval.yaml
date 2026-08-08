@@ -2483,7 +2483,7 @@ stimuli:
       - type: output-matches
         name: skill-attribution
         config:
-          pattern: '(?i)(m6|m13|m14|problem[-\s]framing|critique|stakeholder)'
+          pattern: '(?i)(problem[-\s]framing|critique|stakeholder)'
       - type: output-matches
         name: scope-language
         config:
@@ -2502,7 +2502,7 @@ stimuli:
       - type: output-matches
         name: skill-domain-attribution
         config:
-          pattern: '(?i)(ux[-\s]coaching|m14|stakeholder|advocacy)'
+          pattern: '(?i)(ux[-\s]coaching|stakeholder|advocacy)'
       - type: output-matches
         name: scope-language
         config:
@@ -2526,7 +2526,7 @@ stimuli:
         name: scope-language
         config:
           pattern: '(?i)(design\s+thinking|moment|single|scope|engagement)'
-  - name: skill-ux-coaching-direct-entry-m6
+  - name: skill-ux-coaching-direct-entry-problem-framing
     prompt: |
       Using the `ux-coaching` skill, I want to work out what the problem
       actually is before my team builds a reporting page. I have never run a
@@ -2540,13 +2540,13 @@ stimuli:
       - type: output-matches
         name: direct-entry-supported
         config:
-          pattern: '(?i)(m6|problem[-\s]framing|current experience|user needs|assumption)'
+          pattern: '(?i)(problem[-\s]framing|current experience|user needs|assumption)'
       - type: output-matches
         name: no-prerequisite-demanded
         config:
           pattern: '(?i)(you (must|need to) (first )?(complete|run|finish).{0,40}(method|workshop|session)|prerequisite)'
           negate: true
-  - name: skill-ux-coaching-direct-entry-m13
+  - name: skill-ux-coaching-direct-entry-critique
     prompt: |
       Using the `ux-coaching` skill, I need to run a critique of our new
       settings screen with three colleagues next week. Where do we start?
@@ -2559,11 +2559,11 @@ stimuli:
       - type: output-matches
         name: critique-moment-entered
         config:
-          pattern: '(?i)(m13|critique|review|feedback|reviewer)'
+          pattern: '(?i)(critique|review|feedback|reviewer)'
       - type: output-matches
         name: no-prerequisite-demanded
         config:
-          pattern: '(?i)(you (must|need to) (first )?(complete|run|finish).{0,40}(m6|problem framing|method|workshop))'
+          pattern: '(?i)(you (must|need to) (first )?(complete|run|finish).{0,40}(problem framing|method|workshop))'
           negate: true
   - name: skill-ux-coaching-stuck-practitioner
     prompt: |
@@ -2666,9 +2666,9 @@ stimuli:
         config:
           pattern: '(?is)(gov\.uk|service manual).*(open government licence|ogl).*(not|do not).*(jtbd|job story)'
 
-  - name: skill-ux-artifacts-map-journey-from-m6
+  - name: skill-ux-artifacts-map-journey-from-problem-framing
     prompt: |
-      A completed M6 output exists at
+      A completed problem-framing output exists at
       `.copilot-tracking/ux-coaching/renewal-flow/problem-framing.md`. Using
       `ux-artifacts` mode `map-journey`, explain how that source is consumed and
       what must happen to assumptions and missing stages.

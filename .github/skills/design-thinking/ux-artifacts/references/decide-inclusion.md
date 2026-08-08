@@ -41,6 +41,17 @@ After the common evidence sections, write:
 * Surface-specific meaning that may need a Design Intent Record: <decision or None>
 ```
 
+## Cohort claims
+
+`Who may be excluded` names people, so it carries a higher evidence bar than the rest of the row. When that cell would name a specific disability, demographic, age, language, literacy, or comparable cohort without `Observed` or `Reported` evidence supporting that population claim:
+
+1. Enter `Unknown` in `Who may be excluded`.
+2. Keep the capability demand in `Current decision` or another non-population field when it is useful.
+3. Label that demand `Assumed`, and state why it is plausible and how it will be validated.
+4. Add the matching named research gap to `Unresolved` or `Research Coverage`.
+
+`Assumed` never authorizes a named cohort in that cell. Technical conformance or capability guidance can support a capability demand, but it does not substitute for evidence about a named cohort's experience of this product. Capability-level risk analysis stays available throughout; only the population claim requires a source.
+
 ## Responsibility boundary
 
 This asset owns concept-stage decisions. It does not define or restate WCAG thresholds, keyboard behavior, screen-reader implementation, contrast values, target sizes, zoom requirements, ARIA patterns, or COGA patterns.
@@ -50,6 +61,7 @@ Route technical conformance, COGA guidance, runtime validation, and accessibilit
 ## Completion conditions
 
 * The artifact names concrete capability assumptions and their evidence strength.
+* Every named cohort in `Who may be excluded` has `Observed` or `Reported` support; otherwise the cell is `Unknown` with a named research gap.
 * Alternatives are considered where the current concept excludes someone.
 * Research coverage and missing practitioner or participant evidence stay explicit.
 * Technical questions are handed off without a duplicated checklist.

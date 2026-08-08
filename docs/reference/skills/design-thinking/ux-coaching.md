@@ -24,11 +24,11 @@ Coach a UX practitioner through problem framing, running a design critique, or m
 
 Use this skill when a UX practitioner is at one of three practice moments and wants coaching rather than an answer:
 
-| Moment | Situation                                                                                                                                          |
-|--------|----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `m6`   | The stated problem may not be the real problem, and the framing needs to be tested against current experience, user needs, and stated assumptions. |
-| `m13`  | A design needs a structured critique, and the practitioner wants the review to surface issues rather than approval.                                |
-| `m14`  | Evidence exists, but a skeptical stakeholder is not persuaded, and the case needs to rest on evidence quality rather than rhetoric.                |
+| Moment                 | Situation                                                                                                                                          |
+|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `problem-framing`      | The stated problem may not be the real problem, and the framing needs to be tested against current experience, user needs, and stated assumptions. |
+| `critique`             | A design needs a structured critique, and the practitioner wants the review to surface issues rather than approval.                                |
+| `stakeholder-advocacy` | Evidence exists, but a skeptical stakeholder is not persuaded, and the case needs to rest on evidence quality rather than rhetoric.                |
 
 The skill assumes no Design Thinking experience and makes no runtime call into the Design Thinking coaching skills. Its guidance is grounded in GOV.UK Service Manual, the DDaT capability framework, and the ISE Engineering Playbook.
 
@@ -43,10 +43,10 @@ Reach for a different asset when:
 Invoke the skill directly with a moment, a project slug, and the subject under discussion:
 
 ```text
-/ux-coaching moment=m6 project=checkout-redesign subject="users abandon at the payment step"
+/ux-coaching moment=problem-framing project=checkout-redesign subject="users abandon at the payment step"
 ```
 
-The skill opens the M6 problem-framing moment, then coaches through the three components rather than answering:
+The skill opens the problem-framing moment, then coaches through the three components rather than answering:
 
 ```text
 Before we accept "users abandon at the payment step" as the problem, let's separate

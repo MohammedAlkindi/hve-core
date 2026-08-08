@@ -40,7 +40,7 @@ practitioner:
 
 moments:
   - id: "checkout-flow-critique-2026-08-02"
-    moment: "M13"            # M6 | M13 | M14
+    moment: "critique"        # problem-framing | critique | stakeholder-advocacy
     subject: "checkout flow v3"
     status: "open"           # open | parked | closed
     entered_at: "2026-08-02T00:00:00Z"
@@ -86,7 +86,7 @@ These encode progress through a sequence and must not appear:
 * Any Design Thinking method number or canonical deck state
 * Any autonomy tier, autonomy mode, or equivalent preference
 
-A practitioner who works on M13 on Tuesday and M6 on Friday has not moved backward. Nothing should record that they did.
+A practitioner who runs a critique on Tuesday and frames a problem on Friday has not moved backward. Nothing should record that they did.
 
 ## Resume
 

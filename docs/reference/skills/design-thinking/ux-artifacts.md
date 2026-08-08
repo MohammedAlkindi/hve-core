@@ -25,7 +25,7 @@ Produce evidence-labelled UX needs, journey, structure, inclusion, and engineeri
 Use `ux-artifacts` when supplied UX evidence or decisions need a durable Markdown asset:
 
 * `frame-needs` records current context and source-labelled user needs.
-* `map-journey` turns supplied current-experience evidence or an explicit M6 output into a staged journey.
+* `map-journey` turns supplied current-experience evidence or an explicit problem-framing output into a staged journey.
 * `sketch-structure` records what a surface contains and how it behaves: regions, controls, interaction states, and transitions.
 * `decide-inclusion` records who a concept may exclude, the demands it creates, and alternatives or research gaps.
 * `prepare-handoff` records implementation-facing flow, states, recovery, rationale, and unresolved engineering questions.
@@ -34,7 +34,7 @@ Use `ux-coaching` instead when the practitioner needs to reason through problem 
 
 ## Example usage
 
-Create a journey from a completed M6 coaching output:
+Create a journey from a completed problem-framing coaching output:
 
 ```text
 /ux-artifacts mode=map-journey project=renewal-flow subject=returning-customer source=.copilot-tracking/ux-coaching/renewal-flow/problem-framing.md

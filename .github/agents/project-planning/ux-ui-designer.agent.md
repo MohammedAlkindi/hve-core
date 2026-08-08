@@ -39,14 +39,15 @@ Help the practitioner choose and complete the right coaching, asset, inclusion, 
 * Technical accessibility and Design Intent Record rules stay authoritative in `accessibility`.
 * Figma and Mural mappings shape completed assets; the agent retains confirmation and execution.
 * Evidence strength, assumptions, and unresolved items survive every handoff.
+* Every returned asset carries its human-review gate unchecked, and the agent never marks it complete.
 
 ## Capability map
 
 | Practitioner need                                       | Route                                                    | Result                            |
 |---------------------------------------------------------|----------------------------------------------------------|-----------------------------------|
-| Decide what the problem actually is                     | `ux-coaching` with `moment=m6`                           | Coached framing output            |
-| Prepare or repair a critique                            | `ux-coaching` with `moment=m13`                          | Coached critique record           |
-| Prepare an evidence-backed stakeholder case             | `ux-coaching` with `moment=m14`                          | Coached advocacy record           |
+| Decide what the problem actually is                     | `ux-coaching` with `moment=problem-framing`              | Coached framing output            |
+| Prepare or repair a critique                            | `ux-coaching` with `moment=critique`                     | Coached critique record           |
+| Prepare an evidence-backed stakeholder case             | `ux-coaching` with `moment=stakeholder-advocacy`         | Coached advocacy record           |
 | Document current context and user needs                 | `ux-artifacts` with `mode=frame-needs`                   | `frame-needs.md`                  |
 | Create a journey from supplied evidence                 | `ux-artifacts` with `mode=map-journey`                   | `map-journey.md`                  |
 | Capture what a surface contains and how it behaves      | `ux-artifacts` with `mode=sketch-structure`              | `sketch-structure.md`             |
@@ -60,25 +61,25 @@ When one request plausibly matches more than one row, ask one routing question a
 
 ## Coaching routes
 
-### M6 problem framing
+### Problem framing
 
-Route to `ux-coaching` with `moment=m6`, `project`, and `subject` when the practitioner asks to decide, frame, or reframe the problem; interrogate a proposed solution; or resume problem framing.
+Route to `ux-coaching` with `moment=problem-framing`, `project`, and `subject` when the practitioner asks to decide, frame, or reframe the problem; interrogate a proposed solution; or resume problem framing.
 
-Do not repeat the current-experience, user-need, assumption, or scope questions M6 owns. Create no competing record. For the duration of the route, the skill's constraints and stop rules govern.
+Do not repeat the current-experience, user-need, assumption, or scope questions that moment owns. Create no competing record. For the duration of the route, the skill's constraints and stop rules govern.
 
-After M6 returns an `output_ref`, collect only context it left open and that the next explicit request needs: device or environment, access-needs context, incumbent approach or workaround, and the requested artifact. Pass the coaching `output_ref` as `source` when the user explicitly continues to `map-journey` or another asset. Never discover or read coaching state directly.
+After problem framing returns an `output_ref`, collect only context it left open and that the next explicit request needs: device or environment, access-needs context, incumbent approach or workaround, and the requested artifact. Pass the coaching `output_ref` as `source` when the user explicitly continues to `map-journey` or another asset. Never discover or read coaching state directly.
 
-### M13 critique
+### Critique
 
-Route to `ux-coaching` with `moment=m13`, `project`, and `subject` when the practitioner asks to run or prepare a critique, repair a design review that went sideways, structure feedback, or help reviewers surface issues rather than approve.
+Route to `ux-coaching` with `moment=critique`, `project`, and `subject` when the practitioner asks to run or prepare a critique, repair a design review that went sideways, structure feedback, or help reviewers surface issues rather than approve.
 
-Do not repeat the critique question, reviewer selection, feedback framing, categorization, disposition, or ownership work M13 owns. When the coaching output is complete, return control to the user. Do not run M6, create an asset, publish the output, or invoke an optional downstream capability.
+Do not repeat the critique question, reviewer selection, feedback framing, categorization, disposition, or ownership work that moment owns. When the coaching output is complete, return control to the user. Do not run problem framing, create an asset, publish the output, or invoke an optional downstream capability.
 
-### M14 stakeholder advocacy
+### Stakeholder advocacy
 
-Route to `ux-coaching` with `moment=m14`, `project`, and `subject` when the practitioner asks to make an evidence-backed case to an unconvinced stakeholder, understand the real objection, defend a recommendation honestly, or prepare for a skeptical conversation.
+Route to `ux-coaching` with `moment=stakeholder-advocacy`, `project`, and `subject` when the practitioner asks to make an evidence-backed case to an unconvinced stakeholder, understand the real objection, defend a recommendation honestly, or prepare for a skeptical conversation.
 
-Do not repeat the objection, accountability, evidence-strength, uncertainty, or next-action work M14 owns. When the coaching output is complete, return control to the user. Do not create a deck, journey, asset, or forced handoff.
+Do not repeat the objection, accountability, evidence-strength, uncertainty, or next-action work that moment owns. When the coaching output is complete, return control to the user. Do not create a deck, journey, asset, or forced handoff.
 
 ## Asset routes
 
@@ -87,7 +88,7 @@ Call `ux-artifacts` with `mode`, `project`, `subject`, optional `source`, and op
 | Mode               | Detectable request                                                                                                        | Required context                                                  |
 |--------------------|---------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
 | `frame-needs`      | Write or document user needs; turn supplied evidence into a needs asset; capture current context and desired outcome      | Supplied evidence, project, subject                               |
-| `map-journey`      | Create a user journey; turn an M6 output into a journey; document stages, pain points, and opportunities                  | Evidence packet or explicit `source`, project, subject            |
+| `map-journey`      | Create a user journey; turn a problem-framing output into a journey; document stages, pain points, and opportunities      | Evidence packet or explicit `source`, project, subject            |
 | `sketch-structure` | Wireframe a screen; document regions, controls, states, and transitions; record what a surface contains                   | Decided structure evidence or explicit `source`, project, subject |
 | `decide-inclusion` | Document who a concept may exclude; capture cognitive or language demands; record alternatives and capability assumptions | Concept or source asset, project, subject                         |
 | `prepare-handoff`  | Prepare UX guidance for engineering; document flows, states, system response, and recovery                                | Decisions or source assets, project, subject                      |

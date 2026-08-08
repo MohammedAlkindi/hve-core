@@ -7,6 +7,8 @@ description: Produce an implementation-facing UX handoff covering flow, states, 
 
 Use this mode when UX decisions are ready to inform engineering. The asset describes what the experience must do and why. It does not prescribe implementation architecture or replace requirements ownership.
 
+The output is a gitignored local file. When the team requires a permanent engineering record, copy or reference it from committed documentation.
+
 ## Inputs
 
 * Supplied journey, needs, inclusion, or design evidence
@@ -44,7 +46,9 @@ After the common evidence sections, write:
 
 ## Acceptance Inputs
 
-* <user-visible outcome or state that requirements authors can turn into native acceptance criteria>
+| User-visible outcome or state                                           | Basis and source                             |
+|-------------------------------------------------------------------------|----------------------------------------------|
+| <outcome requirements authors can turn into native acceptance criteria> | <Observed, Reported, or Assumed plus source> |
 ```
 
 ## Design Intent Record boundary
@@ -57,6 +61,7 @@ The handoff may carry intent and expectation identifiers after a record exists. 
 
 * Flow, system response, success, and recovery are explicit where evidence supports them.
 * Every design rationale identifies its evidence strength.
+* Every acceptance input carries its evidence class and source.
 * Assumptions and open engineering questions remain visible.
 * Accessibility and Design Intent Record candidates route to their authoritative capability.
 
