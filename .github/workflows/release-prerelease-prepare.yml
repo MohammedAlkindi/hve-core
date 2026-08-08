@@ -34,16 +34,12 @@ env:
 jobs:
   prepare-promotion:
     name: Prepare Pre-Release Promotion
-    # The post-publication main catalog synchronization pull request must never
-    # start another promotion. Excluding its head here keeps that guard ahead
-    # of every branch and pull request mutation below.
     if: >
       github.event_name == 'workflow_dispatch'
       || (
         github.event.pull_request.merged == true
         && github.event.pull_request.base.ref == 'main'
         && github.event.pull_request.head.repo.full_name == github.repository
-        && !startsWith(github.event.pull_request.head.ref, 'release-main-catalog-sync--v')
       )
     runs-on: ubuntu-latest
     permissions:

@@ -790,13 +790,6 @@ Describe 'Pre-release preparation and publication' -Tag 'Unit' {
     It 'Closes the pre-release milestone only after final publication' {
         @($script:PreReleaseDocument['jobs']['close-milestone']['needs']) | Should -Contain 'publish-release'
         @($script:PreReleaseDocument['jobs']['publish-release']['needs']) | Should -Contain 'upload-plugin-packages'
-
-        $mainSync = $script:PreReleaseDocument['jobs']['main-catalog-sync']
-        $mainSync | Should -Not -BeNullOrEmpty
-        @($mainSync['needs']) | Should -Be @('validate-release', 'plugin-package-prerelease', 'publish-release')
-        [string]$mainSync['uses'] | Should -BeExactly './.github/workflows/release-main-catalog-sync.yml'
-        [string]$mainSync['with']['version'] | Should -BeExactly '${{ needs.validate-release.outputs.version }}'
-        [string]$mainSync['with']['release-sha'] | Should -BeExactly '${{ needs.validate-release.outputs.sha }}'
     }
 
     It 'Publishes the draft as a GitHub pre-release with the release App token' {
@@ -1334,12 +1327,6 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
             @($document['jobs']['upload-plugin-packages']['needs']) | Should -Contain $lane.PackageJob
             @($document['jobs']['publish-release']['needs']) | Should -Contain 'upload-plugin-packages'
         }
-
-        # Main synchronization reads the asset from the release it advertises,
-        # so it depends on the producing job directly as well as on publication.
-        $preRelease = Get-WorkflowDocument -Name 'release-prerelease.yml'
-        @($preRelease['jobs']['main-catalog-sync']['needs']) | Should -Contain 'plugin-package-prerelease'
-        @($preRelease['jobs']['main-catalog-sync']['needs']) | Should -Contain 'publish-release'
     }
 
     It 'Publishes the marketplace lanes from the released ref' {
@@ -1388,7 +1375,7 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
     }
 }
 
-Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
+Describe 'Promotion and publication contracts' -Tag 'Unit' {
     BeforeAll {
         $script:PrepareDocument = Get-WorkflowDocument -Name 'release-stable.yml'
         $script:PublishDocument = Get-WorkflowDocument -Name 'release-stable-publish.yml'
@@ -1535,49 +1522,22 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
             Should -BeLessThan ([array]::IndexOf($names, 'Refresh the promotion head'))
     }
 
-    It 'Synchronizes main from validated PreRelease evidence and never from Stable' {
+    It 'Keeps main catalog synchronization retired across every workflow' {
         $script:PublishDocument['jobs'].Contains('open-main-sync-pr') | Should -BeFalse
         (Get-WorkflowText -Name 'release-stable-publish.yml') | Should -Not -Match 'release-main-catalog-sync|gh pr merge|--auto'
 
-        $document = Get-WorkflowDocument -Name 'release-main-catalog-sync.yml'
-        [string]$document['env']['BASE_BRANCH'] | Should -BeExactly 'main'
-        [string]$document['env']['SOURCE_BRANCH'] | Should -BeExactly 'release/prerelease'
-        $job = $document['jobs']['sync-catalog']
-        $job | Should -Not -BeNullOrEmpty
-        $steps = Get-JobStepText -Document $document -JobName 'sync-catalog'
-        $validation = @($steps | Where-Object { $_ -match 'RELEASE_TAG="hve-core-v\$VERSION"' })
-        $validation | Should -HaveCount 1
-        $validation[0] | Should -Match 'plugin-release-evidence\.json'
-        $validation[0] | Should -Match 'hve-core/plugin-release-evidence/v2'
-        $validation[0] | Should -Match '\.locator\.ref == \("hve-core-v" \+ \$version\)'
-        $validation[0] | Should -Match '\.packageCount \| type == "number"'
-        $validation[0] | Should -Match '\.digest \| type == "string"'
-        $validation[0] | Should -Match 'carries no readable plugin-release-evidence\.json'
-        $validation[0] | Should -Match 'gh release download "\$RELEASE_TAG"'
-        $validation[0] | Should -Not -Match 'locator\.path'
-        $validation[0] | Should -Match 'git merge-base --is-ancestor'
-        $validation[0] | Should -Match 'continue=false'
+        Test-Path -LiteralPath (Join-Path $script:WorkflowDirectory 'release-main-catalog-sync.yml') |
+            Should -BeFalse -Because 'main is refreshed explicitly rather than by automated catalog synchronization'
+        foreach ($workflow in @(Get-ChildItem -LiteralPath $script:WorkflowDirectory -Filter '*.yml' -File)) {
+            $text = Get-Content -LiteralPath $workflow.FullName -Raw -Encoding utf8
+            $text | Should -Not -Match 'main-catalog-sync' -Because "$($workflow.Name) must not reference retired main catalog synchronization"
+        }
+    }
 
-        $update = @($steps | Where-Object { $_ -match 'Update-VersionFiles\.ps1' })
-        $update | Should -HaveCount 1
-        $update[0] | Should -Match 'git merge --no-edit -X theirs'
-        $update[0] | Should -Match '-SkipManifest'
-        $update[0] | Should -Match 'git show "\$RELEASE_SHA:CHANGELOG\.md" > CHANGELOG\.md'
-
-        $open = @($steps | Where-Object { $_ -match 'gh pr create' })
-        $open | Should -HaveCount 1
-        $open[0] | Should -Match 'gh pr close'
-        $open[0] | Should -Match 'Superseded by the \$\{VERSION\} main development catalog synchronization'
-        $open[0] | Should -Not -Match 'gh pr merge|--auto|push --force'
-
+    It 'Gates Stable promotion intent on release/stable pull requests' {
         $prValidation = Get-WorkflowDocument -Name 'pr-validation.yml'
         @($prValidation['on']['pull_request']['branches']) |
             Should -Be @('main', 'develop', 'release/prerelease', 'release/stable')
-        $monotonic = Get-NamedJobStep -Document $prValidation -JobName 'gate-completeness-check' -StepName 'Validate main catalog synchronization advances main'
-        [string]$monotonic['if'] | Should -Match "github\.event\.pull_request\.base\.ref == 'main'"
-        [string]$monotonic['if'] | Should -Match "release-main-catalog-sync--v"
-        [string]$monotonic['run'] | Should -Match 'CANDIDATE=.*package\.json'
-        [string]$monotonic['run'] | Should -Match 'main already carries'
 
         $stableMonotonic = Get-NamedJobStep -Document $prValidation -JobName 'gate-completeness-check' -StepName 'Validate Stable promotion intent advances release/stable'
         [string]$stableMonotonic['if'] | Should -Match "github\.event\.pull_request\.base\.ref == 'release/stable'"
@@ -1597,11 +1557,6 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
 
     It 'Requires complete canonical release evidence in every catalog consumer' {
         $consumers = @(
-            @{
-                Document = Get-WorkflowDocument -Name 'release-main-catalog-sync.yml'
-                Job = 'sync-catalog'
-                Step = 'Validate release evidence and candidate version'
-            }
             @{
                 Document = $script:PrepareDocument
                 Job = 'prepare-promotion'
@@ -1639,11 +1594,6 @@ Describe 'Promotion and main catalog synchronization contracts' -Tag 'Unit' {
         $stableState = Get-NamedJobStep -Document $script:PrepareDocument -JobName 'prepare-promotion' -StepName 'Resolve promotion state'
         [string]$stableState['env']['REPOSITORY'] | Should -BeExactly '${{ github.repository }}'
         [string]$stableState['run'] | Should -Match ([regex]::Escape('--arg repository "$REPOSITORY"'))
-
-        $mainSyncState = Get-NamedJobStep -Document (Get-WorkflowDocument -Name 'release-main-catalog-sync.yml') `
-            -JobName 'sync-catalog' -StepName 'Validate release evidence and candidate version'
-        [string]$mainSyncState['env']['REPOSITORY'] | Should -BeExactly '${{ github.repository }}'
-        [string]$mainSyncState['env']['GH_TOKEN'] | Should -BeExactly '${{ steps.app-token.outputs.token }}'
     }
 }
 
@@ -1685,9 +1635,6 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
             $text | Should -Match '(?i)draft' -Because "$relativePath must describe the reviewed draft boundary"
             $text | Should -Not -Match 'plugins-v<version>' -Because "$relativePath must not document a future plugins-v snapshot locator"
             $text | Should -Match '(?i)main' -Because "$relativePath must describe the moving main catalog"
-            if ($relativePath -ne 'extension/PACKAGING.md') {
-                $text | Should -Match 'release-main-catalog-sync\.yml' -Because "$relativePath must name reviewed PreRelease catalog synchronization"
-            }
         }
     }
 
@@ -1797,13 +1744,6 @@ Describe 'Catalog release ref and plugin locator consistency' -Tag 'Unit' {
         # even though preparation already resolved an even one.
         $stableState | Should -Match 'MINOR % 2 != 0'
         $stableState | Should -Match 'has an odd minor'
-
-        $mainSync = Get-WorkflowDocument -Name 'release-main-catalog-sync.yml'
-        $mainUpdate = [string](Get-NamedJobStep -Document $mainSync -JobName 'sync-catalog' -StepName 'Update the main catalog')['run']
-        $mainUpdate | Should -Match '-CatalogRefMode Remove'
-        $mainUpdate | Should -Match '-SkipManifest'
-        $mainUpdate | Should -Match 'main catalog entries must omit source\.ref and source\.sha'
-        $mainUpdate | Should -Match '\(\.plugins \| type == "array"\)'
 
         $pluginPackage = Get-WorkflowText -Name 'plugin-package.yml'
         $pluginPackage | Should -Match '\$expectedRef = "hve-core-v\$env:INPUT_VERSION"'

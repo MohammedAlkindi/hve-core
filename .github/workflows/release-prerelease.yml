@@ -9,7 +9,7 @@ name: Pre-Release Pipeline
 # release pull request runs release-please in tag-only mode, which creates the tag
 # and draft release at the merge commit. Publication marks the draft as a
 # pre-release with the release App token so the Marketplace workflow receives the
-# published event, while canonical release evidence gates the main catalog sync.
+# published event.
 on:
   pull_request:
     types: [closed]
@@ -641,18 +641,3 @@ jobs:
         run: |
           set -euo pipefail
           gh release edit "$TAG" --prerelease --draft=false -R "$REPOSITORY"
-  main-catalog-sync:
-    name: Sync Main Development Catalog
-    needs:
-      - validate-release
-      - plugin-package-prerelease
-      - publish-release
-    uses: ./.github/workflows/release-main-catalog-sync.yml
-    with:
-      version: ${{ needs.validate-release.outputs.version }}
-      release-sha: ${{ needs.validate-release.outputs.sha }}
-    secrets:
-      release-app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-    permissions:
-      contents: read
-      pull-requests: write

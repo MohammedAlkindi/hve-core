@@ -466,35 +466,6 @@ jobs:
         shell: pwsh
         run: ./scripts/security/Test-PrValidationGate.ps1 -FailOnViolation
 
-      # Main catalog synchronization heads are version scoped, so an older
-      # candidate can still be merged after a newer one and would move the
-      # moving development catalog backwards.
-      - name: Validate main catalog synchronization advances main
-        if: >
-          github.event_name == 'pull_request'
-          && github.event.pull_request.base.ref == 'main'
-          && startsWith(github.head_ref, 'release-main-catalog-sync--v')
-        env:
-          HEAD_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 origin '+refs/heads/main:refs/remotes/origin/main'
-
-          CANDIDATE=$(jq -r '.version // ""' package.json)
-          BASE=$(git show refs/remotes/origin/main:package.json | jq -r '.version // ""')
-          for entry in "candidate:$CANDIDATE" "main:$BASE"; do
-            if ! printf '%s' "${entry#*:}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "::error::${entry%%:*} package.json has no MAJOR.MINOR.PATCH version"
-              exit 1
-            fi
-          done
-
-          if [ "$CANDIDATE" = "$BASE" ] || [ "$(printf '%s\n%s\n' "$CANDIDATE" "$BASE" | sort -V | tail -1)" = "$BASE" ]; then
-            echo "::error::$HEAD_BRANCH proposes $CANDIDATE but main already carries $BASE; this synchronization is superseded"
-            exit 1
-          fi
-          echo "$HEAD_BRANCH advances main from $BASE to $CANDIDATE"
-
       - name: Validate Stable promotion intent advances release/stable
         if: >
           github.event_name == 'pull_request'

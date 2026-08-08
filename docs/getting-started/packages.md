@@ -3,7 +3,7 @@ title: HVE Core Identity and Channels
 description: Choose HVE Core package identities and understand their lifecycle and release channels
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: overview
 ---
 
@@ -34,11 +34,12 @@ no tag. Release-please opens a separate managed PR on the target branch, and
 merging that PR creates the channel's `hve-core-v<version>` tag and draft
 release. Both channels package from that immutable release tag.
 
-`main` is not a release-please target. After successful PreRelease publication,
-a reviewed PR advances package metadata and `CHANGELOG.md` on `main`. Every
-main entry sources canonical content from `.github` and omits `source.ref`, so
-a marketplace refresh followed by a plugin update resolves current `main`
-content. Stable never synchronizes metadata back to `main`.
+`main` is not a release-please target. It is a ref-less development-tip channel:
+every main entry sources canonical content from `.github` and omits `source.ref`,
+so a marketplace refresh followed by a plugin update resolves current `main`
+content. Release branches, tags, and published releases own release state and
+history; PreRelease publication does not synchronize versions or `CHANGELOG.md`
+state back into `main`.
 
 Each catalog entry has a deterministic plugin root and extension identity. `hve-core` remains the unsuffixed HVE Core extension, `ise-hve-essentials.hve-core`. Other active entries use package-specific generated identities.
 

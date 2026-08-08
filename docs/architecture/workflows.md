@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: overview
 ---
 
@@ -31,7 +31,6 @@ flowchart TD
         PRE_DRAFT --> PRE_EVIDENCE[Release-tag Packages and Canonical Evidence]
         PRE_EVIDENCE --> PRE_PUBLISH[App-token Prerelease Publication]
         PRE_PUBLISH --> PRE_MARKET[Pre-Release Marketplace Publish]
-        PRE_PUBLISH --> MAIN_SYNC[Review Main Catalog and Changelog Sync]
     end
 
     subgraph STABLE["Stable"]
@@ -70,7 +69,6 @@ flowchart TD
 | `release-prerelease.yml`             | Merged PR to `release/prerelease` | Prepare or publish the managed odd-minor PreRelease                        |
 | `release-stable.yml`                 | Published PreRelease, manual      | Open the reviewed `release/prerelease` to `release/stable` promotion PR    |
 | `release-stable-publish.yml`         | Merged PR to `release/stable`     | Prepare or publish the managed even-minor Stable release                   |
-| `release-main-catalog-sync.yml`      | Reusable                          | Open a reviewed main catalog and changelog PR after PreRelease publication |
 | `weekly-security-maintenance.yml`    | Sunday 2 AM UTC, manual           | Scheduled security posture review                                          |
 | `weekly-validation.yml`              | Schedule, manual                  | Weekly full validation sweep                                               |
 | `security-scan.yml`                  | Push to main/develop              | CodeQL security validation                                                 |
@@ -240,8 +238,7 @@ not a requirement of `MAJOR.MINOR.PATCH` syntax.
 `release-prerelease.yml` jobs: `release-please`, `sync-release-pr`,
 `validate-release`, `close-milestone`, `extension-package-prerelease`,
 `plugin-package-prerelease`, `generate-dependency-sbom`, `attest-and-upload`,
-`upload-plugin-packages`, `verify-provenance`, `publish-release`, and
-`main-catalog-sync`.
+`upload-plugin-packages`, `verify-provenance`, and `publish-release`.
 
 `release-stable-publish.yml` jobs: `release-please`, `sync-release-pr`,
 `validate-release`, `close-milestone`, `extension-provenance`,
@@ -258,11 +255,10 @@ sources, alongside signed plugin ZIPs, SBOM, Sigstore, and in-toto assets.
 
 Both channels publish their draft with a release GitHub App token. The
 resulting `published` event triggers the matching Marketplace workflow.
-PreRelease also calls `release-main-catalog-sync.yml` after its release assets
-and publication succeed. That reusable workflow opens a reviewed, version-scoped
-PR that moves synchronized package metadata, removes release entry refs, and
-updates `CHANGELOG.md` on `main`; newer candidates close older open sync PRs
-as superseded. Stable has no reverse-main synchronization path.
+Main is not part of either release completion graph. It remains a ref-less
+development-tip channel sourced from canonical `.github` content and is not
+updated by release completion. Release branches, immutable tags, and published
+releases own release state and history.
 
 The ref-less main catalog sources canonical content from `.github`. After a
 marketplace refresh and plugin update, `#main` resolves current main bytes

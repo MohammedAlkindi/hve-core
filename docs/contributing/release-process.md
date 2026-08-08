@@ -2,7 +2,7 @@
 title: Release Process
 description: Release HVE Core through reviewed PreRelease metadata and Stable promotion workflows
 sidebar_position: 9
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: how-to
 author: WilliamBerryiii
 ---
@@ -16,10 +16,10 @@ branch and creates no tag. Its merge runs release-please in PR-only mode. The
 later release-please managed PR owns version and changelog metadata, and its
 merge is the `hve-core-v<version>` tag boundary.
 
-`main` is not a release-please target. A successful PreRelease publication
-opens a normal reviewed PR that advances the ref-less development catalog and
-`CHANGELOG.md` on `main`. Stable never synchronizes release metadata back to
-`main`.
+`main` is not a release-please target. It is a ref-less development-tip
+channel and does not receive release metadata or changelog updates when a
+channel is published. Release branches, tags, and published GitHub releases
+own release state and history.
 
 The ref-less main catalog follows `main`, but ref omission does not update
 installed plugins automatically. A merge changes what `#main` consumers
@@ -37,8 +37,6 @@ Workflow ownership is explicit:
     `release/stable` promotion.
 * `release-stable-publish.yml` runs release-please and publishes Stable from a
     reviewed draft.
-* `release-main-catalog-sync.yml` opens the reviewed PreRelease catalog and
-    changelog synchronization PR to `main`.
 
 ## How Releases Work
 
@@ -50,7 +48,6 @@ flowchart TD
         P3 --> P4[Package and attest release assets]
         P4 --> P5[Publish prerelease with App token]
         P5 --> P6[Pre-Release Marketplace Publish]
-        P5 --> P7[Review main catalog and changelog PR]
     end
     subgraph STABLE[Stable]
         S1[Published PreRelease] --> S2[Review PreRelease to Stable promotion PR]
@@ -93,14 +90,9 @@ flowchart TD
 9. A release GitHub App token publishes the prerelease with
    `gh release edit --prerelease --draft=false`. The event triggers
    `Pre-Release Marketplace Publish`.
-10. After release publication succeeds, `Main Catalog Sync` opens
-    a reviewed `release-main-catalog-sync--v<version>` PR. It advances the
-    synchronized package metadata, removes release entry refs, and updates
-    `CHANGELOG.md` on `main` without running release-please there.
-
-Newer main catalog candidates close older open sync PRs as superseded. PR
-validation rejects an out-of-order candidate when `main` is already at or
-above that version.
+10. Release publication does not update `main`. The release branch, immutable
+    tag, and published GitHub release retain the channel release state and
+    history.
 
 ### Stable Flow
 
@@ -132,7 +124,8 @@ above that version.
     `gh release edit --draft=false`. The event triggers
     `Stable Marketplace Publish`.
 
-Stable publication has no reverse synchronization to `main`.
+Published channels do not synchronize release metadata or changelog history to
+`main`.
 
 ## The Release PR
 
@@ -251,8 +244,7 @@ preparation workflow.
     `plugin-release-evidence.json`, SBOM, Sigstore, and in-toto assets for the
     same source SHA.
 7. Verify App-token publication marks the GitHub release as a prerelease,
-    triggers `Pre-Release Marketplace Publish`, and opens the reviewed main
-    catalog and changelog PR.
+    and triggers `Pre-Release Marketplace Publish`.
 
 ### Reviewing the Stable Release
 
@@ -277,7 +269,7 @@ The promotion and managed release PR are separate review boundaries. When ready 
     `plugin-release-evidence.json`, SBOM, VEX, Sigstore, in-toto, and provenance
     assets.
 7. Verify App-token publication triggers `Stable Marketplace Publish` for the
-    same release tag. Confirm no Stable-to-main synchronization PR is opened.
+    same release tag.
 
 ### Release Cadence
 
@@ -347,11 +339,11 @@ repository release policy; it does not prevent that normal client behavior.
 | Merge or dispatch PreRelease preparation   | Opens or refreshes the reviewed `main` to PreRelease promotion PR            |
 | Merge PreRelease promotion PR              | Opens the managed PreRelease PR; creates no tag                              |
 | Merge managed PreRelease PR                | Creates the draft tag and starts the odd-minor artifact pipeline             |
-| Publish PreRelease with App token          | Starts PreRelease Marketplace publication and the reviewed main catalog sync |
+| Publish PreRelease with App token          | Starts PreRelease Marketplace publication                                    |
 | Publish PreRelease or dispatch Stable prep | Opens or refreshes the reviewed PreRelease to Stable promotion PR            |
 | Merge Stable promotion PR                  | Opens the managed Stable PR; creates no tag                                  |
 | Merge managed Stable PR                    | Creates the draft tag and starts the even-minor artifact pipeline            |
-| Publish Stable with App token              | Starts Stable Marketplace publication; creates no reverse main sync          |
+| Publish Stable with App token              | Starts Stable Marketplace publication                                        |
 
 ## Extension Channels and Maturity
 

@@ -2,7 +2,7 @@
 title: GitHub Actions Workflows
 description: Modular CI/CD workflow architecture for validation, security scanning, and automated maintenance
 author: HVE Core Team
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: reference
 keywords:
   - github actions
@@ -54,7 +54,6 @@ Compose multiple reusable workflows for comprehensive validation and security sc
 | `release-prerelease.yml`          | Merged PR to `release/prerelease`                       | Managed PreRelease release    | Prepare the managed release PR or publish the verified odd-minor release and immutable packages  |
 | `release-stable.yml`              | Published PreRelease; dispatch                          | Reviewed Stable promotion     | Open the target-based `release/prerelease` to `release/stable` promotion PR                      |
 | `release-stable-publish.yml`      | Merged PR to `release/stable`                           | Managed Stable release        | Prepare the managed release PR or publish the verified even-minor release and immutable packages |
-| `release-main-catalog-sync.yml`   | Reusable workflow call                                  | Reviewed main catalog sync    | Open a version-scoped main catalog and changelog PR after successful PreRelease publication      |
 | `weekly-security-maintenance.yml` | Schedule (Sun 2AM UTC)                                  | Soft-fail warnings            | Weekly security posture                                                                          |
 | `scorecard.yml`                   | Push to main, Schedule (Sun 3AM UTC)                    | SARIF upload                  | OpenSSF Scorecard security posture                                                               |
 
@@ -66,12 +65,10 @@ release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-
 
 release-prerelease-prepare.yml jobs: prepare-promotion, open-promotion-pr
 
-release-main-catalog-sync.yml jobs: sync-catalog
-
 release-prerelease.yml jobs: release-please, sync-release-pr, validate-release,
 close-milestone, extension-package-prerelease, plugin-package-prerelease,
 generate-dependency-sbom, attest-and-upload,
-upload-plugin-packages, verify-provenance, publish-release, main-catalog-sync
+upload-plugin-packages, verify-provenance, publish-release
 
 `release-prerelease-prepare.yml` maintains the reviewed, target-based `main` to
 `release/prerelease` promotion head. `release-stable.yml` starts from an
@@ -103,8 +100,7 @@ event, merge, and release identity plus `release/stable` ancestry, packages
 from that release tag, attaches and attests `plugin-release-evidence.json` plus
 the signed plugin ZIP, SBOM, Sigstore, and in-toto assets, and publishes the
 draft with a release GitHub App token. The resulting release event triggers
-`Stable Marketplace Publish`. Stable does not synchronize metadata back to
-`main`.
+`Stable Marketplace Publish`.
 
 The managed Stable PR intentionally updates `marketplace.json` to the exact
 future `hve-core-v<stable-version>` ref before that release tag exists. Its
@@ -153,10 +149,9 @@ and catalogs remain immutable and supported for historical installations.
 
 Final publication mints a release GitHub App token and atomically runs
 `gh release edit --prerelease --draft=false`; the resulting published event
-triggers `Pre-Release Marketplace Publish`. After release publication succeeds,
-`release-main-catalog-sync.yml` opens a reviewed, version-scoped PR that
-advances package metadata, removes release entry refs, and updates `CHANGELOG.md`
-on `main`.
+triggers `Pre-Release Marketplace Publish`. Main remains a ref-less
+development-tip channel and is not updated by release completion. Release
+branches, immutable tags, and published releases own release state and history.
 
 Hosted branch, tag, release, asset, workflow, and installed-client checks are
 authorized manual actions. Local validation does not execute or verify them.
