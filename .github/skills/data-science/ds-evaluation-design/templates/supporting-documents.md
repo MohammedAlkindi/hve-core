@@ -1,38 +1,40 @@
 ---
-title: Evaluation supporting documents
-description: Skeletons for the curation notes, metric selection, and tooling recommendation documents that accompany an evaluation dataset
+title: Evaluation guide
+description: One sectioned guide for the curation, metric selection, and tooling decisions that accompany an evaluation dataset
 ---
 
 ## Purpose
 
-Copy these skeletons alongside the dataset. They record why the dataset looks the way it does, which a bare dataset cannot convey to the next reader or to a reviewer six months later.
+Copy this guide alongside the JSON and CSV dataset files. It records why the dataset looks the way it does, which a bare dataset cannot convey to the next reader or to a reviewer six months later.
 
 Leave every review checkbox unchecked. A reviewer marks their own review; an agent never does.
 
-## Curation notes
+## Evaluation guide
 
 ```markdown
-# Curation Notes: {System Name}
+# Evaluation Guide: {System Name}
 
-## Business context
+## Curation Notes
+
+### Business context
 
 {The problem the system addresses and the outcomes it is meant to move}
 
-## Scope
+### Scope
 
-### In scope
+#### In scope
 
 {Tasks the system handles}
 
-### Out of scope
+#### Out of scope
 
 {Explicit exclusions, and what the system should do when asked anyway}
 
-## Grounding sources
+### Grounding sources
 
 {Sources relied on, and a frank assessment of their completeness and currency}
 
-## Composition
+### Composition
 
 | Category  | Count | Rationale        |
 |-----------|-------|------------------|
@@ -44,27 +46,23 @@ Leave every review checkbox unchecked. A reviewer marks their own review; an age
 
 {Note any deviation from the default balance and what drove it}
 
-## Open items
+### Open items
 
 {Pairs marked for subject-matter review, and unresolved scope questions}
 
-## Review
+### Review
 
 - [ ] Pairs reviewed for accuracy by a qualified reviewer
 - [ ] Expected behaviors reconciled against authoritative sources
 - [ ] Refusal and safety pairs reviewed
 
-## Maintenance
+### Maintenance
 
 {When to revisit: after material system changes, on a stated cadence, or on grounding-source updates}
-```
 
-## Metric selection
+## Metric Selection
 
-```markdown
-# Metric Selection: {System Name}
-
-## System properties
+### System properties
 
 | Property                    | Value    | Consequence for measurement  |
 |-----------------------------|----------|------------------------------|
@@ -73,47 +71,51 @@ Leave every review checkbox unchecked. A reviewer marks their own review; an age
 | Elevated risk profile       | {yes/no} | {what this makes measurable} |
 | Cost or latency constraints | {yes/no} | {what this makes measurable} |
 
-## Selected metrics
+### Risks and Detecting Metrics
+
+This table records detection coverage, not risk assessment. Route severity, likelihood, classification, and approval to `rai-planner`. Keep a named risk visible as `unmeasured` when no detecting metric is available.
+
+| Risk         | Source                      | Detecting metric         |
+|--------------|-----------------------------|--------------------------|
+| {named risk} | Confirmed interview summary | {metric or `unmeasured`} |
+
+### Selected metrics
 
 | Metric | Priority          | Why this system needs it | Acceptable bar                 |
 |--------|-------------------|--------------------------|--------------------------------|
 | {name} | {high/medium/low} | {rationale}              | {threshold or qualitative bar} |
 
-## Not measured by tooling
+### Not measured by tooling
 
 {Dimensions the chosen tooling cannot produce, and how they will be checked instead}
 
-## Currency
+### Currency
 
 Evaluator names and availability confirmed against {source} on {date}.
-```
 
-## Tooling recommendation
+## Tool Recommendations
 
-```markdown
-# Tooling Recommendation: {System Name}
-
-## Team profile
+### Team profile
 
 * Development approach: {low-code / pro-code / mixed}
 * Evaluation mode: {manual / batch / both}
 * Cadence: {frequency}
 
-## Recommendation
+### Recommendation
 
-### {Recommended option}
+#### {Recommended option}
 
 {Why it fits this team's approach, cadence, and metric plan}
 
-## Prerequisites
+### Prerequisites
 
 {Credentials, deployed judge models, environment configuration, and access needed before the first run}
 
-## What gates a release
+### What gates a release
 
 {Which evaluation must pass before shipping, and which is advisory}
 
-## Considered and not chosen
+### Considered and not chosen
 
 {Alternatives and the specific reason each was set aside}
 ```

@@ -2842,7 +2842,8 @@ stimuli:
       an evaluation dataset for a grounded support agent. Cover the interview
       posture, the minimum size, the category balance, population coverage,
       validation provenance, how named risks map to detecting metrics, and how
-      this differs from evaluating a trained model.
+      one consolidated evaluation guide records the supporting rationale. Also
+      explain how this differs from evaluating a trained model.
     environment:
       skills:
         - ../../.github/skills/data-science/ds-evaluation-design
@@ -2868,4 +2869,8 @@ stimuli:
         name: detection-assessment-boundary
         config:
           pattern: '(?is)(risk).*(detecting metric|detection coverage|unmeasured).*(rai-planner|assessment|classification|approval)'
+      - type: output-matches
+        name: consolidated-guide
+        config:
+          pattern: '(?is)(one|single|consolidated).*(evaluation guide).*(curation).*(metric selection).*(tool recommendations|tooling)'
 
