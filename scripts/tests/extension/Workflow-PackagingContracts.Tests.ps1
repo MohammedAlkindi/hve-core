@@ -318,6 +318,70 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         }
         (Get-WorkflowText -Name 'extension-marketplace-publish.yml') | Should -Match 'vsce publish'
     }
+
+    It 'Publishes through Azure OIDC after verifying the attested release asset' {
+        $document = Get-WorkflowDocument -Name 'extension-marketplace-publish.yml'
+        $inputs = $document['on']['workflow_call']['inputs']
+        foreach ($name in @('tag', 'attestation-signer-workflow')) {
+            $inputs[$name]['required'] | Should -BeTrue
+            [string]$inputs[$name]['type'] | Should -BeExactly 'string'
+            $inputs[$name].Contains('default') | Should -BeFalse
+        }
+        $inputs.Contains('verify-attestation') | Should -BeFalse
+
+        $gateJob = $document['jobs']['validate-inputs']
+        $gateJob.Contains('environment') | Should -BeFalse
+        [string]$gateJob['permissions']['contents'] | Should -BeExactly 'read'
+        $gate = Get-NamedJobStep -Document $document -JobName 'validate-inputs' -StepName 'Validate channel tag and signer'
+        [string]$gate['shell'] | Should -BeExactly 'bash'
+        [string]$gate['env']['INPUT_TAG'] | Should -BeExactly '${{ inputs.tag }}'
+        [string]$gate['env']['INPUT_PRE_RELEASE'] | Should -BeExactly '${{ inputs.pre-release }}'
+        [string]$gate['env']['INPUT_SIGNER_WORKFLOW'] | Should -BeExactly '${{ inputs.attestation-signer-workflow }}'
+        $gateRun = [string]$gate['run']
+        $gateRun | Should -Match 'set -euo pipefail'
+        $gateRun | Should -Not -Match '\$\{\{\s*(?:github\.event|inputs\.)'
+        $gateRun | Should -Match 'case "\$INPUT_PRE_RELEASE" in'
+        $gateRun | Should -Match 'pre-release must be true or false'
+        $gateRun | Should -Match '\^prerelease-v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$'
+        $gateRun | Should -Match '\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$'
+        $gateRun | Should -Match '\[\[ ! "\$INPUT_TAG" =~ \$expected_pattern \]\]'
+        $gateRun | Should -Match '\[\[ "\$INPUT_SIGNER_WORKFLOW" != "\$expected_signer" \]\]'
+        $gateRun | Should -Match ([regex]::Escape('.github/workflows/release-prerelease.yml'))
+        $gateRun | Should -Match ([regex]::Escape('.github/workflows/extension-provenance.yml'))
+
+        $job = $document['jobs']['publish']
+        [string]$job['needs'] | Should -BeExactly 'validate-inputs'
+        [string]$job['environment'] | Should -BeExactly 'marketplace'
+        [string]$job['permissions']['id-token'] | Should -BeExactly 'write'
+        [string]$job['permissions']['attestations'] | Should -BeExactly 'read'
+        [string](Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Azure Login (OIDC)')['uses'] |
+            Should -Match '^azure/login@[0-9a-f]{40}$'
+
+        $download = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Download attested VSIX from GitHub Release'
+        $download.Contains('if') | Should -BeFalse
+        $verify = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Verify attested VSIX provenance'
+        $verify.Contains('if') | Should -BeFalse
+        [string]$verify['env']['RELEASE_TAG'] | Should -BeExactly '${{ inputs.tag }}'
+        [string]$verify['env']['SIGNER_WORKFLOW'] |
+            Should -BeExactly '${{ github.repository }}/${{ inputs.attestation-signer-workflow }}'
+        [string]$verify['run'] | Should -Match 'gh attestation verify "\$VSIX_FILE" --repo "\$REPOSITORY"'
+        [string]$verify['run'] | Should -Match '--signer-workflow "\$SIGNER_WORKFLOW"'
+        [string]$verify['run'] | Should -Match 'commits/\$RELEASE_TAG'
+        [string]$verify['run'] | Should -Match '--source-digest "\$SOURCE_DIGEST"'
+
+        $text = Get-WorkflowText -Name 'extension-marketplace-publish.yml'
+        $text | Should -Not -Match 'Download intra-run VSIX artifact|Resolve downloaded VSIX path|inputs\.tag ==|extension-vsix-'
+
+        $names = [string[]]@($job['steps'] | ForEach-Object { [string]$_['name'] })
+        [array]::IndexOf($names, 'Verify attested VSIX provenance') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Azure Login (OIDC)'))
+        [array]::IndexOf($names, 'Verify attested VSIX provenance') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Setup Node.js'))
+        [array]::IndexOf($names, 'Verify attested VSIX provenance') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Install dependencies'))
+        [array]::IndexOf($names, 'Azure Login (OIDC)') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Publish to VS Code Marketplace'))
+    }
 }
 
 Describe 'Packages matrix wiring' -Tag 'Unit' {
@@ -365,7 +429,7 @@ Describe 'Release artifact naming' -Tag 'Unit' {
     }
 
     It 'Names every VSIX artifact after the matrix package ID' {
-        foreach ($workflow in @('extension-package.yml', 'extension-provenance.yml', 'extension-marketplace-publish.yml', 'release-prerelease.yml')) {
+        foreach ($workflow in @('extension-package.yml', 'extension-provenance.yml', 'release-prerelease.yml')) {
             $text = Get-WorkflowText -Name $workflow
             $names = @([regex]::Matches($text, '(?m)name: (extension-vsix-[^\r\n]+)') |
                     ForEach-Object { $_.Groups[1].Value.Trim() } | Sort-Object -Unique)
@@ -876,6 +940,19 @@ Describe 'Pre-release preparation and publication' -Tag 'Unit' {
         [string]$jobs['plugin-package-prerelease']['uses'] | Should -BeExactly './.github/workflows/plugin-package.yml'
         [string]$jobs['plugin-package-prerelease']['with']['source-policy'] | Should -BeExactly 'release-tag'
         $jobs['plugin-package-prerelease']['with'].Contains('project-release-catalog') | Should -BeFalse
+
+        $attest = Get-NamedJobStep -Document $script:PreReleaseDocument -JobName 'attest-and-upload' -StepName 'Attest build provenance'
+        [string]$attest['uses'] | Should -Match '^actions/attest-build-provenance@[0-9a-f]{40}$'
+        [string]$attest['with']['subject-path'] | Should -BeExactly '${{ steps.vsix.outputs.file }}'
+
+        $upload = Get-NamedJobStep -Document $script:PreReleaseDocument -JobName 'attest-and-upload' -StepName 'Upload assets to GitHub Release'
+        [string]$upload['env']['TAG'] | Should -BeExactly '${{ needs.validate-release.outputs.tag_name }}'
+        [string]$upload['env']['BUNDLE_PATH'] | Should -BeExactly '${{ steps.attest.outputs.bundle-path }}'
+        [string]$upload['run'] | Should -Match 'gh release upload "\$TAG"'
+        [string]$upload['run'] | Should -Not -Match 'gh release (create|delete|edit)'
+
+        @($jobs['attest-and-upload']['needs']) | Should -Contain 'extension-package-prerelease'
+        @($jobs['publish-release']['needs']) | Should -Contain 'attest-and-upload'
     }
 }
 
@@ -1203,6 +1280,22 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         }
     }
 
+    It 'Passes the exact Stable tag to extension provenance release upload' {
+        $document = Get-WorkflowDocument -Name 'extension-provenance.yml'
+        $inputs = $document['on']['workflow_call']['inputs']
+        $inputs.Contains('release-tag') | Should -BeTrue
+        [string]$inputs['release-tag']['type'] | Should -BeExactly 'string'
+        [string]$inputs['release-tag']['default'] | Should -BeExactly ''
+
+        $upload = Get-NamedJobStep -Document $document -JobName 'build-attest' -StepName 'Upload assets to GitHub Release'
+        [string]$upload['env']['RELEASE_TAG'] | Should -BeExactly '${{ inputs.release-tag }}'
+        [string]$upload['run'] | Should -Match 'gh release upload \$tag'
+        [string]$upload['run'] | Should -Not -Match 'gh release (create|delete|edit)'
+
+        [string](Get-WorkflowDocument -Name 'release-stable-publish.yml')['jobs']['extension-provenance']['with']['release-tag'] |
+            Should -BeExactly '${{ needs.validate-release.outputs.tag_name }}'
+    }
+
     It 'Verifies source provenance before target-tree execution in plugin job <Job>' -ForEach @(
         @{ Job = 'discover-packages' }
         @{ Job = 'package' }
@@ -1428,7 +1521,32 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         }
     }
 
+    It 'Verifies published attestations for the exact channel tag in <Workflow>' -ForEach @(
+        @{ Workflow = 'release-prerelease.yml'; VerifyPattern = 'gh attestation verify "\$f" --repo "\$REPOSITORY"' }
+        @{ Workflow = 'release-stable-publish.yml'; VerifyPattern = 'Invoke-ProvenanceVerification\.ps1' }
+    ) {
+        $document = Get-WorkflowDocument -Name $Workflow
+        [string]$document['jobs']['verify-provenance']['permissions']['attestations'] | Should -BeExactly 'read'
+
+        $download = Get-NamedJobStep -Document $document -JobName 'verify-provenance' -StepName 'Download release artifacts'
+        [string]$download['env']['RELEASE_TAG'] | Should -BeExactly '${{ needs.validate-release.outputs.tag_name }}'
+        [string]$download['run'] | Should -Match "-p '\*\.vsix'"
+
+        @(Get-JobStepText -Document $document -JobName 'verify-provenance' |
+                Where-Object { $_ -match $VerifyPattern }) | Should -HaveCount 1
+    }
+
     It 'Publishes the marketplace lanes from the released ref' {
+        $publisherCallers = [string[]]@(Get-ChildItem -LiteralPath $script:WorkflowDirectory -File -Filter '*.yml' |
+                Where-Object { $_.Name -notlike '*.lock.yml' } |
+                Where-Object {
+                    (Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8) -match
+                    'uses:\s+\./\.github/workflows/extension-marketplace-publish\.yml'
+                } |
+                ForEach-Object { $_.Name } |
+                Sort-Object)
+        $publisherCallers | Should -Be @('release-marketplace-prerelease.yml', 'release-marketplace-stable.yml')
+
         $stable = Get-WorkflowDocument -Name 'release-marketplace-stable.yml'
         $checkout = @($stable['jobs']['discover']['steps'] | Where-Object { $_.Contains('uses') -and [string]$_['uses'] -match '^actions/checkout@' })
         $checkout | Should -HaveCount 1
@@ -1437,6 +1555,20 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $prerelease = Get-WorkflowDocument -Name 'release-marketplace-prerelease.yml'
         [string]$prerelease['jobs']['package']['with']['source-ref'] | Should -BeExactly '${{ needs.validate-version.outputs.tag }}'
         [string]$prerelease['jobs']['package']['with']['version'] | Should -BeExactly '${{ needs.validate-version.outputs.version }}'
+
+        [string]$stable['jobs']['publish']['with']['tag'] | Should -BeExactly '${{ needs.normalize-version.outputs.tag }}'
+        $stable['jobs']['publish']['with']['pre-release'] | Should -BeFalse
+        $stable['jobs']['publish']['with'].Contains('verify-attestation') | Should -BeFalse
+        [string]$stable['jobs']['publish']['with']['attestation-signer-workflow'] |
+            Should -BeExactly '.github/workflows/extension-provenance.yml'
+
+        [string]$prerelease['jobs']['publish']['with']['tag'] | Should -BeExactly '${{ needs.validate-version.outputs.tag }}'
+        $prerelease['jobs']['publish']['with']['pre-release'] | Should -BeTrue
+        $prerelease['jobs']['publish']['with'].Contains('verify-attestation') | Should -BeFalse
+        [string]$prerelease['jobs']['publish']['with']['attestation-signer-workflow'] |
+            Should -BeExactly '.github/workflows/release-prerelease.yml'
+        @($prerelease['jobs']['publish']['needs']) | Should -Contain 'validate-version'
+        @($prerelease['jobs']['publish']['needs']) | Should -Contain 'package'
     }
 
     It 'Keeps PreRelease marketplace event values out of shell source and permits release lookup' {

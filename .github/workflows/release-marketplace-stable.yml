@@ -155,7 +155,7 @@ jobs:
       packages-matrix: ${{ needs.discover.outputs.matrix }}
       tag: ${{ needs.normalize-version.outputs.tag }}
       pre-release: false
-      verify-attestation: true
+      attestation-signer-workflow: .github/workflows/extension-provenance.yml
     permissions:
       contents: read
       attestations: read

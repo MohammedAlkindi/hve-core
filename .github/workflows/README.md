@@ -2,7 +2,7 @@
 title: GitHub Actions Workflows
 description: Modular CI/CD workflow architecture for validation, security scanning, and automated maintenance
 author: HVE Core Team
-ms.date: 2026-08-07
+ms.date: 2026-08-08
 ms.topic: reference
 keywords:
   - github actions
@@ -70,56 +70,35 @@ close-milestone, extension-package-prerelease, plugin-package-prerelease,
 generate-dependency-sbom, attest-and-upload,
 upload-plugin-packages, verify-provenance, publish-release
 
-`release-prerelease-prepare.yml` maintains the reviewed, target-based `main` to
-`release/prerelease` promotion head. `release-stable.yml` starts from an
-explicit published PreRelease tag and maintains one reviewed promotion head
-scoped to that tag:
-`release-promotion--release-prerelease--to--release-stable--<source-tag>`.
-It resolves the tag commit, verifies matching canonical plugin release
-evidence, and uses only that commit for promotion even when
-the branch tip is newer. Same-tag reruns reapply selected-source package and
-catalog content before Stable version projection; different tags cannot share
-promotion history. Recovery dispatch requires the published `prerelease-tag`.
-Neither
-preparation workflow runs release-please, creates a tag, or packages assets.
+### Release Channel Contract
 
-Release-please owns the managed Stable release PR and draft Stable release.
+The reviewed branch ladder is `main` to `release/prerelease` to
+`release/stable`. Each hop has two review boundaries: a promotion pull request
+and a release-please managed pull request. Promotion preparation writes exact
+release intent but creates no tag or release.
 
-Before Stable release-please runs, a read-only trigger job validates the exact
-managed head or the full tag-scoped promotion grammar. Promotion mode
-revalidates the selected release, source commit, manifest, ancestry, canonical
-plugin release evidence, pull-request head containment, and live Stable intent. Managed mode
-requires the consumed `release-as` to be absent. Both modes serialize against
-`release/stable`; exact branch writers, required review, merge-commit policy,
-and immutable tags remain repository-policy controls.
+After release-please opens the managed pull request, `sync-release-pr`
+synchronizes committed versions, removes the consumed `release-as`, and writes
+every release-catalog `source.ref` to the future exact channel tag. Merging the
+reviewed managed pull request runs release-please in tag-only mode.
+Release-please is the sole tag writer:
 
-Merging the same-repository managed Stable release PR runs release-please in
-tag-only mode with the Stable config. It creates the draft
-`hve-core-v<version>` release at the merge commit. The workflow validates
-event, merge, and release identity plus `release/stable` ancestry, packages
-from that release tag, attaches and attests `plugin-release-evidence.json` plus
-the signed plugin ZIP, SBOM, Sigstore, and in-toto assets, and publishes the
-draft with a release GitHub App token. The resulting release event triggers
-`Stable Marketplace Publish`.
+* PreRelease creates `prerelease-v<version>`.
+* Stable creates `v<version>`.
 
-The managed Stable PR intentionally updates `marketplace.json` to the exact
-future `hve-core-v<stable-version>` ref before that release tag exists. Its
-approved merge creates the Stable release tag and starts the packaging job;
-Stable source preparation never pre-validates that future ref.
+Release-please creates the draft channel release at the reviewed managed merge, and publication occurs after packaging and provenance verification complete.
 
-`release-prerelease.yml` is the `Pre-Release Pipeline`. A merged promotion PR
-runs release-please in PR-only mode against `release/prerelease` with
-`release-please-prerelease-config.json` and
-`.release-please-prerelease-manifest.json`. Merging only its same-repository
-managed release-please PR runs tag-only mode and creates a draft numeric
-odd-minor `hve-core-v<version>` release at the merge commit.
+| Registration                               | Repository contract                                                   |
+|--------------------------------------------|-----------------------------------------------------------------------|
+| `microsoft/hve-core`                       | Ref-less development-tip registration for `main`                      |
+| `microsoft/hve-core#release/prerelease`    | Moving branch registration whose catalog pins `prerelease-v<version>` |
+| `microsoft/hve-core#release/stable`        | Moving branch registration whose catalog pins `v<version>`            |
+| `microsoft/hve-core#prerelease-v<version>` | Immutable exact PreRelease registration                               |
+| `microsoft/hve-core#v<version>`            | Immutable exact Stable registration                                   |
 
-The workflow verifies event, merge, and release identity plus
-`release/prerelease` ancestry before it packages extensions and plugins from
-the release tag, validates the committed release catalog, and attaches and
-attests canonical plugin release evidence and signed package assets.
+Publication does not synchronize release metadata, changelog history, or catalog locators back to `main`. The ref-less main catalog omits `source.ref`; release-branch and exact-tag catalogs use their channel's exact immutable tag. An explicit marketplace refresh and plugin update are required for the ref-less main catalog, which has no release gate, SBOM, or attestation. Release-channel assets remain release-gated, SBOM-covered, and attested.
 
-PreRelease uses an odd-minor version and Stable uses an even-minor version. Each promotion writes the exact release intent that release-please consumes on its target branch.
+Both release channels preserve the VSIX package, plugin-release-evidence.json, signed plugin ZIPs, SBOM, Sigstore, in-toto, provenance, attestation, verification, and Azure OIDC publication chain. Each Marketplace workflow passes its validated exact tag and the workflow that attested its VSIX to the generic publisher. The publisher downloads the release asset, verifies its attestation against that lane-specific signer, and then publishes through OIDC.
 
 ### Release Version Allocation
 
@@ -137,15 +116,12 @@ release-state decision. Odd/even minor parity remains repository policy
 aligned with VS Code Marketplace guidance and behavior, rather than a
 requirement of `MAJOR.MINOR.PATCH` syntax.
 
-Release catalogs set every plugin entry to the exact
-`hve-core-v<version>` ref. Their reviewed, release-gated assets remain
-SBOM-covered, attested, and immutable. The ref-less main catalog instead
-sources canonical `.github` content and resolves current main bytes after the
-user refreshes the marketplace and updates the plugin. No release gate, SBOM,
-or attestation covers those main bytes; this is accepted channel behavior.
+Release catalogs set every plugin entry to their exact `prerelease-v<version>`
+or `v<version>` ref. Their reviewed, release-gated assets remain SBOM-covered,
+attested, and immutable. The ref-less main catalog instead sources canonical
+`.github` content and has no published-release assurance.
 
-Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
-and catalogs remain immutable and supported for historical installations.
+Because snapshot publication has stopped, tags and catalogs remain immutable and supported only as historical records. They are not current release or registration namespaces.
 
 Final publication mints a release GitHub App token and atomically runs
 `gh release edit --prerelease --draft=false`; the resulting published event

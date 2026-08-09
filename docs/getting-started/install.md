@@ -3,7 +3,7 @@ title: Installing HVE Core
 description: Install a catalog-selected HVE Core extension or plugin, or adopt selected components from a clone
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-08
 ms.topic: how-to
 keywords: [installation, setup, github copilot, marketplace, selective clone]
 estimated_reading_time: 4
@@ -85,12 +85,29 @@ graph LR
 
 ## Distribution Identity and Channels
 
-Release workflows discover active entries from the catalog. Stable and
-PreRelease use the same active package set and component maturity per package.
-PreRelease packages the managed release PR merge on `release/prerelease` from
-its immutable `hve-core-v<version>` tag. Stable does the same on
-`release/stable`. The one-way source flow is `main` to `release/prerelease` to
-`release/stable`.
+`main` is the ref-less development tip. PreRelease and Stable are reviewed
+release branches that advance through `main` to `release/prerelease` to
+`release/stable`. An exact channel tag freezes one release catalog and its
+source payloads.
+
+| Use case             | Marketplace registration                         | Catalog resolution                                            |
+|----------------------|--------------------------------------------------|---------------------------------------------------------------|
+| Development tip      | `microsoft/hve-core`                             | Current `main` catalog; entries omit `source.ref`              |
+| Moving PreRelease    | `microsoft/hve-core#release/prerelease`          | Current branch catalog; entries pin `prerelease-v<version>`    |
+| Moving Stable        | `microsoft/hve-core#release/stable`              | Current branch catalog; entries pin `v<version>`               |
+| Immutable PreRelease | `microsoft/hve-core#prerelease-v<version>`       | One exact PreRelease catalog and tag                           |
+| Immutable Stable     | `microsoft/hve-core#v<version>`                  | One exact Stable catalog and tag                               |
+
+A moving release registration selects the catalog currently committed to its
+reviewed branch. Every entry in that catalog points to the corresponding exact
+channel tag. The branch can advance to a newer catalog, while an exact-tag
+registration remains fixed.
+
+A published channel release is the assurance boundary for its immutable tag.
+The release workflow applies review and release gates, produces package assets
+and SBOMs, attaches attestations, verifies provenance, and publishes through
+the configured release path. The ref-less development tip intentionally does
+not carry that published-release assurance.
 
 `hve-core` and `hve-core-all` each include the telemetry hook. VS Code does not expose a declarative hook contribution point, so configure hook locations manually for extension installations.
 
@@ -98,40 +115,46 @@ See [HVE Core Identity and Channels](packages) for the lifecycle and source cont
 
 ### Copilot Plugin Registration
 
-Register the moving development catalog, then install the package through the
-client:
+Register the development tip without a ref:
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core#main
+copilot plugin marketplace add microsoft/hve-core
+```
+
+Register a moving reviewed channel:
+
+```bash
+copilot plugin marketplace add microsoft/hve-core#release/prerelease
+copilot plugin marketplace add microsoft/hve-core#release/stable
+```
+
+Register an immutable channel tag:
+
+```bash
+copilot plugin marketplace add microsoft/hve-core#prerelease-v<version>
+copilot plugin marketplace add microsoft/hve-core#v<version>
+```
+
+Install the selected package:
+
+```bash
 copilot plugin install hve-core@hve-core
 ```
 
-The `main` catalog sources canonical content from `.github` and omits
-`source.ref`. After you refresh the marketplace and update the plugin, it
-resolves the current `main` content. Ref omission does not update an installed
-plugin by itself. Register an exact release when you need a fixed, reviewed
-catalog and payload set:
+### Refresh, Update, and Switching
 
-```bash
-copilot plugin marketplace add microsoft/hve-core#hve-core-v<version>
-```
-
-Release catalog entries use the same exact `hve-core-v<version>` ref. Those
-release assets are reviewed, release-gated, SBOM-covered, attested, and
-immutable. By contrast, `#main` delivers current main bytes after refresh
-without a release gate, SBOM, or attestation covering those bytes. This is the
-intended development-channel behavior.
-
-Both refs register the marketplace name `hve-core`, so keep one active
-registration at a time. For a self-added marketplace, you can set
-`autoUpdate: true` on its `extraKnownMarketplaces` entry in your personal
-Copilot CLI settings. Otherwise, after `main` advances, explicitly refresh the
-marketplace and then update the installed plugin:
+Marketplace refresh and installed-plugin update are separate client actions.
+When following a moving registration, refresh the catalog before requesting a
+plugin update:
 
 ```bash
 copilot plugin marketplace update hve-core
 copilot plugin update hve-core@hve-core
 ```
+
+Changing registrations can require removing and re-adding the marketplace in
+the client. Do not rely on a particular result for duplicate same-name
+registrations; confirm the behavior supported by your Copilot CLI version.
 
 ### Clone Methods
 

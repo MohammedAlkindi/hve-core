@@ -2,7 +2,7 @@
 title: Extension Packaging Guide
 description: Developer guide for packaging and publishing the HVE Core VS Code extension
 author: Microsoft
-ms.date: 2026-08-07
+ms.date: 2026-08-08
 ms.topic: reference
 ---
 
@@ -92,16 +92,11 @@ packages from the release tag, attaches and attests the same canonical evidence
 and signed package assets, and publishes the release with an App token. The
 resulting event triggers Stable Marketplace publication.
 
-Release catalogs set every plugin entry to the exact
-`hve-core-v<version>` ref and retain reviewed, release-gated, SBOM-covered,
-attested, and immutable delivery. The ref-less main catalog is the
-development-tip channel and sources current canonical `.github` content. After
-a marketplace refresh and plugin update, `#main` resolves current main bytes
-without a release gate, SBOM, or attestation covering those bytes. This is
-accepted development-channel behavior.
+Release catalogs set every plugin entry to `prerelease-v<version>` or `v<version>` for its channel. Their reviewed, immutable assets remain release-gated, SBOM-covered, and attested. The ref-less main catalog represents `main`, omits `source.ref`, receives no post-release synchronization, and requires an explicit marketplace refresh and plugin update; its bytes have no release gate, SBOM, or attestation.
 
-Future `plugins-v` snapshot publication has stopped. Existing `plugins-v` tags
-and catalogs remain immutable and supported for historical installations.
+The moving registrations are `microsoft/hve-core#release/prerelease` and
+`microsoft/hve-core#release/stable`; immutable registrations use
+`#prerelease-v<version>` and `#v<version>`. Because snapshot publication has stopped, tags and catalogs remain immutable and supported only as historical records. They are not current release or registration namespaces.
 
 For ordinary promotions, PreRelease reads `release/prerelease` and returns the
 same major, minor plus two, and patch zero. Stable reads the promoted
@@ -259,37 +254,18 @@ flowchart TB
 
 ## Publishing the Extension
 
-**Important:** Stable versions are managed by release-please on
-`release/stable`; PreRelease versions are managed independently on
-`release/prerelease`. Both managed PRs synchronize the package, lockfile,
-extension template, marketplace catalog, channel manifest, and changelog for
-their exact version. Both channels package from the immutable
-`hve-core-v<version>` release tag created at the managed PR merge commit.
+Production channel publication is workflow-owned. Do not bypass the release
+asset, attestation verification, or Azure OIDC path with a PAT-based direct
+publish.
 
-### Setup Personal Access Token (one-time)
+| Channel    | Release asset selector  | Attestation signer         | Marketplace mode                  |
+|------------|-------------------------|----------------------------|-----------------------------------|
+| PreRelease | `prerelease-v<version>` | `release-prerelease.yml`   | `vsce --pre-release` through OIDC |
+| Stable     | `v<version>`            | `extension-provenance.yml` | Stable publication through OIDC   |
 
-Set your Azure DevOps PAT as an environment variable:
-
-```bash
-export VSCE_PAT=your-token-here
-```
-
-To get a PAT from your Azure DevOps organization:
-
-1. Open **User settings → Personal access tokens → New Token**
-2. Set scope to **Marketplace (Manage)**
-3. Copy the token
-
-### Publish command
-
-```bash
-# Publish the packaged extension (replace X.Y.Z with actual version)
-vsce publish --packagePath "extension/hve-core-X.Y.Z.vsix"
-
-# Or use the latest .vsix file
-VSIX_FILE=$(ls -t extension/hve-core-*.vsix | head -1)
-vsce publish --packagePath "$VSIX_FILE"
-```
+The generic publisher receives the channel package matrix, exact release tag,
+and signer workflow. It downloads the matching VSIX release asset, verifies
+its provenance attestation, and publishes it with `--azure-credential`.
 
 ## What Gets Included
 
@@ -373,13 +349,10 @@ The extension supports dual-channel publishing to VS Code Marketplace with separ
 | EVEN (0, 2, 4...) | Stable     | 1.0.0, 1.2.0 | `stable`, `preview`, `experimental` |
 | ODD (1, 3, 5...)  | PreRelease | 1.1.0, 1.3.0 | `stable`, `preview`, `experimental` |
 
-Users can switch between channels in VS Code via the "Switch to Pre-Release Version" button on the extension page.
-
 Odd/even minor parity is repository policy aligned with VS Code Marketplace
-guidance and behavior, not a requirement of `MAJOR.MINOR.PATCH` syntax. VS Code
-selects the highest available numeric extension version. Users opted into
-PreRelease can temporarily receive a higher Stable version and remain eligible
-for a later, higher PreRelease version.
+guidance and behavior, not a requirement of `MAJOR.MINOR.PATCH` syntax. Hosted
+Marketplace selection and installed-client switching remain operator
+observations, not results of local packaging or documentation validation.
 
 ### Pre-Release Packaging
 
@@ -410,15 +383,17 @@ Use the reviewed two-PR workflow for publishing pre-releases:
     mode.
 4. Review the managed PR from
     `release-please--branches--release/prerelease`, including synchronized
-    version fields, changelog, manifest, and exact `hve-core-v<version>` plugin
-    ref.
-5. Merge the managed PR. Verify the draft `hve-core-v<version>` release targets
-    that merge commit and the workflow proves target-branch ancestry.
+    version fields, changelog, manifest, and exact `prerelease-v<version>`
+    plugin ref.
+5. Merge the managed PR. Verify the draft `prerelease-v<version>` release
+    targets that merge commit and the workflow proves target-branch ancestry.
 6. Verify extension and plugin packaging use the release tag and attach signed
     plugin ZIPs, `plugin-release-evidence.json`, SBOM, Sigstore, and in-toto
     assets for the same release SHA.
-7. Verify the release GitHub App token publishes the prerelease, triggers
-    `Pre-Release Marketplace Publish`.
+7. Verify the release GitHub App token publishes the prerelease. The
+    Marketplace workflow passes the validated tag and `release-prerelease.yml`
+    signer to the generic publisher for release-asset verification and OIDC
+    publication.
 
 ### Lifecycle Disclosure
 

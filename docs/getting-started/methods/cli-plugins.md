@@ -3,7 +3,7 @@ title: Copilot CLI Plugin
 description: Register an HVE Core catalog ref and install the complete hve-core plugin
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-08
 ms.topic: how-to
 ---
 
@@ -15,30 +15,38 @@ Install the complete HVE Core component set as a Copilot CLI plugin for terminal
 
 ## Register hve-core as a Plugin Marketplace
 
-Register the moving development catalog from `main`:
+Choose a registration that matches the content you need.
+
+Register the ref-less development tip:
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core#main
+copilot plugin marketplace add microsoft/hve-core
 ```
 
-The `main` catalog sources canonical content from `.github` and omits
-`source.ref`. After a marketplace refresh and plugin update, it resolves the
-current `main` content. Ref omission alone does not update an installed plugin.
-
-For a fixed release, register its exact immutable tag instead:
+Register a moving reviewed release channel:
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core#hve-core-v<version>
+copilot plugin marketplace add microsoft/hve-core#release/prerelease
+copilot plugin marketplace add microsoft/hve-core#release/stable
 ```
 
-Release catalogs set every entry to that same exact `hve-core-v<version>` ref.
-They remain reviewed, release-gated, SBOM-covered, attested, and immutable.
-The moving `#main` channel intentionally provides current main bytes after
-refresh without a release gate, SBOM, or attestation covering those bytes.
+Register an immutable channel tag:
 
-Both registrations use the marketplace name `hve-core`. Keep one active
-registration at a time; do not rely on simultaneous same-name registrations
-when changing between the moving catalog and a fixed release.
+```bash
+copilot plugin marketplace add microsoft/hve-core#prerelease-v<version>
+copilot plugin marketplace add microsoft/hve-core#v<version>
+```
+
+`main` is the development tip and its catalog entries omit `source.ref`.
+`release/prerelease` and `release/stable` are moving registrations that resolve
+their current reviewed branch catalog. Each branch catalog pins every entry to
+its corresponding exact channel tag. Exact-tag registrations freeze both the
+catalog selection and plugin source tag.
+
+A published channel release provides release assurance for its exact tag,
+including release gates, SBOMs, attestations, provenance verification, and the
+configured publication path. The development tip does not provide that
+published-release assurance.
 
 ## Browse Available Plugins
 
@@ -54,19 +62,17 @@ copilot plugin install hve-core@hve-core
 
 ## Update an Installed Plugin
 
-Ref omission does not enable automatic refresh. For a self-added marketplace,
-you can set `autoUpdate: true` on its `extraKnownMarketplaces` entry in your
-personal Copilot CLI settings to opt into session-start updates. Otherwise,
-refresh the registered marketplace, then update the installed plugin
-explicitly:
+Marketplace refresh and installed-plugin update are distinct actions. For a
+moving registration, refresh the catalog before requesting a plugin update:
 
 ```bash
 copilot plugin marketplace update hve-core
 copilot plugin update hve-core@hve-core
 ```
 
-Run both commands in this order. Updating the marketplace catalog and updating
-the installed plugin are separate client operations.
+Switching registrations can require removing and re-adding the marketplace.
+Do not assume how the client handles duplicate same-name registrations; use
+the behavior supported by your Copilot CLI version.
 
 Use the [migration guide](../package-migration) if you previously registered or installed a retired package identity.
 

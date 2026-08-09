@@ -120,12 +120,14 @@ jobs:
 
   publish:
     name: Publish Pre-Release Extensions
-    needs: [package]
+    needs: [validate-version, package]
     if: ${{ !inputs.dry-run }}
     uses: ./.github/workflows/extension-marketplace-publish.yml
     with:
       packages-matrix: ${{ needs.package.outputs.packages-matrix }}
+      tag: ${{ needs.validate-version.outputs.tag }}
       pre-release: true
+      attestation-signer-workflow: .github/workflows/release-prerelease.yml
     permissions:
       contents: read
       attestations: read

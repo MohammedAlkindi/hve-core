@@ -103,6 +103,12 @@ Main catalog entries omit `ref`. Prerelease catalog entries use the exact
 `v<version>` ref, each matching the package version. Branch refs, commit SHA
 locators, URL locators, and version-mismatched channel refs are rejected.
 
+Moving registrations and immutable catalog locators serve different purposes.
+Use `microsoft/hve-core#release/prerelease` or
+`microsoft/hve-core#release/stable` when following a moving release branch.
+Use `prerelease-v<version>` or `v<version>` when selecting the immutable source
+tree and source SHA used for reproducible evidence.
+
 Component membership is relative to the `.github` source root:
 
 * `agents/*.agent.md`
@@ -125,11 +131,23 @@ package tree or staging root and reproduces from a clean checkout of the tagged
 commit.
 
 ```bash
-# Record
+# Record PreRelease evidence
 npm run plugin:evidence
 
-# Verify canonical evidence against recorded evidence
+# Record Stable evidence explicitly
 pwsh -File scripts/plugins/Assert-PluginReleaseEvidence.ps1 \
+  -Channel Stable \
+  -SourceCommit <source SHA> \
+  -Version <version> \
+  -ReleaseTag v<version> \
+  -OutputPath logs/plugin-release-evidence.json
+
+# Verify Stable evidence against recorded evidence
+pwsh -File scripts/plugins/Assert-PluginReleaseEvidence.ps1 \
+  -Channel Stable \
+  -SourceCommit <source SHA> \
+  -Version <version> \
+  -ReleaseTag v<version> \
   -ExpectedEvidencePath logs/plugin-release-evidence.json
 ```
 
@@ -142,12 +160,14 @@ incomplete. `-ExpectedPackageCount` adds a package-count precondition.
 Release workflows attach `plugin-release-evidence.json` to the
 release for the exact `prerelease-v<version>` or `v<version>` channel ref and
 attest it alongside signed plugin ZIPs, SBOM, Sigstore, and in-toto assets.
-Release and prerelease catalogs remain reviewed, release-gated, and immutable.
+The release and prerelease branch registrations are reviewed and moving; the
+exact tags and their source SHAs are immutable release identities.
 
-Future legacy snapshot publication and evidence v1 are retired, with no
-callable snapshot generation, manifest-writing, or evidence v1 API. Existing
-historical tags, catalogs, and assets remain immutable records. They are not
-deleted, moved, rewritten, or migrated by the current release process.
+Future legacy snapshot publication and evidence v1 are retired. Existing
+historical identities, including earlier `hve-core-v` or `plugins-v` tags,
+catalogs, and assets, remain immutable records only. They are not current
+installation, registration, generation, or migration instructions, and they
+are not deleted, moved, rewritten, or migrated by the current release process.
 
 Remote release-asset and installed-client verification are authorized manual
 actions. Local script and documentation checks do not execute or verify them.

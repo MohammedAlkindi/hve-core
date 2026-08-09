@@ -3,7 +3,7 @@ title: Adapt HVE Core Package Selections
 description: Choose or switch HVE Core catalog packages while preserving the release architecture
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-07
+ms.date: 2026-08-08
 ms.topic: how-to
 keywords:
   - migration
@@ -32,40 +32,53 @@ Do not install `hve-core` and `hve-core-all` together because their content over
 
 Changing a Copilot marketplace registration is a configuration operation. It does not delete files from your repository or modify a cloned HVE Core installation.
 
-Register the catalog ref selected by your organization or release instructions:
+Use the ref-less development tip:
 
 ```bash
-copilot plugin marketplace add microsoft/hve-core#<ref>
+copilot plugin marketplace add microsoft/hve-core
 ```
 
-Then select the required package through the Copilot client.
+Use a moving reviewed channel:
 
-The Git ref after `#` selects the marketplace catalog. A `#main` registration
-uses entries whose `source.path` is `.github` and whose `source.ref` is omitted.
-After marketplace refresh and plugin update, those entries resolve current
-main content. A release registration uses `#hve-core-v<version>`, and each
-entry pins that same exact `hve-core-v<version>` ref.
+```bash
+copilot plugin marketplace add microsoft/hve-core#release/prerelease
+copilot plugin marketplace add microsoft/hve-core#release/stable
+```
 
-Ref omission does not update an installed plugin by itself. Either opt the
-self-added marketplace into session-start updates by setting
-`autoUpdate: true` on its `extraKnownMarketplaces` entry in your personal
-Copilot CLI settings, or run the explicit update sequence:
+Use an immutable channel tag:
+
+```bash
+copilot plugin marketplace add microsoft/hve-core#prerelease-v<version>
+copilot plugin marketplace add microsoft/hve-core#v<version>
+```
+
+The development catalog omits `source.ref`. A release-branch registration
+resolves the current catalog on that branch, whose entries pin the
+corresponding exact channel tag. An exact-tag registration fixes both the
+catalog and its source payloads.
+
+Refresh the marketplace before requesting an installed-plugin update:
 
 ```bash
 copilot plugin marketplace update hve-core
 copilot plugin update hve-core@hve-core
 ```
 
-Use the release registration when you require reviewed, release-gated,
-SBOM-covered, attested, and immutable bytes. The `#main` channel intentionally
-delivers current main bytes after refresh without a release gate, SBOM, or
-attestation covering those bytes.
+Switching registrations can require removing and re-adding the marketplace.
+Do not depend on a specific outcome for duplicate same-name registrations.
 
 ## VS Code Extension Selection
 
 Each catalog entry has a deterministic extension identity. `hve-core` remains the unsuffixed HVE Core extension, `ise-hve-essentials.hve-core`; other entries use package-specific generated identities. Stable and PreRelease have the same active package and component projections, but differ in source ownership, cadence, and version.
 
-Switch between Stable and PreRelease from the HVE Core extension page in VS Code. PreRelease packages from `main`. Stable packages only after reviewed `main` content is promoted into `release/stable`, so Stable can lag newer commits on `main`.
+PreRelease packages from the reviewed `release/prerelease` path and its
+`prerelease-v<version>` tag. Stable packages from the reviewed
+`release/stable` path and its `v<version>` tag. Stable can lag PreRelease
+because each promotion and release is independently reviewed.
+
+Select the channel offered by the HVE Core extension page in VS Code. A
+published channel release carries the associated release assurance; client
+channel-switch behavior must be confirmed in the installed host.
 
 ## Selective Clone Adaptation
 
@@ -83,10 +96,9 @@ Schema version 2 stores `selection.package`. File records identify components wi
 
 ## Historical Catalog Support
 
-New `plugins-v` snapshot publication has stopped. Legacy snapshot and
-component-prefixed release identities, including existing `plugins-v` tags and
-catalogs, are immutable historical records, not future publication targets. No
-migration mutates, deletes, moves, or rewrites them.
+Previously issued `plugins-v` and `hve-core-v` catalogs and tags are immutable
+historical records. They are not future publication targets or active
+migration commands.
 
 ## Verify the Result
 

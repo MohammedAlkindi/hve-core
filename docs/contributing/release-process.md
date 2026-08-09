@@ -2,7 +2,7 @@
 title: Release Process
 description: Release HVE Core through reviewed PreRelease metadata and Stable promotion workflows
 sidebar_position: 9
-ms.date: 2026-08-07
+ms.date: 2026-08-08
 ms.topic: how-to
 author: WilliamBerryiii
 ---
@@ -13,20 +13,15 @@ This project uses a one-way reviewed branch ladder:
 `main` to `release/prerelease` to `release/stable`. Each hop uses two pull
 requests. A target-based promotion PR moves source changes into the release
 branch and creates no tag. Its merge runs release-please in PR-only mode. The
-later release-please managed PR owns version and changelog metadata, and its
-merge is the `hve-core-v<version>` tag boundary.
+later release-please managed PR owns version and changelog metadata. Its merge
+creates `prerelease-v<version>` for PreRelease or `v<version>` for Stable.
 
-`main` is not a release-please target. It is a ref-less development-tip
-channel and does not receive release metadata or changelog updates when a
-channel is published. Release branches, tags, and published GitHub releases
-own release state and history.
+`main` is not a release-please target. It is a ref-less development-tip channel and does not receive release metadata or changelog updates when a channel is published. An explicit marketplace refresh and plugin update are required for the ref-less main catalog, whose bytes have no release gate, SBOM, or attestation. Release branches, tags, and published GitHub releases own release state and history.
 
-The ref-less main catalog follows `main`, but ref omission does not update
-installed plugins automatically. A merge changes what `#main` consumers
-receive only after a marketplace refresh and plugin update. Main bytes have no
-release gate, SBOM, or attestation. Release channels remain the reviewed path
-through exact `hve-core-v<version>` refs: they are release-gated, SBOM-covered,
-and attested.
+The ref-less `microsoft/hve-core` registration follows `main`. Main bytes have
+no release gate, SBOM, or attestation. Release channels remain the reviewed
+path through moving branch registrations and exact `prerelease-v<version>` or
+`v<version>` refs: they are release-gated, SBOM-covered, and attested.
 
 Workflow ownership is explicit:
 
@@ -79,11 +74,11 @@ flowchart TD
 5. Review the managed PR. It carries the synchronized version fields,
    changelog, and manifest; postprocessing removes the consumed `release-as`.
 6. Merge the managed PR. Release-please uses forced tag creation to create the
-   draft odd-minor `hve-core-v<version>` release at that merge commit.
+    draft odd-minor `prerelease-v<version>` release at that merge commit.
 7. The workflow proves event SHA, PR merge SHA, release-please SHA, tag SHA,
    and `release/prerelease` ancestry are consistent.
-8. It packages from the release tag, sets every release catalog entry to the
-    exact `hve-core-v<version>` ref, and attaches and attests
+8. It packages from the validated release SHA, sets every release catalog
+    entry to the exact `prerelease-v<version>` ref, and attaches and attests
     `plugin-release-evidence.json`. The evidence is derived from the declared
     canonical tracked sources and verifies package non-vacuity and digests
     against the release SHA.
@@ -97,7 +92,7 @@ flowchart TD
 ### Stable Flow
 
 1. A published PreRelease event runs `Stable Release Preparation`. A recovery
-    dispatch must provide the published `hve-core-v<version>` PreRelease tag.
+    dispatch must provide the published `prerelease-v<version>` tag.
 2. The workflow derives a promotion head from the validated source tag,
     refreshes it from `release/stable`, validates matching canonical release
     evidence, and merges only that tag commit. It restores
@@ -110,10 +105,10 @@ flowchart TD
     Stable intent in a read-only job, then runs release-please in PR-only mode
     and opens or updates the managed Stable PR.
 5. Review the managed version, changelog, manifest, and exact
-    `hve-core-v<stable-version>` plugin ref. The future release tag does not
+    `v<stable-version>` plugin ref. The future release tag does not
     exist yet by design. Postprocessing removes the consumed `release-as`.
 6. Merge the managed PR. Release-please creates the draft even-minor
-    `hve-core-v<version>` release at that managed merge commit.
+    `v<version>` release at that managed merge commit.
 7. The workflow proves event SHA, PR merge SHA, release-please SHA, tag SHA,
     and `release/stable` ancestry are consistent.
 8. It packages from the release tag and attaches signed plugin ZIPs,
@@ -136,7 +131,7 @@ prepares channel version metadata and changelog changes on its release branch:
 
 * Updated `package.json` and `package-lock.json` versions
 * Updated `extension/templates/package.template.json` version
-* Updated `.github/plugin/marketplace.json` version and exact `hve-core-v<version>` ref
+* Updated `.github/plugin/marketplace.json` version and exact channel tag ref
 * Updated channel manifest
 * Updated `CHANGELOG.md`
 
@@ -200,8 +195,8 @@ them.
 
 ### Recovering from an Occupied Candidate
 
-Promotion preparation stops before branch mutation when the calculated
-`hve-core-v<version>` release identity already exists. The calculation is
+Promotion preparation stops before branch mutation when the calculated exact
+channel release identity already exists. The calculation is
 deterministic, so rerunning preparation without reconciling channel state
 selects the same occupied version and fails again.
 
@@ -220,7 +215,7 @@ selects the same occupied version and fails again.
       version metadata to the occupied odd-minor baseline. Then run the
       input-free **Pre-Release Promotion Preparation** workflow dispatch. It
       calculates the following odd-minor candidate from the reviewed baseline.
-    * For Stable, publish the next valid odd-minor PreRelease through the normal reviewed path. Publication starts **Stable Release Preparation** automatically. Inspect that run's outcome, including any no-op notice. If the run did not start or failed, dispatch the workflow manually with the published `hve-core-v<version>` PreRelease tag. A successful preparation calculates the following even-minor candidate from the selected source.
+    * For Stable, publish the next valid odd-minor PreRelease through the normal reviewed path. Publication starts **Stable Release Preparation** automatically. Inspect that run's outcome, including any no-op notice. If the run did not start or failed, dispatch the workflow manually with the published `prerelease-v<version>` tag. A successful preparation calculates the following even-minor candidate from the selected source.
 
 Record the provenance finding and reviewed state change with the release. An
 authentication, transport, rate-limit, or ambiguous lookup failure is not an
@@ -238,7 +233,7 @@ preparation workflow.
     `Pre-Release Pipeline` run opens the managed PR in PR-only mode.
 4. Review the managed PR on `release/prerelease`, including synchronized
     versions, changelog, manifest, and immutable plugin locator.
-5. Merge the managed PR and verify the draft `hve-core-v<version>` release
+5. Merge the managed PR and verify the draft `prerelease-v<version>` release
     targets that managed merge commit.
 6. Verify packaging uses the release tag and attaches signed plugin ZIPs,
     `plugin-release-evidence.json`, SBOM, Sigstore, and in-toto assets for the
@@ -262,7 +257,7 @@ The promotion and managed release PR are separate review boundaries. When ready 
     `Stable Release Publish` run opens the managed PR in PR-only mode.
 4. Review the managed PR on `release/stable`, including its changelog, version
     fields, manifest, and future exact plugin ref. The ref becomes resolvable
-    when the approved merge creates the Stable `hve-core-v<version>` tag.
+    when the approved merge creates the Stable `v<version>` tag.
 5. Merge the managed PR and verify the draft tag targets that managed merge
     commit.
 6. Verify the workflow attaches the VSIX, signed plugin ZIPs,
@@ -290,9 +285,10 @@ published event triggers its matching Marketplace workflow:
 * [`release-marketplace-prerelease.yml`](https://github.com/microsoft/hve-core/blob/main/.github/workflows/release-marketplace-prerelease.yml)
 * [`release-marketplace-stable.yml`](https://github.com/microsoft/hve-core/blob/main/.github/workflows/release-marketplace-stable.yml)
 
-Both Marketplace workflows check out the immutable
-`hve-core-v<version>` release tag and publish through Azure OIDC
-authentication.
+Both Marketplace workflows pass the validated exact release tag and the
+workflow that attested its VSIX to the generic publisher. The publisher
+downloads the release asset, verifies its lane-specific attestation, and
+publishes through Azure OIDC authentication.
 
 ### Manual Fallback
 
@@ -318,33 +314,22 @@ Publish the extension after merging a Release PR that includes extension-relevan
 
 Documentation-only releases may not require an extension publish.
 
-## Historical Plugin Snapshots
+## Historical Release Identities
 
-Legacy `plugins-v` snapshot publication has stopped, and component-prefixed
-release identities are retired. Existing tags and catalogs remain immutable
-and supported as historical records only. Neither is a future publication
-namespace. No current automation creates, moves, rewrites, deletes, or
-migrates these identities.
-
-### Client Version Selection
-
-VS Code selects the highest available numeric extension version. A user opted
-into PreRelease can therefore temporarily receive a higher Stable version and
-remains eligible for a later, higher PreRelease version. Channel parity guides
-repository release policy; it does not prevent that normal client behavior.
+Because snapshot publication has stopped, tags and catalogs remain immutable and supported only as historical records. Existing `hve-core-v<version>` and `plugins-v<version>` tags, releases, and catalogs are within that historical set. They are not active registration, publication, recovery, or compatibility namespaces. Current automation does not create, move, rewrite, delete, or migrate them.
 
 ## Version Quick Reference
 
-| Action                                     | Result                                                                       |
-|--------------------------------------------|------------------------------------------------------------------------------|
-| Merge or dispatch PreRelease preparation   | Opens or refreshes the reviewed `main` to PreRelease promotion PR            |
-| Merge PreRelease promotion PR              | Opens the managed PreRelease PR; creates no tag                              |
-| Merge managed PreRelease PR                | Creates the draft tag and starts the odd-minor artifact pipeline             |
-| Publish PreRelease with App token          | Starts PreRelease Marketplace publication                                    |
-| Publish PreRelease or dispatch Stable prep | Opens or refreshes the reviewed PreRelease to Stable promotion PR            |
-| Merge Stable promotion PR                  | Opens the managed Stable PR; creates no tag                                  |
-| Merge managed Stable PR                    | Creates the draft tag and starts the even-minor artifact pipeline            |
-| Publish Stable with App token              | Starts Stable Marketplace publication                                        |
+| Action                                     | Result                                                            |
+|--------------------------------------------|-------------------------------------------------------------------|
+| Merge or dispatch PreRelease preparation   | Opens or refreshes the reviewed `main` to PreRelease promotion PR |
+| Merge PreRelease promotion PR              | Opens the managed PreRelease PR; creates no tag                   |
+| Merge managed PreRelease PR                | Creates the draft tag and starts the odd-minor artifact pipeline  |
+| Publish PreRelease with App token          | Starts PreRelease Marketplace publication                         |
+| Publish PreRelease or dispatch Stable prep | Opens or refreshes the reviewed PreRelease to Stable promotion PR |
+| Merge Stable promotion PR                  | Opens the managed Stable PR; creates no tag                       |
+| Merge managed Stable PR                    | Creates the draft tag and starts the even-minor artifact pipeline |
+| Publish Stable with App token              | Starts Stable Marketplace publication                             |
 
 ## Extension Channels and Maturity
 
@@ -352,10 +337,10 @@ The VS Code extension is published to two same-content channels with different c
 
 ### Extension Channels
 
-| Channel    | Source                                                            | Included Active Labels                  | Audience       |
-|------------|-------------------------------------------------------------------|-----------------------------------------|----------------|
-| Stable     | `hve-core-v<version>` at managed PR merge on `release/stable`     | `stable`, `preview`, and `experimental` | All users      |
-| PreRelease | `hve-core-v<version>` at managed PR merge on `release/prerelease` | `stable`, `preview`, and `experimental` | Early adopters |
+| Channel    | Moving source        | Immutable source        | Included Active Labels                  |
+|------------|----------------------|-------------------------|-----------------------------------------|
+| Stable     | `release/stable`     | `v<version>`            | `stable`, `preview`, and `experimental` |
+| PreRelease | `release/prerelease` | `prerelease-v<version>` | `stable`, `preview`, and `experimental` |
 
 ### Maturity Levels
 
