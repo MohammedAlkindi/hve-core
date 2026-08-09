@@ -97,6 +97,7 @@ jobs:
 
           # Even/odd convention: odd minor = pre-release, even minor = stable
           PUBLISH_MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PUBLISH_MINOR=$((10#$PUBLISH_MINOR))
           if (( PUBLISH_MINOR % 2 == 0 )); then
             echo "::error::Pre-release channel requires odd minor version. Got: $VERSION (even minor = stable)"
             echo "::error::Use the stable publish workflow for even-minor versions"
@@ -110,12 +111,12 @@ jobs:
   discover:
     name: Discover Pre-Release Marketplace Packages
     needs: [validate-version]
+    if: ${{ !inputs.dry-run }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
       matrix: ${{ steps.discover.outputs.matrix }}
-      version: ${{ steps.read-version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -127,7 +128,6 @@ jobs:
         uses: ./.github/actions/setup-ps-modules
 
       - name: Resolve effective version
-        id: read-version
         shell: bash
         env:
           INPUT_VERSION: ${{ needs.validate-version.outputs.version }}
@@ -141,7 +141,6 @@ jobs:
             echo "::error::Catalog version $catalog_version at the release ref does not match $version"
             exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Discover marketplace packages
         id: discover

@@ -370,7 +370,13 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $gateRun | Should -Match 'expected_minor_parity=1'
         $gateRun | Should -Match 'expected_minor_parity=0'
         $gateRun | Should -Match ([regex]::Escape('TAG_VERSION="${INPUT_TAG#prerelease-v}"'))
+        $gateRun | Should -Match ([regex]::Escape('TAG_MINOR=$((10#$TAG_MINOR))'))
         $gateRun | Should -Match ([regex]::Escape('(( TAG_MINOR % 2 != expected_minor_parity ))'))
+        $conversionIndex = $gateRun.IndexOf('TAG_MINOR=$((10#$TAG_MINOR))', [System.StringComparison]::Ordinal)
+        $parityIndex = $gateRun.IndexOf('(( TAG_MINOR % 2 != expected_minor_parity ))', [System.StringComparison]::Ordinal)
+        $conversionIndex | Should -BeGreaterThan -1
+        $parityIndex | Should -BeGreaterThan -1
+        $conversionIndex | Should -BeLessThan $parityIndex
 
         $job = $document['jobs']['publish']
         [string]$job['needs'] | Should -BeExactly 'validate-inputs'
@@ -380,12 +386,14 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
 
         # Publication is best-effort: every matrix leg is attempted, so a partial
         # failure leaves the remaining packages reconcilable rather than skipped.
+        $job['strategy'].Contains('fail-fast') | Should -BeTrue
         $job['strategy']['fail-fast'] | Should -BeFalse
 
         # The publisher executes the tagged tree that verification later proves
         # it checked out.
         $checkout = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Checkout code'
         [string]$checkout['with']['ref'] | Should -BeExactly 'refs/tags/${{ inputs.tag }}'
+        $checkout['with'].Contains('persist-credentials') | Should -BeTrue
         $checkout['with']['persist-credentials'] | Should -BeFalse
 
         [string](Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Azure Login (OIDC)')['uses'] |
@@ -910,6 +918,7 @@ Describe 'Pre-release preparation and publication' -Tag 'Unit' {
         $checkout = Get-NamedJobStep -Document $script:PreReleaseDocument -JobName 'validate-release' -StepName 'Checkout release/prerelease history'
         [string]$checkout['with']['ref'] | Should -BeExactly 'release/prerelease'
         [string]$checkout['with']['fetch-depth'] | Should -BeExactly '0'
+        $checkout['with'].Contains('persist-credentials') | Should -BeTrue
         $checkout['with']['persist-credentials'] | Should -BeFalse
 
         $steps = Get-JobStepText -Document $script:PreReleaseDocument -JobName 'validate-release'
@@ -1212,6 +1221,7 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
         $checkout = Get-NamedJobStep -Document $script:PublishDocument -JobName 'validate-release' -StepName 'Checkout release/stable history'
         [string]$checkout['with']['ref'] | Should -BeExactly 'release/stable'
         [string]$checkout['with']['fetch-depth'] | Should -BeExactly '0'
+        $checkout['with'].Contains('persist-credentials') | Should -BeTrue
         $checkout['with']['persist-credentials'] | Should -BeFalse
 
         $steps = Get-JobStepText -Document $script:PublishDocument -JobName 'validate-release'
@@ -1291,6 +1301,7 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
                 if ([string]$step['uses'] -notmatch '^actions/checkout@') { continue }
                 $checkouts++
                 [string]$step['with']['ref'] | Should -BeExactly '${{ inputs.source-ref }}'
+                $step['with'].Contains('persist-credentials') | Should -BeTrue
                 $step['with']['persist-credentials'] | Should -BeFalse
             }
         }
@@ -1348,6 +1359,7 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $checkout = @($steps | Where-Object { $_.Contains('uses') -and [string]$_['uses'] -match '^actions/checkout@' })
         $checkout | Should -HaveCount 1
         $checkout[0]['with'].Contains('ref') | Should -BeFalse
+        $checkout[0]['with'].Contains('persist-credentials') | Should -BeTrue
         $checkout[0]['with']['persist-credentials'] | Should -BeFalse
 
         $proof = @($steps | Where-Object { $_.Contains('run') -and [string]$_['run'] -match 'SOURCE_POLICY' })
@@ -1657,18 +1669,32 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         [string]$job['if'] | Should -Match "github\.event_name == 'workflow_dispatch'"
         [string]$job['if'] | Should -Match 'github\.event\.release\.prerelease == true'
         $validate = @($job['steps'] | Where-Object { [string]$_['id'] -eq 'validate' })[0]
-        [string]$validate['run'] | Should -Match 'PUBLISH_MINOR % 2 == 0'
+        [string]$validate['run'] | Should -Match ([regex]::Escape('PUBLISH_MINOR=$((10#$PUBLISH_MINOR))'))
+        [string]$validate['run'] | Should -Match ([regex]::Escape('(( PUBLISH_MINOR % 2 == 0 ))'))
+        $conversionIndex = ([string]$validate['run']).IndexOf('PUBLISH_MINOR=$((10#$PUBLISH_MINOR))', [System.StringComparison]::Ordinal)
+        $parityIndex = ([string]$validate['run']).IndexOf('(( PUBLISH_MINOR % 2 == 0 ))', [System.StringComparison]::Ordinal)
+        $conversionIndex | Should -BeGreaterThan -1
+        $parityIndex | Should -BeGreaterThan -1
+        $conversionIndex | Should -BeLessThan $parityIndex
         [string]$validate['run'] | Should -Match 'requires odd minor version'
         [string]$document['jobs']['package']['with']['channel'] | Should -BeExactly 'PreRelease'
 
         # Normal publication discovers the PreRelease package set from the
         # released tag, and only a dry run still builds VSIX artifacts.
+        [string]$document['jobs']['discover']['if'] | Should -BeExactly '${{ !inputs.dry-run }}'
         [string]$document['jobs']['package']['if'] | Should -BeExactly '${{ inputs.dry-run }}'
+        [string]$document['jobs']['publish']['if'] | Should -BeExactly '${{ !inputs.dry-run }}'
+        $document['jobs']['discover']['outputs'].Contains('version') | Should -BeFalse
         $preReleaseCheckout = @($document['jobs']['discover']['steps'] |
                 Where-Object { $_.Contains('uses') -and [string]$_['uses'] -match '^actions/checkout@' })
         $preReleaseCheckout | Should -HaveCount 1
         [string]$preReleaseCheckout[0]['with']['ref'] | Should -BeExactly 'refs/tags/${{ needs.validate-version.outputs.tag }}'
+        $preReleaseCheckout[0]['with'].Contains('persist-credentials') | Should -BeTrue
         $preReleaseCheckout[0]['with']['persist-credentials'] | Should -BeFalse
+        $catalogGate = Get-NamedJobStep -Document $document -JobName 'discover' -StepName 'Resolve effective version'
+        [string]$catalogGate['env']['INPUT_VERSION'] | Should -BeExactly '${{ needs.validate-version.outputs.version }}'
+        [string]$catalogGate['run'] | Should -Match ([regex]::Escape('catalog_version=$(jq -r ''.metadata.version'' .github/plugin/marketplace.json)'))
+        [string]$catalogGate['run'] | Should -Match ([regex]::Escape('[ "$catalog_version" != "$version" ]'))
         $preReleaseDiscover = @($document['jobs']['discover']['steps'] | Where-Object { [string]$_['id'] -eq 'discover' })[0]
         [string]$preReleaseDiscover['run'] | Should -Match "-Channel 'PreRelease'"
 

@@ -95,6 +95,7 @@ jobs:
           TAG_VERSION="${TAG_VERSION#v}"
           TAG_MINOR="${TAG_VERSION#*.}"
           TAG_MINOR="${TAG_MINOR%%.*}"
+          TAG_MINOR=$((10#$TAG_MINOR))
           if (( TAG_MINOR % 2 != expected_minor_parity )); then
             echo "::error::The selected channel requires an $expected_parity_label minor version but $INPUT_TAG carries minor $TAG_MINOR"
             exit 1
