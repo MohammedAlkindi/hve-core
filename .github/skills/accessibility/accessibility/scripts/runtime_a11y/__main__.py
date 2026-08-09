@@ -73,11 +73,11 @@ _RUNNER_INDEX = _PACKAGE_DIR / "runner" / "index.mjs"
 _PROBE_MAP_PATH = _PACKAGE_DIR / "probe-criteria-map.json"
 _NODE_MODULES = _PACKAGE_DIR / "node_modules"
 _REPO_ROOT = _PACKAGE_DIR.parents[5]
-_VISUAL_REVIEW_SERVER_STARTUP_TIMEOUT_SECONDS = 20.0
 # An owned server builds the production site before it listens, and that build
 # dominates startup. A full build of this site was measured at 259 seconds, so
 # the owned-start budget is set well above it. Confirming an already-running
-# server keeps the short budget above, since no build is involved.
+# server needs no budget here, because that path probes once with its own
+# request timeout rather than waiting for a build.
 _VISUAL_REVIEW_SERVER_BUILD_TIMEOUT_SECONDS = 900.0
 _VISUAL_REVIEW_SERVER_POLL_INTERVAL_SECONDS = 0.5
 _LIVE_TEST_START_NOTICE = (
