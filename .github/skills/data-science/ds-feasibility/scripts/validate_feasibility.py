@@ -263,11 +263,17 @@ def parse_profile(markdown: str) -> dict[str, Any]:
     """Parse the constrained YAML profile block."""
     try:
         parsed = yaml.load(extract_profile_yaml(markdown), Loader=UniqueKeyLoader)
+    except FeasibilityValidationError:
+        raise
     except yaml.YAMLError as error:
         raise FeasibilityValidationError(_sanitize_yaml_error(error)) from error
     except RecursionError as error:
         raise FeasibilityValidationError(
             "profile block is nested too deeply"
+        ) from error
+    except ValueError as error:
+        raise FeasibilityValidationError(
+            "profile block has an invalid scalar value"
         ) from error
     if not isinstance(parsed, dict):
         raise FeasibilityValidationError("profile block must parse to an object")

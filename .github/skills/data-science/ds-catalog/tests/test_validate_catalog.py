@@ -719,6 +719,18 @@ def test_given_deeply_nested_yaml_when_parsed_then_raises_catalog_error() -> Non
         parse_catalog(frontmatter)
 
 
+@pytest.mark.parametrize("timestamp", ["2026-02-31", "2026-13-01", "2026-01-32"])
+def test_given_out_of_range_timestamp_when_parsed_then_raises_catalog_error(
+    timestamp: str,
+) -> None:
+    # Arrange
+    frontmatter = _frontmatter(f"generated_at: {timestamp}\n")
+
+    # Act / Assert
+    with pytest.raises(CatalogValidationError, match="invalid scalar value"):
+        parse_catalog(frontmatter)
+
+
 def test_given_deeply_nested_yaml_when_run_then_reports_operational_error(
     tmp_path, capsys
 ) -> None:

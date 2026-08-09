@@ -559,6 +559,18 @@ def test_given_deeply_nested_yaml_when_parsed_then_raises_feasibility_error() ->
         parse_profile(study)
 
 
+@pytest.mark.parametrize("timestamp", ["2026-02-31", "2026-13-01", "2026-01-32"])
+def test_given_out_of_range_timestamp_when_parsed_then_raises_feasibility_error(
+    timestamp: str,
+) -> None:
+    # Arrange
+    study = _block(f"timestamp: {timestamp}\n")
+
+    # Act / Assert
+    with pytest.raises(FeasibilityValidationError, match="invalid scalar value"):
+        parse_profile(study)
+
+
 def test_given_requirement_heading_in_fence_when_checked_then_not_allocated() -> None:
     # Arrange
     markdown = "```text\n### FR-101: fenced sample\n```\n"

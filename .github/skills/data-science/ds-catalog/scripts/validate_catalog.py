@@ -193,11 +193,17 @@ def parse_catalog(markdown: str) -> dict[str, Any]:
     """Parse catalog frontmatter under the constrained loader."""
     try:
         parsed = yaml.load(extract_frontmatter(markdown), Loader=UniqueKeyLoader)
+    except CatalogValidationError:
+        raise
     except yaml.YAMLError as error:
         raise CatalogValidationError(_sanitize_yaml_error(error)) from error
     except RecursionError as error:
         raise CatalogValidationError(
             "catalog frontmatter is nested too deeply"
+        ) from error
+    except ValueError as error:
+        raise CatalogValidationError(
+            "catalog frontmatter has an invalid scalar value"
         ) from error
     if not isinstance(parsed, dict):
         raise CatalogValidationError("catalog frontmatter must be an object")
