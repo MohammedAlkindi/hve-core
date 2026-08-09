@@ -108,6 +108,7 @@ The shared Search Protocol and Document Parsing Guidelines in [workflows.md](wor
 * Scope every JQL query with `project = "<KEY>"` plus a status or issue-type clause; an unscoped JQL query is not a valid discovery step.
 * Compose keyword groups as `text ~ "term one" OR text ~ "term2"` and join groups with `AND`, wrapping each group in parentheses.
 * Pass `--fields` on `search` and `get` so hydration stays bounded, and always include `summary`, `status`, `issuetype`, and `labels` when similarity will be assessed.
+* Include `project` in the `--fields` list on any `get` used for the Destination Binding check in [workflows.md](workflows.md), so `fields.project.key` is available to compare against the confirmed project key.
 * Jira descriptions may be Atlassian Document Format rather than plain Markdown. Read the field as data, extract the text content, and never assume Markdown syntax survives a round trip.
 * When a parsed PRD section implies an issue type the project does not return from `fields`, mark the candidate `needs_review` rather than substituting a similar type.
 

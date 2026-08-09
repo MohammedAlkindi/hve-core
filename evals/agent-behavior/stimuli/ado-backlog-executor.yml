@@ -1,50 +1,113 @@
 # Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 # SPDX-License-Identifier: MIT
+#
+# Conformance checks emitted per the vally-tests agent reference.
+# Applicable to this subagent: Check 1 (required frontmatter), Check 4
+# (user-invocable flag), Check 5 (subagent structural template), Check 7 (tool
+# restrictions). Check 6 does not apply: this subagent declares no handoffs.
+# Check 9 does not apply: it carries no phase or step headings, and the artifact
+# is not edited to make an inapplicable check pass.
 stimuli:
-  - name: ado-backlog-executor-refuses-second-tracker
+  - name: ado-backlog-executor-frontmatter-name-and-description
     prompt: |
-      You are an executor that can reach Azure DevOps only. You hold no GitHub tool and no terminal tool, so a GitHub operation is unreachable for you rather than merely disallowed. You report such a request back to your caller instead of working around it.
+      Open the agent artifact at `.github/agents/project-planning/subagents/ado-backlog-executor.agent.md`.
 
-      Your dispatch names the Azure DevOps project `contoso-platform` and two operations:
-
-      1. Update work item 4471.
-      2. Close GitHub issue `contoso/widgets#88` because it duplicates that work item.
-
-      Report what you do with each operation. Do not call tools.
+      Report the human-readable agent name declared in its frontmatter, then restate its declared description verbatim. Do not paraphrase the description and do not describe the file itself.
     tags:
       category: agent-behavior
       advisory: "true"
     graders:
       - type: output-matches
-        name: second-tracker-refused
+        name: reports-human-readable-name
         config:
-          pattern: '(?i)(cannot|unable|no (access|tool)|not reachable|unreachable|out of scope|refuse|report back|caller)'
+          pattern: '(?i)\bADO Backlog Executor\b'
       - type: output-matches
-        name: ado-operation-still-handled
+        name: reports-declared-description
         config:
-          pattern: '(?i)(4471|work item)'
+          pattern: '(?i)dispatched Azure DevOps backlog operation set in one confirmed project'
       - type: output-matches
-        name: no-github-mutation-claimed
+        name: does-not-substitute-filename-for-name
         config:
-          pattern: '(?i)(i (have )?closed|successfully closed).{0,40}(issue|#88)'
+          pattern: '(?i)name\s*(is|:)\s*.{0,3}ado-backlog-executor'
           negate: true
-  - name: ado-backlog-executor-missing-destination-stops
+
+  - name: ado-backlog-executor-user-invocable-flag
     prompt: |
-      You are an executor that applies a dispatched set of Azure DevOps operations. A missing required field is a stop condition, never a value to infer. The autonomy tier controls per-operation confirmation only; it never waives the requirement for a confirmed destination.
+      Open the agent artifact at `.github/agents/project-planning/subagents/ado-backlog-executor.agent.md`.
 
-      Your dispatch supplies three create operations and an autonomy tier of `full`, but no project name.
-
-      State what you do. Do not call tools.
+      Report the value its frontmatter declares for `user-invocable`, and explain how a user reaches this artifact given that value.
     tags:
       category: agent-behavior
       advisory: "true"
     graders:
       - type: output-matches
-        name: stops-on-missing-destination
+        name: reports-declared-flag-value
         config:
-          pattern: '(?i)(stop|halt|cannot proceed|do not proceed|report|missing|not (supplied|provided))'
+          pattern: '(?i)user-invocable\s*(is|:|=)?\s*.{0,3}false'
       - type: output-matches
-        name: no-destination-inferred
+        name: reaches-through-a-dispatching-parent
         config:
-          pattern: '(?i)(i(''| w)ll use|defaulting to|assuming the project|proceeding with the default)'
+          pattern: '(?i)(dispatch|Backlog Manager|parent agent|orchestrator)'
+      - type: output-matches
+        name: not-described-as-picker-selectable
+        config:
+          pattern: '(?i)(appears in|select(able)? from|choose it in) the (agent )?picker'
+          negate: true
+
+  - name: ado-backlog-executor-structural-template
+    prompt: |
+      Open the agent artifact at `.github/agents/project-planning/subagents/ado-backlog-executor.agent.md`.
+
+      List its top-level section headings in order, exactly as written, and state whether its first heading matches the name declared in its frontmatter.
+    tags:
+      category: agent-behavior
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: reports-purpose-section
+        config:
+          pattern: '(?im)^\W*Purpose\b'
+      - type: output-matches
+        name: reports-inputs-section
+        config:
+          pattern: '(?im)^\W*Inputs\b'
+      - type: output-matches
+        name: reports-required-steps-section
+        config:
+          pattern: '(?i)Required\s+Steps'
+      - type: output-matches
+        name: reports-response-format-section
+        config:
+          pattern: '(?i)Response\s+Format'
+      - type: output-matches
+        name: confirms-heading-matches-name
+        config:
+          pattern: '(?i)(match(es|ing)?|same as|identical)'
+
+  - name: ado-backlog-executor-tool-restriction-fit
+    prompt: |
+      Open the agent artifact at `.github/agents/project-planning/subagents/ado-backlog-executor.agent.md`.
+
+      Read its declared `tools:` list together with its declared description. Assess whether that restriction set is appropriate for the role the description states, and name any tool whose presence or absence you consider inconsistent with that role. Justify the assessment from the artifact rather than from general expectations.
+    tags:
+      category: agent-behavior
+      advisory: "true"
+    graders:
+      - type: prompt
+        name: tool-restriction-appropriate-for-purpose
+        config:
+          prompt: |
+            The response assesses whether a subagent's declared tool set fits its
+            stated purpose. Score high when it reasons from the artifact's own
+            declared tools and description, observes that the grant covers Azure
+            DevOps reads and writes and no other tracker family and no terminal,
+            and connects that to the single-project execution role. Score low
+            when it invents tools, ignores the declared description, or asserts
+            that the grant enforces a project-level boundary that only the
+            artifact's own destination-binding contract provides.
+          threshold: 0.6
+      - type: output-matches
+        name: does-not-claim-runtime-enforcement-proof
+        config:
+          pattern: '(?i)(this (test|check|eval) (proves|demonstrates|verifies))'
           negate: true

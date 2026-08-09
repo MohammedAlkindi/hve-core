@@ -18,8 +18,9 @@ This file describes one lifecycle. Concrete file names, field names, action verb
 | Payload field names | Platform reference, Field Vocabulary section          | Namespaced `System.*` and `Microsoft.VSTS.*` | Flat GitHub issue fields                        | Flat Jira field names                                          |
 | Item vocabulary     | Platform reference, Platform Bindings table           | "work item"                                  | "issue"                                         | "issue"                                                        |
 | Action verbs        | Platform reference, Platform Bindings table           | Create, Update, Link, Comment, No Change     | Create, Update, Link, Close, Comment, No Change | Create, Update, Transition, Comment, No Change                 |
+| Reference-ID prefix | Platform reference, Platform Bindings table           | `WI` (for example `WI001`)                   | `IS` (for example `IS001`)                      | `JI` (for example `JI001`)                                     |
 
-`planning-log.md`, `handoff.md`, and `handoff-logs.md` are constant across platforms. The templates below use `<analysis-file>` and `<plan-file>` where a binding applies; substitute the platform's value when creating the file.
+`planning-log.md`, `handoff.md`, `handoff-logs.md`, and `handoff-dryrun.md` are constant across platforms. The templates below use `<analysis-file>` and `<plan-file>` where a binding applies; substitute the platform's value when creating the file.
 
 ## Discovery
 
@@ -152,7 +153,7 @@ Duplicate handling: recommend user review before any duplicate-related comment o
 
 ## Execution
 
-Execution processes a reviewed handoff into sequential mutations. It consumes `handoff.md` or `triage-plan.md` and writes `handoff-logs.md` next to the handoff. Operations run sequentially because create operations establish `{{TEMP-N}}` mappings used by later steps. Output location: `<platform-tracking-root>/execution/<YYYY-MM-DD>/` (or next to the source handoff).
+Execution processes a reviewed handoff into sequential mutations. It consumes `handoff.md` or `triage-plan.md` and writes `handoff-logs.md` next to the handoff, or `handoff-dryrun.md` when the run is simulated. Operations run sequentially because create operations establish `{{TEMP-N}}` mappings used by later steps. Output location: `<platform-tracking-root>/execution/<YYYY-MM-DD>/` (or next to the source handoff).
 
 ### Operation Contract
 
@@ -176,28 +177,60 @@ Resulting platform orders:
 
 The GitHub comment-before-closure rule is a community-facing safety contract, not a convenience. Its authoritative statement lives in the Community Communication section of [github.md](github.md); this table applies it to execution ordering.
 
+### Destination Binding
+
+A confirmed destination being present is not proof that an operation targets it. A stale, hand-edited, or attacker-influenced handoff can name items that live in another project the same credentials can reach. Every mutating run binds its operations to the confirmed destination before the first mutation.
+
+* Normalize the confirmed destination once at the start of the run, then compare against that normalized value for the remainder of the run. Normalization is case-insensitive and trims surrounding whitespace.
+* Hydrate every existing item the operation set names, including every relationship endpoint and every parent reference, and read the field that records its owning destination. Resolve that field from the table below.
+* Compare each hydrated value to the normalized confirmed destination. Compare every create payload's own destination field the same way when the payload carries one.
+* A mismatch rejects the whole operation set before the first mutation. Do not skip the mismatched entry and continue: a handoff that names a foreign destination is untrustworthy as a whole, not defective in one row.
+* An item whose owning destination cannot be read is a mismatch, not a pass. Stop and report rather than proceeding unbound.
+* Record the verified binding in `handoff-logs.md` before the first mutation, naming the normalized destination and the item keys it covers.
+
+| Platform     | Owning-destination value                                                 | Compared against      |
+|--------------|--------------------------------------------------------------------------|-----------------------|
+| Azure DevOps | `System.TeamProject`, requested explicitly in the read call's field list | Confirmed project     |
+| GitHub       | The issue's owning repository, as `owner/name`                           | Confirmed repository  |
+| Jira         | `fields.project.key`, and the project prefix of each existing issue key  | Confirmed project key |
+
+Binding runs after contract validation and before the first mutation, including in dry run, so a simulated run exercises the same rejection path as a live one.
+
 ### Dry Run Mode
 
 Dry run is a full simulation with zero platform mutations. When the caller enables `dryRun`:
 
-* Resolve, validate, and sanitize every payload exactly as a live run would, including the Content Sanitization Guards.
+* Resolve, validate, and sanitize every payload exactly as a live run would, including the Content Sanitization Guards and the Destination Binding check.
 * Do not call any create, update, transition, close, comment, or link operation. Read-only calls used for validation remain permitted.
-* Assign a simulated key of the form `{{TEMP-N}} -> (dry-run)` instead of a real item key, and mark every dependent operation that would have consumed a real key.
-* Log each operation in `handoff-logs.md` with status `dry-run` and the payload summary that would have been sent.
+* Assign a simulated key of the form `{{TEMP-N}} -> (dry-run)` and mark every dependent operation that would have consumed a real key. Hold the simulated keys in the dry-run record only. Never write a simulated key to the Temporary ID Mapping section of `handoff-logs.md`.
+* Record each operation in `handoff-dryrun.md`, beside `handoff.md`, with the payload summary that would have been sent. Never write a dry-run entry to `handoff-logs.md`, because that file is the resume authority for live runs and must contain no simulated result.
 * Leave `handoff.md` checkboxes unchecked, because no operation completed.
 * Report the simulated counts and state clearly that nothing was created, changed, or closed.
 
+A live run never reads `handoff-dryrun.md`. Overwrite it on each dry run rather than appending, so a stale simulation cannot be mistaken for a current one.
+
 Autonomy gates still apply in dry run so the simulated run exercises the same decision path as the live run.
+
+### Resume Authority
+
+One predicate governs resumption everywhere it is described: **an operation is complete when, and only when, `handoff-logs.md` holds a successful live entry for it.**
+
+* The operation log is the sole local resume authority. The `handoff.md` checkbox is a convenience marker for human readers, not an independent completion record.
+* Ordering: append the successful log entry first, then check the box. Never check a box before its log entry exists.
+* An operation whose box is checked but which has no successful log entry is treated as not complete. Reconcile it before acting: for a Create, search the tracker for the item the operation would have produced, using its reference identifier or title, and either record the found key in the mapping and mark the operation complete, or re-run it when nothing is found. For any other verb, re-read the target and compare it to the intended payload before deciding to re-run.
+* An operation with a failed or skipped log entry is not complete. Only a successful live entry satisfies the predicate.
+
+Residual risk, stated rather than implied away: a successful log entry cannot be written before the remote mutation it records, because its content depends on the result. A failure in the window between a successful remote call and its log entry leaves the operation replayable, and the reconciliation rule above is a mitigation rather than a guarantee. Removing that window needs stable idempotency keys, pending-operation records, and reconciliation against the tracker, which are tracked separately. No text here asserts that replay across the remote call boundary is eliminated.
 
 ### Step 1: Initialize or Resume
 
-When `handoff-logs.md` exists, read it and `handoff.md`, identify unchecked `[ ]` operations, rebuild the `{{TEMP-N}}` mapping from completed Create entries, and resume from the first unchecked operation. When it does not exist, create it from the template, populate the operation-log skeleton from `handoff.md`, and record inputs in the execution summary.
+When `handoff-logs.md` exists, read it and `handoff.md`, rebuild the `{{TEMP-N}}` mapping from its successful live Create entries only, and resume from the first operation that has no successful live entry, applying the reconciliation rule above to any operation whose checkbox and log disagree. When it does not exist, create it from the template, populate the operation-log skeleton from `handoff.md`, and record inputs in the execution summary.
 
-Validate before processing: confirm the project or repository is set for creates; confirm each referenced existing item can be read with `get` (skip `{{TEMP-N}}` placeholders during reference validation); call `fields` when create payloads use unvalidated item types or field names; apply the Content Sanitization Guards to all platform-bound fields; abort on critical failures such as missing project scope for creates or an authentication failure, and warn and continue on non-critical failures such as an unknown label or milestone.
+Validate before processing: confirm the project or repository is set for creates; confirm each referenced existing item can be read with `get` and that its owning destination matches the confirmed destination per Destination Binding above (skip `{{TEMP-N}}` placeholders during reference validation); call `fields` when create payloads use unvalidated item types or field names; apply the Content Sanitization Guards to all platform-bound fields; abort on critical failures such as missing project scope for creates, a destination-binding mismatch, or an authentication failure, and warn and continue on non-critical failures such as an unknown label or milestone.
 
 ### Step 2: Process Operations
 
-Execute each operation with the platform command surface in the platform's operation order. After each operation: honor the active autonomy gate; when `dryRun` is true, follow Dry Run Mode above; after each Create, resolve its `{{TEMP-N}}` placeholder to the real item key; resolve any `{{TEMP-N}}` reference in a later operation from the mapping before executing; check the operation's `[x]` box in `handoff.md`; append an entry to `handoff-logs.md` with the item key, action, and notes; and on failure, apply the Error Handling table below. When an operation needs no change, mark it `[x]` with a `No changes required.` note and skip the command.
+Execute each operation with the platform command surface in the platform's operation order. After each operation: honor the active autonomy gate; when `dryRun` is true, follow Dry Run Mode above; after each Create, resolve its `{{TEMP-N}}` placeholder to the real item key; resolve any `{{TEMP-N}}` reference in a later operation from the mapping before executing; append an entry to `handoff-logs.md` with the item key, action, and notes; then check the operation's `[x]` box in `handoff.md`; and on failure, apply the Error Handling table below. The log entry always precedes the checkbox, per Resume Authority above. When an operation needs no change, mark it `[x]` with a `No changes required.` note and skip the command.
 
 ### Step 3: Finalize and Report
 
@@ -227,7 +260,9 @@ Each case names the required behavior. `Continue` means process the remaining op
 
 * Placeholder forms: the generic `{{TEMP-N}}` and the namespaced planner forms listed in the core Content Sanitization Guards.
 * Allocation: assign `N` sequentially during planning, one per planned Create, and never reuse a number within a workflow.
-* Resolution: immediately after a Create succeeds, write `{{TEMP-N}} -> <item key>` to the Temporary ID Mapping section of `handoff-logs.md`. Resolution is recorded before the next operation runs, so an interruption cannot lose it.
+* Resolution: immediately after a Create succeeds in a live run, write `{{TEMP-N}} -> <item key>` to the Temporary ID Mapping section of `handoff-logs.md`. Resolution is recorded before the next operation runs, so an interruption cannot lose it.
+* Rebuild: on resume, rebuild the mapping only from successful live Create entries. Skip failed, skipped, and simulated entries. A dry run contributes nothing, because its simulated keys live in `handoff-dryrun.md` and never enter this section.
+* Contamination: a placeholder that resolves to a simulated key, including the `(dry-run)` value, halts the run immediately. Report the contaminated mapping and the operation that consumed it; do not substitute, re-derive, or continue past it.
 * Consumption: resolve every placeholder in a later operation's payload, parent reference, or body from the mapping before composing the call.
 * Failure: when a placeholder cannot be resolved, the dependent operation is skipped and logged, never sent with the raw token. The Content Sanitization Guards make this a hard stop rather than a formatting concern.
 
@@ -447,12 +482,46 @@ Include only the sections whose action verbs the active platform defines, ordere
 * **Failed**: 0
 * **Skipped**: 0
 
+## Destination Binding
+
+* **Confirmed destination**: [normalized destination]
+* **Verified**: [YYYY-MM-DD HH:MM UTC]
+* **Covered items**: `ITEM-2`, `ITEM-3`
+
 ## Operation Log
+
+Every entry records a live operation. A successful entry here is the sole resume authority; no simulated entry ever appears in this file.
 
 * [YYYY-MM-DD HH:MM UTC] <PREFIX>001 - Create - `{{TEMP-1}}` - Success - Created `ITEM-1`
 * [YYYY-MM-DD HH:MM UTC] <PREFIX>002 - Update - `ITEM-2` - Failed - Invalid field payload
 
 ## Temporary ID Mapping
 
+Rebuilt only from successful live Create entries above.
+
 * `{{TEMP-1}}` -> `ITEM-1`
+````
+
+### handoff-dryrun.md
+
+Written only by a dry run, overwritten on each dry run, and never read by a live run.
+
+````markdown
+# Handoff Dry Run - [Scope Name]
+
+## Simulation Summary
+
+* **Status**: Simulated. Nothing was created, changed, or closed.
+* **Simulated**: 0
+* **Would fail validation**: 0
+
+## Simulated Operations
+
+* [YYYY-MM-DD HH:MM UTC] <PREFIX>001 - Create - `{{TEMP-1}}` - Simulated - Payload summary
+
+## Simulated ID Mapping
+
+Simulated keys stay in this file. They never enter `handoff-logs.md`.
+
+* `{{TEMP-1}}` -> `(dry-run)`
 ````

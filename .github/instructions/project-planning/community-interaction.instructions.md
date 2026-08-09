@@ -1,6 +1,6 @@
 ---
 description: 'Community interaction voice, tone, and response templates for GitHub-facing agents and prompts'
-applyTo: '**/.github/agents/project-planning/backlog-manager.agent.md, **/.github/skills/project-planning/backlog-management/references/github.md'
+applyTo: '**/.github/agents/project-planning/backlog-manager.agent.md, **/.github/agents/project-planning/subagents/github-backlog-executor.agent.md, **/.github/skills/project-planning/backlog-management/references/github.md'
 ---
 
 # Community Interaction Guidelines
@@ -333,13 +333,17 @@ Escalation follows the role hierarchy defined in [GOVERNANCE.md](../../../GOVERN
 
 Community-facing agents, prompts, and skills bind to these guidelines two ways, and both are required because they cover different moments.
 
-* Authoring time: the `applyTo` glob attaches this file when a live consumer surface is in context — the GitHub backlog prompts, the `Backlog Manager` agent, and the shared `backlog-management` GitHub reference.
+* Authoring time: the `applyTo` glob attaches this file when a live consumer surface is in context — the GitHub backlog prompts, the `Backlog Manager` agent, the `GitHub Backlog Executor` subagent, and the shared `backlog-management` GitHub reference.
 * Runtime: each consumer names this file on a resolvable relative path at the point where it composes contributor-visible text. A bare file name is not a binding; it does not resolve.
+
+Ownership is split across two components, and both need this file. `Backlog Manager` selects the scenario and prepares the sanitized comment text; it holds no GitHub write tools. `GitHub Backlog Executor` holds the comment and close tools, so it performs the post and the state change and owns the comment-before-closure ordering at execution time. Neither can satisfy the contract alone.
 
 Current live consumers:
 
-* [.github/agents/project-planning/backlog-manager.agent.md](../../agents/project-planning/backlog-manager.agent.md) — applies the scenario templates to all community-facing output.
+* [.github/agents/project-planning/backlog-manager.agent.md](../../agents/project-planning/backlog-manager.agent.md) — selects the scenario and prepares sanitized community-facing text.
+* [.github/agents/project-planning/subagents/github-backlog-executor.agent.md](../../agents/project-planning/subagents/github-backlog-executor.agent.md) — posts the comment and performs the state change, in that order.
 * [.github/skills/project-planning/backlog-management/references/github.md](../../skills/project-planning/backlog-management/references/github.md) — Community Communication section, which owns the comment-before-closure contract.
+* [.github/agents/issue-triage.agent.md](../../agents/issue-triage.agent.md) — single-issue triage comments.
 * [.github/agents/issue-triage.agent.md](../../agents/issue-triage.agent.md) — single-issue triage comments.
 
 Templates are self-contained. Select the scenario that matches the trigger condition and fill the placeholders from the issue or PR context. Always post the explanatory comment via `mcp_github_add_issue_comment` before the state-changing call, so the contributor sees the reason before the change lands.

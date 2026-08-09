@@ -2,16 +2,16 @@
 title: Project Planning/Community Interaction
 description: "Community interaction voice, tone, and response templates for GitHub-facing agents and prompts"
 sidebar_position: 6
-ms.date: 2026-08-06
+ms.date: 2026-08-08
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                                                                                                                                              |
-|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Kind        | instruction                                                                                                                                                        |
-| Source      | `.github/instructions/project-planning/community-interaction.instructions.md`                                                                                      |
-| Invocation  | Applied automatically to `**/.github/agents/project-planning/backlog-manager.agent.md, **/.github/skills/project-planning/backlog-management/references/github.md` |
-| Interactive | No                                                                                                                                                                 |
+| Field       | Value                                                                                                                                                                                                                                             |
+|-------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Kind        | instruction                                                                                                                                                                                                                                       |
+| Source      | `.github/instructions/project-planning/community-interaction.instructions.md`                                                                                                                                                                     |
+| Invocation  | Applied automatically to `**/.github/agents/project-planning/backlog-manager.agent.md, **/.github/agents/project-planning/subagents/github-backlog-executor.agent.md, **/.github/skills/project-planning/backlog-management/references/github.md` |
+| Interactive | No                                                                                                                                                                                                                                                |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does

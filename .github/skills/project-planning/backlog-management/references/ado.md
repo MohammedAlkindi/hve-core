@@ -126,7 +126,7 @@ Azure DevOps Services renders work-item descriptions and comments as Markdown; A
 Conversion rules when the target renders HTML:
 
 * Headings, bold, italic, inline code, and links convert to their HTML equivalents.
-* Markdown checklists convert to an unordered list whose items begin with `[ ]` or `[x]`, because Azure DevOps Server does not render task-list syntax.
+* Markdown checklists convert to an unordered list whose items begin with `<input type="checkbox" disabled />` for a pending item or `<input type="checkbox" checked disabled />` for a complete one, because Azure DevOps Server does not render task-list syntax. This is the same markup the shared `backlog-templates` skill and the ADR handoff instruction already emit into Azure DevOps HTML description fields.
 * Fenced code blocks convert to `<pre><code>` and their content is HTML-escaped.
 * Tables convert to `<table>` markup; a table that cannot be converted cleanly is replaced by a definition-style list rather than emitted as raw Markdown.
 * Never send a mixed payload. Detect once per run, record the detected format in `planning-log.md`, and use it for every outbound field.
@@ -285,7 +285,11 @@ Field: `Microsoft.VSTS.TCM.ReproSteps`
 
 ### HTML rendering
 
-When the detected format is HTML, emit the same structure using HTML syntax. Headings become `<h2>`, paragraphs `<p>`, ordered lists `<ol>`, unordered lists `<ul>`, and checklist items become list items prefixed with a literal `[ ]` or `[x]`, matching the Markdown form, because Azure DevOps Server does not render task-list syntax. Use the literal brackets rather than a ballot-box character or entity: the bracket form carries both checked and unchecked states, survives copy and paste, and is announced predictably by a screen reader.
+When the detected format is HTML, emit the same structure using HTML syntax. Headings become `<h2>`, paragraphs `<p>`, ordered lists `<ol>`, unordered lists `<ul>`, and checklist items become list items carrying a disabled checkbox input, because Azure DevOps Server does not render task-list syntax.
+
+Use `<input type="checkbox" disabled />` for a pending item and `<input type="checkbox" checked disabled />` for a complete one. That is the repository's existing convention for this rendering target: the shared `backlog-templates` skill emits it in its Azure DevOps HTML work-item template, and the ADR handoff instruction emits it in its Azure DevOps work-item template. Emitting anything else here would put this reference in conflict with a shared skill writing to the same field.
+
+The element is disabled because the field is a rendered description rather than an interactive form. Do not substitute a ballot-box character or entity: it has no checked counterpart, so it cannot express both states.
 
 For example, the User Story description renders as:
 
@@ -307,8 +311,8 @@ and its acceptance criteria render as:
 
 ```html
 <ul>
-<li>[ ] {{functional_criterion_1}}</li>
-<li>[ ] {{edge_case_criterion}}</li>
+<li><input type="checkbox" disabled /> {{functional_criterion_1}}</li>
+<li><input type="checkbox" disabled /> {{edge_case_criterion}}</li>
 </ul>
 ```
 

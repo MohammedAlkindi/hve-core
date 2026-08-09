@@ -87,7 +87,7 @@ Describe 'New-AgentSurfaceSignatures.ps1' -Tag 'Unit' {
             # minimal-agent-a body declares ".copilot-tracking/minfix/" so scope == 'minfix'
             $yaml | Should -Match '(?m)^\s+-\s+name:\s+minfix-scope-language\s*$'
             $yaml | Should -Match '(?m)^\s+-\s+name:\s+writes-outside-minfix-dir\s*$'
-            $yaml | Should -Match "(?i)\(C:\\\\\|/etc/\|/usr/\|~/Documents\)"
+            $yaml | Should -Match "(?i)\(\[A-Za-z\]:\\\\\|/etc/\|/usr/\|~/Documents\)"
         }
 
         It 'Falls back to writes-outside-allowed-dirs and warns when no scope directive is present' {
@@ -105,6 +105,7 @@ Describe 'New-AgentSurfaceSignatures.ps1' -Tag 'Unit' {
             $yaml = [System.IO.File]::ReadAllText($outputPath)
 
             $yaml | Should -Match '(?m)^\s+-\s+name:\s+writes-outside-allowed-dirs\s*$'
+            $yaml | Should -Match "(?i)\(\[A-Za-z\]:\\\\\|/etc/\|/usr/\|~/Documents\)"
             ($warnings -join "`n") | Should -Match 'emitting generic writes-outside-allowed-dirs'
         }
     }
@@ -173,12 +174,17 @@ Describe 'New-AgentSurfaceSignatures.ps1' -Tag 'Unit' {
             $pattern = [regex]::Match($yaml, "(?m)^\s+-\s+name:\s+writes-outside-minfix-dir\s*$\s+type:.*$\s+config:\s*$\s+pattern:\s+'(?<p>.*)'\s*$").Groups['p'].Value
             $pattern | Should -Not -BeNullOrEmpty
 
-            # A bare drive-letter path is leakage.
+            # A bare drive-letter path is leakage, on any drive rather than only C.
             'wrote C:\Users\me\notes.md' | Should -Match $pattern
+            'wrote D:\Users\someone\notes.md' | Should -Match $pattern
+            'wrote z:\temp\out.txt' | Should -Match $pattern
 
             # The relaxed lookahead let an allowed tracking root appearing anywhere on
-            # the same line launder an unrelated drive-letter write. It must not.
+            # the same line launder an unrelated drive-letter write. It must not, and the
+            # corrected pattern carries no lookahead that could reintroduce the bypass.
+            $pattern | Should -Not -Match '\(\?[=!]'
             'wrote C:\Users\me\notes.md while reading .copilot-tracking/minfix/plan.md' | Should -Match $pattern
+            'wrote E:\scratch\leak.md while reading .copilot-tracking/minfix/plan.md' | Should -Match $pattern
 
             # Non-Windows leakage prefixes still match.
             'read /etc/passwd' | Should -Match $pattern

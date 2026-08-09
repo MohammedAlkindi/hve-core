@@ -107,14 +107,18 @@ The Three-Tier Autonomy Model in the core skill is the only definition of the ti
 
 When dry-run is requested, resolve and validate the full operation set, render exactly what would be sent for each operation, and make no mutating call. A dry run that skips validation is worthless, because the failures it exists to surface are precisely the ones validation finds.
 
+A dry run writes its record to `handoff-dryrun.md` and never to `handoff-logs.md`, and its simulated keys never enter the temporary-identifier mapping. A live run must not be able to inherit a simulated result.
+
 ### Resumable execution
 
-Before starting, check for an existing handoff-log file:
+Before starting, check for an existing handoff-log file. The Resume Authority section of the workflows reference owns the predicate; apply it as written:
 
-* When it exists, rebuild the temporary-identifier mapping from the completed Create entries and resume from the first unlogged operation. Never re-run a completed create.
+* When it exists, rebuild the temporary-identifier mapping from its successful live Create entries only, and resume from the first operation that has no successful live entry. Never re-run a completed create.
 * When it does not exist, create it from the handoff file using the template in the workflows reference.
 
-Stop and request guidance when a completed create has no recorded key, or when a placeholder cannot be resolved from the rebuilt mapping. An unresolved mapping is a blocker, not a value to guess.
+An operation is complete only when the log holds a successful live entry for it. A checked box without such an entry is reconciled against the tracker before the operation is re-run, not treated as done and not blindly repeated.
+
+Stop and request guidance when a completed create has no recorded key, when a placeholder cannot be resolved from the rebuilt mapping, or when a placeholder resolves to a simulated key. An unresolved mapping is a blocker, not a value to guess, and a contaminated one is a halt.
 
 ### Upstream human review
 

@@ -2,7 +2,7 @@
 title: Sprint Planning Workflow
 description: Organize work into iterations, milestones, or sprints with coverage, capacity, and gap analysis
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -68,13 +68,15 @@ A hierarchy coverage matrix analyzes decomposition completeness across levels, s
 
 ## Output Artifacts
 
+Coverage and capacity are sections inside the plan, not separate files.
+
 ```text
 <tracking-root>/sprint/<iteration-name>/
-├── planning-log.md       # Iteration discovery, derivation basis, and phase tracking
-├── coverage-matrix.md    # Decomposition completeness across hierarchy levels
-├── capacity.md           # Scope against capacity signals
-└── handoff.md            # Reviewed iteration plan for backlog-execute
+├── planning-log.md       # Iteration discovery, derivation basis, dependency chains, and phase tracking
+└── sprint-plan.md        # Reviewed iteration plan: Summary, Coverage, Capacity, Dependencies, Grooming Recommendations, Open Questions
 ```
+
+`sprint-plan.md` is the reviewable contract that `backlog-execute` consumes.
 
 ## Next Steps
 

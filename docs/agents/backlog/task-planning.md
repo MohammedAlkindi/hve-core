@@ -2,7 +2,7 @@
 title: Task Planning Workflow
 description: Retrieve your assigned work and enrich it into an implementation-ready handoff
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -54,12 +54,17 @@ Comment history is retained rather than summarized away. A decision recorded in 
 
 ## Output Artifacts
 
+Task planning writes into the standard planning structure rather than a directory of its own. The planning type defaults to `current-work` and the scope name is `my-assigned-work-items`. The analysis and plan file names are platform bindings; resolve them from the Platform Binding Resolution table in the `backlog-management` skill.
+
 ```text
-<tracking-root>/task-planning/<scope-name>/
-├── planning-log.md      # Retrieval results and phase tracking
-├── enriched-items.md    # Hydrated items with context and comment history
-└── handoff.md           # Ordered plan with the top recommendation and reasoning
+<tracking-root>/current-work/my-assigned-work-items/
+├── planning-log.md         # Retrieval results, progress, and discoveries
+├── <analysis-file>.md      # Hydrated items and their field values
+├── <plan-file>.md          # Planned operations for the selected work
+└── task-planning-logs.md   # Per-item enrichment, context, and the top recommendation
 ```
+
+`task-planning-logs.md` is append-only across runs: a second pass adds the missing item sections and updates the progress summary rather than rewriting the file.
 
 ## Next Steps
 

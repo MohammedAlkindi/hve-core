@@ -89,8 +89,8 @@ These rules are not adjustable by autonomy mode or user request.
 * Never write a credential value. Non-secret values (base URL, email) may be written; the token line is a placeholder the user replaces in their editor.
 * Never write credentials to a tracked file. `~/.jira.env` lives in the user's home directory, outside any repository, so it cannot be accidentally committed. Do not write to `.vscode/mcp.json` or any repository file.
 * Never modify a shell profile without explicit user confirmation.
-* Mask every displayed token: first four characters followed by `****`.
-* After sourcing the environment file, never run a command that dumps the full environment. Only a filtered, masked `printenv | grep -i JIRA` is permitted. Never include raw credential values, full request headers, or verbose or trace HTTP output in a response, even while troubleshooting.
+* Never display a token value or any part of one, including a prefix. A credential variable is reported only as set or missing.
+* Never run a command that prints an environment value. `printenv | grep -i JIRA` and any other filtered dump are prohibited: `grep` selects which lines print, it does not mask them, so a live token reaches standard output and enters the transcript. Use the set-or-missing probe in the Protocol below instead. Never include raw credential values, full request headers, or verbose or trace HTTP output in a response, even while troubleshooting.
 * Send nothing over the network until the user explicitly confirms connectivity testing.
 
 ### Terminal session isolation
@@ -105,13 +105,21 @@ The agent's terminal and the user's terminal are separate sessions, so an `expor
 
 ### Protocol
 
-1. **Audit.** Run `printenv | grep -i JIRA` and classify each variable as set or missing. Use no modifying command during the audit. Check for an existing `~/.jira.env`.
+1. **Audit.** Probe the known variable names and classify each as set or missing, without printing any value:
+
+   ```sh
+   for v in JIRA_BASE_URL JIRA_USER_EMAIL JIRA_API_TOKEN JIRA_PAT JIRA_AUDIT_LOG JIRA_AUDIT_ACTOR; do
+     if printenv "$v" >/dev/null 2>&1; then echo "$v: set"; else echo "$v: missing"; fi
+   done
+   ```
+
+   `printenv` exits zero only when the variable exists, and its output is discarded, so the classification never reveals a value. Use no modifying command during the audit. Check for an existing `~/.jira.env`.
 2. **Detect the platform.** `JIRA_PAT` set indicates Server or Data Center. `JIRA_USER_EMAIL` with `JIRA_API_TOKEN` indicates Cloud. When mixed or ambiguous, ask which platform the user has rather than guessing, because the wrong choice produces an authentication failure that looks like a bad credential.
 3. **Validate what exists.** Confirm `JIRA_BASE_URL` starts with `https://` and flag a malformed value. Identify which required variables are missing for the detected platform.
 4. **Guide acquisition.** Direct the user to their Atlassian account token page for Cloud, or their instance personal-access-token settings for Server or Data Center. Give the steps; never request the result.
 5. **Write the file.** Create or update `~/.jira.env` with non-secret values and credential placeholders, including a do-not-commit warning comment.
 6. **Validate connectivity.** After the user confirms the credential is saved, source the file and run one read-only call. A `401` or `403` means the credential is wrong, expired, or revoked; a connection error means the base URL is wrong.
-7. **Summarize.** Report what changed, what remains, and the masked state of each variable.
+7. **Summarize.** Report what changed, what remains, and the set-or-missing state of each variable.
 
 ### Completion
 

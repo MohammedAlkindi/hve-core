@@ -2,7 +2,7 @@
 title: Discovery Workflow
 description: Discover and categorize work items across Azure DevOps, GitHub, and Jira through user-centric, artifact-driven, and search-based paths
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -84,18 +84,29 @@ The three paths are identical everywhere. The query surface underneath differs.
 
 Discovery writes to the tracking root for the resolved platform: `.copilot-tracking/workitems/` for Azure DevOps, `.copilot-tracking/github-issues/` for GitHub, `.copilot-tracking/jira-issues/` for Jira.
 
+Two of the four file names are platform bindings rather than fixed names. Resolve them from the Platform Binding Resolution table in the `backlog-management` skill before reading or writing:
+
+| File             | Azure DevOps           | GitHub              | Jira                |
+|------------------|------------------------|---------------------|---------------------|
+| Progress log     | `planning-log.md`      | `planning-log.md`   | `planning-log.md`   |
+| Analysis file    | `artifact-analysis.md` | `issue-analysis.md` | `issue-analysis.md` |
+| Plan file        | `work-items.md`        | `issues-plan.md`    | `issues-plan.md`    |
+| Reviewed handoff | `handoff.md`           | `handoff.md`        | `handoff.md`        |
+
+The analysis and plan names above are the discovery bindings. The PRD-to-work-item path resolves different names on Jira, so do not carry these across workflows.
+
 Discovery output files, all written under `<tracking-root>/discovery/<scope-name>/`:
 
 * `planning-log.md`: search terms, discovered items, and phase tracking.
-* `artifact-analysis.md`: extracted requirements and field values. Artifact-driven path only.
-* `work-items.md`: the source of truth for planned operations. Artifact-driven path only.
+* The resolved analysis file: extracted requirements and field values. Artifact-driven path only.
+* The resolved plan file: the source of truth for planned operations. Artifact-driven path only.
 * `handoff.md`: the reviewed summary the next workflow consumes.
 
 ```text
 <tracking-root>/discovery/<scope-name>/
 ├── planning-log.md       # Search terms, discovered items, and phase tracking
-├── artifact-analysis.md  # Extracted requirements and field values (artifact-driven only)
-├── work-items.md         # Source of truth for planned operations (artifact-driven only)
+├── <analysis-file>.md    # Extracted requirements and field values (artifact-driven only)
+├── <plan-file>.md        # Source of truth for planned operations (artifact-driven only)
 └── handoff.md            # Reviewed summary for the next workflow
 ```
 

@@ -11,7 +11,7 @@ tools:
   - search
   - web
 handoffs:
-  - label: "� Build PRD"
+  - label: "Build PRD"
     agent: PRD Builder
     prompt: "Create or refine a Product Requirements Document for this initiative using the research produced in this session."
     send: true

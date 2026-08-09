@@ -2,7 +2,7 @@
 title: Execution Workflow
 description: Apply reviewed backlog changes to Azure DevOps, GitHub, or Jira with autonomy gates, dry-run preview, and resumable state
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -72,26 +72,33 @@ Operations run in dependency order rather than file order: parents before childr
 
 ## Platform Differences
 
-| Aspect              | Azure DevOps                             | GitHub                       | Jira                                   |
-|---------------------|------------------------------------------|------------------------------|----------------------------------------|
-| Item types          | Discovered from project process template | Repository issue types       | Discovered per project                 |
-| Body format         | **Markdown or HTML, detected from host** | Markdown                     | Markdown or ADF                        |
-| Hierarchy mechanism | Parent-child work item links             | Issue references, sub-issues | Issue links, epic link                 |
-| State change        | State field transition                   | Open and closed, plus reason | **Workflow transition, name resolved** |
+| Aspect              | Azure DevOps                               | GitHub                       | Jira                                   |
+|---------------------|--------------------------------------------|------------------------------|----------------------------------------|
+| Item types          | User-confirmed and recorded as unvalidated | Repository issue types       | Discovered per project                 |
+| Body format         | **Markdown or HTML, detected from host**   | Markdown                     | Markdown or ADF                        |
+| Hierarchy mechanism | Parent-child work item links               | Issue references, sub-issues | Issue links, epic link                 |
+| State change        | State field transition                     | Open and closed, plus reason | **Workflow transition, name resolved** |
 
 > [!NOTE]
-> Item types are discovered rather than assumed. A fixed five-type list would be correct on Azure DevOps and wrong on GitHub and Jira, where available types vary by organization and project.
+> Item types are discovered rather than assumed on GitHub and Jira, where available types vary by organization and project, so a fixed five-type list would be wrong there.
+>
+> Azure DevOps is the exception: no tool in the granted surface lists a project's process types. The workflow confirms the intended types with you and records them as unvalidated rather than claiming it discovered them.
 >
 > Jira transitions are resolved by name against the project's workflow before use, because transition IDs differ per workflow scheme.
 
 ## Output Artifacts
 
+Execution does not create a new completion summary. It consumes the reviewed handoff in place, checking each operation off as the operation log records it, and writes its per-operation history beside that handoff.
+
 ```text
 <tracking-root>/execution/<scope-name>/
 ├── planning-log.md      # Phase tracking and resolved platform
-├── execution-log.md     # Per-operation result, including failures
-└── handoff.md           # Completion summary with created and updated identifiers
+├── handoff.md           # The reviewed execution contract, updated in place as operations complete
+├── handoff-logs.md      # Live per-operation record, the destination binding, and the resume authority
+└── handoff-dryrun.md    # Written only by a dry run; never read by a live run
 ```
+
+Each file owns one thing. `handoff.md` owns the approved operation set and its human review. `handoff-logs.md` owns operation history, the verified destination binding, the temporary-identifier mapping, and completion status: an operation counts as complete only when this file holds a successful live entry for it. `handoff-dryrun.md` holds simulated results and never influences a live run.
 
 ## Next Steps
 

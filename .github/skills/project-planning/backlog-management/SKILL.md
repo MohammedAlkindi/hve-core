@@ -102,7 +102,8 @@ Every backlog workflow persists its state under a platform tracking root inside 
         <plan-file>.md          # source of truth for planned operations
         planning-log.md         # progress and resumable state
         handoff.md              # user-reviewable execution contract
-        handoff-logs.md         # per-operation execution checkpoints
+        handoff-logs.md         # live per-operation execution checkpoints and resume authority
+        handoff-dryrun.md       # simulated-run record; never read by a live run
 ```
 
 `<analysis-file>` and `<plan-file>` are platform bindings, not fixed names. Resolve them through the active platform reference before creating or reading a planning file; see the Platform Binding Resolution table in [references/workflows.md](references/workflows.md).
@@ -316,10 +317,10 @@ When a conversation resumes after summarization or interruption:
 
 1. Read `planning-log.md` first.
 2. When execution has started, read `handoff.md` and `handoff-logs.md`.
-3. Rebuild every temporary-ID mapping, generic and namespaced, from the completed Create entries in `handoff-logs.md`.
-4. Continue from the first unchecked or unlogged operation.
+3. Rebuild every temporary-ID mapping, generic and namespaced, from the successful live Create entries in `handoff-logs.md`. Skip failed, skipped, and simulated entries.
+4. Continue from the first operation that has no successful live entry in `handoff-logs.md`, per the Resume Authority section of the workflows reference. The operation log is the resume authority; a `handoff.md` checkbox without a matching successful entry is reconciled before the operation is re-run.
 
-Stop and request user guidance rather than improvising when the logs are missing, when a completed Create has no recorded item key, or when any placeholder referenced by a remaining operation cannot be resolved from the rebuilt mapping. An unresolved mapping is a blocker, not a value to guess.
+Stop and request user guidance rather than improvising when the logs are missing, when a completed Create has no recorded item key, when any placeholder referenced by a remaining operation cannot be resolved from the rebuilt mapping, or when a placeholder resolves to a simulated key. An unresolved mapping is a blocker, not a value to guess.
 
 ## Human Review Triggers
 

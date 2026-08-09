@@ -2,7 +2,7 @@
 title: Triage Workflow
 description: Classify work items and detect duplicates across Azure DevOps, GitHub, and Jira
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-07
 ms.topic: tutorial
 keywords:
   - backlog management
@@ -64,10 +64,11 @@ Triage candidates are identified from classification state rather than requiring
 
 ```text
 <tracking-root>/triage/<scope-name>/
-├── planning-log.md      # Candidates, classification reasoning, and phase tracking
-├── duplicates.md        # Flagged pairs with per-dimension similarity reasoning
-└── handoff.md           # Reviewed recommendations for backlog-execute
+├── planning-log.md      # Candidates, classification reasoning, phase tracking, and the plan path
+└── triage-plan.md       # Reviewed recommendations, including duplicate candidates and their similarity classification
 ```
+
+Duplicate evidence lives in `triage-plan.md` rather than a separate file, and that same plan is the execution input: `backlog-execute run <triage-plan.md>` applies the recommendations in a separate pass. Triage itself issues no mutating call.
 
 ## Next Steps
 

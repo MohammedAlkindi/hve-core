@@ -272,10 +272,10 @@ if ($scopes.Count -gt 0) {
     }
     Add-Rule -Set $required -Name "$primaryScope-scope-language" -Pattern $scopePattern
 
-    Add-Rule -Set $disallowed -Name "writes-outside-$primaryScope-dir" -Pattern '(?i)(C:\\|/etc/|/usr/|~/Documents)'
+    Add-Rule -Set $disallowed -Name "writes-outside-$primaryScope-dir" -Pattern '(?i)([A-Za-z]:\\|/etc/|/usr/|~/Documents)'
 } else {
     Write-Warning "No '.copilot-tracking/<scope>' directive found in agent body for '$Agent'; emitting generic writes-outside-allowed-dirs."
-    Add-Rule -Set $disallowed -Name 'writes-outside-allowed-dirs' -Pattern '(?i)(C:\\|/etc/|/usr/|~/Documents)'
+    Add-Rule -Set $disallowed -Name 'writes-outside-allowed-dirs' -Pattern '(?i)([A-Za-z]:\\|/etc/|/usr/|~/Documents)'
 }
 
 if ($IncludePersonaBleed) {
