@@ -332,14 +332,30 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $gateJob = $document['jobs']['validate-inputs']
         $gateJob.Contains('environment') | Should -BeFalse
         [string]$gateJob['permissions']['contents'] | Should -BeExactly 'read'
-        $gate = Get-NamedJobStep -Document $document -JobName 'validate-inputs' -StepName 'Validate channel tag and signer'
+        $gate = Get-NamedJobStep -Document $document -JobName 'validate-inputs' -StepName 'Validate publication inputs'
         [string]$gate['shell'] | Should -BeExactly 'bash'
+        [string]$gate['env']['INPUT_PACKAGES_MATRIX'] | Should -BeExactly '${{ inputs.packages-matrix }}'
         [string]$gate['env']['INPUT_TAG'] | Should -BeExactly '${{ inputs.tag }}'
         [string]$gate['env']['INPUT_PRE_RELEASE'] | Should -BeExactly '${{ inputs.pre-release }}'
         [string]$gate['env']['INPUT_SIGNER_WORKFLOW'] | Should -BeExactly '${{ inputs.attestation-signer-workflow }}'
         $gateRun = [string]$gate['run']
         $gateRun | Should -Match 'set -euo pipefail'
         $gateRun | Should -Not -Match '\$\{\{\s*(?:github\.event|inputs\.)'
+
+        # The caller-controlled matrix is rejected structurally, including every
+        # package-ID token, before the publish job can activate its environment.
+        foreach ($clause in @(
+                'printf ''%s'' "$INPUT_PACKAGES_MATRIX" | jq -e'
+                '(keys_unsorted | length) == 1'
+                'has("include")'
+                '(.include | type) == "array"'
+                '(.include | length) > 0'
+                '(.id | type) == "string"'
+                '(.id | test("^[a-z0-9]+(?:-[a-z0-9]+)*$"))'
+                '([.include[].id] | unique | length) == (.include | length)'
+            )) {
+            $gateRun | Should -Match ([regex]::Escape($clause))
+        }
         $gateRun | Should -Match 'case "\$INPUT_PRE_RELEASE" in'
         $gateRun | Should -Match 'pre-release must be true or false'
         $gateRun | Should -Match '\^prerelease-v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$'
@@ -349,11 +365,29 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $gateRun | Should -Match ([regex]::Escape('.github/workflows/release-prerelease.yml'))
         $gateRun | Should -Match ([regex]::Escape('.github/workflows/extension-provenance.yml'))
 
+        # Minor parity is derived from the already validated channel tag, so no
+        # caller can publish an even minor as PreRelease or an odd minor as Stable.
+        $gateRun | Should -Match 'expected_minor_parity=1'
+        $gateRun | Should -Match 'expected_minor_parity=0'
+        $gateRun | Should -Match ([regex]::Escape('TAG_VERSION="${INPUT_TAG#prerelease-v}"'))
+        $gateRun | Should -Match ([regex]::Escape('(( TAG_MINOR % 2 != expected_minor_parity ))'))
+
         $job = $document['jobs']['publish']
         [string]$job['needs'] | Should -BeExactly 'validate-inputs'
         [string]$job['environment'] | Should -BeExactly 'marketplace'
         [string]$job['permissions']['id-token'] | Should -BeExactly 'write'
         [string]$job['permissions']['attestations'] | Should -BeExactly 'read'
+
+        # Publication is best-effort: every matrix leg is attempted, so a partial
+        # failure leaves the remaining packages reconcilable rather than skipped.
+        $job['strategy']['fail-fast'] | Should -BeFalse
+
+        # The publisher executes the tagged tree that verification later proves
+        # it checked out.
+        $checkout = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Checkout code'
+        [string]$checkout['with']['ref'] | Should -BeExactly 'refs/tags/${{ inputs.tag }}'
+        $checkout['with']['persist-credentials'] | Should -BeFalse
+
         [string](Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Azure Login (OIDC)')['uses'] |
             Should -Match '^azure/login@[0-9a-f]{40}$'
 
@@ -366,7 +400,12 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
             Should -BeExactly '${{ github.repository }}/${{ inputs.attestation-signer-workflow }}'
         [string]$verify['run'] | Should -Match 'gh attestation verify "\$VSIX_FILE" --repo "\$REPOSITORY"'
         [string]$verify['run'] | Should -Match '--signer-workflow "\$SIGNER_WORKFLOW"'
-        [string]$verify['run'] | Should -Match 'commits/\$RELEASE_TAG'
+        # An annotated tag must dereference to its commit, and that commit must be
+        # the checked-out HEAD, so verification covers the executed publisher tree.
+        [string]$verify['run'] | Should -Match ([regex]::Escape('git rev-parse --verify --end-of-options "refs/tags/$RELEASE_TAG^{commit}"'))
+        [string]$verify['run'] | Should -Match ([regex]::Escape('CHECKOUT_DIGEST=$(git rev-parse HEAD)'))
+        [string]$verify['run'] | Should -Match ([regex]::Escape('[ "$SOURCE_DIGEST" != "$CHECKOUT_DIGEST" ]'))
+        [string]$verify['run'] | Should -Not -Match 'commits/\$RELEASE_TAG'
         [string]$verify['run'] | Should -Match '--source-digest "\$SOURCE_DIGEST"'
 
         $text = Get-WorkflowText -Name 'extension-marketplace-publish.yml'
@@ -379,6 +418,10 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
             Should -BeLessThan ([array]::IndexOf($names, 'Setup Node.js'))
         [array]::IndexOf($names, 'Verify attested VSIX provenance') |
             Should -BeLessThan ([array]::IndexOf($names, 'Install dependencies'))
+        # Publish credentials activate after the toolchain is installed and
+        # immediately before the step that uses them.
+        [array]::IndexOf($names, 'Install dependencies') |
+            Should -BeLessThan ([array]::IndexOf($names, 'Azure Login (OIDC)'))
         [array]::IndexOf($names, 'Azure Login (OIDC)') |
             Should -BeLessThan ([array]::IndexOf($names, 'Publish to VS Code Marketplace'))
     }
@@ -398,7 +441,7 @@ Describe 'Packages matrix wiring' -Tag 'Unit' {
 
     It 'Feeds the discovered matrix into the publish workflow from <Workflow>' -ForEach @(
         @{ Workflow = 'release-marketplace-stable.yml'; Expression = '${{ needs.discover.outputs.matrix }}' }
-        @{ Workflow = 'release-marketplace-prerelease.yml'; Expression = '${{ needs.package.outputs.packages-matrix }}' }
+        @{ Workflow = 'release-marketplace-prerelease.yml'; Expression = '${{ needs.discover.outputs.matrix }}' }
     ) {
         $document = Get-WorkflowDocument -Name $Workflow
         $publish = $document['jobs']['publish']
@@ -1537,8 +1580,10 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
     }
 
     It 'Publishes the marketplace lanes from the released ref' {
-        $publisherCallers = [string[]]@(Get-ChildItem -LiteralPath $script:WorkflowDirectory -File -Filter '*.yml' |
-                Where-Object { $_.Name -notlike '*.lock.yml' } |
+        # Generated lock workflows are runnable, so every workflow YAML class is a
+        # caller candidate and none is excluded from discovery.
+        $publisherCallers = [string[]]@(Get-ChildItem -LiteralPath $script:WorkflowDirectory -File |
+                Where-Object { $_.Extension -in @('.yml', '.yaml') } |
                 Where-Object {
                     (Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8) -match
                     'uses:\s+\./\.github/workflows/extension-marketplace-publish\.yml'
@@ -1567,8 +1612,31 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $prerelease['jobs']['publish']['with'].Contains('verify-attestation') | Should -BeFalse
         [string]$prerelease['jobs']['publish']['with']['attestation-signer-workflow'] |
             Should -BeExactly '.github/workflows/release-prerelease.yml'
+        # Normal publication consumes discovery, so it no longer waits on the
+        # dry-run packaging call it never read artifacts from.
         @($prerelease['jobs']['publish']['needs']) | Should -Contain 'validate-version'
-        @($prerelease['jobs']['publish']['needs']) | Should -Contain 'package'
+        @($prerelease['jobs']['publish']['needs']) | Should -Contain 'discover'
+        @($prerelease['jobs']['publish']['needs']) | Should -Not -Contain 'package'
+
+        # The publisher verifies the release VSIX against the commit its release
+        # tag names, so both producer lanes must attest this run's own event SHA.
+        foreach ($lane in @('release-prerelease.yml', 'release-stable-publish.yml')) {
+            [string](Get-WorkflowDocument -Name $lane)['jobs']['validate-release']['outputs']['sha'] |
+                Should -BeExactly '${{ github.sha }}'
+        }
+        [string](Get-WorkflowDocument -Name 'release-stable-publish.yml')['jobs']['extension-provenance']['with']['source-ref'] |
+            Should -BeExactly '${{ needs.validate-release.outputs.sha }}'
+
+        $provenance = Get-WorkflowDocument -Name 'extension-provenance.yml'
+        [string]$provenance['on']['workflow_call']['inputs']['source-ref']['description'] |
+            Should -Match '(?i)full commit SHA'
+        [string]$provenance['on']['workflow_call']['inputs']['source-ref']['description'] |
+            Should -Not -Match '(?i)\bor tag\b'
+        @($provenance['jobs']['build-attest']['needs']) | Should -Contain 'discover-packages'
+        $sourceGuard = Get-NamedJobStep -Document $provenance -JobName 'discover-packages' -StepName 'Resolve effective version'
+        [string]$sourceGuard['env']['EVENT_SHA'] | Should -BeExactly '${{ github.sha }}'
+        [string]$sourceGuard['run'] | Should -Match ([regex]::Escape('^[0-9a-f]{40}$'))
+        [string]$sourceGuard['run'] | Should -Match ([regex]::Escape('[ "$INPUT_SOURCE_REF" != "$EVENT_SHA" ]'))
     }
 
     It 'Keeps PreRelease marketplace event values out of shell source and permits release lookup' {
@@ -1592,6 +1660,17 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         [string]$validate['run'] | Should -Match 'PUBLISH_MINOR % 2 == 0'
         [string]$validate['run'] | Should -Match 'requires odd minor version'
         [string]$document['jobs']['package']['with']['channel'] | Should -BeExactly 'PreRelease'
+
+        # Normal publication discovers the PreRelease package set from the
+        # released tag, and only a dry run still builds VSIX artifacts.
+        [string]$document['jobs']['package']['if'] | Should -BeExactly '${{ inputs.dry-run }}'
+        $preReleaseCheckout = @($document['jobs']['discover']['steps'] |
+                Where-Object { $_.Contains('uses') -and [string]$_['uses'] -match '^actions/checkout@' })
+        $preReleaseCheckout | Should -HaveCount 1
+        [string]$preReleaseCheckout[0]['with']['ref'] | Should -BeExactly 'refs/tags/${{ needs.validate-version.outputs.tag }}'
+        $preReleaseCheckout[0]['with']['persist-credentials'] | Should -BeFalse
+        $preReleaseDiscover = @($document['jobs']['discover']['steps'] | Where-Object { [string]$_['id'] -eq 'discover' })[0]
+        [string]$preReleaseDiscover['run'] | Should -Match "-Channel 'PreRelease'"
 
         $stable = Get-WorkflowDocument -Name 'release-marketplace-stable.yml'
         $stableJob = $stable['jobs']['normalize-version']
@@ -2474,6 +2553,25 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
             }
             $text | Should -Match '(?is)snapshot publication has stopped' -Because "$relativePath must state prospective-only snapshot retirement"
             $text | Should -Match '(?is)tags\s+and\s+catalogs\s+remain\s+immutable\s+and\s+supported' -Because "$relativePath must keep legacy release tags and catalogs supported"
+        }
+    }
+
+    # The policy paragraph is wrapped prose, so each contract is matched as a
+    # durable whitespace-tolerant fragment rather than a whole-paragraph string.
+    It 'Documents best-effort Marketplace publication recovery' {
+        $readme = $script:ReleaseDocumentation['.github/workflows/README.md']
+        foreach ($fragment in @(
+                'no-environment\s+gate\s+validates\s+matrix\s+structure'
+                'package-ID\s+grammar\s+and\s+uniqueness'
+                'minor-version\s+parity'
+                'before\s+any\s+Marketplace\s+environment\s+is\s+activated'
+                'intentionally\s+best-effort\s+and\s+non-atomic'
+                '`fail-fast:\s+false`'
+                'inspect\s+every\s+matrix\s+leg\s+and\s+reconcile\s+or\s+republish'
+                'neither\s+transactionality\s+nor\s+rollback'
+                'Republication\s+is\s+supported\s+only\s+for\s+reviewed\s+channel\s+tags'
+            )) {
+            $readme | Should -Match "(?is)$fragment" -Because 'the workflow guide owns Marketplace partial-failure recovery policy'
         }
     }
 

@@ -6,7 +6,7 @@ on:
   workflow_call:
     inputs:
       source-ref:
-        description: "Immutable source to package from (full commit SHA or tag)"
+        description: "Immutable source to package from (full commit SHA of this run)"
         required: true
         type: string
       version:
@@ -54,12 +54,23 @@ jobs:
         id: read-version
         shell: bash
         env:
+          EVENT_SHA: ${{ github.sha }}
           INPUT_SOURCE_REF: ${{ inputs.source-ref }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           if [ -z "${INPUT_SOURCE_REF// }" ]; then
             echo "::error::source-ref is required and must not be blank"
+            exit 1
+          fi
+          # Attestation records this run's commit, so the packaged source must be
+          # that same commit rather than any other resolvable ref.
+          if ! printf '%s' "$INPUT_SOURCE_REF" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::source-ref must be a full 40-character lowercase commit SHA"
+            exit 1
+          fi
+          if [ "$INPUT_SOURCE_REF" != "$EVENT_SHA" ]; then
+            echo "::error::source-ref $INPUT_SOURCE_REF is not the attestation source commit $EVENT_SHA"
             exit 1
           fi
           version="${INPUT_VERSION// }"

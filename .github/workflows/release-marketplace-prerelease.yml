@@ -107,9 +107,54 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=prerelease-v$VERSION" >> "$GITHUB_OUTPUT"
 
+  discover:
+    name: Discover Pre-Release Marketplace Packages
+    needs: [validate-version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+      version: ${{ steps.read-version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.validate-version.outputs.tag }}
+          persist-credentials: false
+
+      - name: Setup PowerShell modules
+        uses: ./.github/actions/setup-ps-modules
+
+      - name: Resolve effective version
+        id: read-version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ needs.validate-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          version="$INPUT_VERSION"
+          # The released tag is the discovery source, so its catalog version and
+          # immutable plugin locator are what the marketplace publish resolves.
+          catalog_version=$(jq -r '.metadata.version' .github/plugin/marketplace.json)
+          if [ "$catalog_version" != "$version" ]; then
+            echo "::error::Catalog version $catalog_version at the release ref does not match $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Discover marketplace packages
+        id: discover
+        shell: pwsh
+        run: |
+          & ./scripts/extension/Get-MarketplacePackageMatrix.ps1 -Channel 'PreRelease'
+
+  # Normal publication consumes the discovered matrix, so packaging runs only
+  # when the operator asked for a dry run.
   package:
     name: Package Pre-Release Extensions
     needs: validate-version
+    if: ${{ inputs.dry-run }}
     uses: ./.github/workflows/extension-package.yml
     with:
       source-ref: ${{ needs.validate-version.outputs.tag }}
@@ -120,11 +165,11 @@ jobs:
 
   publish:
     name: Publish Pre-Release Extensions
-    needs: [validate-version, package]
+    needs: [validate-version, discover]
     if: ${{ !inputs.dry-run }}
     uses: ./.github/workflows/extension-marketplace-publish.yml
     with:
-      packages-matrix: ${{ needs.package.outputs.packages-matrix }}
+      packages-matrix: ${{ needs.discover.outputs.matrix }}
       tag: ${{ needs.validate-version.outputs.tag }}
       pre-release: true
       attestation-signer-workflow: .github/workflows/release-prerelease.yml

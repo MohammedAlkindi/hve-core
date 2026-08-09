@@ -2,7 +2,7 @@
 title: GitHub Actions Workflows
 description: Modular CI/CD workflow architecture for validation, security scanning, and automated maintenance
 author: HVE Core Team
-ms.date: 2026-08-08
+ms.date: 2026-08-09
 ms.topic: reference
 keywords:
   - github actions
@@ -99,6 +99,21 @@ Release-please creates the draft channel release at the reviewed managed merge, 
 Publication does not synchronize release metadata, changelog history, or catalog locators back to `main`. The ref-less main catalog omits `source.ref`; release-branch and exact-tag catalogs use their channel's exact immutable tag. An explicit marketplace refresh and plugin update are required for the ref-less main catalog, which has no release gate, SBOM, or attestation. Release-channel assets remain release-gated, SBOM-covered, and attested.
 
 Both release channels preserve the VSIX package, plugin-release-evidence.json, signed plugin ZIPs, SBOM, Sigstore, in-toto, provenance, attestation, verification, and Azure OIDC publication chain. Each Marketplace workflow passes its validated exact tag and the workflow that attested its VSIX to the generic publisher. The publisher downloads the release asset, verifies its attestation against that lane-specific signer, and then publishes through OIDC.
+
+The publisher's no-environment gate validates matrix structure, package-ID
+grammar and uniqueness, channel tag namespace and minor-version parity, and the
+lane-specific attestation signer before any Marketplace environment is
+activated.
+
+Marketplace matrix publication remains intentionally best-effort and
+non-atomic. The `fail-fast: false` strategy is configured to attempt every
+package even when another matrix leg fails. After a partial failure, the
+operator must inspect every matrix leg and reconcile or republish missing
+packages. The workflow provides neither transactionality nor rollback.
+
+Republication is supported only for reviewed channel tags whose tagged source
+includes the current publisher scripts and helpers and satisfies the current
+dependency contract. Earlier historical tags are unsupported.
 
 ### Release Version Allocation
 

@@ -33,22 +33,48 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Validate channel tag and signer
+      - name: Validate publication inputs
         shell: bash
         env:
+          INPUT_PACKAGES_MATRIX: ${{ inputs.packages-matrix }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_PRE_RELEASE: ${{ inputs.pre-release }}
           INPUT_SIGNER_WORKFLOW: ${{ inputs.attestation-signer-workflow }}
         run: |
           set -euo pipefail
+          # The matrix is caller-controlled and every id becomes a package
+          # identity and release-asset glob, so the exact ID-only shape and each
+          # id token are rejected here, before any marketplace environment.
+          if ! printf '%s' "$INPUT_PACKAGES_MATRIX" | jq -e '
+            type == "object"
+            and (keys_unsorted | length) == 1
+            and has("include")
+            and (.include | type) == "array"
+            and (.include | length) > 0
+            and (.include | all(
+                  type == "object"
+                  and (keys_unsorted | length) == 1
+                  and has("id")
+                  and (.id | type) == "string"
+                  and (.id | test("^[a-z0-9]+(?:-[a-z0-9]+)*$"))
+                ))
+            and ([.include[].id] | unique | length) == (.include | length)
+          ' > /dev/null; then
+            echo "::error::packages-matrix must be {\"include\":[{\"id\":\"<package-id>\"}]} with a nonempty set of unique lowercase hyphenated package IDs"
+            exit 1
+          fi
           case "$INPUT_PRE_RELEASE" in
             true)
               expected_pattern='^prerelease-v[0-9]+\.[0-9]+\.[0-9]+$'
               expected_signer='.github/workflows/release-prerelease.yml'
+              expected_minor_parity=1
+              expected_parity_label='odd'
               ;;
             false)
               expected_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
               expected_signer='.github/workflows/extension-provenance.yml'
+              expected_minor_parity=0
+              expected_parity_label='even'
               ;;
             *)
               echo "::error::pre-release must be true or false"
@@ -63,6 +89,16 @@ jobs:
             echo "::error::Attestation signer does not match the selected channel"
             exit 1
           fi
+          # The tag namespace is validated above, so the minor is read from that
+          # tag and must carry the selected channel's parity.
+          TAG_VERSION="${INPUT_TAG#prerelease-v}"
+          TAG_VERSION="${TAG_VERSION#v}"
+          TAG_MINOR="${TAG_VERSION#*.}"
+          TAG_MINOR="${TAG_MINOR%%.*}"
+          if (( TAG_MINOR % 2 != expected_minor_parity )); then
+            echo "::error::The selected channel requires an $expected_parity_label minor version but $INPUT_TAG carries minor $TAG_MINOR"
+            exit 1
+          fi
 
   publish:
     name: Publish ${{ matrix.id }}
@@ -70,6 +106,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: marketplace
     strategy:
+      # Marketplace publication is not transactional. Every package leg is
+      # attempted even after another leg fails, so a partial failure leaves the
+      # remaining packages for operator reconciliation.
       fail-fast: false
       matrix: ${{ fromJson(inputs.packages-matrix) }}
     permissions:
@@ -80,6 +119,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
 
       # The packages matrix is ID-only, so the VS Code extension identity is
@@ -116,17 +156,19 @@ jobs:
           SIGNER_WORKFLOW: ${{ github.repository }}/${{ inputs.attestation-signer-workflow }}
         run: |
           set -euo pipefail
-          SOURCE_DIGEST=$(gh api "/repos/$REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          # The checkout pinned this job to the release tag, so the commit is
+          # dereferenced locally (annotated tags included) and compared with the
+          # checked-out HEAD. Equality proves the executed publisher tree is the
+          # same commit the attestation is verified against.
+          SOURCE_DIGEST=$(git rev-parse --verify --end-of-options "refs/tags/$RELEASE_TAG^{commit}")
+          CHECKOUT_DIGEST=$(git rev-parse HEAD)
+          if [ "$SOURCE_DIGEST" != "$CHECKOUT_DIGEST" ]; then
+            echo "::error::Release tag $RELEASE_TAG resolves to $SOURCE_DIGEST but the publisher checked out $CHECKOUT_DIGEST"
+            exit 1
+          fi
           gh attestation verify "$VSIX_FILE" --repo "$REPOSITORY" \
             --signer-workflow "$SIGNER_WORKFLOW" \
             --source-digest "$SOURCE_DIGEST"
-
-      - name: Azure Login (OIDC)
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -138,6 +180,14 @@ jobs:
       # install hooks (@vscode/vsce-sign, keytar) to run.
       - name: Install dependencies
         run: npm ci --ignore-scripts=false
+
+      # Publish credentials become active immediately before they are used.
+      - name: Azure Login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Publish to VS Code Marketplace
         id: publish
