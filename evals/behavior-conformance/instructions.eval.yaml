@@ -530,6 +530,28 @@ stimuli:
         config:
           pattern: "(?i)license|attribution|reproduce|standard|posture"
 
+  - name: instruction-licensing-posture-conformance
+    prompt: |
+      You are writing a new reference file under
+      `.github/skills/data-science/ds-dataops/references/` that summarizes an
+      upstream CC BY 4.0 documentation page. Which
+      `.github/instructions/**/*.instructions.md` file defines the repository
+      posture for licensing, reproduction, and attribution of third-party
+      standards (cite its path), and how much upstream text may you reproduce?
+    tags:
+      category: behavior-conformance
+      instruction: licensing-posture
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: applyTo-evidence
+        config:
+          pattern: "(?i)skills/|\\.copilot-tracking/|licensing-posture"
+      - type: output-matches
+        name: scope-language
+        config:
+          pattern: "(?i)paraphrase|minimum|attribution|reproduce|third-party|THIRD-PARTY-NOTICES"
+
   - name: instruction-backlog-handoff-conformance
     prompt: |
       You are completing Phase 5 of a Security Planning session and
