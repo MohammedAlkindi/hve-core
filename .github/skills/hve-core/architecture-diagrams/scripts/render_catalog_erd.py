@@ -194,8 +194,12 @@ def parse_catalog(markdown: str) -> dict[str, Any]:
     """Parse a catalog and reject every malformed rendering-critical fact."""
     try:
         data = yaml.load(extract_frontmatter(markdown), Loader=UniqueKeyLoader)
+    except CatalogRenderError:
+        raise
     except yaml.YAMLError as error:
         raise CatalogRenderError(_sanitize_yaml_error(error)) from error
+    except ValueError as error:
+        raise CatalogRenderError("catalog frontmatter has an invalid scalar value") from error
     if not isinstance(data, dict):
         raise CatalogRenderError("catalog frontmatter must be an object")
     _assert_json_compatible(data)

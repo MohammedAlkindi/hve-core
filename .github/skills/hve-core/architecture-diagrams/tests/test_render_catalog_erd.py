@@ -555,6 +555,13 @@ def test_given_unquoted_date_when_parsed_then_raises() -> None:
         parse_catalog("---\ncatalog_version: DS_CATALOG_V1\ngenerated_at: 2026-01-01\n---\n")
 
 
+@pytest.mark.parametrize("timestamp", ["2026-02-31", "2026-13-01", "2026-01-32"])
+def test_given_out_of_range_timestamp_when_parsed_then_raises(timestamp: str) -> None:
+    # Act and assert
+    with pytest.raises(CatalogRenderError, match="invalid scalar value"):
+        parse_catalog(f"---\ncatalog_version: DS_CATALOG_V1\ngenerated_at: {timestamp}\n---\n")
+
+
 def test_given_non_finite_number_when_parsed_then_raises() -> None:
     # Act and assert
     with pytest.raises(CatalogRenderError, match="must be a finite number"):
