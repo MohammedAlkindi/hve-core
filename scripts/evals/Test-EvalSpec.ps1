@@ -561,6 +561,7 @@ function Test-EquivalenceStimulusSync {
 
         * A stimulus present in one file and absent from another.
         * A prompt or tag map that differs between canonical and either executable spec.
+        * A missing or drifted 285-second agent working-duration limit.
         * A canonical grader that is missing from an executable spec.
         * A declared invariant that is not enforced in canonical, baseline, and customized
           alike, because an invariant must hold in both environments by definition.
@@ -657,6 +658,7 @@ function Test-EquivalenceStimulusSync {
     }
 
     $canonicalMap = $specs['canonical']
+    $expectedAgentDuration = '285s'
     $executables = @(
         @{ Label = 'baseline'; Path = $BaselinePath; Map = $specs['baseline'] },
         @{ Label = 'customized'; Path = $CustomizedPath; Map = $specs['customized'] }
@@ -678,6 +680,23 @@ function Test-EquivalenceStimulusSync {
         $canonicalStimulus = $canonicalMap[$name]
         $canonicalGraders = Get-EquivalenceGraderName -Stimulus $canonicalStimulus
         $canonicalTags = ConvertTo-ComparableTagText -Tags $canonicalStimulus.tags
+        $canonicalAgentDuration = if (
+            $canonicalStimulus.ContainsKey('constraints') -and
+            $null -ne $canonicalStimulus.constraints -and
+            $canonicalStimulus.constraints.ContainsKey('max_agent_duration')
+        ) {
+            [string]$canonicalStimulus.constraints.max_agent_duration
+        }
+        else {
+            ''
+        }
+        if ($canonicalAgentDuration -ne $expectedAgentDuration) {
+            $violations.Add(@{
+                    stimulusName = $name
+                    field        = 'constraints.max_agent_duration'
+                    message      = "Canonical stimulus '$name' must declare max_agent_duration '$expectedAgentDuration'; found '$canonicalAgentDuration'."
+                })
+        }
         $canonicalQuestion = Get-EquivalenceQuestion -Stimulus $canonicalStimulus -Kind 'canonical'
         if ($canonicalQuestion.Error) {
             $violations.Add(@{
@@ -723,6 +742,24 @@ function Test-EquivalenceStimulusSync {
                         stimulusName = $name
                         field        = 'tags'
                         message      = "Tags for '$name' differ between $CanonicalPath ('$canonicalTags') and $($executable.Path) ('$executableTags')."
+                    })
+            }
+
+            $executableAgentDuration = if (
+                $executableStimulus.ContainsKey('constraints') -and
+                $null -ne $executableStimulus.constraints -and
+                $executableStimulus.constraints.ContainsKey('max_agent_duration')
+            ) {
+                [string]$executableStimulus.constraints.max_agent_duration
+            }
+            else {
+                ''
+            }
+            if ($executableAgentDuration -ne $canonicalAgentDuration) {
+                $violations.Add(@{
+                        stimulusName = $name
+                        field        = 'constraints.max_agent_duration'
+                        message      = "Agent working-duration limit for '$name' differs between $CanonicalPath ('$canonicalAgentDuration') and $($executable.Path) ('$executableAgentDuration')."
                     })
             }
 

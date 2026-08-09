@@ -311,6 +311,7 @@ jobs:
   eval-execute:
     name: Eval Execute (${{ matrix.kind }})
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     needs: [eval-validation, content-moderation]
     # Repository secrets are not exposed to fork PRs; clean-skip execution there.
     # Only run when eval-relevant paths changed (see eval-validation detect step).

@@ -1,6 +1,6 @@
 # Canonical comparison contract for `vally compare`.
 #
-# Vally 0.11 comparison mode judges a baseline trajectory head-to-head against a
+# Vally 0.12 comparison mode judges a baseline trajectory head-to-head against a
 # customized trajectory using the stimulus rubric. Without an explicit
 # `--eval-spec`, it falls back to the rubric embedded in the baseline trajectory
 # and, when that is absent, to a general-purpose preference rubric that asks

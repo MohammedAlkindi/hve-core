@@ -129,6 +129,12 @@ BeforeAll {
             )
         }
 
+        foreach ($spec in @($canonical, $baseline, $customized)) {
+            foreach ($stimulus in $spec.stimuli) {
+                $stimulus['constraints'] = @{ max_agent_duration = '285s' }
+            }
+        }
+
         $bag = @{ Canonical = $canonical; Baseline = $baseline; Customized = $customized }
         if ($Mutate) { & $Mutate $bag }
 
@@ -194,6 +200,16 @@ Describe 'Test-EquivalenceStimulusSync' -Tag 'Unit' {
         It 'Fails when tags differ from canonical' {
             $result = Invoke-SyncCheck -Mutate { param($b) $b.Baseline.stimuli[0].tags.subcategory = 'drifted' }
             @($result.violations | Where-Object { $_.field -eq 'tags' }).Count | Should -Be 1
+        }
+
+        It 'Fails when the canonical agent working-duration limit is missing' {
+            $result = Invoke-SyncCheck -Mutate { param($b) $b.Canonical.stimuli[0].Remove('constraints') }
+            @($result.violations | Where-Object { $_.field -eq 'constraints.max_agent_duration' }).Count | Should -BeGreaterThan 0
+        }
+
+        It 'Fails when an executable agent working-duration limit drifts' {
+            $result = Invoke-SyncCheck -Mutate { param($b) $b.Customized.stimuli[0].constraints.max_agent_duration = '300s' }
+            @($result.violations | Where-Object { $_.field -eq 'constraints.max_agent_duration' }).Count | Should -Be 1
         }
 
         It 'Fails when a canonical grader is missing from an executable spec' {
@@ -504,7 +520,7 @@ Describe 'Baseline-equivalence comparison contract' -Tag 'Unit' {
 
     Context 'Rubric syntax and semantics' {
         It 'Declares a non-empty top-level rubric for every stimulus' {
-            # Vally 0.11 comparison mode reads the top-level `rubric`. An empty or absent
+            # Vally 0.12 comparison mode reads the top-level `rubric`. An empty or absent
             # rubric silently falls back to the built-in default, which asks which
             # response is better rather than whether the contract was equally satisfied.
             $missing = foreach ($stimulus in $script:CompareSpec.stimuli) {

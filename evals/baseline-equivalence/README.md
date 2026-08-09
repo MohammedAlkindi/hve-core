@@ -2,7 +2,7 @@
 title: Baseline Equivalence Suite
 description: 'Pairs identical probes across baseline and customized environments to assert only documented divergences appear'
 author: HVE Core Team
-ms.date: 2026-08-07
+ms.date: 2026-08-08
 ---
 
 ## Purpose
@@ -69,6 +69,8 @@ runs that reported success without measuring anything. Extending coverage to the
 deferred until one clean run under the restored comparison contract exists.
 
 The driver writes a machine-readable summary to `logs/baseline-equivalence-summary.json` and per-environment trajectories under `evals/results/`. The trajectory directories are gitignored. Both executable specs run three trials per stimulus. Three is a provisional inner-loop budget, not a calibrated power claim; the first valid post-launch run records dispersion and interval width before any future authoritative comparative policy is considered.
+
+Every stimulus also declares `constraints.max_agent_duration: 285s` beneath the 300-second hard timeout. Vally 0.12 stops and aborts the active Copilot SDK request when that working-duration limit expires, while the outer CI shard stops after 240 minutes if process-level cleanup fails. A bounded trial may therefore report `agent_timeout`, but one unresolved request cannot hold the evaluation shard indefinitely.
 
 ### Driver output contract
 

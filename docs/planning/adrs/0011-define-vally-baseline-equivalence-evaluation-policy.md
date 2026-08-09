@@ -3,7 +3,7 @@ id: "0011"
 title: "Define the Vally baseline-equivalence evaluation policy"
 description: "Define launch-based agent invocation, authoritative evidence, report-only comparison calibration, model scope, and trial posture for the baseline-equivalence suite."
 author: "HVE Core Maintainers"
-ms.date: "2026-08-07"
+ms.date: "2026-08-08"
 ms.topic: "reference"
 status: "proposed"
 proposed_date: "2026-08-01"
@@ -21,7 +21,9 @@ tags:
   - "ci"
   - "baseline-equivalence"
 affected_components:
+  - "package.json"
   - "evals/baseline-equivalence/"
+  - ".github/workflows/eval-validation.yml"
   - "scripts/evals/Invoke-BaselineEquivalence.ps1"
   - "scripts/evals/Invoke-VallyEvals.ps1"
   - "scripts/evals/lib/EquivalenceParsing.psm1"
@@ -144,6 +146,9 @@ A grader whose outcome records how that model chose to respond cannot distinguis
 This is not a mechanism for quieting a failing check. It is available only where the grader measures the baseline model rather than the customization, the grader keeps executing and reporting so a change stays visible, and the reasoning is recorded with the stimulus.
 Threshold and run-count relaxation remain prohibited regardless.
 
+**8. Evaluation execution has layered timeout containment.** Every canonical, baseline, and customized stimulus declares a 285-second agent working-duration limit below the 300-second hard timeout. Vally 0.12 owns bounded abort and disconnect cleanup for an active Copilot SDK request. The owning CI shard has a 240-minute outer timeout so an unexpected process-level cleanup failure cannot consume a runner indefinitely.
+An agent-duration result remains part of the required population and is evaluated by the existing run-health and data-quality rules. Timeout containment never permits silent exclusion or a reduced denominator.
+
 The reporting contract carries `schemaVersion: "2.1.0"`. Consumers reject an unsupported major version loudly rather than reading absent fields as zeros. Version 2.1 adds invocation evidence and per-model report-only calibration fields while preserving the 2.x structural contract.
 
 ### Consequences
@@ -152,6 +157,7 @@ The reporting contract carries `schemaVersion: "2.1.0"`. Consumers reject an uns
 * Good, because the judge model and rubric source are visible in the invocation, so two runs of the same commit are comparable.
 * Good, because an incomplete or structurally broken run can never report a pass, at any tier.
 * Good, because the local loop stays non-blocking, so contributors are not gated on a model-backed statistical result while iterating.
+* Good, because a stalled executor request is bounded at both trial and job scope instead of preventing summary generation indefinitely.
 * Bad, because the versioned reporting contract and separate evidence classes are more surface for downstream consumers to track.
 * Bad, because comparative non-inferiority remains unclassified until valid post-launch evidence supports a margin and confidence policy.
 * Neutral, because this policy adds no production telemetry emitter. The suite's observable outputs are the summary contract and CI artifacts, which are evaluation evidence rather than service telemetry, so no trace, metric, or log instrumentation is introduced.
@@ -185,7 +191,9 @@ The authoritative/report-only separation, fail-closed rules, population reconcil
 
 ## Affected Components
 
+* package.json
 * evals/baseline-equivalence/
+* .github/workflows/eval-validation.yml
 * scripts/evals/Invoke-BaselineEquivalence.ps1
 * scripts/evals/Invoke-VallyEvals.ps1
 * scripts/evals/lib/EquivalenceParsing.psm1
@@ -193,7 +201,9 @@ The authoritative/report-only separation, fail-closed rules, population reconcil
 
 ## More Information
 
+* [package.json](../../../package.json) pins the Vally CLI version whose executor timeout and cleanup semantics the suite relies on.
 * [evals/baseline-equivalence/](pathname://../../../evals/baseline-equivalence/) holds the stimulus corpus and the paired baseline and customized specs this policy governs; its [README.md](pathname://../../../evals/baseline-equivalence/README.md) documents the runtime behavior, the summary field contract, and the pass and fail interpretation rules.
+* [.github/workflows/eval-validation.yml](../../../.github/workflows/eval-validation.yml) owns the outer eval-shard timeout and credentialed calibration dispatch.
 * [scripts/evals/Invoke-BaselineEquivalence.ps1](../../../scripts/evals/Invoke-BaselineEquivalence.ps1) is the single entry point that owns tier validation, model resolution, the pinned judge invocation, and the exit policy in parts 1, 3, and 4.
 * [scripts/evals/lib/EquivalenceParsing.psm1](../../../scripts/evals/lib/EquivalenceParsing.psm1) computes both gates and the verdict described in parts 2 and 4, and reads comparison and guard results.
 * [scripts/evals/lib/EquivalenceEnvironment.psm1](../../../scripts/evals/lib/EquivalenceEnvironment.psm1) materializes the per-agent customized environment and derives the scope guard whose conformance the documented-divergence gate reads.
