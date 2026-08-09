@@ -240,16 +240,16 @@ This section documents threats using [STRIDE](https://learn.microsoft.com/azure/
 
 #### T-3: Script Injection via Workflow Inputs
 
-| Field             | Value                                                                                                                                                                       |
-|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Category**      | Tampering / Elevation of Privilege                                                                                                                                          |
-| **Asset**         | GitHub Actions `run:` and `actions/github-script` step bodies                                                                                                               |
-| **Threat**        | A `workflow_call` or `workflow_dispatch` input interpolated directly into a shell command can alter command structure and execute unintended instructions on the runner     |
-| **Likelihood**    | Low (requires a reusable-workflow caller, or an actor with `actions: write`, able to supply crafted input)                                                                  |
-| **Impact**        | Medium (command execution is limited by the runner and job permissions but can affect build integrity)                                                                      |
-| **Mitigations**   | CQ-6 routes caller-controlled inputs through step-level `env:` variables; `Test-DangerousWorkflow.ps1` blocks regressions; CodeQL `actions/code-injection` scanning         |
-| **Residual Risk** | Low                                                                                                                                                                         |
-| **Status**        | Mitigated                                                                                                                                                                   |
+| Field             | Value                                                                                                                                                                   |
+|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Category**      | Tampering / Elevation of Privilege                                                                                                                                      |
+| **Asset**         | GitHub Actions `run:` and `actions/github-script` step bodies                                                                                                           |
+| **Threat**        | A `workflow_call` or `workflow_dispatch` input interpolated directly into a shell command can alter command structure and execute unintended instructions on the runner |
+| **Likelihood**    | Low (requires a reusable-workflow caller, or an actor with `actions: write`, able to supply crafted input)                                                              |
+| **Impact**        | Medium (command execution is limited by the runner and job permissions but can affect build integrity)                                                                  |
+| **Mitigations**   | CQ-6 routes caller-controlled inputs through step-level `env:` variables; `Test-DangerousWorkflow.ps1` blocks regressions; CodeQL `actions/code-injection` scanning     |
+| **Residual Risk** | Low                                                                                                                                                                     |
+| **Status**        | Mitigated                                                                                                                                                               |
 
 #### R-1: Untraceable Configuration Changes
 
