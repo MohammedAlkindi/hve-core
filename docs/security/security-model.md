@@ -1489,7 +1489,7 @@ Its headline residual is speaker-notes content egress to the Azure region; input
 
 These threats cover the remaining executable skill runtimes: PowerPoint rendering, video-to-GIF conversion, customer-card rendering, GitHub code scanning, the VEX gate, accessibility scanning, and security-planning generation. Each is authoritative in its own per-skill `SECURITY.md`; the rows below record the repository-level view and cite the per-skill model that owns the underlying assessment.
 
-Likelihood, Impact, and Residual Risk are taken from the named per-skill risk-rating table wherever that table rates the same failure mode. Where the per-skill model does not rate the mode, the row says so and states the basis for the assessment instead of inheriting a neighbouring default.
+Likelihood, Impact, and Residual Risk are taken from the named per-skill risk-rating table wherever that table rates the same failure mode. Where the per-skill model does not rate the mode, the row says so and states the basis for the assessment instead of inheriting a neighboring default.
 
 #### PP-1: Author-Supplied Content-Extra Execution Escapes the Denylist Confinement
 
@@ -1609,7 +1609,7 @@ Likelihood, Impact, and Residual Risk are taken from the named per-skill risk-ra
 |----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Category**               | Tampering                                                                                                                                                                                                                        |
 | **Asset**                  | The VEX gate decision and the AI-credit budget it governs                                                                                                                                                                        |
-| **Threat**                 | A hostile issue body misdrives the gate into a skip or proceed outcome, either suppressing a needed draft or consuming AI credits                                                                                                |
+| **Threat**                 | A hostile issue body misdirects the gate into a skip or proceed outcome, either suppressing a needed draft or consuming AI credits                                                                                               |
 | **Likelihood**             | Low (per-skill ratings for both the skip and proceed variants)                                                                                                                                                                   |
 | **Impact**                 | Medium (per-skill rating for the proceed variant, which is the higher of the two)                                                                                                                                                |
 | **Mitigations**            | Bot-owned detection issue; regex-bounded parsing; workflow credit budgets; manual triage remains regardless of gate outcome                                                                                                      |
@@ -1674,7 +1674,7 @@ The primary asset is the payload rather than the code. Spans emitted by the exte
 The threats below are grouped by the skill's own trust buckets: B1 editor OTLP ingest, B2 telemetry at rest and query surfaces, B3 reference helper scripts, B4 container image supply chain, B5 editor-global configuration mutation, B6 host process control, and B7 cloud control-plane artifact generation.
 
 Likelihood, Impact, and Residual Risk are taken from the [skill's own risk-rating tables](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/SECURITY.md) wherever those tables rate the same failure mode.
-Rows that the skill does not rate are marked **New assessment** and state their basis rather than inheriting a neighbouring default.
+Rows that the skill does not rate are marked **New assessment** and state their basis rather than inheriting a neighboring default.
 Most of these threats do not cross a repository trust zone: the local stack, the helper scripts, the editor, and the generated artifacts all sit inside the Developer Workstation zone, and container isolation is a sub-boundary within it rather than a zone of its own, matching the treatment of the dev container. Those rows say so instead of inventing a crossing.
 
 #### OT-1: Prompt Content Traverses Plaintext OTLP Ingest
