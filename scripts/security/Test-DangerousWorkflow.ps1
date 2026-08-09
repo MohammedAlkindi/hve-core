@@ -9,10 +9,14 @@
     Detects template-injection patterns in GitHub Actions workflows.
 
 .DESCRIPTION
-    Scans GitHub Actions workflow YAML files for the direct interpolation of
-    attacker-controllable GitHub event values into run or script execution
-    contexts (template injection). Broader dangerous-workflow coverage,
-    including untrusted checkout, is provided by the Poutine scanner in CI.
+    Scans GitHub Actions workflow YAML files for two deviations from the safe
+    expression-handling pattern in run or script execution contexts:
+    the direct interpolation of attacker-controllable GitHub event values, and
+    the direct interpolation of a workflow input that GitHub does not type-validate.
+    Inputs declared boolean or number are validated before the runner sees them and
+    are not reported. Input declarations are resolved from every trigger that declares
+    them, including workflow_dispatch. Broader dangerous-workflow coverage, including
+    untrusted checkout, is provided by the Poutine scanner in CI.
 
 .PARAMETER Path
     Directory containing workflow YAML files. Defaults to '.github/workflows'.
@@ -123,6 +127,112 @@ function Test-IsUntrustedInjectionExpression {
     foreach ($pattern in $untrustedPatterns) {
         if ($expression -match $pattern) {
             return $true
+        }
+    }
+
+    return $false
+}
+
+function Get-WorkflowDeclaredInputType {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        $Yaml
+    )
+
+    # Inputs are resolved from every trigger that can declare them, not only workflow_call.
+    # A workflow_dispatch input is equally a declared input, and GitHub validates its declared
+    # type before the value reaches the runner. The same name can be declared by more than one
+    # trigger with different types, so every declared type is retained: a name is only safe when
+    # GitHub validates it under every trigger that declares it.
+    $declared = @{}
+    if ($null -eq $Yaml) {
+        return $declared
+    }
+
+    $onNode = $null
+    if ($Yaml -is [System.Collections.IDictionary]) {
+        foreach ($key in @('on', 'On', $true)) {
+            if ($Yaml.Contains($key)) {
+                $onNode = $Yaml[$key]
+                break
+            }
+        }
+    }
+
+    if ($null -eq $onNode -or -not ($onNode -is [System.Collections.IDictionary])) {
+        return $declared
+    }
+
+    foreach ($trigger in @('workflow_call', 'workflow_dispatch')) {
+        if (-not $onNode.Contains($trigger)) {
+            continue
+        }
+        $triggerNode = $onNode[$trigger]
+        if (-not ($triggerNode -is [System.Collections.IDictionary]) -or -not $triggerNode.Contains('inputs')) {
+            continue
+        }
+        $inputsNode = $triggerNode['inputs']
+        if (-not ($inputsNode -is [System.Collections.IDictionary])) {
+            continue
+        }
+        foreach ($inputEntry in $inputsNode.GetEnumerator()) {
+            $inputName = [string]$inputEntry.Key
+            $inputType = ''
+            if ($inputEntry.Value -is [System.Collections.IDictionary] -and $inputEntry.Value.Contains('type')) {
+                $inputType = [string]$inputEntry.Value['type']
+            }
+            if ($declared.ContainsKey($inputName)) {
+                $declared[$inputName] = @($declared[$inputName]) + $inputType
+            }
+            else {
+                $declared[$inputName] = @($inputType)
+            }
+        }
+    }
+
+    return $declared
+}
+
+function Test-IsUnsafeWorkflowInputExpression {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Expression,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [hashtable]$DeclaredInputs
+    )
+
+    # A workflow input carries caller- or contributor-supplied text into generated shell or
+    # script source. The safe pattern is a step-level env mapping read through native shell
+    # syntax, so any inputs reference inside an execution context is a deviation from it.
+    # Every reference in the expression is classified, because a compound form such as
+    # "inputs.max-age-days || inputs.path" is unsafe when any referenced input is unsafe.
+    $inputMatches = [System.Text.RegularExpressions.Regex]::Matches($Expression, '(?:^|\W)inputs\.([A-Za-z0-9_-]+)')
+    if ($inputMatches.Count -eq 0) {
+        return $false
+    }
+
+    foreach ($inputMatch in $inputMatches) {
+        $inputName = $inputMatch.Groups[1].Value
+        if ($null -eq $DeclaredInputs -or -not $DeclaredInputs.ContainsKey($inputName)) {
+            # An undeclared reference cannot be shown to be type-validated, so treat it as unsafe.
+            return $true
+        }
+
+        # GitHub validates boolean and number inputs before the runner sees them, so they
+        # cannot carry shell metacharacters and are not a template-injection source. A name
+        # declared by several triggers is safe only when every declaration is validated.
+        $declaredTypes = @($DeclaredInputs[$inputName])
+        foreach ($declaredType in $declaredTypes) {
+            if ($declaredType -notin @('boolean', 'number')) {
+                return $true
+            }
         }
     }
 
@@ -335,6 +445,8 @@ function Invoke-DangerousWorkflowCheck {
             continue
         }
 
+        $declaredInputs = Get-WorkflowDeclaredInputType -Yaml $yaml
+
         $injectionSearchIndex = 0
         foreach ($jobEntry in $jobsNode.GetEnumerator()) {
             $jobName = [string]$jobEntry.Key
@@ -407,7 +519,9 @@ function Invoke-DangerousWorkflowCheck {
 
                 foreach ($candidate in $codeCandidates) {
                     foreach ($expression in Get-ExpressionMatches -Text $candidate.Text) {
-                        if (Test-IsUntrustedInjectionExpression -Expression $expression) {
+                        $isUntrustedEvent = Test-IsUntrustedInjectionExpression -Expression $expression
+                        $isUnsafeInput = Test-IsUnsafeWorkflowInputExpression -Expression $expression -DeclaredInputs $declaredInputs
+                        if ($isUntrustedEvent -or $isUnsafeInput) {
                             # Anchor on the actual interpolation so the reported line is the exact
                             # line containing the untrusted expression, independent of job/step
                             # iteration order (the parser returns an unordered hashtable).
@@ -427,7 +541,20 @@ function Invoke-DangerousWorkflowCheck {
                                 $injectionSearchIndex = $lineNumber
                             }
 
-                            $violation = New-DangerousWorkflowViolation -File $relativePath -Line $lineNumber -RuleId 'dangerous-workflow/template-injection' -Description "Untrusted expression '$expression' is interpolated into a code execution context in job '$jobName' step '$stepName'." -Remediation 'Avoid directly interpolating untrusted GitHub event or workflow-output values into shell or script blocks.' -JobName $jobName -StepName $stepName
+                            $violationDescription = if ($isUnsafeInput) {
+                                "Workflow input expression '$expression' is interpolated into a code execution context in job '$jobName' step '$stepName'."
+                            }
+                            else {
+                                "Untrusted expression '$expression' is interpolated into a code execution context in job '$jobName' step '$stepName'."
+                            }
+                            $violationRemediation = if ($isUnsafeInput) {
+                                'Map the input to a step-level env variable and read it with native shell syntax instead of interpolating it into the run or script body.'
+                            }
+                            else {
+                                'Avoid directly interpolating untrusted GitHub event or workflow-output values into shell or script blocks.'
+                            }
+
+                            $violation = New-DangerousWorkflowViolation -File $relativePath -Line $lineNumber -RuleId 'dangerous-workflow/template-injection' -Description $violationDescription -Remediation $violationRemediation -JobName $jobName -StepName $stepName
                             $violations += $violation
                             break
                         }

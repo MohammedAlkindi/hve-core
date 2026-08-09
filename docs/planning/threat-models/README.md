@@ -3,7 +3,7 @@ title: Threat Models
 description: Machine-readable threat-model specs for HVE Core and the generators that consume them
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-07
+ms.date: 2026-08-08
 ms.topic: reference
 keywords:
   - threat model

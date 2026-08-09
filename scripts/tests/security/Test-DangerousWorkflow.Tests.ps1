@@ -222,6 +222,215 @@ jobs:
         $report.Violations | Should -HaveCount 0
     }
 
+    It 'flags a string workflow_call input interpolated into a run block' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'string-input-run' -WorkflowContent @'
+name: test
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: true
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ inputs.working-directory }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'string-input-run.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 1
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 1
+        $report.Violations[0].Metadata.RuleId | Should -Be 'dangerous-workflow/template-injection'
+        $report.Violations[0].Description | Should -BeLike '*working-directory*'
+    }
+
+    It 'flags a string workflow input interpolated into a github-script block' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'string-input-script' -WorkflowContent @'
+name: test
+on:
+  workflow_call:
+    inputs:
+      label:
+        required: true
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            console.log("${{ inputs.label }}")
+'@
+
+        $outputPath = Join-Path $TestDrive 'string-input-script.json'
+        Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath | Out-Null
+
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 1
+    }
+
+    It 'flags an undeclared input interpolated into a run block' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'undeclared-input' -WorkflowContent @'
+name: test
+on:
+  workflow_call:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ inputs.mystery }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'undeclared-input.json'
+        Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath | Out-Null
+
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 1
+    }
+
+    It 'does not flag a <Type> input that GitHub validates before the runner' -ForEach @(
+        @{ Type = 'boolean'; Default = 'false' }
+        @{ Type = 'number'; Default = '30' }
+    ) {
+        $workflow = @"
+name: test
+on:
+  workflow_call:
+    inputs:
+      threshold:
+        required: false
+        type: $Type
+        default: $Default
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "`${{ inputs.threshold }}"
+"@
+
+        $fixturePath = New-DangerousWorkflowFixture -Name "typed-input-$Type" -WorkflowContent $workflow
+        $outputPath = Join-Path $TestDrive "typed-input-$Type.json"
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 0
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 0
+    }
+
+    It 'does not flag a typed workflow_dispatch input used in a compound expression' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'dispatch-typed-input' -WorkflowContent @'
+name: test
+on:
+  workflow_dispatch:
+    inputs:
+      max-age-days:
+        required: false
+        type: number
+        default: 30
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ inputs.max-age-days || 30 }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'dispatch-typed-input.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 0
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 0
+    }
+
+    It 'does not flag a string input routed through a step-level env mapping' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'safe-env-input' -WorkflowContent @'
+name: test
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: true
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        run: echo "$INPUT_WORKING_DIRECTORY"
+'@
+
+        $outputPath = Join-Path $TestDrive 'safe-env-input.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 0
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 0
+    }
+
+    It 'flags a compound expression when any referenced input is unsafe' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'compound-mixed-input' -WorkflowContent @'
+name: test
+on:
+  workflow_call:
+    inputs:
+      safe:
+        required: false
+        type: number
+        default: 30
+      unsafe:
+        required: true
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ inputs.safe || inputs.unsafe }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'compound-mixed-input.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 1
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 1
+    }
+
+    It 'flags an input whose type is only validated under one declaring trigger' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'conflicting-trigger-input' -WorkflowContent @'
+name: test
+on:
+  workflow_call:
+    inputs:
+      shared:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      shared:
+        required: false
+        type: number
+        default: 30
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ inputs.shared }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'conflicting-trigger-input.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 1
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 1
+    }
+
     It 'continues scanning when one workflow file is malformed YAML' {
         $fixturePath = Join-Path $TestDrive 'malformed-yaml'
         New-Item -ItemType Directory -Path $fixturePath -Force | Out-Null

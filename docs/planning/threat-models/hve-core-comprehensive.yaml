@@ -1295,6 +1295,39 @@ threats:
     mitigation_ids: [AC-2, AC-3, CQ-2, CQ-3]
     properties:
       Priority: Medium
+  - id: T-3
+    asset_ids: [asset-secrets]
+    target_ref: comp-workflows
+    interaction_ref: flow-05
+    category: tampering
+    title: Script injection via workflow inputs
+    description: A workflow input interpolated directly into a shell command can alter command structure and execute unintended instructions on the workflow runner.
+    state: Mitigated
+    citations: { stride: [T, E], nist: [SI-10, SA-15], mitre: [CWE-94] }
+    mitigation_ids: [CQ-6, CQ-7, CQ-8, CQ-9]
+    notes: "Traceability: repository-derived project directory to dynamic matrix to reusable-workflow input"
+    properties:
+      Priority: Low
+      UserThreatDescription: >-
+        A workflow input interpolated directly into a shell command can alter command structure and
+        execute unintended instructions on the workflow runner. TRACED PATH: a project discovery step
+        enumerated directories from the checked-out pull-request head, published them as a JSON matrix,
+        and five reusable workflows interpolated the resulting value inside run blocks, so a directory
+        name containing a shell metacharacter reached a shell context. CONTROLS NOW IN PLACE: every
+        string-typed or undeclared input is carried through a step-level env mapping and read with
+        native shell syntax, so the value reaches the shell as data; repository-derived project paths
+        are validated at all four discovery steps before any matrix is emitted; the blocking
+        dangerous-workflow gate reports direct interpolation of any string-typed or undeclared
+        input, classifying every input an expression references; fork pull requests require
+        maintainer approval before executing. CONTROL BOUNDARIES: on the pull-request path the path
+        guard is part of the contributor's own checkout, so environment isolation rather than the
+        guard is the control that holds there; fork approval binds outside contributors but not
+        write-access collaborators; inputs GitHub validates as boolean or number are exempt from the
+        gate because they cannot carry shell metacharacters; neither detector performs general taint
+        analysis, so an indirect derivation through matrix, needs, steps, or env is undetected by
+        design. CodeQL is not credited with detecting this pattern because its query models untrusted
+        sources as github.event values. Data sensitivity: confidential (Repository secrets and
+        workflow tokens).
   - id: R-1
     target_ref: comp-repo
     interaction_ref: flow-04
@@ -3014,6 +3047,26 @@ mitigations:
     description: Validate-MarkdownFrontmatter.ps1 enforces artifact schema.
     target_refs: [comp-artifacts]
     citations: { nist: [SA-11] }
+  - id: CQ-6
+    name: Workflow input isolation
+    description: Step-level env mappings carry workflow inputs into run blocks as data read through native shell syntax.
+    target_refs: [comp-workflows]
+    citations: { nist: [SI-10] }
+  - id: CQ-7
+    name: Project path validation
+    description: Assert-WorkflowProjectDirectory.ps1 rejects unsafe repository-derived project paths before matrix output.
+    target_refs: [comp-workflows]
+    citations: { nist: [SI-10] }
+  - id: CQ-8
+    name: Input interpolation detection
+    description: Test-DangerousWorkflow.ps1 blocks direct interpolation of untyped workflow inputs into execution contexts.
+    target_refs: [comp-workflows]
+    citations: { nist: [SA-11] }
+  - id: CQ-9
+    name: Fork workflow approval
+    description: Repository Actions settings require maintainer approval before a fork pull request executes any workflow.
+    target_refs: [comp-workflows]
+    citations: { nist: [AC-3] }
   - id: AC-1
     name: Branch protection
     description: Repository branch protection with no bypass and required reviewers.

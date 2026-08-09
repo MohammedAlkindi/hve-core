@@ -3,7 +3,7 @@ title: Security Assurance Case and Security Model
 description: Comprehensive security model and security assurance documentation demonstrating enterprise security practices
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-07
+ms.date: 2026-08-08
 ms.topic: reference
 keywords:
   - security
@@ -27,17 +27,17 @@ HVE Core is an enterprise prompt engineering framework for GitHub Copilot consis
 Most of the repository contains no runtime services, databases, or user data storage and is targeted primarily by supply chain and developer workflow threats.
 The Mural skill is the exception: it executes locally, holds OAuth tokens in the OS keyring (or an encrypted file fallback), and makes authenticated requests to a third-party SaaS.
 Threats specific to that runtime are analyzed in the [OAuth Authentication Threats](#oauth-authentication-threats) and [MCP Server Trust Analysis](#mcp-server-trust-analysis) sections.
-Security relies on defense-in-depth with 21+ automated controls validated through CI/CD pipelines.
+Security relies on defense-in-depth with 25+ automated controls validated through CI/CD pipelines.
 
 ### Security Posture Overview
 
 | Category                 | Status  | Control Count | Automated |
 |--------------------------|---------|---------------|-----------|
-| Supply Chain Security    | Strong  | 8 controls    | 100%      |
-| Code Quality             | Strong  | 6 controls    | 100%      |
+| Supply Chain Security    | Strong  | 9 controls    | 100%      |
+| Code Quality             | Strong  | 9 controls    | 100%      |
 | Access Control           | Strong  | 4 controls    | 100%      |
 | Vulnerability Management | Strong  | 3 controls    | 100%      |
-| Total                    | **21+** | **21**        | **100%**  |
+| Total                    | **25+** | **25**        | **100%**  |
 
 ## Contents
 
@@ -240,16 +240,59 @@ This section documents threats using [STRIDE](https://learn.microsoft.com/azure/
 
 #### T-3: Script Injection via Workflow Inputs
 
-| Field             | Value                                                                                                                                                                       |
-|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Category**      | Tampering / Elevation of Privilege                                                                                                                                          |
-| **Asset**         | GitHub Actions `run:` steps                                                                                                                                                 |
-| **Threat**        | A caller-controlled `workflow_call` input interpolated directly into a shell command can alter command structure and execute unintended instructions on the workflow runner |
-| **Likelihood**    | Low (requires a caller able to invoke the reusable workflow with crafted input)                                                                                             |
-| **Impact**        | Medium (command execution is limited by the runner and job permissions but can affect build integrity)                                                                      |
-| **Mitigations**   | Route user-controlled expressions through step-level `env:` variables and reference native shell variables inside `run:` blocks; CodeQL `actions/code-injection` scanning   |
-| **Residual Risk** | Low to Medium while any legacy inline input interpolation remains                                                                                                           |
-| **Status**        | Partially Mitigated                                                                                                                                                         |
+| Field                      | Value                                                                                                                                                                                                                                                             |
+|----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Category**               | Tampering / Elevation of Privilege                                                                                                                                                                                                                                |
+| **Asset**                  | GitHub Actions `run:` and `github-script` steps                                                                                                                                                                                                                   |
+| **Threat**                 | A workflow input interpolated directly into a shell command can alter command structure and execute unintended instructions on the workflow runner                                                                                                                |
+| **Likelihood**             | Low (fork execution requires maintainer approval; the reachable payload is a directory name rather than reviewable code)                                                                                                                                          |
+| **Impact**                 | Low (the reachable jobs already execute the pull request's own code under `contents: read` with no secrets, so injection grants no privilege the actor lacks)                                                                                                     |
+| **Mitigations**            | Environment-variable isolation of every string-typed or undeclared input (CQ-6); repository-derived project-path validation at all four discovery steps (CQ-7); deviation detection in the blocking dangerous-workflow gate (CQ-8); fork workflow approval (CQ-9) |
+| **Residual Risk**          | Low                                                                                                                                                                                                                                                               |
+| **Status**                 | Mitigated                                                                                                                                                                                                                                                         |
+| **Source**                 | NIST SP 800-53 SI-10, SA-15; [CWE-94](https://cwe.mitre.org/data/definitions/94.html); [GitHub Actions secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)                                                                    |
+| **Trust Boundary Crossed** | Repository Contents ↔ GitHub Actions Runner                                                                                                                                                                                                                       |
+| **Detection**              | `dangerous-workflow/template-injection` findings in PR validation and the Security tab                                                                                                                                                                            |
+
+##### Traced path
+
+The reachable instance of this threat ran from repository content to a shell context in three
+hops. A project discovery step enumerated directories containing `pyproject.toml` from the
+checked-out pull-request head and published the directory names as a JSON matrix through
+`GITHUB_OUTPUT`. `fromJson` decoded that output into `matrix.directory`, which was forwarded
+as the `working-directory` input to five reusable workflows. Those workflows interpolated the
+input inside `run:` blocks, including single-quoted PowerShell assignments and a Bash command
+substitution writing to `GITHUB_OUTPUT`. A contributor therefore controlled the value by
+adding a directory whose *name* contained a shell metacharacter. JSON encoding protected the
+output write but decoded before the downstream interpolation, so it did not protect the
+consuming step.
+
+##### Control layering and its boundaries
+
+CQ-6 is the control that holds on the pull-request path, because an input read from a step-level
+environment variable reaches the shell as data and is never parsed as command structure. CQ-7
+rejects the hostile value earlier and is authoritative on merged-content paths, but on a pull
+request the guard is part of the contributor's own checkout and is therefore a fail-fast signal
+and a review artifact rather than a boundary against that contributor. CODEOWNERS review of
+`/scripts/` and `/.github/` (AC-2) prevents a weakened guard from reaching the default branch.
+CQ-9 prevents an unapproved fork pull request from executing at all, but it binds outside
+contributors only and reviews a code diff, which is a weak signal against a payload carried in
+a directory name.
+
+##### Detection boundary
+
+CodeQL's `actions/code-injection` query models untrusted sources as `github.event.*` values and
+did not report this pattern, so CQ-1 is not credited with T-3 coverage. CQ-8 closes that gap for
+direct input interpolation. Neither control performs general taint analysis, so an indirect
+derivation through `matrix`, `needs`, `steps`, or `env` remains undetected by design.
+
+##### Latent surface (sub-case)
+
+`footer-exclude-paths`, `dependency-types`, and the numeric `fuzz-runs` are declared and
+interpolated but are supplied by no current caller. They were unreachable by wiring rather than
+by control, and a future caller passing a tainted value would have activated them. The two
+string-typed inputs are now covered by CQ-6 and CQ-8. `fuzz-runs` is declared `number`, so
+GitHub validates it before the runner receives it and it is outside the injection class.
 
 #### R-1: Untraceable Configuration Changes
 
@@ -2016,25 +2059,54 @@ The merge commit author is the accountable author of record, never the agent.
 
 ### Code Quality Controls
 
-| ID   | Control                  | Implementation                                          | Validates Against |
-|------|--------------------------|---------------------------------------------------------|-------------------|
-| CQ-1 | CodeQL Analysis          | codeql-analysis.yml                                     | T-1, T-3, E-1     |
-| CQ-2 | Markdown Linting         | lint:md npm script                                      | T-2, RAI-4        |
-| CQ-3 | Frontmatter Validation   | Validate-MarkdownFrontmatter.ps1                        | T-2               |
-| CQ-4 | PowerShell Analysis      | Invoke-PSScriptAnalyzer.ps1                             | T-1               |
-| CQ-5 | YAML Linting             | Invoke-YamlLint.ps1                                     | T-1               |
-| CQ-6 | Workflow Input Isolation | Step-level `env:` mappings for caller-controlled inputs | T-3               |
+| ID   | Control                       | Implementation                                          | Validates Against |
+|------|-------------------------------|---------------------------------------------------------|-------------------|
+| CQ-1 | CodeQL Analysis               | codeql-analysis.yml                                     | T-1, E-1          |
+| CQ-2 | Markdown Linting              | lint:md npm script                                      | T-2, RAI-4        |
+| CQ-3 | Frontmatter Validation        | Validate-MarkdownFrontmatter.ps1                        | T-2               |
+| CQ-4 | PowerShell Analysis           | Invoke-PSScriptAnalyzer.ps1                             | T-1               |
+| CQ-5 | YAML Linting                  | Invoke-YamlLint.ps1                                     | T-1               |
+| CQ-6 | Workflow Input Isolation      | Step-level `env:` mappings for caller-controlled inputs | T-3               |
+| CQ-7 | Project Path Validation       | Assert-WorkflowProjectDirectory.ps1                     | T-3               |
+| CQ-8 | Input Interpolation Detection | Test-DangerousWorkflow.ps1                              | T-3               |
+| CQ-9 | Fork Workflow Approval        | Repository Actions settings                             | T-3               |
 
 CQ-6 keeps GitHub expression evaluation out of shell command text. A workflow maps an
 input such as `${{ inputs.version }}` to an environment variable, then reads the shell's
-native variable (`$INPUT_VERSION` or `$env:INPUT_VERSION`) inside the `run:` block.
-Matrix values generated from repository-controlled configuration do not cross the same
-caller-controlled boundary. The extension packaging workflow applies this pattern to
-version, development-patch, and channel inputs. Other reusable workflows still
-interpolate workflow-call inputs directly inside `run:` blocks, so T-3 remains Partially
-Mitigated. CodeQL provides `actions/code-injection` detection for supported patterns;
-the homegrown dangerous-workflow gate currently covers selected event and workflow-output
-expressions rather than enforcing CQ-6 for workflow-call inputs across the fleet.
+native variable (`$INPUT_VERSION` or `$env:INPUT_VERSION`) inside the `run:` block. The
+value then reaches the shell as data and is never parsed as command structure, which is
+why this control does not depend on filtering the value first. Every workflow that
+interpolates a string-typed or undeclared input into executable content now applies the
+pattern. Inputs declared `boolean` or `number` are validated by GitHub before the runner
+receives them and cannot carry command structure.
+
+CQ-7 validates repository-derived project directories at the four discovery steps that
+build dynamic job matrices, in `pr-validation.yml`, `release-stable.yml`, and
+`weekly-validation.yml`. A candidate must be `.` or a normalized repository-relative POSIX
+path drawn from `[A-Za-z0-9._/-]`; absolute paths, backslashes, control characters, shell
+metacharacters, empty segments, and traversal segments are rejected. The complete candidate
+list is validated before any matrix output is written, so one rejected directory fails the
+discovery job closed rather than publishing a partial matrix. On merged-content paths this
+is an integrity control. On the pull-request path the guard is part of the contributor's
+own checkout, so it acts as a fail-fast signal and a conspicuous review artifact rather than
+a boundary against that contributor; CQ-6 is the control that holds there.
+
+CQ-8 extends the homegrown dangerous-workflow gate to report a workflow input interpolated
+directly into a `run:` or `actions/github-script` `script:` block. Input declarations are
+resolved from every trigger that declares them, so a `workflow_dispatch` input is treated
+the same as a `workflow_call` input, and typed `boolean` and `number` inputs are not
+reported. Every input reference inside an expression is classified, so a compound form such
+as `${{ inputs.a || inputs.b }}` is reported when any referenced input is unsafe; a name
+declared by more than one trigger is exempt only when every declaration is typed `boolean`
+or `number`. The rule detects deviation from the CQ-6 pattern rather than performing general
+taint analysis, so indirect derivations through `matrix`, `needs`, `steps`, and `env`
+remain out of scope and are documented as such.
+
+CQ-9 is a repository Actions setting requiring maintainer approval before a fork pull
+request executes any workflow. It is recorded here on the attestation of the repository
+owner rather than from an API read. It binds outside contributors; a collaborator with
+write access opens a pull request without that approval step, so CQ-9 narrows exposure
+rather than removing it.
 
 ### Access Controls
 
@@ -2092,7 +2164,7 @@ G0: HVE Core is acceptably secure for its intended use as an enterprise prompt e
 
 HVE Core achieves acceptable security through:
 
-1. Automated Controls: 21+ security controls execute automatically via CI/CD
+1. Automated Controls: 25+ security controls execute automatically via CI/CD
 2. Defense-in-Depth: Multiple overlapping controls for critical threats
 3. Transparent Risk Acceptance: AI-inherent risks documented with clear boundaries
 4. Inherited Security: Uses GitHub and Copilot platform security
