@@ -389,11 +389,11 @@ function Test-AssetDocStructure {
 
     $findings = @()
 
-    $required = @('## What it does', '## When to use it', '## Example usage')
-    if ($Model.Interactive) {
-        $required += '## How to use it'
-    }
-    foreach ($heading in $required) {
+    $requiredSections = @(Get-AssetDocSectionContract | Where-Object {
+            (Resolve-AssetDocSectionStatus -Section $_ -Kind $Model.Kind -Interactive $Model.Interactive) -eq 'Required'
+        })
+    foreach ($section in $requiredSections) {
+        $heading = $section.Heading
         $pattern = '(?m)^' + [regex]::Escape($heading) + '\s*$'
         if ($Content -notmatch $pattern) {
             $findings += New-AssetDocFinding -Level 'Error' -Category 'Structure' -Path $Model.DocRel -Message "Missing required section '$heading'."

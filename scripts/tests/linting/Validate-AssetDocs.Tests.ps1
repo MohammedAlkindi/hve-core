@@ -224,6 +224,20 @@ Describe 'Test-AssetDocStructure' -Tag 'Unit' {
         ($findings | Where-Object { $_.Category -eq 'Structure' -and $_.Message -match 'Example usage' }) | Should -Not -BeNullOrEmpty
     }
 
+    It 'Derives every required heading from the shared contract' {
+        $requiredSections = @(Get-AssetDocSectionContract | Where-Object {
+                (Resolve-AssetDocSectionStatus -Section $_ -Kind $script:instrModel.Kind -Interactive $script:instrModel.Interactive) -eq 'Required'
+            })
+
+        foreach ($section in $requiredSections) {
+            $broken = $script:instrContent -replace [regex]::Escape($section.Heading), '## Renamed'
+            $findings = @(Test-AssetDocStructure -Model $script:instrModel -Content $broken)
+
+            ($findings | Where-Object { $_.Message -match [regex]::Escape($section.Heading) }) |
+                Should -Not -BeNullOrEmpty
+        }
+    }
+
     It 'Requires the How to use section for interactive assets' {
         $script:agentModel.Interactive | Should -BeTrue
         $broken = $script:agentContent -replace '## How to use it', '## Something else'
