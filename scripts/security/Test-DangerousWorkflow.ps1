@@ -108,7 +108,9 @@ function Get-ExpressionMatches {
         return @()
     }
 
-    $expressionMatchList = [System.Text.RegularExpressions.Regex]::Matches($Text, '\$\{\{\s*(.*?)\s*\}\}')
+    # Singleline lets the capture cross newlines. GitHub accepts an expression whose body
+    # is split across lines, and without this option such an expression is never matched.
+    $expressionMatchList = [System.Text.RegularExpressions.Regex]::Matches($Text, '\$\{\{\s*(.*?)\s*\}\}', [System.Text.RegularExpressions.RegexOptions]::Singleline)
     return @($expressionMatchList | ForEach-Object { $_.Groups[1].Value.Trim() })
 }
 
@@ -579,7 +581,8 @@ function Invoke-DangerousWorkflowCheck {
                                 $injectionSearchIndex = $lineNumber
                             }
 
-                            $violation = New-DangerousWorkflowViolation -File $relativePath -Line $lineNumber -RuleId 'dangerous-workflow/template-injection' -Description "Untrusted expression '$expression' is interpolated into a code execution context in job '$jobName' step '$stepName'." -Remediation 'Avoid directly interpolating untrusted GitHub event or workflow-output values into shell or script blocks.' -JobName $jobName -StepName $stepName
+                            $reportedExpression = $expression -replace '\s+', ' '
+                            $violation = New-DangerousWorkflowViolation -File $relativePath -Line $lineNumber -RuleId 'dangerous-workflow/template-injection' -Description "Untrusted expression '$reportedExpression' is interpolated into a code execution context in job '$jobName' step '$stepName'." -Remediation 'Avoid directly interpolating untrusted GitHub event or workflow-output values into shell or script blocks.' -JobName $jobName -StepName $stepName
                             $violations += $violation
                             break
                         }

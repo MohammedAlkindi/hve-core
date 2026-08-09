@@ -744,4 +744,80 @@ runs:
             { Invoke-DangerousWorkflowCheck -Path $missingRoot -Format json -OutputPath $outputPath } | Should -Throw
         }
     }
+
+    Context 'Expressions spanning multiple lines' {
+        It 'flags an input reference in an expression whose body spans lines' {
+            $fixturePath = New-DangerousWorkflowFixture -Name 'multiline-expression-input' -WorkflowContent @'
+name: test
+on:
+  workflow_call:
+    inputs:
+      flag:
+        type: boolean
+      target:
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: bash
+        run: |
+          echo "${{ inputs.flag
+            && inputs.target
+            || inputs.target }}"
+'@
+
+            $outputPath = Join-Path $TestDrive 'multiline-expression-input.json'
+            Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath | Out-Null
+
+            $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+            $report.Violations | Should -HaveCount 1
+            $report.Violations[0].Metadata.RuleId | Should -Be 'dangerous-workflow/direct-input-interpolation'
+            $report.Violations[0].Description | Should -Match 'inputs.target'
+        }
+
+        It 'flags an untrusted event value in an expression whose body spans lines' {
+            $fixturePath = New-DangerousWorkflowFixture -Name 'multiline-expression-event' -WorkflowContent @'
+name: test
+on:
+  pull_request_target:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "${{ github.event.pull_request.title
+            || 'fallback' }}"
+'@
+
+            $outputPath = Join-Path $TestDrive 'multiline-expression-event.json'
+            Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath | Out-Null
+
+            $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+            $report.Violations | Should -HaveCount 1
+            $report.Violations[0].Metadata.RuleId | Should -Be 'dangerous-workflow/template-injection'
+        }
+
+        It 'reports a multi-line expression on a single line' {
+            $fixturePath = New-DangerousWorkflowFixture -Name 'multiline-expression-report' -WorkflowContent @'
+name: test
+on:
+  pull_request_target:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "${{ github.event.issue.title
+            || 'fallback' }}"
+'@
+
+            $outputPath = Join-Path $TestDrive 'multiline-expression-report.json'
+            Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath | Out-Null
+
+            $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+            $report.Violations[0].Description | Should -Not -Match "`n"
+            $report.Violations[0].Description | Should -Match "github.event.issue.title \|\| 'fallback'"
+        }
+    }
 }
