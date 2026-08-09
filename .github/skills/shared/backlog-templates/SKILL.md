@@ -7,7 +7,7 @@ compatibility: "Hosts: vscode, github-coding-agent. Reference-only templates; th
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0.0"
-  last_updated: "2026-05-09"
+  last_updated: "2026-08-09"
 ---
 
 # Backlog Templates

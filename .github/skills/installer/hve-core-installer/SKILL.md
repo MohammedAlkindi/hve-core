@@ -6,7 +6,7 @@ license: MIT
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-08-03"
+  last_updated: "2026-08-09"
 ---
 
 # HVE-Core Installer Skill
@@ -348,7 +348,7 @@ Would you like to proceed with this method, or see alternatives?
 
 ## Phase 4: Installation Methods
 
-Each supported installation path is documented end to end in [references/installation-methods.md](references/installation-methods.md). Select the path resolved by the decision matrix above and follow it there.
+Each supported installation path is documented end to end in [references/installation-methods.md](references/installation-methods.md). Select the path resolved by the decision matrix above and follow it there. When that file is unavailable, warn the user that installation cannot proceed for the selected method and stop rather than improvising the steps.
 
 ## Phase 5: Validation (Validator Persona)
 

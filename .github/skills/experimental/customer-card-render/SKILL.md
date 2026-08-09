@@ -6,7 +6,7 @@ compatibility: 'Requires Python 3.11+, uv, and the experimental powerpoint skill
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-04-21"
+  last_updated: "2026-08-09"
 ---
 
 # Customer Card Render Skill
@@ -113,16 +113,13 @@ For the section-to-field mapping contract and Use Case 3-slide layout details, s
 
 ### Step 2: Build PPTX using the PowerPoint skill pipeline
 
-Activate the `powerpoint` skill by name and run its `scripts/Invoke-PptxPipeline.ps1` from that skill's own directory:
+Activate the `powerpoint` skill by name and hand it the build, supplying these three inputs:
 
-```powershell
-<powerpoint-skill-dir>/scripts/Invoke-PptxPipeline.ps1 -Action Build `
-  -ContentDir .copilot-tracking/dt/<project-slug>/render/content `
-  -StylePath .copilot-tracking/dt/<project-slug>/render/content/global/style.yaml `
-  -OutputPath .copilot-tracking/dt/<project-slug>/render/output/customer-cards.pptx
-```
+* Content directory: `.copilot-tracking/dt/<project-slug>/render/content`
+* Style path: `.copilot-tracking/dt/<project-slug>/render/content/global/style.yaml`
+* Output path: `.copilot-tracking/dt/<project-slug>/render/output/customer-cards.pptx`
 
-The PowerShell orchestrator manages virtual environment setup and dependency installation automatically via `uv sync`. See the `powerpoint` skill for the full `Invoke-PptxPipeline.ps1` parameter reference, template usage, validation, and export options.
+The `powerpoint` skill owns the `Invoke-PptxPipeline.ps1` orchestrator, its parameter reference, template usage, validation, and export options, and it manages virtual environment setup and dependency installation automatically via `uv sync`. When that skill is unavailable, warn the user that the build step cannot run and stop rather than invoking the pipeline from a guessed location.
 
 ## DT Coach Integration
 

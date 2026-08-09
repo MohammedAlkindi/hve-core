@@ -6,7 +6,7 @@ compatibility: 'Requires uv, Python 3.11+, PowerShell 7+, and LibreOffice'
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-03-18"
+  last_updated: "2026-08-09"
 ---
 
 # PowerPoint Skill
