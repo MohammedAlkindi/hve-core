@@ -3,7 +3,7 @@ title: SBOM Verification
 description: Verify, download, and inspect the Software Bill of Materials published with each HVE Core release
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-08
+ms.date: 2026-08-09
 ms.topic: how-to
 keywords:
   - SBOM
@@ -25,11 +25,11 @@ the build.
 
 Each channel release publishes:
 
-| Asset                       | Channel               | Attestation topology                         |
-|-----------------------------|-----------------------|----------------------------------------------|
-| `<artifact>.spdx.json`      | Stable and PreRelease | SPDX predicate over its VSIX or ZIP subject  |
-| `dependencies.spdx.json`    | Stable and PreRelease | SPDX predicate over each VSIX or ZIP subject |
-| `hve-core.openvex.json`     | Stable only           | Separate VEX subject attestation             |
+| Asset                    | Channel               | Attestation topology                         |
+|--------------------------|-----------------------|----------------------------------------------|
+| `<artifact>.spdx.json`   | Stable and PreRelease | SPDX predicate over its VSIX or ZIP subject  |
+| `dependencies.spdx.json` | Stable and PreRelease | SPDX predicate over each VSIX or ZIP subject |
+| `hve-core.openvex.json`  | Stable only           | Separate VEX subject attestation             |
 
 The SBOM files are predicate payloads in the channel package workflows. They
 are not independently attested SPDX subjects. Stable additionally uses

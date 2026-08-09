@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-08-08
+ms.date: 2026-08-09
 ms.topic: overview
 ---
 
@@ -240,8 +240,8 @@ not a requirement of `MAJOR.MINOR.PATCH` syntax.
 `plugin-package-prerelease`, `generate-dependency-sbom`, `attest-and-upload`,
 `upload-plugin-packages`, `verify-provenance`, and `publish-release`.
 
-`release-stable-publish.yml` jobs: `release-please`, `sync-release-pr`,
-`validate-release`, `close-milestone`, `extension-provenance`,
+`release-stable-publish.yml` jobs: `validate-trigger`, `release-please`,
+`sync-release-pr`, `validate-release`, `close-milestone`, `extension-provenance`,
 `plugin-package-release`, `generate-dependency-sbom`,
 `upload-plugin-packages`, `vex-attest`, `verify-provenance`, `sbom-diff`,
 `append-verification-notes`, and `publish-release`.

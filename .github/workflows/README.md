@@ -98,22 +98,42 @@ Release-please creates the draft channel release at the reviewed managed merge, 
 
 Publication does not synchronize release metadata, changelog history, or catalog locators back to `main`. The ref-less main catalog omits `source.ref`; release-branch and exact-tag catalogs use their channel's exact immutable tag. An explicit marketplace refresh and plugin update are required for the ref-less main catalog, which has no release gate, SBOM, or attestation. Release-channel assets remain release-gated, SBOM-covered, and attested.
 
-Both release channels preserve the VSIX package, plugin-release-evidence.json, signed plugin ZIPs, SBOM, Sigstore, in-toto, provenance, attestation, verification, and Azure OIDC publication chain. Each Marketplace workflow passes its validated exact tag and the workflow that attested its VSIX to the generic publisher. The publisher downloads the release asset, verifies its attestation against that lane-specific signer, and then publishes through OIDC.
+Both release channels preserve the VSIX package, plugin-release-evidence.json, signed plugin ZIPs, SBOM, Sigstore, in-toto, provenance, attestation, verification, and Azure OIDC publication chain. Each Marketplace workflow passes its validated exact tag and the workflow that attested its VSIX to the generic publisher.
 
 The publisher's no-environment gate validates matrix structure, package-ID
 grammar and uniqueness, channel tag namespace and minor-version parity, and the
 lane-specific attestation signer before any Marketplace environment is
 activated.
 
-Marketplace matrix publication remains intentionally best-effort and
-non-atomic. The `fail-fast: false` strategy is configured to attempt every
-package even when another matrix leg fails. After a partial failure, the
-operator must inspect every matrix leg and reconcile or republish missing
-packages. The workflow provides neither transactionality nor rollback.
+Input validation resolves the immutable release and protected-main commits
+before Marketplace environment activation. Tag helpers run only in unprivileged
+verification jobs, and only current-attempt packages that pass attestation
+verification enter the protected publication matrix. Another unprivileged job
+prepares the minimal locked `vsce` toolchain from the resolved protected-main
+commit. Protected publish jobs consume only immutable VSIX and toolchain
+artifacts, re-verify exact provenance, then obtain Azure OIDC and invoke `vsce`
+directly.
 
-Republication is supported only for reviewed channel tags whose tagged source
-includes the current publisher scripts and helpers and satisfies the current
-dependency contract. Earlier historical tags are unsupported.
+Verification and publication are independently best-effort. Failed verification
+creates no publish leg, while successfully verified packages can still publish;
+publication legs likewise continue after another publish failure. Operators
+must inspect both verify and publish jobs and reconcile missing Marketplace
+versions. Recovery requires **Re-run all jobs** so the new run attempt recreates
+its immutable VSIX and toolchain artifacts; **Re-run failed jobs** cannot reuse
+artifacts from an earlier attempt. The workflow provides no transaction or
+rollback.
+
+A historical `release: published` run uses workflow code from that historical
+tag. The new privilege split applies to historical republication only when
+`workflow_dispatch` is run from a ref containing the new workflow. Under that
+precondition, historical republication no longer requires the tag's dependency
+manifest to match current publishing dependencies. The tag must remain
+compatible with unprivileged release-asset identity and selection and carry
+valid lane-specific attestations. This split contains stale historical tag code,
+but it cannot protect against an actor who can author or move the tag-loaded
+workflow itself.
+Tag protection, Marketplace environment reviewers, and Azure OIDC claim policy
+remain external controls.
 
 ### Release Version Allocation
 

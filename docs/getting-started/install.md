@@ -3,7 +3,7 @@ title: Installing HVE Core
 description: Install a catalog-selected HVE Core extension or plugin, or adopt selected components from a clone
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-08
+ms.date: 2026-08-09
 ms.topic: how-to
 keywords: [installation, setup, github copilot, marketplace, selective clone]
 estimated_reading_time: 4
@@ -90,13 +90,13 @@ release branches that advance through `main` to `release/prerelease` to
 `release/stable`. An exact channel tag freezes one release catalog and its
 source payloads.
 
-| Use case             | Marketplace registration                         | Catalog resolution                                            |
-|----------------------|--------------------------------------------------|---------------------------------------------------------------|
-| Development tip      | `microsoft/hve-core`                             | Current `main` catalog; entries omit `source.ref`              |
-| Moving PreRelease    | `microsoft/hve-core#release/prerelease`          | Current branch catalog; entries pin `prerelease-v<version>`    |
-| Moving Stable        | `microsoft/hve-core#release/stable`              | Current branch catalog; entries pin `v<version>`               |
-| Immutable PreRelease | `microsoft/hve-core#prerelease-v<version>`       | One exact PreRelease catalog and tag                           |
-| Immutable Stable     | `microsoft/hve-core#v<version>`                  | One exact Stable catalog and tag                               |
+| Use case             | Marketplace registration                   | Catalog resolution                                          |
+|----------------------|--------------------------------------------|-------------------------------------------------------------|
+| Development tip      | `microsoft/hve-core`                       | Current `main` catalog; entries omit `source.ref`           |
+| Moving PreRelease    | `microsoft/hve-core#release/prerelease`    | Current branch catalog; entries pin `prerelease-v<version>` |
+| Moving Stable        | `microsoft/hve-core#release/stable`        | Current branch catalog; entries pin `v<version>`            |
+| Immutable PreRelease | `microsoft/hve-core#prerelease-v<version>` | One exact PreRelease catalog and tag                        |
+| Immutable Stable     | `microsoft/hve-core#v<version>`            | One exact Stable catalog and tag                            |
 
 A moving release registration selects the catalog currently committed to its
 reviewed branch. Every entry in that catalog points to the corresponding exact

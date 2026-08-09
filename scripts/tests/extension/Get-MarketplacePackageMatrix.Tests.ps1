@@ -239,10 +239,13 @@ Describe 'Package matrix workflow consumers' -Tag 'Unit' {
         $script:EmittedKeys = @((Get-MarketplacePackageMatrixCore -Channel PreRelease -CatalogPath $script:RepositoryCatalogPath).MatrixItems[0].Keys)
     }
 
+    # The reusable publisher's `verify` job is the direct `inputs.packages-matrix`
+    # consumer; `publish` fans out over the verification-derived
+    # `needs.collect.outputs.verified-matrix`, which is not a caller input.
     It 'Finds every workflow job that consumes a discovered package matrix' {
         @($script:Consumers).Count | Should -BeGreaterThan 0
         @($script:Consumers | ForEach-Object { "$($_.Workflow)/$($_.Job)" } | Sort-Object) | Should -Be @(
-            'extension-marketplace-publish.yml/publish'
+            'extension-marketplace-publish.yml/verify'
             'extension-package.yml/package'
             'extension-provenance.yml/build-attest'
             'plugin-package.yml/package'
@@ -257,7 +260,7 @@ Describe 'Package matrix workflow consumers' -Tag 'Unit' {
     }
 
     It 'References only emitted matrix keys in <Workflow>/<Job>' -ForEach @(
-        @{ Workflow = 'extension-marketplace-publish.yml'; Job = 'publish' }
+        @{ Workflow = 'extension-marketplace-publish.yml'; Job = 'verify' }
         @{ Workflow = 'extension-package.yml'; Job = 'package' }
         @{ Workflow = 'extension-provenance.yml'; Job = 'build-attest' }
         @{ Workflow = 'plugin-package.yml'; Job = 'package' }

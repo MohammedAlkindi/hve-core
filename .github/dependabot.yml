@@ -5,6 +5,7 @@ updates:
   directories:
   - /
   - /docs/docusaurus
+  - /scripts/extension/marketplace-publisher
   groups:
     npm-dependencies:
       patterns:

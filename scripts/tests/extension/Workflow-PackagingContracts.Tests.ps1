@@ -6,6 +6,7 @@ BeforeAll {
     # MarketplaceHelpers reloads its nested ArtifactHelpers dependency, so shared
     # modules load before the scripts whose own imports settle the session state.
     Import-Module (Join-Path $PSScriptRoot '../../lib/Modules/MarketplaceHelpers.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot '../../extension/Modules/ExtensionIdentity.psm1') -Force
     . (Join-Path $PSScriptRoot '../../extension/Get-MarketplacePackageMatrix.ps1')
     . (Join-Path $PSScriptRoot '../../extension/Package-Extension.ps1')
 
@@ -295,28 +296,45 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         @($steps | Where-Object { $_ -match "PackageId\s+=\s+\`$packageId" }) | Should -HaveCount 1
     }
 
+    # Tag-sourced selection, identity, and release download now execute in the
+    # unprivileged verify job, so each contract follows the step it owns.
     It 'Selects the release VSIX by package ID during publish' {
-        $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name 'extension-marketplace-publish.yml') -JobName 'publish'
-        @($steps | Where-Object { $_ -match 'Select-PackageVsix\.ps1 -AssetDirectory \$env:ASSET_DIRECTORY -PackageId \$env:PACKAGE_ID' }) | Should -HaveCount 1
+        $document = Get-WorkflowDocument -Name 'extension-marketplace-publish.yml'
+        $verifySteps = Get-JobStepText -Document $document -JobName 'verify'
+        @($verifySteps | Where-Object { $_ -match 'Select-PackageVsix\.ps1 -AssetDirectory \$env:ASSET_DIRECTORY -PackageId \$env:PACKAGE_ID' }) | Should -HaveCount 1
+        @((Get-JobStepText -Document $document -JobName 'publish') | Where-Object { $_ -match 'Select-PackageVsix\.ps1' }) | Should -HaveCount 0
     }
 
     It 'Resolves the extension identity from the shared module during publish' {
-        $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name 'extension-marketplace-publish.yml') -JobName 'publish'
-        @($steps | Where-Object { $_ -match 'scripts/extension/Modules/ExtensionIdentity\.psm1' }) | Should -HaveCount 1
-        @($steps | Where-Object { $_ -match 'EXTENSION_NAME=\$identity' }) | Should -HaveCount 1
+        $document = Get-WorkflowDocument -Name 'extension-marketplace-publish.yml'
+        $verifySteps = Get-JobStepText -Document $document -JobName 'verify'
+        @($verifySteps | Where-Object { $_ -match 'scripts/extension/Modules/ExtensionIdentity\.psm1' }) | Should -HaveCount 1
+        @($verifySteps | Where-Object { $_ -match 'VSIX_ASSET_GLOB=\$\(Get-ExtensionVsixGlob' }) | Should -HaveCount 1
+
+        # The protected job binds its leg identity inline from the already
+        # validated matrix ID instead of importing a tag-sourced helper.
+        $publishSteps = Get-JobStepText -Document $document -JobName 'publish'
+        @($publishSteps | Where-Object { $_ -match '\.psm1|Get-ExtensionIdentity|Get-ExtensionVsixGlob' }) | Should -HaveCount 0
+        @($publishSteps | Where-Object { $_ -match ([regex]::Escape('EXTENSION_NAME="hve-$PACKAGE_ID"')) }) | Should -HaveCount 1
     }
 
     It 'Downloads release assets with an identity-scoped glob' {
-        $text = Get-WorkflowText -Name 'extension-marketplace-publish.yml'
-        $text | Should -Match 'gh release download .* --pattern "\$env:VSIX_ASSET_GLOB"'
-        $text | Should -Not -Match '--pattern "\*\$env:PACKAGE_ID\*\.vsix"'
+        $document = Get-WorkflowDocument -Name 'extension-marketplace-publish.yml'
+        @((Get-JobStepText -Document $document -JobName 'verify') |
+                Where-Object { $_ -match 'gh release download .* --pattern "\$env:VSIX_ASSET_GLOB"' }) | Should -HaveCount 1
+        @((Get-JobStepText -Document $document -JobName 'publish') | Where-Object { $_ -match 'gh release download' }) | Should -HaveCount 0
+        (Get-WorkflowText -Name 'extension-marketplace-publish.yml') | Should -Not -Match '--pattern "\*\$env:PACKAGE_ID\*\.vsix"'
     }
 
     It 'Publishes only from the marketplace publish workflow' {
         foreach ($workflow in @('extension-package.yml', 'extension-provenance.yml', 'plugin-package.yml')) {
-            (Get-WorkflowText -Name $workflow) | Should -Not -Match 'vsce publish'
+            (Get-WorkflowText -Name $workflow) | Should -Not -Match 'vsce publish|node_modules/\.bin/vsce'
         }
-        (Get-WorkflowText -Name 'extension-marketplace-publish.yml') | Should -Match 'vsce publish'
+        # The publisher invokes the extracted pinned binary directly, so the
+        # command text is a resolved path rather than a contiguous `vsce publish`.
+        $publishSteps = Get-JobStepText -Document (Get-WorkflowDocument -Name 'extension-marketplace-publish.yml') -JobName 'publish'
+        @($publishSteps | Where-Object { $_ -match ([regex]::Escape('arguments=(publish --packagePath "$VSIX_FILE" --azure-credential)')) }) | Should -HaveCount 1
+        @($publishSteps | Where-Object { $_ -match ([regex]::Escape('"$VSCE_BIN" "${arguments[@]}"')) }) | Should -HaveCount 1
     }
 
     It 'Publishes through Azure OIDC after verifying the attested release asset' {
@@ -329,9 +347,55 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         }
         $inputs.Contains('verify-attestation') | Should -BeFalse
 
-        $gateJob = $document['jobs']['validate-inputs']
-        $gateJob.Contains('environment') | Should -BeFalse
-        [string]$gateJob['permissions']['contents'] | Should -BeExactly 'read'
+        # Privilege separation: exactly five jobs, each with an exact permission
+        # set, and only the protected publisher holds an environment or OIDC.
+        $jobs = $document['jobs']
+        $expectedPermissions = [ordered]@{
+            'validate-inputs'   = @{ contents = 'read' }
+            'verify'            = @{ contents = 'read'; attestations = 'read' }
+            'collect'           = @{ contents = 'read' }
+            'prepare-publisher' = @{ contents = 'read' }
+            'publish'           = @{ contents = 'read'; attestations = 'read'; 'id-token' = 'write' }
+        }
+        [string[]]@($jobs.Keys) | Should -HaveCount $expectedPermissions.Count
+        foreach ($jobName in $expectedPermissions.Keys) {
+            $jobs.Contains($jobName) | Should -BeTrue -Because "$jobName owns one privilege tier"
+            $permissions = $jobs[$jobName]['permissions']
+            [string[]]@($permissions.Keys) | Should -HaveCount $expectedPermissions[$jobName].Count
+            foreach ($scope in $expectedPermissions[$jobName].Keys) {
+                [string]$permissions[$scope] | Should -BeExactly $expectedPermissions[$jobName][$scope]
+            }
+            # Same-run artifact discovery needs no listing scope, and the callers
+            # grant none, so no job may request one.
+            $permissions.Contains('actions') | Should -BeFalse
+        }
+        foreach ($jobName in @('validate-inputs', 'verify', 'collect', 'prepare-publisher')) {
+            $jobs[$jobName].Contains('environment') | Should -BeFalse
+            $jobs[$jobName]['permissions'].Contains('id-token') | Should -BeFalse
+        }
+        [string]$jobs['publish']['environment'] | Should -BeExactly 'marketplace'
+
+        # The needs context exposes outputs from direct dependencies only, so the
+        # exact direct set is asserted alongside the transitive closure.
+        $expectedNeeds = [ordered]@{
+            'verify'            = @('validate-inputs')
+            'collect'           = @('validate-inputs', 'verify')
+            'prepare-publisher' = @('validate-inputs', 'collect')
+            'publish'           = @('validate-inputs', 'collect', 'prepare-publisher')
+        }
+        $jobs['validate-inputs'].Contains('needs') | Should -BeFalse
+        foreach ($jobName in $expectedNeeds.Keys) {
+            [string[]]@($jobs[$jobName]['needs'] | Sort-Object) |
+                Should -Be ([string[]]@($expectedNeeds[$jobName] | Sort-Object))
+        }
+        $publishClosure = Get-JobNeedsClosure -Jobs $jobs -JobName 'publish'
+        foreach ($jobName in @('validate-inputs', 'verify', 'collect', 'prepare-publisher')) {
+            $publishClosure | Should -Contain $jobName
+        }
+
+        $gateJob = $jobs['validate-inputs']
+        [string]$gateJob['outputs']['release-digest'] | Should -BeExactly '${{ steps.validate.outputs.release-digest }}'
+        [string]$gateJob['outputs']['publisher-digest'] | Should -BeExactly '${{ steps.validate.outputs.publisher-digest }}'
         $gate = Get-NamedJobStep -Document $document -JobName 'validate-inputs' -StepName 'Validate publication inputs'
         [string]$gate['shell'] | Should -BeExactly 'bash'
         [string]$gate['env']['INPUT_PACKAGES_MATRIX'] | Should -BeExactly '${{ inputs.packages-matrix }}'
@@ -372,66 +436,305 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $gateRun | Should -Match ([regex]::Escape('TAG_VERSION="${INPUT_TAG#prerelease-v}"'))
         $gateRun | Should -Match ([regex]::Escape('TAG_MINOR=$((10#$TAG_MINOR))'))
         $gateRun | Should -Match ([regex]::Escape('(( TAG_MINOR % 2 != expected_minor_parity ))'))
+        $formatIndex = $gateRun.IndexOf('[[ ! "$INPUT_TAG" =~ $expected_pattern ]]', [System.StringComparison]::Ordinal)
         $conversionIndex = $gateRun.IndexOf('TAG_MINOR=$((10#$TAG_MINOR))', [System.StringComparison]::Ordinal)
         $parityIndex = $gateRun.IndexOf('(( TAG_MINOR % 2 != expected_minor_parity ))', [System.StringComparison]::Ordinal)
+        $formatIndex | Should -BeGreaterThan -1
         $conversionIndex | Should -BeGreaterThan -1
         $parityIndex | Should -BeGreaterThan -1
+        $formatIndex | Should -BeLessThan $conversionIndex
         $conversionIndex | Should -BeLessThan $parityIndex
 
-        $job = $document['jobs']['publish']
-        [string]$job['needs'] | Should -BeExactly 'validate-inputs'
-        [string]$job['environment'] | Should -BeExactly 'marketplace'
-        [string]$job['permissions']['id-token'] | Should -BeExactly 'write'
-        [string]$job['permissions']['attestations'] | Should -BeExactly 'read'
+        # Both immutable digests are resolved through the git ref and tag object
+        # API, so validation needs no working tree and no ambiguous ref lookup.
+        @((Get-JobStepText -Document $document -JobName 'validate-inputs') | Where-Object { $_ -match 'actions/checkout' }) | Should -HaveCount 0
+        $gateRun | Should -Match ([regex]::Escape('gh api "repos/$REPOSITORY/git/ref/tags/$INPUT_TAG"'))
+        $gateRun | Should -Match ([regex]::Escape('gh api "repos/$REPOSITORY/git/tags/$OBJECT_SHA"'))
+        $gateRun | Should -Match ([regex]::Escape('gh api "repos/$REPOSITORY/git/ref/heads/main"'))
 
-        # Publication is best-effort: every matrix leg is attempted, so a partial
+        # Each ref response must name the exact ref that was requested, and that
+        # equality is proven before any object authority is read from it.
+        $gateRun | Should -Match ([regex]::Escape('[ "$REF_NAME" != "refs/tags/$INPUT_TAG" ]'))
+        $gateRun | Should -Match ([regex]::Escape('[ "$MAIN_REF" != ''refs/heads/main'' ]'))
+        foreach ($ordered in @(
+                @{ Equality = '[ "$REF_NAME" != "refs/tags/$INPUT_TAG" ]'; Authority = 'OBJECT_TYPE=$(printf ''%s'' "$REF_JSON" | jq -r ''.object.type'')' }
+                @{ Equality = '[ "$MAIN_REF" != ''refs/heads/main'' ]'; Authority = 'MAIN_TYPE=$(printf ''%s'' "$MAIN_JSON" | jq -r ''.object.type'')' }
+            )) {
+            $equalityIndex = $gateRun.IndexOf($ordered.Equality, [System.StringComparison]::Ordinal)
+            $authorityIndex = $gateRun.IndexOf($ordered.Authority, [System.StringComparison]::Ordinal)
+            $equalityIndex | Should -BeGreaterThan -1
+            $authorityIndex | Should -BeGreaterThan -1
+            $equalityIndex | Should -BeLessThan $authorityIndex
+        }
+        $gateRun | Should -Match ([regex]::Escape('[[ ! "$OBJECT_SHA" =~ ^[0-9a-f]{40}$ ]]'))
+        $gateRun | Should -Match ([regex]::Escape('[[ ! "$PUBLISHER_DIGEST" =~ ^[0-9a-f]{40}$ ]]'))
+        $gateRun | Should -Match ([regex]::Escape('echo "release-digest=$OBJECT_SHA"'))
+        $gateRun | Should -Match ([regex]::Escape('echo "publisher-digest=$PUBLISHER_DIGEST"'))
+        $gateRun | Should -Not -Match 'commits/\$RELEASE_TAG'
+
+        # The sentinel makes a zero-success collection deterministic, so it is
+        # attempt-scoped and never overwritten.
+        $sentinel = Get-NamedJobStep -Document $document -JobName 'validate-inputs' -StepName 'Upload collection sentinel'
+        [string]$sentinel['uses'] | Should -Match '^actions/upload-artifact@[0-9a-f]{40}'
+        [string]$sentinel['with']['name'] | Should -BeExactly 'extension-vsix-marketplace-${{ github.run_attempt }}-__sentinel__'
+        [string]$sentinel['with']['if-no-files-found'] | Should -BeExactly 'error'
+        $sentinel['with'].Contains('overwrite') | Should -BeTrue
+        $sentinel['with']['overwrite'] | Should -BeFalse
+
+        # Verification executes the tag-sourced helpers against the validated
+        # release commit, outside any Marketplace environment.
+        $verifyJob = $jobs['verify']
+        [string]$verifyJob['strategy']['matrix'] | Should -BeExactly '${{ fromJson(inputs.packages-matrix) }}'
+        $verifyJob['strategy'].Contains('fail-fast') | Should -BeTrue
+        $verifyJob['strategy']['fail-fast'] | Should -BeFalse
+        $verifyCheckout = Get-NamedJobStep -Document $document -JobName 'verify' -StepName 'Checkout release commit'
+        [string]$verifyCheckout['with']['ref'] | Should -BeExactly '${{ needs.validate-inputs.outputs.release-digest }}'
+        $verifyCheckout['with'].Contains('persist-credentials') | Should -BeTrue
+        $verifyCheckout['with']['persist-credentials'] | Should -BeFalse
+
+        $verifyAttest = Get-NamedJobStep -Document $document -JobName 'verify' -StepName 'Verify attested VSIX provenance'
+        $verifyAttest.Contains('if') | Should -BeFalse
+        [string]$verifyAttest['env']['RELEASE_DIGEST'] | Should -BeExactly '${{ needs.validate-inputs.outputs.release-digest }}'
+        [string]$verifyAttest['env']['SIGNER_WORKFLOW'] |
+            Should -BeExactly '${{ github.repository }}/${{ inputs.attestation-signer-workflow }}'
+        $verifyAttestRun = [string]$verifyAttest['run']
+        $verifyAttestRun | Should -Match 'gh attestation verify "\$VSIX_FILE" --repo "\$REPOSITORY"'
+        $verifyAttestRun | Should -Match '--signer-workflow "\$SIGNER_WORKFLOW"'
+        $verifyAttestRun | Should -Match '--source-digest "\$RELEASE_DIGEST"'
+        $verifyAttestRun | Should -Match ([regex]::Escape('CHECKOUT_DIGEST=$(git rev-parse HEAD)'))
+        $verifyAttestRun | Should -Match ([regex]::Escape('[ "$RELEASE_DIGEST" != "$CHECKOUT_DIGEST" ]'))
+        $verifyAttestRun | Should -Not -Match 'commits/\$RELEASE_TAG'
+
+        # The verified artifact is the fail-closed gate: it exists only after
+        # attestation and carries no conditional override.
+        $verifyUpload = Get-NamedJobStep -Document $document -JobName 'verify' -StepName 'Upload verified VSIX'
+        $verifyUpload.Contains('if') | Should -BeFalse
+        [string]$verifyUpload['with']['name'] | Should -BeExactly 'extension-vsix-marketplace-${{ github.run_attempt }}-${{ matrix.id }}'
+        [string]$verifyUpload['with']['path'] | Should -BeExactly '${{ steps.select.outputs.vsix-file }}'
+        [string]$verifyUpload['with']['if-no-files-found'] | Should -BeExactly 'error'
+        $verifyUpload['with'].Contains('overwrite') | Should -BeTrue
+        $verifyUpload['with']['overwrite'] | Should -BeFalse
+        $verifyNames = [string[]]@($verifyJob['steps'] | ForEach-Object { [string]$_['name'] })
+        [array]::IndexOf($verifyNames, 'Verify attested VSIX provenance') |
+            Should -BeLessThan ([array]::IndexOf($verifyNames, 'Upload verified VSIX'))
+
+        # Collection derives the protected matrix from current-attempt artifacts
+        # only, using a same-run pattern download that needs no extra scope.
+        [string]$jobs['collect']['if'] | Should -BeExactly '${{ needs.validate-inputs.result == ''success'' && !cancelled() }}'
+        [string]$jobs['collect']['outputs']['verified-matrix'] | Should -BeExactly '${{ steps.collect.outputs.verified-matrix }}'
+        [string]$jobs['collect']['outputs']['count'] | Should -BeExactly '${{ steps.collect.outputs.count }}'
+        @((Get-JobStepText -Document $document -JobName 'collect') | Where-Object { $_ -match 'actions/checkout' }) | Should -HaveCount 0
+        $collectDownload = Get-NamedJobStep -Document $document -JobName 'collect' -StepName 'Download verified VSIX artifacts'
+        [string]$collectDownload['uses'] | Should -Match '^actions/download-artifact@[0-9a-f]{40}'
+        [string]$collectDownload['with']['pattern'] | Should -BeExactly 'extension-vsix-marketplace-${{ github.run_attempt }}-*'
+        [string]$collectDownload['with']['path'] | Should -BeExactly '${{ runner.temp }}/verified'
+        $collectDownload['with'].Contains('merge-multiple') | Should -BeTrue
+        $collectDownload['with']['merge-multiple'] | Should -BeFalse
+        [string]$collectDownload['with']['digest-mismatch'] | Should -BeExactly 'error'
+        foreach ($crossRunInput in @('github-token', 'repository', 'run-id')) {
+            $collectDownload['with'].Contains($crossRunInput) | Should -BeFalse
+        }
+        $collectStep = Get-NamedJobStep -Document $document -JobName 'collect' -StepName 'Derive verified publication matrix'
+        [string]$collectStep['env']['INPUT_PACKAGES_MATRIX'] | Should -BeExactly '${{ inputs.packages-matrix }}'
+        [string]$collectStep['env']['SENTINEL_NAME'] | Should -BeExactly 'extension-vsix-marketplace-${{ github.run_attempt }}-__sentinel__'
+        [string]$collectStep['env']['ARTIFACT_PREFIX'] | Should -BeExactly 'extension-vsix-marketplace-${{ github.run_attempt }}-'
+        $collectRun = [string]$collectStep['run']
+        foreach ($clause in @(
+                'if [ ! -d "$ARTIFACT_ROOT/$SENTINEL_NAME" ]'
+                'Collection sentinel is missing'
+                'any(.include[]; .id == $id)'
+                'names unknown package'
+                'produced duplicate verification artifacts'
+                'must contain exactly one VSIX'
+                '{"include":[]}'
+                '{include: map({id: .})}'
+            )) {
+            $collectRun | Should -Match ([regex]::Escape($clause))
+        }
+
+        # The publisher toolchain is prepared unprivileged from protected main and
+        # transferred as an archive that preserves the direct binary layout.
+        [string]$jobs['prepare-publisher']['if'] | Should -BeExactly '${{ needs.collect.outputs.count != ''0'' }}'
+        $prepareCheckout = Get-NamedJobStep -Document $document -JobName 'prepare-publisher' -StepName 'Checkout protected publisher commit'
+        [string]$prepareCheckout['with']['ref'] | Should -BeExactly '${{ needs.validate-inputs.outputs.publisher-digest }}'
+        $prepareCheckout['with'].Contains('persist-credentials') | Should -BeTrue
+        $prepareCheckout['with']['persist-credentials'] | Should -BeFalse
+
+        # The toolchain must come from the validated protected commit, so the
+        # realized checkout is proven equal before any dependency install runs.
+        $prepareConfirm = Get-NamedJobStep -Document $document -JobName 'prepare-publisher' -StepName 'Confirm protected publisher checkout'
+        [string]$prepareConfirm['env']['PUBLISHER_DIGEST'] | Should -BeExactly '${{ needs.validate-inputs.outputs.publisher-digest }}'
+        [string]$prepareConfirm['run'] | Should -Match ([regex]::Escape('CHECKOUT_DIGEST=$(git rev-parse HEAD)'))
+        [string]$prepareConfirm['run'] | Should -Match ([regex]::Escape('[ "$PUBLISHER_DIGEST" != "$CHECKOUT_DIGEST" ]'))
+        $prepareNames = [string[]]@($jobs['prepare-publisher']['steps'] | ForEach-Object { [string]$_['name'] })
+        [array]::IndexOf($prepareNames, 'Checkout protected publisher commit') |
+            Should -BeLessThan ([array]::IndexOf($prepareNames, 'Confirm protected publisher checkout'))
+        [array]::IndexOf($prepareNames, 'Confirm protected publisher checkout') |
+            Should -BeLessThan ([array]::IndexOf($prepareNames, 'Install publisher toolchain'))
+
+        $prepareNode = Get-NamedJobStep -Document $document -JobName 'prepare-publisher' -StepName 'Setup Node.js'
+        [string]$prepareNode['uses'] | Should -Match '^actions/setup-node@[0-9a-f]{40}'
+        [string]$prepareNode['with']['node-version'] | Should -BeExactly '24'
+        $prepareSteps = Get-JobStepText -Document $document -JobName 'prepare-publisher'
+        @($prepareSteps | Where-Object { $_ -match ([regex]::Escape('npm ci --prefix scripts/extension/marketplace-publisher --ignore-scripts=false')) }) | Should -HaveCount 1
+        @($prepareSteps | Where-Object { $_ -match ([regex]::Escape('tar -czf "${RUNNER_TEMP}/marketplace-publisher-toolchain.tar.gz"')) }) | Should -HaveCount 1
+        $prepareUpload = Get-NamedJobStep -Document $document -JobName 'prepare-publisher' -StepName 'Upload publisher toolchain'
+        [string]$prepareUpload['with']['name'] | Should -BeExactly 'marketplace-publisher-toolchain-${{ github.run_attempt }}'
+        [string]$prepareUpload['with']['if-no-files-found'] | Should -BeExactly 'error'
+        $prepareUpload['with'].Contains('overwrite') | Should -BeTrue
+        $prepareUpload['with']['overwrite'] | Should -BeFalse
+
+        # Publication is best-effort: every verified leg is attempted, so a partial
         # failure leaves the remaining packages reconcilable rather than skipped.
+        $job = $jobs['publish']
+        [string]$job['if'] | Should -BeExactly ([string]$jobs['prepare-publisher']['if'])
+        [string]$job['strategy']['matrix'] | Should -BeExactly '${{ fromJson(needs.collect.outputs.verified-matrix) }}'
+        [string]$job['strategy']['matrix'] | Should -Not -Match 'inputs\.packages-matrix'
         $job['strategy'].Contains('fail-fast') | Should -BeTrue
         $job['strategy']['fail-fast'] | Should -BeFalse
 
-        # The publisher executes the tagged tree that verification later proves
-        # it checked out.
-        $checkout = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Checkout code'
-        [string]$checkout['with']['ref'] | Should -BeExactly 'refs/tags/${{ inputs.tag }}'
-        $checkout['with'].Contains('persist-credentials') | Should -BeTrue
-        $checkout['with']['persist-credentials'] | Should -BeFalse
+        # The protected job consumes artifacts only: no tagged tree, repository
+        # script, dependency install, or release lookup crosses the boundary.
+        $publishSteps = Get-JobStepText -Document $document -JobName 'publish'
+        foreach ($forbidden in @('actions/checkout', 'scripts/extension/', '\.psm1', '\bnpm\b', '\bnpx\b', 'refs/tags/', 'inputs\.tag')) {
+            @($publishSteps | Where-Object { $_ -match $forbidden }) | Should -HaveCount 0 -Because "the protected job must not reference $forbidden"
+        }
+        $publishConfiguration = [string]::Join("`n", @($job['steps'] | ForEach-Object {
+                    $configuration = [ordered]@{}
+                    if ($_.Contains('env')) { $configuration['env'] = $_['env'] }
+                    if ($_.Contains('with')) { $configuration['with'] = $_['with'] }
+                    ConvertTo-Json -InputObject $configuration -Depth 10 -Compress
+                }))
+        foreach ($forbidden in @('scripts/extension/', '\.psm1', '\bnpm\b', '\bnpx\b', 'refs/tags/', 'inputs\.tag')) {
+            $publishConfiguration | Should -Not -Match $forbidden -Because "protected env and with values must not reference $forbidden"
+        }
+
+        $vsixDownload = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Download verified VSIX'
+        [string]$vsixDownload['with']['name'] | Should -BeExactly ([string]$verifyUpload['with']['name'])
+        [string]$vsixDownload['with']['path'] | Should -BeExactly '${{ runner.temp }}/vsix'
+        [string]$vsixDownload['with']['digest-mismatch'] | Should -BeExactly 'error'
+        $toolchainDownload = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Download publisher toolchain'
+        [string]$toolchainDownload['with']['name'] | Should -BeExactly ([string]$prepareUpload['with']['name'])
+        [string]$toolchainDownload['with']['path'] | Should -BeExactly '${{ runner.temp }}/toolchain'
+        [string]$toolchainDownload['with']['digest-mismatch'] | Should -BeExactly 'error'
+        foreach ($download in @($vsixDownload, $toolchainDownload)) {
+            foreach ($crossRunInput in @('github-token', 'repository', 'run-id')) {
+                $download['with'].Contains($crossRunInput) | Should -BeFalse
+            }
+        }
+        # One pre-login step selects the artifact and binds the leg identity, so
+        # a verified VSIX from another extension cannot reach a publish credential.
+        $bindStep = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Select verified VSIX and bind extension identity'
+        [string]$bindStep['env']['PACKAGE_ID'] | Should -BeExactly '${{ matrix.id }}'
+        $bindRun = [string]$bindStep['run']
+        $bindRun | Should -Match 'Expected exactly one VSIX'
+        $bindRun | Should -Match ([regex]::Escape("EXTENSION_NAME='hve-core'"))
+        $bindRun | Should -Match ([regex]::Escape('EXTENSION_NAME="hve-$PACKAGE_ID"'))
+        $bindRun | Should -Match ([regex]::Escape('[[ ! "$EXTENSION_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]'))
+        $bindRun | Should -Match ([regex]::Escape('expected_vsix_pattern="^${EXTENSION_NAME}-[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?\.vsix$"'))
+        $bindRun | Should -Match ([regex]::Escape('VSIX_BASENAME=$(basename "${candidates[0]}")'))
+        $bindRun | Should -Match ([regex]::Escape('[[ ! "$VSIX_BASENAME" =~ $expected_vsix_pattern ]]'))
+        $bindRun | Should -Match ([regex]::Escape('echo "VSIX_FILE=${candidates[0]}"'))
+        $bindRun | Should -Match ([regex]::Escape('echo "EXTENSION_NAME=$EXTENSION_NAME"'))
+
+        $reverify = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Re-verify attested VSIX provenance'
+        $reverify.Contains('if') | Should -BeFalse
+        [string]$reverify['env']['RELEASE_DIGEST'] | Should -BeExactly '${{ needs.validate-inputs.outputs.release-digest }}'
+        [string]$reverify['env']['SIGNER_WORKFLOW'] |
+            Should -BeExactly '${{ github.repository }}/${{ inputs.attestation-signer-workflow }}'
+        [string]$reverify['run'] | Should -Match 'gh attestation verify "\$VSIX_FILE" --repo "\$REPOSITORY"'
+        [string]$reverify['run'] | Should -Match '--signer-workflow "\$SIGNER_WORKFLOW"'
+        [string]$reverify['run'] | Should -Match '--source-digest "\$RELEASE_DIGEST"'
+
+        # The transferred closure runs under the Node major it was installed with.
+        $publishNode = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Setup Node.js'
+        [string]$publishNode['uses'] | Should -BeExactly ([string]$prepareNode['uses'])
+        [string]$publishNode['with']['node-version'] | Should -BeExactly ([string]$prepareNode['with']['node-version'])
+        $extractRun = [string](Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Extract publisher toolchain')['run']
+        # The archive is unprivileged input, so archived ownership and mode bits
+        # are never restored inside the protected job.
+        $extractRun | Should -Match ([regex]::Escape('tar --no-same-owner --no-same-permissions -xzf "${archives[0]}" -C "$PUBLISHER_ROOT"'))
+        $extractRun | Should -Not -Match ([regex]::Escape('tar -xzf'))
+        $extractRun | Should -Match ([regex]::Escape('VSCE_BIN="$PUBLISHER_ROOT/node_modules/.bin/vsce"'))
+        $extractRun | Should -Match ([regex]::Escape('[ ! -x "$VSCE_BIN" ]'))
+        $extractRun | Should -Match ([regex]::Escape('EXPECTED_VERSION=$(jq -r ''.dependencies["@vscode/vsce"]'' "$PUBLISHER_ROOT/package.json")'))
+        $extractRun | Should -Match ([regex]::Escape('ACTUAL_VERSION=$($VSCE_BIN --version)'))
+        $extractRun | Should -Match ([regex]::Escape('[ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]'))
 
         [string](Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Azure Login (OIDC)')['uses'] |
             Should -Match '^azure/login@[0-9a-f]{40}$'
+        $publishStep = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Publish to VS Code Marketplace'
+        [string]$publishStep['env']['PACKAGE_ID'] | Should -BeExactly '${{ matrix.id }}'
+        $publishRun = [string]$publishStep['run']
+        $publishRun | Should -Match ([regex]::Escape('"$VSCE_BIN" "${arguments[@]}"'))
 
-        $download = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Download attested VSIX from GitHub Release'
-        $download.Contains('if') | Should -BeFalse
-        $verify = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Verify attested VSIX provenance'
-        $verify.Contains('if') | Should -BeFalse
-        [string]$verify['env']['RELEASE_TAG'] | Should -BeExactly '${{ inputs.tag }}'
-        [string]$verify['env']['SIGNER_WORKFLOW'] |
-            Should -BeExactly '${{ github.repository }}/${{ inputs.attestation-signer-workflow }}'
-        [string]$verify['run'] | Should -Match 'gh attestation verify "\$VSIX_FILE" --repo "\$REPOSITORY"'
-        [string]$verify['run'] | Should -Match '--signer-workflow "\$SIGNER_WORKFLOW"'
-        # An annotated tag must dereference to its commit, and that commit must be
-        # the checked-out HEAD, so verification covers the executed publisher tree.
-        [string]$verify['run'] | Should -Match ([regex]::Escape('git rev-parse --verify --end-of-options "refs/tags/$RELEASE_TAG^{commit}"'))
-        [string]$verify['run'] | Should -Match ([regex]::Escape('CHECKOUT_DIGEST=$(git rev-parse HEAD)'))
-        [string]$verify['run'] | Should -Match ([regex]::Escape('[ "$SOURCE_DIGEST" != "$CHECKOUT_DIGEST" ]'))
-        [string]$verify['run'] | Should -Not -Match 'commits/\$RELEASE_TAG'
-        [string]$verify['run'] | Should -Match '--source-digest "\$SOURCE_DIGEST"'
+        # The identity mapping lives at exactly one site, and the privileged step
+        # only reuses the already bound name.
+        foreach ($branch in @("EXTENSION_NAME='hve-core'", 'EXTENSION_NAME="hve-$PACKAGE_ID"')) {
+            @($publishSteps | Where-Object { $_ -match ([regex]::Escape($branch)) }) | Should -HaveCount 1
+        }
+        $publishRun | Should -Not -Match ([regex]::Escape("EXTENSION_NAME='hve-core'"))
+        $publishRun | Should -Match ([regex]::Escape('echo "extension-name=$EXTENSION_NAME"'))
+        $template = Get-Content -LiteralPath (Join-Path $script:RepositoryRoot 'extension/templates/package.template.json') -Raw -Encoding utf8 | ConvertFrom-Json
+        [string]$template.name | Should -BeExactly 'hve-core'
+        $summary = Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Summary'
+        [string]$summary['env']['PACKAGE_ID'] | Should -BeExactly '${{ matrix.id }}'
+        [string]$summary['env']['EXTENSION_NAME'] | Should -BeExactly '${{ steps.publish.outputs.extension-name }}'
 
+        # The attempt-scoped producer legitimately reintroduces extension-vsix-
+        # vocabulary; the intra-run and tag-conditional prohibitions remain.
         $text = Get-WorkflowText -Name 'extension-marketplace-publish.yml'
-        $text | Should -Not -Match 'Download intra-run VSIX artifact|Resolve downloaded VSIX path|inputs\.tag ==|extension-vsix-'
+        $text | Should -Not -Match 'Download intra-run VSIX artifact|Resolve downloaded VSIX path|inputs\.tag =='
 
         $names = [string[]]@($job['steps'] | ForEach-Object { [string]$_['name'] })
-        [array]::IndexOf($names, 'Verify attested VSIX provenance') |
-            Should -BeLessThan ([array]::IndexOf($names, 'Azure Login (OIDC)'))
-        [array]::IndexOf($names, 'Verify attested VSIX provenance') |
-            Should -BeLessThan ([array]::IndexOf($names, 'Setup Node.js'))
-        [array]::IndexOf($names, 'Verify attested VSIX provenance') |
-            Should -BeLessThan ([array]::IndexOf($names, 'Install dependencies'))
-        # Publish credentials activate after the toolchain is installed and
-        # immediately before the step that uses them.
-        [array]::IndexOf($names, 'Install dependencies') |
-            Should -BeLessThan ([array]::IndexOf($names, 'Azure Login (OIDC)'))
+        $reverifyIndex = [array]::IndexOf($names, 'Re-verify attested VSIX provenance')
+        $reverifyIndex | Should -BeGreaterThan -1
+        foreach ($later in @('Download publisher toolchain', 'Setup Node.js', 'Extract publisher toolchain', 'Azure Login (OIDC)', 'Publish to VS Code Marketplace')) {
+            $reverifyIndex | Should -BeLessThan ([array]::IndexOf($names, $later))
+        }
+        # Identity is bound before the artifact is re-attested and long before any
+        # publish credential exists.
+        $bindIndex = [array]::IndexOf($names, 'Select verified VSIX and bind extension identity')
+        $bindIndex | Should -BeGreaterThan -1
+        $bindIndex | Should -BeLessThan $reverifyIndex
+        $bindIndex | Should -BeLessThan ([array]::IndexOf($names, 'Azure Login (OIDC)'))
+        # Publish credentials activate immediately before the step that uses them.
         [array]::IndexOf($names, 'Azure Login (OIDC)') |
-            Should -BeLessThan ([array]::IndexOf($names, 'Publish to VS Code Marketplace'))
+            Should -Be ([array]::IndexOf($names, 'Publish to VS Code Marketplace') - 1)
+
+        # Root packaging and Marketplace publication are one release toolchain, so
+        # the nested publisher pin tracks the root pin exactly.
+        $publisherManifest = Get-Content -LiteralPath (Join-Path $script:RepositoryRoot 'scripts/extension/marketplace-publisher/package.json') -Raw -Encoding utf8 | ConvertFrom-Json
+        [string]$publisherManifest.dependencies.'@vscode/vsce' |
+            Should -BeExactly ([string]$script:RootManifest.devDependencies.'@vscode/vsce')
+    }
+
+    It 'Binds each publication leg to one contract-checked extension identity' {
+        $document = Get-WorkflowDocument -Name 'extension-marketplace-publish.yml'
+        $bindRun = [string](Get-NamedJobStep -Document $document -JobName 'publish' -StepName 'Select verified VSIX and bind extension identity')['run']
+        $catalog = Get-Content -LiteralPath $script:CatalogPath -Raw -Encoding utf8 | ConvertFrom-Json
+        $catalogIds = [string[]]@($catalog.plugins | ForEach-Object { [string]$_.name })
+        @($catalogIds).Count | Should -BeGreaterThan 0
+
+        # The protected job cannot import the identity module, so its one inline
+        # mapping is proven equal to the module for every catalog ID.
+        foreach ($id in $catalogIds) {
+            $inline = if ($id -eq 'hve-core') { 'hve-core' } else { "hve-$id" }
+            $inline | Should -BeExactly (Get-ExtensionIdentity -PackageId $id) -Because "the inline mapping must equal Get-ExtensionIdentity for '$id'"
+        }
+
+        # Anchoring on the version segment is the leg accounting rule: a longer
+        # identity that shares a prefix is rejected for the shorter package.
+        $pattern = [regex]::Match($bindRun, 'expected_vsix_pattern="(?<pattern>[^"]+)"').Groups['pattern'].Value
+        $pattern | Should -Not -BeNullOrEmpty
+        foreach ($id in $catalogIds) {
+            $identity = Get-ExtensionIdentity -PackageId $id
+            $resolved = $pattern.Replace('${EXTENSION_NAME}', $identity)
+            "$identity-1.0.0.vsix" | Should -Match $resolved
+            "$identity-1.0.0-alpha.1.vsix" | Should -Match $resolved
+            "$identity-extras-1.0.0.vsix" | Should -Not -Match $resolved
+            "${identity}.vsix" | Should -Not -Match $resolved
+        }
     }
 }
 
@@ -846,6 +1149,7 @@ Describe 'Release-please channel state' -Tag 'Unit' {
         [string]$preRelease['packages']['.']['versioning'] | Should -BeExactly 'always-bump-patch'
 
         # Stable emits v<version>; PreRelease emits prerelease-v<version>.
+        $stable['packages']['.'].Contains('include-component-in-tag') | Should -BeTrue
         $stable['packages']['.']['include-component-in-tag'] | Should -BeFalse
         $stable['packages']['.'].Contains('component') | Should -BeFalse
         $preRelease['packages']['.']['include-component-in-tag'] | Should -BeTrue
@@ -1158,6 +1462,8 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
             Should -BeExactly "`${{ needs.validate-trigger.outputs.mode == 'managed' }}"
 
         [string]$script:PublishDocument['concurrency']['group'] | Should -BeExactly '${{ github.workflow }}-release/stable'
+        # Default-equivalent: omitting the key yields the same non-cancelling
+        # behavior, so the value alone carries the contract.
         $script:PublishDocument['concurrency']['cancel-in-progress'] | Should -BeFalse
 
         $sourceGate = Get-NamedJobStep -Document $script:PublishDocument -JobName 'validate-trigger' -StepName 'Validate selected promotion source and intent'
@@ -1614,6 +1920,8 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         [string]$prerelease['jobs']['package']['with']['version'] | Should -BeExactly '${{ needs.validate-version.outputs.version }}'
 
         [string]$stable['jobs']['publish']['with']['tag'] | Should -BeExactly '${{ needs.normalize-version.outputs.tag }}'
+        # Default-equivalent: the publisher declares `pre-release` with default
+        # false, so omitting the key selects the same Stable channel.
         $stable['jobs']['publish']['with']['pre-release'] | Should -BeFalse
         $stable['jobs']['publish']['with'].Contains('verify-attestation') | Should -BeFalse
         [string]$stable['jobs']['publish']['with']['attestation-signer-workflow'] |
@@ -1669,12 +1977,18 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         [string]$job['if'] | Should -Match "github\.event_name == 'workflow_dispatch'"
         [string]$job['if'] | Should -Match 'github\.event\.release\.prerelease == true'
         $validate = @($job['steps'] | Where-Object { [string]$_['id'] -eq 'validate' })[0]
+        [string]$validate['run'] | Should -Match ([regex]::Escape('[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]'))
         [string]$validate['run'] | Should -Match ([regex]::Escape('PUBLISH_MINOR=$((10#$PUBLISH_MINOR))'))
         [string]$validate['run'] | Should -Match ([regex]::Escape('(( PUBLISH_MINOR % 2 == 0 ))'))
+        # An unvalidated version string must never reach decimal conversion or the
+        # parity gate, so the accepted format is proven to run first.
+        $formatIndex = ([string]$validate['run']).IndexOf('[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]', [System.StringComparison]::Ordinal)
         $conversionIndex = ([string]$validate['run']).IndexOf('PUBLISH_MINOR=$((10#$PUBLISH_MINOR))', [System.StringComparison]::Ordinal)
         $parityIndex = ([string]$validate['run']).IndexOf('(( PUBLISH_MINOR % 2 == 0 ))', [System.StringComparison]::Ordinal)
+        $formatIndex | Should -BeGreaterThan -1
         $conversionIndex | Should -BeGreaterThan -1
         $parityIndex | Should -BeGreaterThan -1
+        $formatIndex | Should -BeLessThan $conversionIndex
         $conversionIndex | Should -BeLessThan $parityIndex
         [string]$validate['run'] | Should -Match 'requires odd minor version'
         [string]$document['jobs']['package']['with']['channel'] | Should -BeExactly 'PreRelease'
@@ -2189,7 +2503,7 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
         $run | Should -Match ([regex]::Escape("$ManagedGuard && [ `"`$RELEASE_CREATED`" != 'true' ]"))
         # The version comes from this channel's manifest at the immutable event
         # SHA, never from the moving release branch.
-        $run | Should -Match ([regex]::Escape("`"/repos/`$REPOSITORY/contents/$Manifest?ref=`$EVENT_SHA`""))
+        $run | Should -Match ([regex]::Escape("`"/repos/`$REPOSITORY/contents/${Manifest}?ref=`$EVENT_SHA`""))
         $run | Should -Not -Match ([regex]::Escape($ForeignManifest))
         $run | Should -Not -Match 'refs/heads/|origin/release/|git rev-parse|git show'
         $run | Should -Match ([regex]::Escape($TagExpression))
@@ -2550,6 +2864,16 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
             $expected = [string[]]@($document['jobs'].Keys | Sort-Object)
             $documented | Should -Be $expected
         }
+
+        # The architecture overview wraps and quotes the same enumeration, so it
+        # is compared per parsed job name instead of as one ordered line.
+        $architecture = $script:ReleaseDocumentation['docs/architecture/workflows.md']
+        $enumeration = [regex]::Match($architecture, '(?s)`release-stable-publish\.yml` jobs:(?<jobs>.*?)\r?\n\r?\n')
+        $enumeration.Success | Should -BeTrue -Because 'the architecture overview must enumerate Stable publication jobs'
+        foreach ($job in @((Get-WorkflowDocument -Name 'release-stable-publish.yml')['jobs'].Keys)) {
+            $enumeration.Groups['jobs'].Value |
+                Should -Match ([regex]::Escape('`' + $job + '`')) -Because "the architecture overview must document the $job Stable job"
+        }
     }
 
     It 'Contains no hand-maintained numeric job totals or stale Stable workflow ownership' {
@@ -2580,6 +2904,34 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
             $text | Should -Match '(?is)snapshot publication has stopped' -Because "$relativePath must state prospective-only snapshot retirement"
             $text | Should -Match '(?is)tags\s+and\s+catalogs\s+remain\s+immutable\s+and\s+supported' -Because "$relativePath must keep legacy release tags and catalogs supported"
         }
+
+        # VEX is a Stable-only asset, so its guide scopes publication to Stable
+        # and downloads from the exact `v<version>` tag.
+        $vex = Get-Content -LiteralPath (Join-Path $script:RepositoryRoot 'docs/security/vex-verification.md') -Raw -Encoding utf8
+        $vex | Should -Match '(?is)Stable[^.]{0,80}publishes[^.]{0,120}VEX' -Because 'the VEX guide must attribute publication to the Stable channel'
+        $vex | Should -Match '(?is)PreRelease\s+does\s+not\s+publish' -Because 'the VEX guide must state the PreRelease exclusion'
+        $vex | Should -Match ([regex]::Escape('gh release download v<version>')) -Because 'the VEX guide must download from the exact Stable tag'
+        foreach ($overclaim in @(
+                'prerelease-v<version>'
+                'every\s+release\s+publishes'
+                'all\s+releases\s+publish'
+                'both\s+channels\s+publish'
+                'PreRelease[^.]{0,60}publishes\s+(?:a\s+)?VEX'
+            )) {
+            $vex | Should -Not -Match "(?is)$overclaim" -Because 'only Stable releases publish the VEX document'
+        }
+
+        # The Stable download step must fetch both attested VEX subjects before
+        # the verification commands that consume them.
+        $security = Get-Content -LiteralPath (Join-Path $script:RepositoryRoot 'SECURITY.md') -Raw -Encoding utf8
+        $stableDownload = [regex]::Match($security, '(?s)gh release download v<version>.*?```')
+        $stableDownload.Success | Should -BeTrue -Because 'SECURITY.md must document one Stable download command'
+        foreach ($asset in @('hve-core.openvex.json', 'dependencies.spdx.json')) {
+            $stableDownload.Value | Should -Match ([regex]::Escape("-p '$asset'")) -Because "the Stable download must fetch $asset"
+            $verification = [regex]::Match($security, [regex]::Escape("gh attestation verify $asset"))
+            $verification.Success | Should -BeTrue -Because "SECURITY.md must verify $asset"
+            $verification.Index | Should -BeGreaterThan $stableDownload.Index -Because "$asset must be downloaded before it is verified"
+        }
     }
 
     # The policy paragraph is wrapped prose, so each contract is matched as a
@@ -2591,11 +2943,21 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
                 'package-ID\s+grammar\s+and\s+uniqueness'
                 'minor-version\s+parity'
                 'before\s+any\s+Marketplace\s+environment\s+is\s+activated'
-                'intentionally\s+best-effort\s+and\s+non-atomic'
-                '`fail-fast:\s+false`'
-                'inspect\s+every\s+matrix\s+leg\s+and\s+reconcile\s+or\s+republish'
-                'neither\s+transactionality\s+nor\s+rollback'
-                'Republication\s+is\s+supported\s+only\s+for\s+reviewed\s+channel\s+tags'
+                'Tag\s+helpers\s+run\s+only\s+in\s+unprivileged\s+verification\s+jobs'
+                'only\s+current-attempt\s+packages\s+that\s+pass\s+attestation\s+verification'
+                'minimal\s+locked\s+`vsce`\s+toolchain\s+from\s+the\s+resolved\s+protected-main'
+                'consume\s+only\s+immutable\s+VSIX\s+and\s+toolchain\s+artifacts'
+                'Verification\s+and\s+publication\s+are\s+independently\s+best-effort'
+                'Failed\s+verification\s+creates\s+no\s+publish\s+leg'
+                'inspect\s+both\s+verify\s+and\s+publish\s+jobs'
+                'Recovery\s+requires\s+\*\*Re-run\s+all\s+jobs\*\*'
+                '\*\*Re-run\s+failed\s+jobs\*\*\s+cannot\s+reuse'
+                'provides\s+no\s+transaction\s+or\s+rollback'
+                '`release:\s+published`\s+run\s+uses\s+workflow\s+code'
+                '`workflow_dispatch`[^.]{0,80}ref\s+containing\s+the\s+new\s+workflow'
+                'Historical\s+republication\s+no\s+longer\s+requires'
+                'compatible\s+with\s+unprivileged\s+release-asset\s+identity\s+and\s+selection'
+                'remain\s+external\s+controls'
             )) {
             $readme | Should -Match "(?is)$fragment" -Because 'the workflow guide owns Marketplace partial-failure recovery policy'
         }

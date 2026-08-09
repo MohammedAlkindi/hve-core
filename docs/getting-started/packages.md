@@ -3,7 +3,7 @@ title: HVE Core Identity and Channels
 description: Choose HVE Core package identities and understand their lifecycle and release channels
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-08
+ms.date: 2026-08-09
 ms.topic: overview
 ---
 
@@ -24,10 +24,10 @@ Do not install `hve-core` and `hve-core-all` together because their content over
 Stable and PreRelease contain the same active package-name set and component
 maturity. They differ in source ownership, cadence, and immutable release tag.
 
-| Channel    | Reviewed source path                               | Exact source tag                 |
-|------------|----------------------------------------------------|----------------------------------|
-| PreRelease | `main` promoted to `release/prerelease`            | `prerelease-v<version>`          |
-| Stable     | `release/prerelease` promoted to `release/stable`  | `v<version>`                     |
+| Channel    | Reviewed source path                              | Exact source tag        |
+|------------|---------------------------------------------------|-------------------------|
+| PreRelease | `main` promoted to `release/prerelease`           | `prerelease-v<version>` |
+| Stable     | `release/prerelease` promoted to `release/stable` | `v<version>`            |
 
 Ordinary PreRelease releases use odd minor versions and advance first.
 Ordinary Stable releases use even minor versions after reviewed promotion, so
