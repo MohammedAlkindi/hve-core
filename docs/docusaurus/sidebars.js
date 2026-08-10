@@ -6,6 +6,7 @@
 const sidebars = {
   docsSidebar: [
     {type: 'doc', id: 'README', label: 'Home'},
+    {type: 'doc', id: 'getting-started/how-it-works', label: 'The Decision Spine'},
     {
       type: 'category',
       label: 'Get Started',
@@ -14,7 +15,7 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: 'Workflows',
+      label: 'Decision Workflows',
       items: [
         {
           type: 'category',

@@ -1,40 +1,40 @@
 ---
 title: HVE Core Documentation
-description: Documentation hub for HVE Core, a prompt engineering framework that brings AI-powered agents, prompts, instructions, and skills to your GitHub Copilot workflow
+description: Documentation hub for HVE Core, the codification of engineering rigor in an agentic world
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-02
+ms.date: 2026-08-09
 ms.topic: overview
 keywords:
   - hve core
   - documentation
+  - decision spine
+  - engineering rigor
   - copilot customizations
-  - agents
-  - prompt engineering
 estimated_reading_time: 3
 ---
 
-HVE Core gives your team production-ready agents, reusable prompts, coding instructions, and executable skills for GitHub Copilot. You get structured workflows (Research → Plan → Implement), schema-enforced quality gates, and role-specific tooling across 10 engineering disciplines. Install from the VS Code Marketplace and start shipping with AI-assisted engineering in minutes.
+HVE Core is the codification of engineering rigor in an agentic world. Every workflow here moves through the same six stages: understand the problem, explore the options, decide, challenge the decision before acting, execute, and verify the result. Working with AI makes those stages easy to skip, and HVE Core exists to keep them intact.
+
+## Start Here
+
+1. [How HVE Core works](getting-started/how-it-works) explains the six stages and how the pieces fit. Read this first.
+2. [Install HVE Core](getting-started/install) covers the setup paths from marketplace extension to developer clone.
+3. [Run your first workflow](getting-started/first-workflow) walks an end-to-end example through the whole loop.
 
 ## Choose Your Installation
 
-| Option       | HVE Core Extension                                                                                  | Selective Clone                                                            |
-|--------------|-----------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
-| What you get | Every active agent, prompt, instruction, and skill                                                  | Starter or custom agents, prompts, instructions, and complete skills       |
-| Best for     | Teams that want managed updates and the complete content set                                        | Teams that want repository-owned, reviewable component selection           |
-| Start        | [Install HVE Core](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core) | Use the included `hve-core-installer` skill with a pinned or cloned source |
+| Option       | HVE Core Extension                                                                                      | Selective Clone                                                            |
+|--------------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| What you get | Every active agent, prompt, instruction, and skill                                                      | Starter or custom agents, prompts, instructions, and complete skills       |
+| Best for     | Teams that want managed updates and the complete content set                                            | Teams that want repository-owned, reviewable component selection           |
+| Start        | [Install HVE Core](https://marketplace.visualstudio.com/items?itemName=ise-hve-essentials.hve-core-all) | Use the included `hve-core-installer` skill with a pinned or cloned source |
 
-> Not sure which to choose? See the [installation methods comparison](getting-started/methods/comparison.md) for a detailed breakdown.
+> Narrower packages exist for single domains such as security, Jira, or coding standards. See [packages](getting-started/packages) for the full list, or the [installation methods comparison](getting-started/methods/comparison) for a detailed breakdown.
 
-## Find Your Path
+## Other Ways In
 
-### New to HVE Core?
-
-Get up and running with installation, configuration, and your first AI-assisted workflow.
-
-* [Install HVE Core](getting-started/install.md) covers three setup paths from marketplace extension to developer clone
-* [Run your first workflow](getting-started/first-workflow.md) walks through an end-to-end RPI example
-* [Understand the HVE Core identity](getting-started/packages.md) to compare channels and lifecycle labels
+The paths below are useful once you know what HVE Core is. If you are new, start with the three steps above.
 
 ### Leading a Team?
 
