@@ -53,7 +53,17 @@ Each parent agent belongs to exactly one class. The class selects the stimulus s
 | workitem-manager | 8       | Convert a raw request into a backlog draft                      | `(title\|summary\|description\|acceptance\|priority\|severity\|repro\|steps)` |
 | planner-coach    | 13      | Plan, sequence, or coach the user through a non-trivial task    | `(plan\|step \d+\|next\|approach\|consider\|recommend\|phase)`                |
 
-The grader counts a stimulus as passing when the regex matches the agent's response at least once. This is a behavioral smoke gate: the suite asserts the agent produced an output shaped like its job, not that the output is correct. Correctness is the responsibility of the per-agent integration tests and the baseline-equivalence harness, not this suite.
+The grader counts a stimulus as passing when the regex matches the agent's response at least once. Class-recipe stimuli are a behavioral smoke gate: they assert the agent produced an output shaped like its job, not that the output is correct.
+
+### Coverage Ownership
+
+Three coverage kinds are distinct and do not overlap:
+
+* Class-recipe stimuli in this suite provide smoke coverage of output shape.
+* Selected isolated functional stimuli in this suite provide direct contract correctness. They declare a per-stimulus `environment` that stages the agent under test as `.github/copilot-instructions.md` in the trial workspace and loads only the skills that agent's contract names, so the assertion tests the declared agent behavior rather than general model knowledge. `experiment-designer-conditional-ml-route` is the current example.
+* The [baseline-equivalence](../baseline-equivalence/README.md) harness provides A/B regression detection between the empty baseline and the customized environment.
+
+Vally has no agent-routing option, and staging an `.agent.md` at its normal `.github/agents/` path does not place it in model context. Workspace instructions are the supported channel, which is why isolated functional stimuli remap the agent file rather than copying it to its original location.
 
 ### Path Separators in Tracking-File Graders
 
