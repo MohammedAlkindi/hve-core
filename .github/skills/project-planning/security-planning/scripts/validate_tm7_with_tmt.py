@@ -2515,7 +2515,7 @@ def _validate_candidate(
     bundle: EvidenceBundle,
     mode: str,
     timeout_seconds: float,
-    expected_threat_count: int,
+    expected_threat_count: int | None,
     template_upgrade_policy: str,
     delete_stale_threats: bool,
     capture_feedback_surfaces: bool = False,
@@ -2696,7 +2696,10 @@ def _validate_candidate(
         after_summary = collect_semantic_summary(saved_model)
         bundle.write_summary(after_summary, "after-reopen.json")
 
-        if before_summary["instance_count"] != expected_threat_count:
+        if (
+            expected_threat_count is not None
+            and before_summary["instance_count"] != expected_threat_count
+        ):
             raise HarnessFailure(
                 f"Expected {expected_threat_count} instances before save, found "
                 f"{before_summary['instance_count']}",
@@ -2815,7 +2818,7 @@ def _upgrade_template_candidate(
     workspace: Path,
     bundle: EvidenceBundle,
     timeout_seconds: float,
-    expected_threat_count: int,
+    expected_threat_count: int | None,
     expected_custom_type_count: int | None,
     delete_stale_threats: bool,
 ) -> dict[str, Any]:
@@ -2868,7 +2871,10 @@ def _upgrade_template_candidate(
 
         post_save_summary = collect_semantic_summary(working_model)
         bundle.write_summary(post_save_summary, "after-template-save.json")
-        if post_save_summary["instance_count"] != expected_threat_count:
+        if (
+            expected_threat_count is not None
+            and post_save_summary["instance_count"] != expected_threat_count
+        ):
             raise HarnessFailure(
                 f"Expected {expected_threat_count} threats after template upgrade, "
                 f"found {post_save_summary['instance_count']}",
@@ -4244,7 +4250,7 @@ def _validate_feedback_candidate(
     workspace: Path,
     bundle: EvidenceBundle,
     timeout_seconds: float,
-    expected_threat_count: int,
+    expected_threat_count: int | None,
     template_upgrade_policy: str,
     delete_stale_threats: bool,
     require_feedback_evidence: bool,
@@ -4499,12 +4505,17 @@ def run_feedback_loop(
     pinned_version: str = DEFAULT_PINNED_VERSION,
     diagnostic_override: bool = False,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-    expected_threat_count: int = 80,
+    expected_threat_count: int | None = None,
     expected_custom_type_count: int | None = None,
     template_upgrade_policy: str = "fail",
     delete_stale_threats: bool = False,
 ) -> FeedbackLoopResult:
-    """Run the bounded native feedback loop and emit a pending overlay."""
+    """Run the bounded native feedback loop and emit a pending overlay.
+
+    ``expected_threat_count`` is an optional caller assertion. It defaults to
+    ``None`` so a model of any size is accepted; a fixed count would reject
+    every model that does not happen to match it.
+    """
     baseline_model = Path(baseline_model).resolve()
     spec_path = Path(spec_path).resolve()
     evidence_dir = Path(evidence_dir).resolve()
@@ -5265,7 +5276,7 @@ def run_harness(
     diagnostic_override: bool = False,
     workspace_root: Path | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-    expected_threat_count: int = 80,
+    expected_threat_count: int | None = None,
     expected_custom_type_count: int | None = None,
     template_upgrade_policy: str = "fail",
     delete_stale_threats: bool = False,
@@ -5276,7 +5287,12 @@ def run_harness(
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     require_feedback_evidence: bool = False,
 ) -> HarnessResult | FeedbackLoopResult:
-    """Execute native validation, comparison, or controlled template upgrade."""
+    """Execute native validation, comparison, or controlled template upgrade.
+
+    ``expected_threat_count`` is an optional caller assertion. It defaults to
+    ``None`` so a model of any size is accepted; a fixed count would reject
+    every model that does not happen to match it.
+    """
     try:
         _validate_feedback_loop_args(
             feedback_loop=feedback_loop,
@@ -5578,7 +5594,15 @@ def create_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_TIMEOUT_SECONDS,
     )
-    parser.add_argument("--expected-threat-count", type=int, default=80)
+    parser.add_argument(
+        "--expected-threat-count",
+        type=int,
+        default=None,
+        help=(
+            "Assert the model carries exactly this many threat instances. "
+            "Omit to accept any count."
+        ),
+    )
     parser.add_argument("--expected-custom-type-count", type=int)
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser

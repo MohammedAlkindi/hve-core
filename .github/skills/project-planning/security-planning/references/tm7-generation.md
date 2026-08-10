@@ -1,7 +1,7 @@
 ---
 title: TM7 Generation Format Contract
 description: OTM-aligned input schema, mapping reference, template profile contract, and current native feedback workflow for TM7 generation.
-ms.date: 2026-08-05
+ms.date: 2026-08-09
 ms.topic: reference
 ---
 
@@ -40,7 +40,7 @@ The remaining flags group as follows:
 * Feedback loop: `--feedback-loop`, `--spec`, `--overlay-input`, `--overlay-output`, `--max-iterations` (`1` through `3`, default `3`), and `--require-feedback-evidence` to require per-surface screenshot, UIA, metrics, and findings evidence before the run is accepted
 * Template upgrade: `--template-upgrade-policy` with `fail` (default), `decline`, or `apply`, plus `--delete-stale-threats` to drop stale threats while applying a newer template
 * Environment: `--require-tmt` to fail rather than skip when TMT is absent, `--pinned-version` (default `7.3.51110.1`), `--workspace-root` to relocate the runtime workspace, `--timeout-seconds` (default `60`), and `--diagnostic-override`
-* Expectations: `--expected-threat-count` (default `80`) and `--expected-custom-type-count`
+* Expectations: `--expected-threat-count` and `--expected-custom-type-count`, both optional assertions that are unset by default so a model of any size is accepted
 * `-v` / `--verbose` for debug logging
 
 The native harness requires the pinned Microsoft Threat Modeling Tool version and treats the workflow as a local UI Automation workflow that must run on Windows with an interactive desktop session. On a non-Windows host, or when TMT cannot be discovered, the run stops as `tmt-unavailable` under `--require-tmt` and as `skipped` without it, and it reports `version-mismatch`, `automation-timeout`, or `unexpected-modal` when the runtime environment diverges from the expected harness contract.

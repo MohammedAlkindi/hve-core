@@ -4082,6 +4082,86 @@ def test_given_analysis_ready_state_when_exporting_then_export_runs_after_readin
     assert state["exported"] is True
 
 
+def test_given_no_expected_threat_count_when_validating_then_any_model_size_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    _patch_successful_automation(monkeypatch, tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "collect_semantic_summary",
+        lambda path: {
+            "sha256": "hash",
+            "generation_enabled": "false",
+            "instance_count": 101,
+            "instances": [
+                {"id": str(index), "type_id": "TH-test"} for index in range(101)
+            ],
+            "knowledge_base_type_ids": ["TH-test"],
+            "custom_type_ids": [],
+            "drawing_surface_hash": "surface-hash",
+            "knowledge_base_hash": "kb-hash",
+        },
+    )
+
+    # Act
+    output = validate_tm7_with_tmt._validate_candidate(
+        executable=tmp_path / "ThreatModeling.exe",
+        input_model=_input_model(tmp_path),
+        workspace=workspace,
+        bundle=validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence"),
+        mode="validate",
+        timeout_seconds=1.0,
+        expected_threat_count=None,
+        template_upgrade_policy="fail",
+        delete_stale_threats=False,
+    )
+
+    # Assert
+    assert output["before_summary"]["instance_count"] == 101
+
+
+def test_given_mismatched_expected_threat_count_when_validating_then_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    _patch_successful_automation(monkeypatch, tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    # Act and Assert
+    with pytest.raises(
+        validate_tm7_with_tmt.HarnessFailure,
+        match="Expected 2 instances before save",
+    ):
+        validate_tm7_with_tmt._validate_candidate(
+            executable=tmp_path / "ThreatModeling.exe",
+            input_model=_input_model(tmp_path),
+            workspace=workspace,
+            bundle=validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence"),
+            mode="validate",
+            timeout_seconds=1.0,
+            expected_threat_count=2,
+            template_upgrade_policy="fail",
+            delete_stale_threats=False,
+        )
+
+
+def test_given_unspecified_cli_threat_count_when_parsed_then_no_assertion() -> None:
+    # Arrange
+    parser = validate_tm7_with_tmt.create_parser()
+
+    # Act
+    args = parser.parse_args(["model.tm7", "--evidence-dir", "evidence"])
+
+    # Assert
+    assert args.expected_threat_count is None
+
+
 def test_given_exact_export_csv_button_when_exporting_then_finds_export_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
