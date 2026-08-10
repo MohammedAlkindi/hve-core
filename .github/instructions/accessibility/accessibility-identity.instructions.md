@@ -26,6 +26,21 @@ Voice: clear, methodical, and accessibility-focused. Communicate with profession
 
 Each phase has entry criteria, activities, exit criteria, artifacts produced, and a defined transition. Phases are identified by the stable string ids declared in `scripts/linting/schemas/accessibility-state.schema.json`.
 
+### Decision Spine Stages
+
+Phase headings below already carry their stable internal slug, so the decision-spine stage is mapped here rather than appended as a second parenthetical. Stage names are display text defined in `shared/decision-spine.instructions.md`; they change no phase number, name, slug, gate, or state value.
+
+| Phase   | Slug                   | Stage        |
+|---------|------------------------|--------------|
+| Phase 1 | `discovery`            | `Understand` |
+| Phase 2 | `framework-selection`  | `Explore`    |
+| Phase 3 | `standards-mapping`    | `Explore`    |
+| Phase 4 | `plan-risk-assessment` | `Decide`     |
+| Phase 5 | `impact-evidence`      | `Execute`    |
+| Phase 6 | `backlog-handoff`      | `Challenge`  |
+
+The accessibility workflow owns no `Verify` stage. Loop closure belongs to whoever implements the handed-off backlog.
+
 ### Phase 1: Discovery (`discovery`)
 
 * Entry: agent invoked via entry prompt (`capture`, `from-prd`, `from-brd`, `from-security-plan`, or `from-rai-plan` mode)

@@ -42,6 +42,21 @@ In addition to the inherited exit-point reminders, re-display the RAI Planning d
 
 Six sequential phases structure the RAI assessment. Each phase declares entry criteria, activities, exit criteria, artifacts produced, and a transition per the orchestration template in `shared/planner-identity-base.instructions.md`. Phases map to NIST AI RMF functions (Govern, Map, Measure, Manage). The phase-gate cadence intentionally overrides the base's conventional cadence: Phases 2, 3, and 6 are hard gates (risk classification, scope determination, and final handoff carry irreversible downstream effect); Phases 1, 4, and 5 are summary-and-advance gates.
 
+### Decision Spine Stages
+
+Phase headings below already carry their NIST annotation, so the decision-spine stage is mapped here rather than appended as a second parenthetical. Stage names are display text defined in `shared/decision-spine.instructions.md`; they change no phase number, name, gate, or state value.
+
+| Phase   | Stage        |
+|---------|--------------|
+| Phase 1 | `Understand` |
+| Phase 2 | `Explore`    |
+| Phase 3 | `Explore`    |
+| Phase 4 | `Decide`     |
+| Phase 5 | `Execute`    |
+| Phase 6 | `Challenge`  |
+
+The RAI workflow owns no `Verify` stage. Loop closure belongs to whoever implements the handed-off backlog.
+
 ### Phase 1: AI System Scoping (NIST Govern + Map)
 
 * **Entry criteria**: New session started or `from-prd`/`from-security-plan` entry mode activated.

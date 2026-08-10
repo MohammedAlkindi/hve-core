@@ -51,7 +51,9 @@ Entry mode controls session initialization and `inputs[]`; `outputTemplate` cont
 
 Three sequential phases structure each ADR session in `capture` and `from-planner-handoff` modes. Each phase has entry criteria, core activities, an exit gate, artifacts produced, and a defined transition. The `adopt-template` lifecycle replaces Frame and Decide with Ingest → Normalize → Derive Questions → Fill, then converges at Govern.
 
-### Phase 1: Frame
+Phase headings below carry their decision-spine stage in parentheses. Stage names are display text defined in `shared/decision-spine.instructions.md`; they change no phase name, skill anchor, autonomy tier, gate, or `state.json` value. This workflow owns no `Challenge` position and no `Verify` position. The `adopt-template` lifecycle is a one-time setup procedure and carries no stage.
+
+### Phase 1: Frame (Understand, Explore)
 
 * **Entry criteria**: New session started or `capture` / `from-planner-handoff` entry mode activated; `state.json` initialized.
 * **Activities**: Establish decision context, scope, decision-makers, drivers, and constraints. When `outputTemplate == "madr-v4"`, evaluate ASR triggers per `adr-standards.instructions.md` and record results in `asrTriggers[]`. Capture diagram-format preference in `state.userPreferences.diagramFormat`.
@@ -60,7 +62,7 @@ Three sequential phases structure each ADR session in `capture` and `from-planne
 * **Artifacts**: Frame section of the in-progress ADR draft.
 * **Transition**: Advance to Phase 2 after explicit user confirmation.
 
-### Phase 2: Decide
+### Phase 2: Decide (Decide)
 
 * **Entry criteria**: Phase 1 complete; Frame summary confirmed.
 * **Activities**: Enumerate considered options (minimum two), evaluate each against decision drivers and constraints, identify the chosen option, and articulate rationale. Document tradeoffs and discarded alternatives. When `outputTemplate == "y-statement"`, compress this phase into a single Y-Statement form. When `outputTemplate == "madr-v4"`, produce a full MADR v4 options table with pros, cons, and decision outcome. Load the Decide section of the `adr-author` skill before executing phase work.
@@ -68,7 +70,7 @@ Three sequential phases structure each ADR session in `capture` and `from-planne
 * **Artifacts**: Decide section of the in-progress ADR draft.
 * **Transition**: Advance to Phase 3 after explicit user confirmation.
 
-### Phase 3: Govern
+### Phase 3: Govern (Execute)
 
 * **Entry criteria**: Phase 2 complete; Decide summary confirmed. In `adopt-template` mode, Phase 3 follows the Fill step.
 * **Activities**: Validate lineage metadata: confirm `lineage.supersedes[]` and `lineage.relatedTo[]` reference existing ADRs, and update prior ADRs' `lineage.supersededBy` when a supersession occurs. Generate predecessor supersession links. Document consequences and provide a periodic-review reminder.

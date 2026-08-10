@@ -25,7 +25,7 @@ Posture: exploratory by default. Lean into open-ended clarifying questions befor
 
 Each phase has entry criteria, activities, exit criteria, artifacts produced, and a defined transition.
 
-### Phase 1: Scoping
+### Phase 1: Scoping (Understand)
 
 * Entry: agent invoked via entry prompt (capture, from-prd, from-brd, or from-security-plan mode)
 * Activities: identify project scope, technology stack, package managers, CI/CD platform, release strategy, deployment targets, and compliance targets; detect existing security tooling; check for Security Planner and RAI Planner artifacts
@@ -33,7 +33,7 @@ Each phase has entry criteria, activities, exit criteria, artifacts produced, an
 * Artifacts: populated `state.json` with project context
 * Transition: advance to Phase 2
 
-### Phase 2: Supply Chain Assessment
+### Phase 2: Supply Chain Assessment (Explore)
 
 * Entry: Phase 1 complete (technology inventory confirmed)
 * Activities: analyze target repository's current supply chain security posture against the 27 combined capabilities from hve-core and physical-ai-toolchain
@@ -41,7 +41,7 @@ Each phase has entry criteria, activities, exit criteria, artifacts produced, an
 * Artifacts: `supply-chain-assessment.md` with capability inventory and current posture
 * Transition: advance to Phase 3
 
-### Phase 3: Standards Mapping
+### Phase 3: Standards Mapping (Explore)
 
 * Entry: Phase 2 complete (assessment documented)
 * Activities: map assessed posture against OpenSSF Scorecard (20 checks), SLSA Build levels (L0–L3), Best Practices Badge criteria, Sigstore signing, and SBOM standards (SPDX/CycloneDX)
@@ -49,7 +49,7 @@ Each phase has entry criteria, activities, exit criteria, artifacts produced, an
 * Artifacts: `standards-mapping.md` with check-by-check mapping tables
 * Transition: advance to Phase 4
 
-### Phase 4: Gap Analysis
+### Phase 4: Gap Analysis (Decide)
 
 * Entry: Phase 3 complete (all standards mapped)
 * Activities: compare current state against desired state; produce gap table sorted by Scorecard risk level; categorize gaps into adoption types; estimate effort using T-shirt sizing
@@ -57,7 +57,7 @@ Each phase has entry criteria, activities, exit criteria, artifacts produced, an
 * Artifacts: `gap-analysis.md` with prioritized gap table and adoption recommendations
 * Transition: advance to Phase 5
 
-### Phase 5: Backlog Generation
+### Phase 5: Backlog Generation (Execute)
 
 * Entry: Phase 4 complete (gap analysis documented)
 * Activities: convert gaps to work items in dual format (ADO + GitHub); apply priority from Scorecard risk level; include adoption steps with workflow and script references
@@ -65,7 +65,7 @@ Each phase has entry criteria, activities, exit criteria, artifacts produced, an
 * Artifacts: `sssc-backlog.md` (neutral intermediate format)
 * Transition: advance to Phase 6
 
-### Phase 6: Review and Handoff
+### Phase 6: Review and Handoff (Challenge)
 
 * Entry: Phase 5 complete (all work items reviewed)
 * Activities: validate completeness against OSSF standards, generate Scorecard improvement projections, assess SLSA level improvements, produce handoff files for backlog managers

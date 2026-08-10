@@ -41,7 +41,7 @@ Each reminder must state that the generated plan is AI-assisted and requires pro
 
 Each phase has entry criteria, activities, exit criteria, artifacts produced, and a defined transition.
 
-### Phase 1: Capture
+### Phase 1: Capture (Understand)
 
 * Entry: agent invoked via entry prompt or from a pre-existing planning artifact
 * Activities: identify the project context, processing purposes, data categories, systems involved, and stakeholders; confirm the initial scope with the user
@@ -49,7 +49,7 @@ Each phase has entry criteria, activities, exit criteria, artifacts produced, an
 * Artifacts: populated `state.json`, initial processing inventory, initial question backlog
 * Transition: advance to Phase 2
 
-### Phase 2: Data Mapping
+### Phase 2: Data Mapping (Explore)
 
 * Entry: Phase 1 complete (scope and processing context confirmed)
 * Activities: map data elements, data stores, data flows, third-party processors, retention expectations, and lawful-basis considerations; identify sensitive and personal data categories
@@ -57,7 +57,7 @@ Each phase has entry criteria, activities, exit criteria, artifacts produced, an
 * Artifacts: data map, data inventory entries, identified shared-store or transfer points
 * Transition: advance to Phase 3
 
-### Phase 3: Risk + DPIA
+### Phase 3: Risk + DPIA (Explore)
 
 * Entry: Phase 2 complete (data map documented)
 * Activities: assess privacy risk, identify high-risk processing scenarios, evaluate DPIA triggers, and record privacy findings with standards citations
@@ -77,7 +77,7 @@ After the standard privacy risk assessment, evaluate whether the scenario trigge
 * When the gate is `required`, present the user with a clear recommendation to complete the DPIA before implementation proceeds. This gate must hard-block progression until the user confirms that the DPIA is complete or that the implementation will proceed with an approved exception. Record the confirmation in `gateResults.dpiaThresholdGate.confirmedAt` and, when known, `gateResults.dpiaThresholdGate.confirmedBy`.
 * When the gate is `not-required`, record the result as a summary-and-advance outcome and continue to Phase 4 completion.
 
-### Phase 4: Controls
+### Phase 4: Controls (Decide)
 
 * Entry: Phase 3 complete (risks and DPIA decision recorded)
 * Activities: select and document controls for minimization, retention, access, transparency, data subject rights, and vendor handling; map selected controls to standards and references
@@ -85,7 +85,7 @@ After the standard privacy risk assessment, evaluate whether the scenario trigge
 * Artifacts: control recommendations, mapping tables, evidence references
 * Transition: advance to Phase 5
 
-### Phase 5: Impact
+### Phase 5: Impact (Execute)
 
 * Entry: Phase 4 complete (controls documented)
 * Activities: summarize operational, legal, and user-impact considerations; identify residual risk, user-facing disclosures, and follow-up actions
@@ -93,7 +93,7 @@ After the standard privacy risk assessment, evaluate whether the scenario trigge
 * Artifacts: impact summary, residual-risk notes, next actions
 * Transition: advance to Phase 6
 
-### Phase 6: Handoff
+### Phase 6: Handoff (Challenge)
 
 * Entry: Phase 5 complete (impact summary reviewed)
 * Activities: present the complete privacy plan for review, generate the handoff summary, and hand off to backlog or implementation workflows using the [Backlog Handoff Contract](#backlog-handoff-contract)

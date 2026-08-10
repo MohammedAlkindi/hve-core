@@ -64,6 +64,27 @@ Hard gates record a `confirmedAt` ISO-8601 timestamp (and `confirmedBy` when the
 
 The conventional cadence is Phase 1 hard, Phases 2-3 summary-and-advance, Phase 4 hard, Phase 5 summary-and-advance, Phase 6 hard. Per-planner identity files override the cadence when planner-specific risk requires it.
 
+### Decision Spine Stages by Position
+
+Every planner that follows this scaffold occupies the same six positions in the shared decision spine. Stage names are display text defined in `decision-spine.instructions.md`; per-planner identity files display the stage beside the phase, and the mapping itself is declared here once.
+
+| Phase position | Stage      | Why                                                             |
+|----------------|------------|-----------------------------------------------------------------|
+| Phase 1        | Understand | Establish scope, context, and constraints                       |
+| Phase 2        | Explore    | Widen the assessment surface                                    |
+| Phase 3        | Explore    | Gather the standards evidence that separates options            |
+| Phase 4        | Decide     | Commit to the analysis that determines what work is needed      |
+| Phase 5        | Execute    | Produce the backlog, impact, or evidence artifacts              |
+| Phase 6        | Challenge  | Attack the plan before it is handed to the team that will build |
+
+Planners run `Challenge` last because their `Execute` stage produces a plan rather than a shipped change. The review and handoff phase is the last opportunity to attack that plan before another team acts on it.
+
+Phase 5 to Phase 6 moves against the canonical stage order, so state that reason when announcing Phase 6 rather than displaying `Challenge` alone. The stage name by itself reads as a step backward.
+
+No planner owns `Verify`. Each one terminates at handoff, so verification belongs to whoever implements the backlog.
+
+This mapping is display vocabulary. It changes no phase number, phase name, internal slug, gate type, cadence, transition, or `state.json` value.
+
 ## Six-Step State Protocol
 
 Execute this protocol on every turn:

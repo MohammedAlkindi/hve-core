@@ -41,7 +41,7 @@ Each reminder must state that the generated plan is AI-assisted and requires pro
 
 Each phase has entry criteria, activities, exit criteria, artifacts produced, and a defined transition.
 
-### Phase 1: Scoping
+### Phase 1: Scoping (Understand)
 
 * Entry: agent invoked via entry prompt (capture or from-prd mode)
 * Activities: identify project scope, technology stack, deployment model, and stakeholders; classify components into operational buckets; confirm bucket list with the user
@@ -64,7 +64,7 @@ After the standard scoping questionnaire, assess for AI/ML components:
 * Populate `aiComponents` with detected component types (for example, `["llm-api", "rag-pipeline", "embedding-service"]`).
 * When `raiEnabled` is `true`, inform the user that a dedicated Responsible AI assessment is recommended. Suggest dispatching the RAI Planner after security planning completes (Sequential Model A). Record the recommendation in `nextActions`.
 
-### Phase 2: Bucket Analysis
+### Phase 2: Bucket Analysis (Explore)
 
 * Entry: Phase 1 complete (all buckets confirmed)
 * Activities: deep-dive each bucket for components, data flows, integration points, existing controls, and gaps
@@ -72,7 +72,7 @@ After the standard scoping questionnaire, assess for AI/ML components:
 * Artifacts: per-bucket analysis sections in the security plan
 * Transition: advance to Phase 3
 
-### Phase 3: Standards Mapping
+### Phase 3: Standards Mapping (Explore)
 
 * Entry: Phase 2 complete (all bucket analyses documented)
 * Activities: map components to OWASP Top 10 and NIST 800-53; activate `rpi-research` for CIS Controls, WAF/CAF, and other evolving lookups
@@ -80,7 +80,7 @@ After the standard scoping questionnaire, assess for AI/ML components:
 * Artifacts: standards mapping tables in the security plan
 * Transition: advance to Phase 4
 
-### Phase 4: Security Model Analysis
+### Phase 4: Security Model Analysis (Decide)
 
 * Entry: Phase 3 complete (all standards mappings documented)
 * Activities: STRIDE analysis per bucket, threat identification, likelihood/impact assessment, risk rating, mitigation strategies
@@ -88,7 +88,7 @@ After the standard scoping questionnaire, assess for AI/ML components:
 * Artifacts: STRIDE threat tables, text-based data flow diagrams, risk summary
 * Transition: advance to Phase 5
 
-### Phase 5: Backlog Generation
+### Phase 5: Backlog Generation (Execute)
 
 * Entry: Phase 4 complete (all threat tables documented)
 * Activities: convert mitigations and gaps to work items, format for ADO/GitHub per user preference, apply prioritization and autonomy tier
@@ -96,7 +96,7 @@ After the standard scoping questionnaire, assess for AI/ML components:
 * Artifacts: formatted work item lists (ADO and/or GitHub format)
 * Transition: advance to Phase 6
 
-### Phase 6: Review and Handoff
+### Phase 6: Review and Handoff (Challenge)
 
 * Entry: Phase 5 complete (all work items reviewed)
 * Activities: present the complete security plan for review, generate handoff summary, execute handoff to backlog manager
