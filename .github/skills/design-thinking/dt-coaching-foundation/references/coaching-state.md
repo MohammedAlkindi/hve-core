@@ -90,6 +90,8 @@ customer_card_render:
 * `phase`: free-text label describing the current step within the method (e.g., "stakeholder mapping", "interview planning", "theme clustering", "prototype testing").
 * `disclaimerShownAt`: ISO 8601 timestamp recording when the Design Thinking Coaching disclaimer was shown. `null` until shown; once set, never overwritten. See `shared/disclaimer-language.instructions.md` (Design Thinking Coaching section).
 
+The decision-spine stage is derived from `current.method` the same way `space` is, and is display text only. It is never written to the state file and is not a field of this block. See [Stage Derivation](#stage-derivation).
+
 #### Hint Calibration
 
 * `level`: integer 1-4 indicating the current Progressive Hint Engine level for this team. Start at 1; increase when the team needs more direct guidance and decrease when the team demonstrates self-direction. Levels match the coaching identity's Progressive Hint Engine (Broad Direction, Contextual Focus, Specific Area, Direct Detail).
@@ -175,6 +177,24 @@ Always derive `current.space` from `current.method`:
 * Methods 7-9: `implementation`
 
 Do not set space independently of method.
+
+### Stage Derivation
+
+Always derive the decision-spine stage from `current.method` as well:
+
+* Methods 1-2: `Understand`
+* Method 3: `Decide`
+* Method 4: `Explore`
+* Method 5: `Decide`
+* Method 6: `Challenge`
+* Method 7: `Execute`
+* Methods 8-9: `Verify`
+
+Design Thinking converges twice, so `Decide` appears twice: method 3 commits to a problem statement and method 5 commits to a concept.
+
+Method 3 to method 4 moves against the canonical stage order, so state that reason when announcing method 4 rather than displaying `Explore` alone: the problem statement is settled, and the widening that follows is over solutions rather than problems. The stage name by itself reads as a step backward.
+
+Stage is display text the coach speaks alongside method and space. Do not persist it, do not add it to the state file, and do not set it independently of method. Space derivation is unaffected by it.
 
 ## Session Recovery Protocol
 

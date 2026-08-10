@@ -7,17 +7,19 @@ Navigate method transitions, space boundaries, and non-linear iteration across t
 
 ## Nine-Method Sequence
 
-| # | Method              | Space          | Key Output                                   | Exit Signal                                                    |
-|---|---------------------|----------------|----------------------------------------------|----------------------------------------------------------------|
-| 1 | Scope Conversations | Problem        | Validated problem statement, stakeholder map | Problem differs from original request; stakeholders identified |
-| 2 | Design Research     | Problem        | Interview evidence, constraint documentation | Multi-source evidence; environmental context documented        |
-| 3 | Input Synthesis     | Problem        | Themes, problem definition, HMW questions    | Themes validated across sources; team alignment confirmed      |
-| 4 | Brainstorming       | Solution       | Divergent solution ideas                     | Multiple distinct directions grounded in themes                |
-| 5 | User Concepts       | Solution       | Visual concepts for validation               | 30-second comprehensible visual with feedback captured         |
-| 6 | Lo-Fi Prototypes    | Solution       | Constraint discoveries from testing          | Prototype tested with real users; constraints documented       |
-| 7 | Hi-Fi Prototypes    | Implementation | Functional systems with real data            | Systematic comparison criteria defined                         |
-| 8 | User Testing        | Implementation | Validated findings by severity               | Real users tested in real environments                         |
-| 9 | Iteration at Scale  | Implementation | Telemetry-driven optimization                | Metrics connected to iteration priorities                      |
+| # | Method              | Space          | Stage      | Key Output                                   | Exit Signal                                                    |
+|---|---------------------|----------------|------------|----------------------------------------------|----------------------------------------------------------------|
+| 1 | Scope Conversations | Problem        | Understand | Validated problem statement, stakeholder map | Problem differs from original request; stakeholders identified |
+| 2 | Design Research     | Problem        | Understand | Interview evidence, constraint documentation | Multi-source evidence; environmental context documented        |
+| 3 | Input Synthesis     | Problem        | Decide     | Themes, problem definition, HMW questions    | Themes validated across sources; team alignment confirmed      |
+| 4 | Brainstorming       | Solution       | Explore    | Divergent solution ideas                     | Multiple distinct directions grounded in themes                |
+| 5 | User Concepts       | Solution       | Decide     | Visual concepts for validation               | 30-second comprehensible visual with feedback captured         |
+| 6 | Lo-Fi Prototypes    | Solution       | Challenge  | Constraint discoveries from testing          | Prototype tested with real users; constraints documented       |
+| 7 | Hi-Fi Prototypes    | Implementation | Execute    | Functional systems with real data            | Systematic comparison criteria defined                         |
+| 8 | User Testing        | Implementation | Verify     | Validated findings by severity               | Real users tested in real environments                         |
+| 9 | Iteration at Scale  | Implementation | Verify     | Telemetry-driven optimization                | Metrics connected to iteration priorities                      |
+
+Stage is the decision-spine stage, derived from method number exactly as space is. It is display text the coach speaks alongside method and space, and it is never persisted. `Decide` appears twice because Design Thinking converges twice: method 3 commits to a problem statement and method 5 commits to a concept.
 
 ## Space Boundary Transitions
 
@@ -30,9 +32,9 @@ At every method boundary, follow this protocol:
 
 Space boundaries carry higher stakes. Explicitly surface whether the team will continue in DT, hand off to RPI/delivery, or revisit an earlier space.
 
-* Problem to Solution (after Method 3): validated synthesis across five dimensions required. See ../../dt-methods/references/method-03-synthesis.md for detailed readiness signals.
-* Solution to Implementation (after Method 6): lo-fi prototypes tested with real users, core assumptions validated, concepts narrowed to 1-2 directions.
-* Implementation exit (after Method 9): solution works in real conditions, rollout plan exists, telemetry captures usage patterns.
+* Problem to Solution (after Method 3, `Decide` to `Explore`): validated synthesis across five dimensions required. See ../../dt-methods/references/method-03-synthesis.md for detailed readiness signals.
+* Solution to Implementation (after Method 6, `Challenge` to `Execute`): lo-fi prototypes tested with real users, core assumptions validated, concepts narrowed to 1-2 directions.
+* Implementation exit (after Method 9, `Verify` closing the loop): solution works in real conditions, rollout plan exists, telemetry captures usage patterns.
 
 ## Non-Linear Iteration
 

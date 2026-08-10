@@ -44,7 +44,9 @@ PRD scope (`references/prd/`):
 | Define   | Produce complete, testable, and traceable requirements content       | Discover artifacts are approved for elaboration  | Define hard gate passes with quality evidence                  |
 | Govern   | Finalize, approve, and supersede BRD versions under lineage controls | Define package is approved for governance review | Govern hard gate passes and publication artifacts are recorded |
 
-## Discover {#discover}
+BRD phase headings below carry their decision-spine stage in parentheses: Discover is `Understand` and `Explore`, Define is `Decide`, the quality reviewer gate is `Challenge`, and Govern is `Execute`. Stage names are display text defined in the shared decision-spine instructions; they change no phase name, section anchor, gate, template path, or handoff contract. `Govern` here means handoff, and `Govern` in the ADR workflow means publication; both sit at `Execute` and do different work under the same word.
+
+## Discover (Understand, Explore) {#discover}
 
 ### Activities
 
@@ -68,7 +70,7 @@ Discover exits only when:
 * Initial assumption and constraint register.
 * Seed requirement and traceability scaffold for Define.
 
-## Define {#define}
+## Define (Decide) {#define}
 
 ### Activities
 
@@ -93,7 +95,7 @@ Define exits only when:
 * BRD quality findings and consolidated quality report payloads.
 * Define gate decision record with reviewer notes.
 
-## Govern {#govern}
+## Govern (Execute) {#govern}
 
 ### Activities
 
@@ -153,6 +155,8 @@ Apply the BRD quality rubric and payload contracts from [BRD Quality Formats](re
 ## PRD Lifecycle
 
 The PRD Builder agent runs a seven-phase lifecycle. Each phase has its own section anchor below so the agent loads only the guidance for the active phase.
+
+Unlike the BRD lifecycle above, PRD phases carry no decision-spine stage annotation. Their order interleaves procedure steps with decision work, and the mapping is deferred rather than inferred. Do not read a stage into a PRD phase name.
 
 | Phase     | Section anchor   | Primary objective                                            |
 |-----------|------------------|--------------------------------------------------------------|

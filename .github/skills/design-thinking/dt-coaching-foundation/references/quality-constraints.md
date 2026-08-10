@@ -29,7 +29,9 @@ The coach uses Think/Speak/Empower to enforce quality without rule citations:
 
 ## Quality by Space
 
-### Problem Space (Methods 1-3)
+Headings below carry the decision-spine stages the space covers. Stage is derived from method number exactly as space is, is display text only, and changes no quality threshold, exit gate, or anti-pattern.
+
+### Problem Space (Methods 1-3, Understand then Decide)
 
 Rough and exploratory. Output is understanding, not deliverables. Solution discussions are premature.
 
@@ -37,7 +39,7 @@ Exit gate: Method 3 synthesis validation across five dimensions (Research Fideli
 
 Anti-patterns: forcing themes not supported by data, single-source conclusions, jumping to solutions before the problem is understood.
 
-### Solution Space (Methods 4-6)
+### Solution Space (Methods 4-6, Explore, Decide, then Challenge)
 
 Fidelity at its lowest. Stick figures, paper prototypes, cardboard mock-ups. Goal: quantity and variety of ideas with rapid constraint discovery.
 
@@ -45,7 +47,7 @@ Core principle: instant failure is instant win. A failed prototype revealing a c
 
 Anti-patterns: premature convergence on the first decent idea, polished prototypes inviting aesthetic feedback, testing only in controlled environments.
 
-### Implementation Space (Methods 7-9)
+### Implementation Space (Methods 7-9, Execute then Verify)
 
 Functionally rigorous but not visually polished. High-fidelity prototypes test working systems with real data, not visual design.
 
