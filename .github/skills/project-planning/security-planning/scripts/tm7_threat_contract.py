@@ -526,6 +526,70 @@ def collect_mapping_failures(
     return [message for _, message in sorted(failures)]
 
 
+def collect_gap_citation_failures(
+    spec: dict[str, Any],
+    registers: dict[str, set[str]],
+) -> list[str]:
+    """Collect gap citations that do not resolve against a per-skill register.
+
+    Gap ids are scoped per skill and may repeat across skills, so ``G-INF-1``
+    names a different weakness in each file that declares it. The citable
+    identity is therefore the ``(source_skill, gap_id)`` pair, and a citation
+    that omits ``source_skill`` is unresolvable rather than merely incomplete.
+
+    ``registers`` maps a skill name to the gap ids that skill declares.
+    """
+    if not isinstance(spec, dict):
+        return ["spec root must be a mapping"]
+
+    failures: list[tuple[str, str]] = []
+    for ordinal, threat in enumerate(_coerce_list(spec.get("threats")), start=1):
+        if not isinstance(threat, dict):
+            continue
+        threat_id = _normalize_text(threat.get("id"))
+        sort_id = threat_id or f"~{ordinal:04d}"
+        properties = threat.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        gap_ids = [
+            _normalize_text(gap) for gap in _coerce_list(properties.get("gap_ids"))
+        ]
+        gap_ids = [gap for gap in gap_ids if gap]
+        if not gap_ids:
+            continue
+
+        source_skill = _normalize_text(properties.get("source_skill"))
+        if not source_skill:
+            failures.append(
+                (
+                    sort_id,
+                    f"{threat_id}: cites {', '.join(sorted(gap_ids))} without a "
+                    "source_skill, so the gap ids cannot be resolved",
+                )
+            )
+            continue
+
+        register = registers.get(source_skill)
+        if register is None:
+            failures.append(
+                (
+                    sort_id,
+                    f"{threat_id}: source_skill {source_skill} has no gap register",
+                )
+            )
+            continue
+
+        for gap_id in sorted(set(gap_ids)):
+            if gap_id not in register:
+                failures.append(
+                    (
+                        f"{sort_id}:{gap_id}",
+                        f"{threat_id}: {gap_id} is not declared by {source_skill}",
+                    )
+                )
+    return [message for _, message in sorted(failures)]
+
+
 def _coerce_authored_base_index(authored_base: dict[str, Any]) -> dict[str, Any]:
     """Normalize the one supported authored-base index shape.
 

@@ -1056,3 +1056,103 @@ def _serialize_probe_root() -> str:
     ET.SubElement(root, f"{{{tm7_threat_contract.KNOWLEDGE_NS}}}Entry")
     with tm7_threat_contract.tm7_serialization_namespaces(root):
         return ET.tostring(root, encoding="unicode")
+
+
+def _gap_spec(properties: dict[str, object]) -> dict[str, object]:
+    return {"threats": [{"id": "X-1", "properties": properties}]}
+
+
+def test_given_resolvable_gap_citation_when_validated_then_no_failures() -> None:
+    # Arrange
+    spec = _gap_spec({"source_skill": "mural", "gap_ids": ["G-INF-1"]})
+    registers = {"mural": {"G-INF-1"}, "jira": {"G-INF-1"}}
+
+    # Act
+    failures = tm7_threat_contract.collect_gap_citation_failures(spec, registers)
+
+    # Assert
+    assert failures == []
+
+
+def test_given_gap_id_owned_by_another_skill_when_validated_then_reports_failure() -> (
+    None
+):
+    # Arrange
+    # G-DOS-2 is declared only by copilot-otel-metrics. Citing it from
+    # security-planning is the exact misattribution that shipped as SP-1.
+    spec = _gap_spec({"source_skill": "security-planning", "gap_ids": ["G-DOS-2"]})
+    registers = {"security-planning": {"G-DOS-1"}, "copilot-otel-metrics": {"G-DOS-2"}}
+
+    # Act
+    failures = tm7_threat_contract.collect_gap_citation_failures(spec, registers)
+
+    # Assert
+    assert failures == ["X-1: G-DOS-2 is not declared by security-planning"]
+
+
+def test_given_gap_citation_without_source_skill_when_validated_then_unresolvable() -> (
+    None
+):
+    # Arrange
+    spec = _gap_spec({"gap_ids": ["G-INF-1", "G-SUP-1"]})
+    registers = {"mural": {"G-INF-1", "G-SUP-1"}}
+
+    # Act
+    failures = tm7_threat_contract.collect_gap_citation_failures(spec, registers)
+
+    # Assert
+    assert failures == [
+        "X-1: cites G-INF-1, G-SUP-1 without a source_skill, so the gap ids "
+        "cannot be resolved"
+    ]
+
+
+def test_given_unknown_source_skill_when_validated_then_reports_missing_register() -> (
+    None
+):
+    # Arrange
+    spec = _gap_spec({"source_skill": "not-a-skill", "gap_ids": ["G-INF-1"]})
+    registers = {"mural": {"G-INF-1"}}
+
+    # Act
+    failures = tm7_threat_contract.collect_gap_citation_failures(spec, registers)
+
+    # Assert
+    assert failures == ["X-1: source_skill not-a-skill has no gap register"]
+
+
+def test_given_same_gap_id_in_two_skills_when_validated_then_scoped_per_skill() -> None:
+    # Arrange
+    # G-INF-1 means different things per skill, so resolution must be scoped
+    # to the citing skill rather than satisfied by any declaring skill.
+    spec = {
+        "threats": [
+            {
+                "id": "A-1",
+                "properties": {"source_skill": "mural", "gap_ids": ["G-INF-1"]},
+            },
+            {
+                "id": "B-1",
+                "properties": {"source_skill": "vex", "gap_ids": ["G-INF-1"]},
+            },
+        ]
+    }
+    registers = {"mural": {"G-INF-1"}, "vex": {"G-TAM-1"}}
+
+    # Act
+    failures = tm7_threat_contract.collect_gap_citation_failures(spec, registers)
+
+    # Assert
+    assert failures == ["B-1: G-INF-1 is not declared by vex"]
+
+
+def test_given_threat_without_gap_ids_when_validated_then_ignored() -> None:
+    # Arrange
+    spec = _gap_spec({"source_skill": "mural"})
+    registers = {"mural": {"G-INF-1"}}
+
+    # Act
+    failures = tm7_threat_contract.collect_gap_citation_failures(spec, registers)
+
+    # Assert
+    assert failures == []
