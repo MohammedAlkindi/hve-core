@@ -51,11 +51,12 @@ The VEX document is published as a Stable release asset named
 gh release download v<version> -R microsoft/hve-core -p 'hve-core.openvex.json'
 ```
 
-To download the VEX document together with its Sigstore companions:
+The combined download below retrieves the VEX document, its Sigstore companion,
+and the dependency SBOM to prepare for the SBOM-bound verification step:
 
 ```bash
 gh release download v<version> -R microsoft/hve-core \
-  -p 'hve-core.openvex.json' -p 'hve-core.openvex.json.sigstore.json'
+  -p 'hve-core.openvex.json' -p 'hve-core.openvex.json.sigstore.json' -p 'dependencies.spdx.json'
 ```
 
 ## Verifying the VEX Attestation

@@ -997,7 +997,11 @@ User input handling:
 
 ### Custom Selection Sub-Flow
 
-When the user selects option 2, read `.github/plugin/marketplace.json` from the HVE-Core source at `$hveCoreBasePath` and present the `$selectedPackage` entry's components grouped by kind. Show each component's `x-hve.componentMaturity` label from that entry, defaulting to `stable` when the entry declares none. Collect the user's component paths in marketplace form and reject any path outside that entry before resolution.
+When the user selects option 2, read `.github/plugin/marketplace.json` from the HVE-Core source at `$hveCoreBasePath`.
+Raw marketplace entry values are canonical source identities and must not be passed directly to collision-detection or
+component-copy. Call the exported `Get-MarketplaceComponentIndex -Entry $entry` to present each component's package-form
+`PackagePath`, `Kind`, and resolved `Maturity` before the user chooses. Then call `Resolve-MarketplaceComponentSelection`
+with the chosen package-form values and pass the returned `PackagePath` values downstream.
 
 ### Selection Resolution
 

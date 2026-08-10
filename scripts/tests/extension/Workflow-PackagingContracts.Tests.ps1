@@ -716,11 +716,30 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $catalogIds = [string[]]@($catalog.plugins | ForEach-Object { [string]$_.name })
         @($catalogIds).Count | Should -BeGreaterThan 0
 
-        # The protected job cannot import the identity module, so its one inline
-        # mapping is proven equal to the module for every catalog ID.
+        # The GITHUB_ENV propagation repeats the name instead of assigning it,
+        # so it is removed before the assignment sites are counted.
+        $assignmentText = $bindRun.Replace('echo "EXTENSION_NAME=$EXTENSION_NAME"', '')
+        $assignments = [regex]::Matches($assignmentText, '(?m)^\s*EXTENSION_NAME=(?<value>.+?)\s*$')
+        @($assignments).Count | Should -Be 2 -Because 'the bind step declares exactly one core and one non-core identity assignment'
+
+        $assigned = [string[]]@($assignments | ForEach-Object { $_.Groups['value'].Value.Trim("'`"") })
+        $coreIdentity = [string[]]@($assigned | Where-Object { $_ -notmatch '\$' })
+        $identityTemplate = [string[]]@($assigned | Where-Object { $_ -match '\$' })
+        @($coreIdentity).Count | Should -Be 1 -Because 'exactly one branch assigns a literal identity'
+        @($identityTemplate).Count | Should -Be 1 -Because 'exactly one branch derives the identity from the package ID'
+        $identityTemplate[0] | Should -Match ([regex]::Escape('$PACKAGE_ID'))
+
+        # The literal branch belongs to the package ID the workflow tests for, so
+        # that ID is read from the branch condition rather than restated here.
+        $corePackageId = [regex]::Match($bindRun, '\[ "\$PACKAGE_ID" = ''(?<id>[^'']+)'' \]').Groups['id'].Value
+        $corePackageId | Should -Not -BeNullOrEmpty
+
+        # The protected job cannot import the identity module, so the mapping
+        # extracted from the workflow is proven equal to the module for every
+        # catalog ID.
         foreach ($id in $catalogIds) {
-            $inline = if ($id -eq 'hve-core') { 'hve-core' } else { "hve-$id" }
-            $inline | Should -BeExactly (Get-ExtensionIdentity -PackageId $id) -Because "the inline mapping must equal Get-ExtensionIdentity for '$id'"
+            $inline = if ($id -eq $corePackageId) { $coreIdentity[0] } else { $identityTemplate[0].Replace('$PACKAGE_ID', $id) }
+            $inline | Should -BeExactly (Get-ExtensionIdentity -PackageId $id) -Because "the workflow mapping must equal Get-ExtensionIdentity for '$id'"
         }
 
         # Anchoring on the version segment is the leg accounting rule: a longer
@@ -2920,6 +2939,18 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
             )) {
             $vex | Should -Not -Match "(?is)$overclaim" -Because 'only Stable releases publish the VEX document'
         }
+
+        # The guide documents two download commands. The combined companion
+        # command is selected through its Sigstore companion so the contract
+        # cannot bind the earlier single-asset command, which fetches only the
+        # VEX document by design. The tempered fence guard keeps the match
+        # inside one fenced block.
+        $combinedDownload = [regex]::Match($vex, '(?s)gh release download v<version>(?:(?!```).)*?hve-core\.openvex\.json\.sigstore\.json(?:(?!```).)*?```')
+        $combinedDownload.Success | Should -BeTrue -Because 'the VEX guide must document one combined companion download command'
+        $combinedDownload.Value | Should -Match ([regex]::Escape("-p 'dependencies.spdx.json'")) -Because 'the combined companion download must fetch the dependency SBOM the guide later verifies'
+        $vexVerification = [regex]::Match($vex, [regex]::Escape('gh attestation verify dependencies.spdx.json'))
+        $vexVerification.Success | Should -BeTrue -Because 'the VEX guide must verify dependencies.spdx.json'
+        $vexVerification.Index | Should -BeGreaterThan $combinedDownload.Index -Because 'dependencies.spdx.json must be downloaded before the guide verifies it'
 
         # The Stable download step must fetch both attested VEX subjects before
         # the verification commands that consume them.

@@ -447,7 +447,8 @@ Describe 'Release candidate digest and record semantics' -Tag 'Unit' {
     }
 
     It 'Fails closed on <Label>' -ForEach @(
-        @{ Label = 'the wrong channel'; Channel = 'Stable'; Commit = '0123456789abcdef0123456789abcdef01234567'; Baseline = 'prerelease-v1.0.0'; Version = '1.1.0'; Tamper = ''; Pattern = '*does not match the requested channel*' }
+        @{ Label = 'a cross-channel baseline locator'; Channel = 'Stable'; Commit = '0123456789abcdef0123456789abcdef01234567'; Baseline = 'prerelease-v1.0.0'; Version = '1.1.0'; Tamper = ''; Pattern = "*is neither 'OMITTED' nor an exact Stable channel tag*" }
+        @{ Label = 'a record channel mismatch'; Channel = 'Stable'; Commit = '0123456789abcdef0123456789abcdef01234567'; Baseline = 'v1.0.0'; Version = '1.1.0'; Tamper = ''; Pattern = '*does not match the requested channel*' }
         @{ Label = 'the wrong baseline'; Channel = 'PreRelease'; Commit = '0123456789abcdef0123456789abcdef01234567'; Baseline = 'prerelease-v0.9.0'; Version = '1.1.0'; Tamper = ''; Pattern = '*does not match the target baseline*' }
         @{ Label = 'the wrong version'; Channel = 'PreRelease'; Commit = '0123456789abcdef0123456789abcdef01234567'; Baseline = 'prerelease-v1.0.0'; Version = '1.2.0'; Tamper = ''; Pattern = '*does not match the managed release version*' }
         @{ Label = 'a different immutable source'; Channel = 'PreRelease'; Commit = 'fedcba9876543210fedcba9876543210fedcba98'; Baseline = 'prerelease-v1.0.0'; Version = '1.1.0'; Tamper = ''; Pattern = '*does not match the fetched source*' }
