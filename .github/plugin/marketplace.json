@@ -215,6 +215,7 @@
         "rules/coding-standards/uv-projects.instructions.md",
         "rules/rai-planning/rai-identity.instructions.md",
         "rules/rai-planning/rai-license-posture.instructions.md",
+        "rules/shared/decision-spine.instructions.md",
         "rules/shared/hve-core-location.instructions.md",
         "rules/shared/untrusted-content-boundary.instructions.md"
       ],
@@ -291,6 +292,7 @@
       ],
       "rules": [
         "rules/design-thinking/dt-coach-telemetry.instructions.md",
+        "rules/shared/decision-spine.instructions.md",
         "rules/shared/hve-core-location.instructions.md"
       ],
       "skills": [
@@ -867,6 +869,7 @@
         "rules/security/vex-standards.instructions.md",
         "rules/shared/coaching-patterns.instructions.md",
         "rules/shared/content-policy-citation.instructions.md",
+        "rules/shared/decision-spine.instructions.md",
         "rules/shared/disclaimer-language.instructions.md",
         "rules/shared/hve-core-location.instructions.md",
         "rules/shared/planner-identity-base.instructions.md",
@@ -1286,6 +1289,7 @@
         "rules/security/sssc-planner.instructions.md",
         "rules/security/standards-mapping.instructions.md",
         "rules/shared/coaching-patterns.instructions.md",
+        "rules/shared/decision-spine.instructions.md",
         "rules/shared/disclaimer-language.instructions.md",
         "rules/shared/hve-core-location.instructions.md",
         "rules/shared/planner-identity-base.instructions.md",
@@ -1496,6 +1500,7 @@
         "rules/security/vex-generation.instructions.md",
         "rules/security/vex-standards.instructions.md",
         "rules/shared/coaching-patterns.instructions.md",
+        "rules/shared/decision-spine.instructions.md",
         "rules/shared/disclaimer-language.instructions.md",
         "rules/shared/hve-core-location.instructions.md",
         "rules/shared/planner-identity-base.instructions.md",
