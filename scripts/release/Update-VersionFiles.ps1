@@ -30,9 +30,8 @@
     The version string to write (e.g. '3.3.0').
 
 .PARAMETER Channel
-    Required catalog source-ref policy. Every channel deletes source.sha. Main
-    also deletes source.ref from every entry; PreRelease writes
-    prerelease-v<version>; Stable writes v<version>.
+    Required catalog source-ref policy. Every channel deletes source.sha.
+    PreRelease writes prerelease-v<version>; Stable writes v<version>.
 
 .PARAMETER RepoRoot
     Optional. Repository root directory. Defaults to the git working tree root.
@@ -73,7 +72,7 @@
     prerelease-v<version> for PreRelease and v<version> for Stable.
 
 .EXAMPLE
-    ./Update-VersionFiles.ps1 -Version '3.3.0' -Channel Main
+    ./Update-VersionFiles.ps1 -Version '3.3.0' -Channel PreRelease
 
 .EXAMPLE
     ./Update-VersionFiles.ps1 -Version '3.3.0' -Channel Stable -RepoRoot '/path/to/repo'
@@ -92,7 +91,7 @@ param(
     [string]$Version,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Main', 'PreRelease', 'Stable')]
+    [ValidateSet('PreRelease', 'Stable')]
     [string]$Channel,
 
     [Parameter(Mandatory = $false)]
@@ -206,13 +205,13 @@ function Get-MarketplaceChannelRef {
         Exact version the ref addresses.
 
     .OUTPUTS
-        [string] Channel ref, or an empty string for the ref-less Main policy.
+        [string] Channel ref.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Main', 'PreRelease', 'Stable')]
+        [ValidateSet('PreRelease', 'Stable')]
         [string]$Channel,
 
         [Parameter(Mandatory = $true)]
@@ -223,7 +222,6 @@ function Get-MarketplaceChannelRef {
     switch ($Channel) {
         'PreRelease' { return "prerelease-v$Version" }
         'Stable' { return "v$Version" }
-        default { return '' }
     }
 }
 
@@ -290,8 +288,7 @@ function Update-MarketplaceCatalogVersion {
         Exact version written to catalog metadata and every package.
 
     .PARAMETER Channel
-        Main deletes source.ref; PreRelease writes prerelease-v<version>;
-        Stable writes v<version>.
+        PreRelease writes prerelease-v<version>; Stable writes v<version>.
 
     .OUTPUTS
         [object] Updated marketplace catalog.
@@ -307,7 +304,7 @@ function Update-MarketplaceCatalogVersion {
         [string]$Version,
 
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Main', 'PreRelease', 'Stable')]
+        [ValidateSet('PreRelease', 'Stable')]
         [string]$Channel
     )
 
@@ -316,12 +313,7 @@ function Update-MarketplaceCatalogVersion {
     foreach ($plugin in $Catalog.plugins) {
         $plugin.version = $Version
         $plugin.source.PSObject.Properties.Remove('sha')
-        if ($ref) {
-            $plugin.source | Add-Member -NotePropertyName ref -NotePropertyValue $ref -Force
-        }
-        else {
-            $plugin.source.PSObject.Properties.Remove('ref')
-        }
+        $plugin.source | Add-Member -NotePropertyName ref -NotePropertyValue $ref -Force
     }
     return $Catalog
 }
@@ -750,10 +742,6 @@ if ($MyInvocation.InvocationName -ne '.') {
         $root = Resolve-RepoRoot -Supplied $RepoRoot
         $catalogPath = Join-Path $root $script:MarketplaceCatalogFile
         $recordPath = Join-Path $root $script:ReleaseCandidateFile
-
-        if ($CandidateAction -ne 'None' -and $Channel -eq 'Main') {
-            throw "Candidate action '$CandidateAction' requires the PreRelease or Stable channel."
-        }
 
         # Verification reads committed state only, so it runs before any write
         # and never repairs a managed head it was asked to prove.

@@ -218,7 +218,6 @@ Describe 'Package discovery parity' -Tag 'Unit' {
     BeforeAll {
         $script:DiscoveryWorkflows = @(
             @{ Workflow = 'extension-package.yml'; Job = 'discover-packages' }
-            @{ Workflow = 'extension-provenance.yml'; Job = 'discover-packages' }
             @{ Workflow = 'release-marketplace-stable.yml'; Job = 'discover' }
             @{ Workflow = 'plugin-package.yml'; Job = 'discover-packages' }
         )
@@ -226,7 +225,6 @@ Describe 'Package discovery parity' -Tag 'Unit' {
 
     It 'Discovers packages through the shared script in <Workflow>' -ForEach @(
         @{ Workflow = 'extension-package.yml'; Job = 'discover-packages' }
-        @{ Workflow = 'extension-provenance.yml'; Job = 'discover-packages' }
         @{ Workflow = 'release-marketplace-stable.yml'; Job = 'discover' }
         @{ Workflow = 'plugin-package.yml'; Job = 'discover-packages' }
     ) {
@@ -235,6 +233,18 @@ Describe 'Package discovery parity' -Tag 'Unit' {
             Should -HaveCount 1 -Because "$Workflow job '$Job' must use the single discovery script"
         @($steps | Where-Object { $_ -match '\./\.github/actions/setup-ps-modules' }) |
             Should -HaveCount 1 -Because "$Workflow job '$Job' runs PowerShell that needs pinned modules"
+    }
+
+    # The attest workflow consumes the builder's matrix instead of rediscovering
+    # it, so the two cannot disagree about package membership within a run.
+    It 'Consumes a caller-supplied matrix in extension-provenance.yml' {
+        $document = Get-WorkflowDocument -Name 'extension-provenance.yml'
+        $matrixInput = $document['on']['workflow_call']['inputs']['packages-matrix']
+        $matrixInput['required'] | Should -BeTrue
+        [string]$matrixInput['type'] | Should -BeExactly 'string'
+        [string]$document['jobs']['attest']['strategy']['matrix'] | Should -BeExactly '${{ fromJson(inputs.packages-matrix) }}'
+        (Get-WorkflowText -Name 'extension-provenance.yml') | Should -Not -Match 'Get-MarketplacePackageMatrix\.ps1'
+        $document['jobs'].Contains('discover-packages') | Should -BeFalse
     }
 
     It 'Runs plugin discovery on the PreRelease policy' {
@@ -288,12 +298,24 @@ Describe 'Package discovery parity' -Tag 'Unit' {
 Describe 'Packaging workflow arguments' -Tag 'Unit' {
     It 'Passes the matrix package ID into both packaging scripts in <Workflow>' -ForEach @(
         @{ Workflow = 'extension-package.yml'; Job = 'package' }
-        @{ Workflow = 'extension-provenance.yml'; Job = 'build-attest' }
     ) {
         $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name $Workflow) -JobName $Job
         @($steps | Where-Object { $_ -match 'Prepare-Extension\.ps1 .*-PackageId \$packageId' }) | Should -HaveCount 1
         @($steps | Where-Object { $_ -match "\`$packageId = ""(\`${{ matrix\.id }}|\`$env:PACKAGE_ID)""" }) | Should -HaveCount 2
         @($steps | Where-Object { $_ -match "PackageId\s+=\s+\`$packageId" }) | Should -HaveCount 1
+    }
+
+    # The privileged attest workflow signs what the unprivileged builder
+    # produced, so it may run neither packaging script nor a dependency install.
+    It 'Runs no packaging or dependency install in extension-provenance.yml' {
+        $text = Get-WorkflowText -Name 'extension-provenance.yml'
+        $text | Should -Not -Match 'Prepare-Extension\.ps1'
+        $text | Should -Not -Match 'Package-Extension\.ps1'
+        $text | Should -Not -Match 'npm ci'
+        $text | Should -Not -Match 'actions/setup-node@'
+
+        $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name 'extension-provenance.yml') -JobName 'attest'
+        @($steps | Where-Object { $_ -match 'Resolve-VsixFile\.ps1 -DirectoryPath \$env:VSIX_DIRECTORY' }) | Should -HaveCount 1
     }
 
     # Tag-sourced selection, identity, and release download now execute in the
@@ -340,12 +362,20 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
     It 'Publishes through Azure OIDC after verifying the attested release asset' {
         $document = Get-WorkflowDocument -Name 'extension-marketplace-publish.yml'
         $inputs = $document['on']['workflow_call']['inputs']
-        foreach ($name in @('tag', 'attestation-signer-workflow')) {
+        foreach ($name in @('tag')) {
             $inputs[$name]['required'] | Should -BeTrue
             [string]$inputs[$name]['type'] | Should -BeExactly 'string'
             $inputs[$name].Contains('default') | Should -BeFalse
         }
         $inputs.Contains('verify-attestation') | Should -BeFalse
+
+        # Both channels now sign from one workflow, so the signer is a constant
+        # rather than a caller-supplied value a caller could misdeclare.
+        $inputs.Contains('attestation-signer-workflow') | Should -BeFalse
+        $signerBindings = @([regex]::Matches(
+                (Get-WorkflowText -Name 'extension-marketplace-publish.yml'),
+                '(?m)^\s*SIGNER_WORKFLOW: (.+)$') | ForEach-Object { $_.Groups[1].Value.Trim() } | Sort-Object -Unique)
+        $signerBindings | Should -Be @('${{ github.repository }}/.github/workflows/extension-provenance.yml')
 
         # Privilege separation: exactly five jobs, each with an exact permission
         # set, and only the protected publisher holds an environment or OIDC.
@@ -401,7 +431,7 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         [string]$gate['env']['INPUT_PACKAGES_MATRIX'] | Should -BeExactly '${{ inputs.packages-matrix }}'
         [string]$gate['env']['INPUT_TAG'] | Should -BeExactly '${{ inputs.tag }}'
         [string]$gate['env']['INPUT_PRE_RELEASE'] | Should -BeExactly '${{ inputs.pre-release }}'
-        [string]$gate['env']['INPUT_SIGNER_WORKFLOW'] | Should -BeExactly '${{ inputs.attestation-signer-workflow }}'
+        $gate['env'].Contains('INPUT_SIGNER_WORKFLOW') | Should -BeFalse
         $gateRun = [string]$gate['run']
         $gateRun | Should -Match 'set -euo pipefail'
         $gateRun | Should -Not -Match '\$\{\{\s*(?:github\.event|inputs\.)'
@@ -425,9 +455,10 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $gateRun | Should -Match '\^prerelease-v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$'
         $gateRun | Should -Match '\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$'
         $gateRun | Should -Match '\[\[ ! "\$INPUT_TAG" =~ \$expected_pattern \]\]'
-        $gateRun | Should -Match '\[\[ "\$INPUT_SIGNER_WORKFLOW" != "\$expected_signer" \]\]'
-        $gateRun | Should -Match ([regex]::Escape('.github/workflows/release-prerelease.yml'))
-        $gateRun | Should -Match ([regex]::Escape('.github/workflows/extension-provenance.yml'))
+        # The signer is a constant rather than a caller-supplied value, so the
+        # gate no longer carries a per-channel signer expectation to compare.
+        $gateRun | Should -Not -Match 'expected_signer'
+        $gateRun | Should -Not -Match ([regex]::Escape('.github/workflows/'))
 
         # Minor parity is derived from the already validated channel tag, so no
         # caller can publish an even minor as PreRelease or an odd minor as Stable.
@@ -496,7 +527,7 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $verifyAttest.Contains('if') | Should -BeFalse
         [string]$verifyAttest['env']['RELEASE_DIGEST'] | Should -BeExactly '${{ needs.validate-inputs.outputs.release-digest }}'
         [string]$verifyAttest['env']['SIGNER_WORKFLOW'] |
-            Should -BeExactly '${{ github.repository }}/${{ inputs.attestation-signer-workflow }}'
+            Should -BeExactly '${{ github.repository }}/.github/workflows/extension-provenance.yml'
         $verifyAttestRun = [string]$verifyAttest['run']
         $verifyAttestRun | Should -Match 'gh attestation verify "\$VSIX_FILE" --repo "\$REPOSITORY"'
         $verifyAttestRun | Should -Match '--signer-workflow "\$SIGNER_WORKFLOW"'
@@ -641,7 +672,7 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
         $reverify.Contains('if') | Should -BeFalse
         [string]$reverify['env']['RELEASE_DIGEST'] | Should -BeExactly '${{ needs.validate-inputs.outputs.release-digest }}'
         [string]$reverify['env']['SIGNER_WORKFLOW'] |
-            Should -BeExactly '${{ github.repository }}/${{ inputs.attestation-signer-workflow }}'
+            Should -BeExactly '${{ github.repository }}/.github/workflows/extension-provenance.yml'
         [string]$reverify['run'] | Should -Match 'gh attestation verify "\$VSIX_FILE" --repo "\$REPOSITORY"'
         [string]$reverify['run'] | Should -Match '--signer-workflow "\$SIGNER_WORKFLOW"'
         [string]$reverify['run'] | Should -Match '--source-digest "\$RELEASE_DIGEST"'
@@ -760,7 +791,6 @@ Describe 'Packaging workflow arguments' -Tag 'Unit' {
 Describe 'Packages matrix wiring' -Tag 'Unit' {
     It 'Publishes a packages-matrix output from <Workflow>' -ForEach @(
         @{ Workflow = 'extension-package.yml'; Job = 'discover-packages' }
-        @{ Workflow = 'extension-provenance.yml'; Job = 'discover-packages' }
         @{ Workflow = 'plugin-package.yml'; Job = 'discover-packages' }
     ) {
         $document = Get-WorkflowDocument -Name $Workflow
@@ -802,7 +832,7 @@ Describe 'Release artifact naming' -Tag 'Unit' {
     }
 
     It 'Names every VSIX artifact after the matrix package ID' {
-        foreach ($workflow in @('extension-package.yml', 'extension-provenance.yml', 'release-prerelease.yml')) {
+        foreach ($workflow in @('extension-package.yml', 'extension-provenance.yml')) {
             $text = Get-WorkflowText -Name $workflow
             $names = @([regex]::Matches($text, '(?m)name: (extension-vsix-[^\r\n]+)') |
                     ForEach-Object { $_.Groups[1].Value.Trim() } | Sort-Object -Unique)
@@ -813,7 +843,7 @@ Describe 'Release artifact naming' -Tag 'Unit' {
 
     It 'Names every per-package SBOM artifact after the matrix package ID' {
         (Get-WorkflowText -Name 'extension-provenance.yml') | Should -Match 'artifact-name: sbom-\$\{\{ matrix\.id \}\}'
-        (Get-WorkflowText -Name 'release-prerelease.yml') | Should -Match 'artifact-name: sbom-\$\{\{ matrix\.id \}\}'
+        (Get-WorkflowText -Name 'release-prerelease.yml') | Should -Match 'artifact-name: sbom-plugin-\$\{\{ matrix\.id \}\}'
         (Get-WorkflowText -Name 'release-stable-publish.yml') | Should -Match 'artifact-name: sbom-plugin-\$\{\{ matrix\.id \}\}'
     }
 
@@ -1313,21 +1343,24 @@ Describe 'Pre-release preparation and publication' -Tag 'Unit' {
         }
         [string]$jobs['extension-package-prerelease']['uses'] | Should -BeExactly './.github/workflows/extension-package.yml'
         [string]$jobs['plugin-package-prerelease']['uses'] | Should -BeExactly './.github/workflows/plugin-package.yml'
-        [string]$jobs['plugin-package-prerelease']['with']['source-policy'] | Should -BeExactly 'release-tag'
         $jobs['plugin-package-prerelease']['with'].Contains('project-release-catalog') | Should -BeFalse
 
-        $attest = Get-NamedJobStep -Document $script:PreReleaseDocument -JobName 'attest-and-upload' -StepName 'Attest build provenance'
-        [string]$attest['uses'] | Should -Match '^actions/attest-build-provenance@[0-9a-f]{40}$'
-        [string]$attest['with']['subject-path'] | Should -BeExactly '${{ steps.vsix.outputs.file }}'
+        # Unprivileged build, then privileged attest, with the builder's matrix
+        # carried across rather than rediscovered.
+        $attest = $jobs['extension-provenance-prerelease']
+        [string]$attest['uses'] | Should -BeExactly './.github/workflows/extension-provenance.yml'
+        [string]$attest['with']['source-ref'] | Should -BeExactly '${{ needs.validate-release.outputs.sha }}'
+        [string]$attest['with']['packages-matrix'] | Should -BeExactly '${{ needs.extension-package-prerelease.outputs.packages-matrix }}'
+        [string]$attest['with']['release-tag'] | Should -BeExactly '${{ needs.validate-release.outputs.tag_name }}'
+        @($attest['needs']) | Should -Contain 'extension-package-prerelease'
+        @($attest['needs']) | Should -Contain 'generate-dependency-sbom'
+        [string[]]@($attest['permissions'].Keys) | Sort-Object |
+            Should -Be @('artifact-metadata', 'attestations', 'contents', 'id-token')
+        [string[]]@($jobs['extension-package-prerelease']['permissions'].Keys) | Should -Be @('contents')
 
-        $upload = Get-NamedJobStep -Document $script:PreReleaseDocument -JobName 'attest-and-upload' -StepName 'Upload assets to GitHub Release'
-        [string]$upload['env']['TAG'] | Should -BeExactly '${{ needs.validate-release.outputs.tag_name }}'
-        [string]$upload['env']['BUNDLE_PATH'] | Should -BeExactly '${{ steps.attest.outputs.bundle-path }}'
-        [string]$upload['run'] | Should -Match 'gh release upload "\$TAG"'
-        [string]$upload['run'] | Should -Not -Match 'gh release (create|delete|edit)'
-
-        @($jobs['attest-and-upload']['needs']) | Should -Contain 'extension-package-prerelease'
-        @($jobs['publish-release']['needs']) | Should -Contain 'attest-and-upload'
+        $script:PreReleaseText | Should -Not -Match 'attest-and-upload'
+        @($jobs['publish-release']['needs']) | Should -Contain 'extension-provenance-prerelease'
+        @($jobs['verify-provenance']['needs']) | Should -Contain 'extension-provenance-prerelease'
     }
 }
 
@@ -1569,9 +1602,44 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
 
     It 'Packages every release asset from the validated release-please commit' {
         $jobs = $script:PublishDocument['jobs']
-        foreach ($job in @('extension-provenance', 'plugin-package-release')) {
+        foreach ($job in @('extension-package-release', 'plugin-package-release')) {
             [string]$jobs[$job]['with']['source-ref'] | Should -BeExactly '${{ needs.validate-release.outputs.sha }}'
             [string]$jobs[$job]['with']['version'] | Should -BeExactly '${{ needs.validate-release.outputs.version }}'
+        }
+
+        # Stable builds unprivileged and attests privileged, matching PreRelease.
+        [string]$jobs['extension-package-release']['uses'] | Should -BeExactly './.github/workflows/extension-package.yml'
+        [string]$jobs['extension-package-release']['with']['channel'] | Should -BeExactly 'Stable'
+        [string[]]@($jobs['extension-package-release']['permissions'].Keys) | Should -Be @('contents')
+        $attest = $jobs['extension-provenance']
+        [string]$attest['uses'] | Should -BeExactly './.github/workflows/extension-provenance.yml'
+        [string]$attest['with']['source-ref'] | Should -BeExactly '${{ needs.validate-release.outputs.sha }}'
+        [string]$attest['with']['packages-matrix'] | Should -BeExactly '${{ needs.extension-package-release.outputs.packages-matrix }}'
+        @($attest['needs']) | Should -Contain 'extension-package-release'
+    }
+
+    # The whole point of the split: dependency lifecycle scripts can never run
+    # in a job that also holds an attestation signing token. The repository
+    # .npmrc sets ignore-scripts=true, so the dangerous form is the explicit
+    # opt-back-in that packaging needs.
+    It 'Never runs dependency lifecycle scripts in a job holding signing scopes' {
+        foreach ($file in @(Get-ChildItem -Path (Join-Path $script:RepositoryRoot '.github/workflows') -Filter '*.yml' -File)) {
+            $document = Get-WorkflowDocument -Name $file.Name
+            if (-not $document.Contains('jobs')) { continue }
+            foreach ($jobName in @($document['jobs'].Keys)) {
+                $job = $document['jobs'][$jobName]
+                if (-not $job.Contains('steps')) { continue }
+                $permissions = if ($job.Contains('permissions')) { @($job['permissions'].Keys) } else { @() }
+                $signs = ($permissions -contains 'id-token') -or ($permissions -contains 'attestations')
+                if (-not $signs) { continue }
+                $installs = @($job['steps'] | Where-Object { $_.Contains('run') -and [string]$_['run'] -match 'ignore-scripts=false' })
+                @($installs) | Should -HaveCount 0 -Because "$($file.Name) job '$jobName' holds signing scopes and must not run dependency lifecycle scripts"
+
+                if ($permissions -contains 'attestations') {
+                    $anyInstall = @($job['steps'] | Where-Object { $_.Contains('run') -and [string]$_['run'] -match 'npm ci' })
+                    @($anyInstall) | Should -HaveCount 0 -Because "$($file.Name) job '$jobName' attests and must not install dependencies"
+                }
+            }
         }
     }
 
@@ -1603,7 +1671,6 @@ Describe 'Stable promotion and publication gate' -Tag 'Unit' {
 Describe 'Reusable packaging source contracts' -Tag 'Unit' {
     It 'Requires an explicit source ref and version in <Workflow>' -ForEach @(
         @{ Workflow = 'extension-package.yml' }
-        @{ Workflow = 'extension-provenance.yml' }
         @{ Workflow = 'plugin-package.yml' }
     ) {
         $inputs = (Get-WorkflowDocument -Name $Workflow)['on']['workflow_call']['inputs']
@@ -1612,6 +1679,19 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
             $inputs[$name]['required'] | Should -BeTrue -Because "$Workflow must require $name"
             $inputs[$name].Contains('default') | Should -BeFalse -Because "$Workflow must not default $name"
         }
+    }
+
+    # Version handling moved to the builder, so the attest workflow requires the
+    # source ref and the caller's matrix and nothing that implies packaging.
+    It 'Requires an explicit source ref and package matrix in extension-provenance.yml' {
+        $inputs = (Get-WorkflowDocument -Name 'extension-provenance.yml')['on']['workflow_call']['inputs']
+        foreach ($name in @('source-ref', 'packages-matrix')) {
+            $inputs.Contains($name) | Should -BeTrue -Because "extension-provenance.yml must accept $name"
+            $inputs[$name]['required'] | Should -BeTrue -Because "extension-provenance.yml must require $name"
+            $inputs[$name].Contains('default') | Should -BeFalse -Because "extension-provenance.yml must not default $name"
+        }
+        $inputs.Contains('version') | Should -BeFalse
+        $inputs.Contains('channel') | Should -BeFalse
     }
 
     It 'Checks out the explicit source in every extension job of <Workflow>' -ForEach @(
@@ -1633,12 +1713,15 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $checkouts | Should -BeGreaterThan 0
     }
 
-    It 'Requires an explicit provenance policy for plugin packaging' {
+    # Release-tag provenance is the only representable plugin packaging source,
+    # so the check is unconditional rather than one arm of a caller-chosen policy.
+    It 'Verifies the release tag unconditionally for plugin packaging' {
         $inputs = (Get-WorkflowDocument -Name 'plugin-package.yml')['on']['workflow_call']['inputs']
-        $inputs.Contains('source-policy') | Should -BeTrue
-        $inputs['source-policy']['required'] | Should -BeTrue
-        [string]$inputs['source-policy']['type'] | Should -BeExactly 'string'
-        $inputs['source-policy'].Contains('default') | Should -BeFalse
+        $inputs.Contains('source-policy') | Should -BeFalse
+        $text = Get-WorkflowText -Name 'plugin-package.yml'
+        $text | Should -Not -Match 'main-ancestor'
+        $text | Should -Not -Match 'SOURCE_POLICY'
+        $text | Should -Not -Match 'merge-base --is-ancestor'
     }
 
     It 'Requires the exact channel release tag for plugin packaging' {
@@ -1666,7 +1749,7 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         [string]$inputs['release-tag']['type'] | Should -BeExactly 'string'
         [string]$inputs['release-tag']['default'] | Should -BeExactly ''
 
-        $upload = Get-NamedJobStep -Document $document -JobName 'build-attest' -StepName 'Upload assets to GitHub Release'
+        $upload = Get-NamedJobStep -Document $document -JobName 'attest' -StepName 'Upload assets to GitHub Release'
         [string]$upload['env']['RELEASE_TAG'] | Should -BeExactly '${{ inputs.release-tag }}'
         [string]$upload['run'] | Should -Match 'gh release upload \$tag'
         [string]$upload['run'] | Should -Not -Match 'gh release (create|delete|edit)'
@@ -1687,23 +1770,20 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $checkout[0]['with'].Contains('persist-credentials') | Should -BeTrue
         $checkout[0]['with']['persist-credentials'] | Should -BeFalse
 
-        $proof = @($steps | Where-Object { $_.Contains('run') -and [string]$_['run'] -match 'SOURCE_POLICY' })
+        $proof = @($steps | Where-Object { $_.Contains('run') -and [string]$_['run'] -match 'release tag does not resolve to source-ref' })
         $proof | Should -HaveCount 1
         $run = [string]$proof[0]['run']
         foreach ($pattern in @(
                 '\^\[0-9a-f\]\{40\}\$',
-                "'main-ancestor'",
-                "'release-tag'",
-                'refs/heads/main:refs/remotes/origin/main',
-                'git merge-base --is-ancestor',
                 'refs/tags/\$\{RELEASE_TAG\}',
                 'rev-parse --verify --end-of-options',
                 'git checkout --quiet --detach',
-                'git rev-parse HEAD',
-                'Unsupported source policy'
+                'git rev-parse HEAD'
             )) {
             $run | Should -Match $pattern
         }
+        # The tag check is reached on every invocation, not selected by a policy.
+        $run | Should -Not -Match 'case "\$\{SOURCE_POLICY\}"'
 
         $proofIndex = [array]::IndexOf($steps, $proof[0])
         $executionIndexes = @(0..($steps.Count - 1) | Where-Object {
@@ -1714,25 +1794,31 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $proofIndex | Should -BeLessThan $executionIndexes[0]
     }
 
-    It 'Wires each release lane to its matching plugin source policy' {
+    It 'Passes no source policy from either release lane' {
         $preRelease = Get-WorkflowDocument -Name 'release-prerelease.yml'
-        [string]$preRelease['jobs']['plugin-package-prerelease']['with']['source-policy'] |
-            Should -BeExactly 'release-tag'
+        $preRelease['jobs']['plugin-package-prerelease']['with'].Contains('source-policy') | Should -BeFalse
 
         $stable = Get-WorkflowDocument -Name 'release-stable-publish.yml'
-        [string]$stable['jobs']['plugin-package-release']['with']['source-policy'] |
-            Should -BeExactly 'release-tag'
+        $stable['jobs']['plugin-package-release']['with'].Contains('source-policy') | Should -BeFalse
     }
 
     It 'Fails a blank source ref or version in <Workflow>' -ForEach @(
         @{ Workflow = 'extension-package.yml'; Job = 'discover-packages' }
-        @{ Workflow = 'extension-provenance.yml'; Job = 'discover-packages' }
         @{ Workflow = 'plugin-package.yml'; Job = 'discover-packages' }
         @{ Workflow = 'plugin-package.yml'; Job = 'publish-evidence' }
     ) {
         $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name $Workflow) -JobName $Job
         @($steps | Where-Object { $_ -match 'source-ref is required and must not be blank' }) | Should -HaveCount 1
         @($steps | Where-Object { $_ -match 'version is required and must not be blank' }) | Should -HaveCount 1
+    }
+
+    # Attestation records this run's commit, so the attest workflow refuses any
+    # source ref that is not exactly the commit it is running on.
+    It 'Fails a source ref that is not this run commit in extension-provenance.yml' {
+        $steps = Get-JobStepText -Document (Get-WorkflowDocument -Name 'extension-provenance.yml') -JobName 'attest'
+        @($steps | Where-Object { $_ -match 'source-ref is required and must not be blank' }) | Should -HaveCount 1
+        @($steps | Where-Object { $_ -match 'source-ref must be a full 40-character lowercase commit SHA' }) | Should -HaveCount 1
+        @($steps | Where-Object { $_ -match 'is not the attestation source commit' }) | Should -HaveCount 1
     }
 
     It 'Consumes the version input in the plugin lane' {
@@ -1902,8 +1988,8 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
     }
 
     It 'Verifies published attestations for the exact channel tag in <Workflow>' -ForEach @(
-        @{ Workflow = 'release-prerelease.yml'; VerifyPattern = 'gh attestation verify "\$f" --repo "\$REPOSITORY"' }
-        @{ Workflow = 'release-stable-publish.yml'; VerifyPattern = 'Invoke-ProvenanceVerification\.ps1' }
+        @{ Workflow = 'release-prerelease.yml' }
+        @{ Workflow = 'release-stable-publish.yml' }
     ) {
         $document = Get-WorkflowDocument -Name $Workflow
         [string]$document['jobs']['verify-provenance']['permissions']['attestations'] | Should -BeExactly 'read'
@@ -1912,8 +1998,12 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         [string]$download['env']['RELEASE_TAG'] | Should -BeExactly '${{ needs.validate-release.outputs.tag_name }}'
         [string]$download['run'] | Should -Match "-p '\*\.vsix'"
 
+        # Both channels verify through the one script, which pins the signer
+        # workflow for every VSIX; neither runs an inline verification loop.
         @(Get-JobStepText -Document $document -JobName 'verify-provenance' |
-                Where-Object { $_ -match $VerifyPattern }) | Should -HaveCount 1
+                Where-Object { $_ -match 'Invoke-ProvenanceVerification\.ps1' }) | Should -HaveCount 1
+        @(Get-JobStepText -Document $document -JobName 'verify-provenance' |
+                Where-Object { $_ -match 'gh attestation verify' }) | Should -HaveCount 0
     }
 
     It 'Publishes the marketplace lanes from the released ref' {
@@ -1935,22 +2025,22 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         [string]$checkout[0]['with']['ref'] | Should -BeExactly '${{ needs.normalize-version.outputs.tag }}'
 
         $prerelease = Get-WorkflowDocument -Name 'release-marketplace-prerelease.yml'
-        [string]$prerelease['jobs']['package']['with']['source-ref'] | Should -BeExactly '${{ needs.validate-version.outputs.tag }}'
-        [string]$prerelease['jobs']['package']['with']['version'] | Should -BeExactly '${{ needs.validate-version.outputs.version }}'
+        # A dry run validates only; the packaging call it once made produced
+        # artifacts nothing downstream read, so both lanes now share one shape.
+        [string[]]@($prerelease['jobs'].Keys | Sort-Object) | Should -Be @('discover', 'publish', 'validate-version')
+        [string[]]@($stable['jobs'].Keys | Sort-Object) | Should -Be @('discover', 'normalize-version', 'publish')
 
         [string]$stable['jobs']['publish']['with']['tag'] | Should -BeExactly '${{ needs.normalize-version.outputs.tag }}'
         # Default-equivalent: the publisher declares `pre-release` with default
         # false, so omitting the key selects the same Stable channel.
         $stable['jobs']['publish']['with']['pre-release'] | Should -BeFalse
         $stable['jobs']['publish']['with'].Contains('verify-attestation') | Should -BeFalse
-        [string]$stable['jobs']['publish']['with']['attestation-signer-workflow'] |
-            Should -BeExactly '.github/workflows/extension-provenance.yml'
+        $stable['jobs']['publish']['with'].Contains('attestation-signer-workflow') | Should -BeFalse
 
         [string]$prerelease['jobs']['publish']['with']['tag'] | Should -BeExactly '${{ needs.validate-version.outputs.tag }}'
         $prerelease['jobs']['publish']['with']['pre-release'] | Should -BeTrue
         $prerelease['jobs']['publish']['with'].Contains('verify-attestation') | Should -BeFalse
-        [string]$prerelease['jobs']['publish']['with']['attestation-signer-workflow'] |
-            Should -BeExactly '.github/workflows/release-prerelease.yml'
+        $prerelease['jobs']['publish']['with'].Contains('attestation-signer-workflow') | Should -BeFalse
         # Normal publication consumes discovery, so it no longer waits on the
         # dry-run packaging call it never read artifacts from.
         @($prerelease['jobs']['publish']['needs']) | Should -Contain 'validate-version'
@@ -1971,8 +2061,7 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
             Should -Match '(?i)full commit SHA'
         [string]$provenance['on']['workflow_call']['inputs']['source-ref']['description'] |
             Should -Not -Match '(?i)\bor tag\b'
-        @($provenance['jobs']['build-attest']['needs']) | Should -Contain 'discover-packages'
-        $sourceGuard = Get-NamedJobStep -Document $provenance -JobName 'discover-packages' -StepName 'Resolve effective version'
+        $sourceGuard = Get-NamedJobStep -Document $provenance -JobName 'attest' -StepName 'Verify attestation source commit'
         [string]$sourceGuard['env']['EVENT_SHA'] | Should -BeExactly '${{ github.sha }}'
         [string]$sourceGuard['run'] | Should -Match ([regex]::Escape('^[0-9a-f]{40}$'))
         [string]$sourceGuard['run'] | Should -Match ([regex]::Escape('[ "$INPUT_SOURCE_REF" != "$EVENT_SHA" ]'))
@@ -2010,12 +2099,10 @@ Describe 'Reusable packaging source contracts' -Tag 'Unit' {
         $formatIndex | Should -BeLessThan $conversionIndex
         $conversionIndex | Should -BeLessThan $parityIndex
         [string]$validate['run'] | Should -Match 'requires odd minor version'
-        [string]$document['jobs']['package']['with']['channel'] | Should -BeExactly 'PreRelease'
 
         # Normal publication discovers the PreRelease package set from the
-        # released tag, and only a dry run still builds VSIX artifacts.
+        # released tag, and a dry run validates without building anything.
         [string]$document['jobs']['discover']['if'] | Should -BeExactly '${{ !inputs.dry-run }}'
-        [string]$document['jobs']['package']['if'] | Should -BeExactly '${{ inputs.dry-run }}'
         [string]$document['jobs']['publish']['if'] | Should -BeExactly '${{ !inputs.dry-run }}'
         $document['jobs']['discover']['outputs'].Contains('version') | Should -BeFalse
         $preReleaseCheckout = @($document['jobs']['discover']['steps'] |
@@ -2622,7 +2709,7 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
     # Draft state leaves the ordinary resume path, including partial assets.
     It 'Skips every artifact-producing chain for a matching published release in <Workflow>' -ForEach @(
         @{ Workflow = 'release-prerelease.yml'; SkipRoots = @('extension-package-prerelease', 'plugin-package-prerelease', 'generate-dependency-sbom') }
-        @{ Workflow = 'release-stable-publish.yml'; SkipRoots = @('extension-provenance', 'plugin-package-release', 'generate-dependency-sbom') }
+        @{ Workflow = 'release-stable-publish.yml'; SkipRoots = @('extension-package-release', 'plugin-package-release', 'generate-dependency-sbom') }
     ) {
         $document = Get-WorkflowDocument -Name $Workflow
         $jobs = $document['jobs']

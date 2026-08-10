@@ -148,20 +148,6 @@ jobs:
         run: |
           & ./scripts/extension/Get-MarketplacePackageMatrix.ps1 -Channel 'PreRelease'
 
-  # Normal publication consumes the discovered matrix, so packaging runs only
-  # when the operator asked for a dry run.
-  package:
-    name: Package Pre-Release Extensions
-    needs: validate-version
-    if: ${{ inputs.dry-run }}
-    uses: ./.github/workflows/extension-package.yml
-    with:
-      source-ref: ${{ needs.validate-version.outputs.tag }}
-      version: ${{ needs.validate-version.outputs.version }}
-      channel: PreRelease
-    permissions:
-      contents: read
-
   publish:
     name: Publish Pre-Release Extensions
     needs: [validate-version, discover]
@@ -171,7 +157,6 @@ jobs:
       packages-matrix: ${{ needs.discover.outputs.matrix }}
       tag: ${{ needs.validate-version.outputs.tag }}
       pre-release: true
-      attestation-signer-workflow: .github/workflows/release-prerelease.yml
     permissions:
       contents: read
       attestations: read

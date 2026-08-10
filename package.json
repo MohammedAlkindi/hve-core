@@ -48,7 +48,6 @@
     "extension:prepare:prerelease": "pwsh ./scripts/extension/Prepare-Extension.ps1 -Channel PreRelease && npm run extension:postprocess",
     "extension:postprocess": "markdownlint-cli2 \"extension/**/*.md\" --fix && markdown-table-formatter \"extension/**/*.md\"",
     "extension:package": "pwsh ./scripts/extension/Package-Extension.ps1",
-    "package:extension": "npm run extension:package --",
     "extension:package:prerelease": "pwsh ./scripts/extension/Package-Extension.ps1 -PreRelease",
     "validate:copyright": "pwsh -File scripts/linting/Test-CopyrightHeaders.ps1",
     "validate:devcontainer-changelog": "pwsh -NoProfile -File scripts/devcontainer/Write-DevcontainerChangeLog.ps1",

@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-08-09
+ms.date: 2026-08-10
 ms.topic: overview
 ---
 
@@ -95,39 +95,40 @@ GitHub Agentic Workflow markdown files (`issue-triage.md`, `issue-implement.md`,
 
 Individual validation workflows called by orchestration workflows:
 
-| Workflow                              | Purpose                                        | npm Script                               |
-|---------------------------------------|------------------------------------------------|------------------------------------------|
-| `markdown-lint.yml`                   | Markdownlint validation                        | `npm run lint:md`                        |
-| `spell-check.yml`                     | cspell dictionary check                        | `npm run spell-check`                    |
-| `frontmatter-validation.yml`          | AI artifact frontmatter schemas                | `npm run lint:frontmatter`               |
-| `markdown-link-check.yml`             | Broken link detection                          | `npm run lint:md-links`                  |
-| `link-lang-check.yml`                 | Link language validation                       | `npm run lint:links`                     |
-| `yaml-lint.yml`                       | YAML syntax validation                         | `npm run lint:yaml`                      |
-| `ps-script-analyzer.yml`              | PowerShell static analysis                     | `npm run lint:ps`                        |
-| `table-format.yml`                    | Markdown table formatting                      | `npm run format:tables`                  |
-| `pester-tests.yml`                    | PowerShell unit tests                          | `npm run test:ps`                        |
-| `skill-validation.yml`                | Skill structure validation                     | `npm run validate:skills`                |
-| `dependency-pinning-scan.yml`         | Dependency pinning validation                  | N/A (PowerShell direct)                  |
-| `sha-staleness-check.yml`             | SHA reference freshness*                       | N/A (PowerShell direct)                  |
-| `codeql-analysis.yml`                 | CodeQL security scanning*                      | N/A (GitHub native)                      |
-| `dependency-review.yml`               | Dependency vulnerability review*               | N/A (GitHub native)                      |
-| `gh-code-scanning.yml`                | GitHub code scanning alert retrieval           | N/A (PowerShell direct)                  |
-| `create-gh-code-scanning-issues.yml`  | Create GitHub code scanning issues from alerts | N/A (bash + gh CLI direct)               |
-| `extension-package.yml`               | VS Code extension packaging                    | `npm run extension:package`              |
-| `copyright-headers.yml`               | Copyright header validation                    | `npm run validate:copyright`             |
-| `gitleaks-scan.yml`                   | Secret detection scanning                      | N/A (gitleaks direct)                    |
-| `plugin-package.yml`                  | Plugin packaging                               | N/A                                      |
-| `plugin-validation.yml`               | Marketplace package metadata and closure       | `npm run lint:marketplace`               |
-| `extension-marketplace-publish.yml`   | Extension marketplace publishing               | N/A                                      |
-| `python-lint.yml`                     | Python linting (ruff)                          | `npm run lint:py`                        |
-| `pytest-tests.yml`                    | Python unit tests                              | `npm run test:py`                        |
-| `pip-audit.yml`                       | Python dependency auditing                     | N/A (pip-audit direct)                   |
-| `fuzz-tests.yml`                      | Python fuzz testing                            | N/A (pytest direct)                      |
-| `docusaurus-tests.yml`                | Docusaurus test suite                          | N/A (npm test)                           |
-| `model-validation.yml`                | Model reference validation                     | `npm run lint:models`                    |
-| `ai-artifact-validation.yml`          | AI artifact structure validation               | `npm run lint:ai-artifacts`              |
-| `devcontainer-lockfile-check.yml`     | Devcontainer lockfile integrity                | `npm run validate:devcontainer-lockfile` |
-| `action-version-consistency-scan.yml` | Action version consistency                     | `npm run lint:version-consistency`       |
+| Workflow                              | Purpose                                          | npm Script                               |
+|---------------------------------------|--------------------------------------------------|------------------------------------------|
+| `markdown-lint.yml`                   | Markdownlint validation                          | `npm run lint:md`                        |
+| `spell-check.yml`                     | cspell dictionary check                          | `npm run spell-check`                    |
+| `frontmatter-validation.yml`          | AI artifact frontmatter schemas                  | `npm run lint:frontmatter`               |
+| `markdown-link-check.yml`             | Broken link detection                            | `npm run lint:md-links`                  |
+| `link-lang-check.yml`                 | Link language validation                         | `npm run lint:links`                     |
+| `yaml-lint.yml`                       | YAML syntax validation                           | `npm run lint:yaml`                      |
+| `ps-script-analyzer.yml`              | PowerShell static analysis                       | `npm run lint:ps`                        |
+| `table-format.yml`                    | Markdown table formatting                        | `npm run format:tables`                  |
+| `pester-tests.yml`                    | PowerShell unit tests                            | `npm run test:ps`                        |
+| `skill-validation.yml`                | Skill structure validation                       | `npm run validate:skills`                |
+| `dependency-pinning-scan.yml`         | Dependency pinning validation                    | N/A (PowerShell direct)                  |
+| `sha-staleness-check.yml`             | SHA reference freshness*                         | N/A (PowerShell direct)                  |
+| `codeql-analysis.yml`                 | CodeQL security scanning*                        | N/A (GitHub native)                      |
+| `dependency-review.yml`               | Dependency vulnerability review*                 | N/A (GitHub native)                      |
+| `gh-code-scanning.yml`                | GitHub code scanning alert retrieval             | N/A (PowerShell direct)                  |
+| `create-gh-code-scanning-issues.yml`  | Create GitHub code scanning issues from alerts   | N/A (bash + gh CLI direct)               |
+| `extension-package.yml`               | VS Code extension packaging (unprivileged)       | `npm run extension:package`              |
+| `extension-provenance.yml`            | VS Code extension attestation and release upload | N/A                                      |
+| `copyright-headers.yml`               | Copyright header validation                      | `npm run validate:copyright`             |
+| `gitleaks-scan.yml`                   | Secret detection scanning                        | N/A (gitleaks direct)                    |
+| `plugin-package.yml`                  | Plugin packaging                                 | N/A                                      |
+| `plugin-validation.yml`               | Marketplace package metadata and closure         | `npm run lint:marketplace`               |
+| `extension-marketplace-publish.yml`   | Extension marketplace publishing                 | N/A                                      |
+| `python-lint.yml`                     | Python linting (ruff)                            | `npm run lint:py`                        |
+| `pytest-tests.yml`                    | Python unit tests                                | `npm run test:py`                        |
+| `pip-audit.yml`                       | Python dependency auditing                       | N/A (pip-audit direct)                   |
+| `fuzz-tests.yml`                      | Python fuzz testing                              | N/A (pytest direct)                      |
+| `docusaurus-tests.yml`                | Docusaurus test suite                            | N/A (npm test)                           |
+| `model-validation.yml`                | Model reference validation                       | `npm run lint:models`                    |
+| `ai-artifact-validation.yml`          | AI artifact structure validation                 | `npm run lint:ai-artifacts`              |
+| `devcontainer-lockfile-check.yml`     | Devcontainer lockfile integrity                  | `npm run validate:devcontainer-lockfile` |
+| `action-version-consistency-scan.yml` | Action version consistency                       | `npm run lint:version-consistency`       |
 
 Workflows marked with `*` are dual-purpose: they accept `workflow_call` for reuse by orchestration workflows and also run independently via their own triggers.
 
@@ -237,14 +238,20 @@ not a requirement of `MAJOR.MINOR.PATCH` syntax.
 
 `release-prerelease.yml` jobs: `release-please`, `sync-release-pr`,
 `validate-release`, `close-milestone`, `extension-package-prerelease`,
-`plugin-package-prerelease`, `generate-dependency-sbom`, `attest-and-upload`,
-`upload-plugin-packages`, `verify-provenance`, and `publish-release`.
+`plugin-package-prerelease`, `generate-dependency-sbom`,
+`extension-provenance-prerelease`, `upload-plugin-packages`,
+`verify-provenance`, and `publish-release`.
 
 `release-stable-publish.yml` jobs: `validate-trigger`, `release-please`,
-`sync-release-pr`, `validate-release`, `close-milestone`, `extension-provenance`,
+`sync-release-pr`, `validate-release`, `close-milestone`,
+`extension-package-release`, `extension-provenance`,
 `plugin-package-release`, `generate-dependency-sbom`,
 `upload-plugin-packages`, `vex-attest`, `verify-provenance`, `sbom-diff`,
 `append-verification-notes`, and `publish-release`.
+
+Both channels build the VSIX in `extension-package.yml`, which holds only
+`contents: read`, and attest it in `extension-provenance.yml`, which holds the
+signing scopes and never installs dependencies. No job does both.
 
 Both release workflows verify event, merge, release-please, and release-tag
 SHA equality plus target-branch ancestry. Extension and plugin packages use
@@ -308,12 +315,13 @@ flowchart LR
 
 | Channel    | Exact release tag       | Attestation signer         |
 |------------|-------------------------|----------------------------|
-| PreRelease | `prerelease-v<version>` | `release-prerelease.yml`   |
+| PreRelease | `prerelease-v<version>` | `extension-provenance.yml` |
 | Stable     | `v<version>`            | `extension-provenance.yml` |
 
-Both callers pass the exact tag and signer to the generic publisher. It
-downloads the matching VSIX release asset, verifies the attestation, and then
-publishes through Azure OIDC and `vsce`.
+Both callers pass the exact tag to the generic publisher, which resolves the
+signer to the one constant both channels sign from. It downloads the matching
+VSIX release asset, verifies the attestation, and then publishes through Azure
+OIDC and `vsce`.
 
 ### Marketplace Build
 
@@ -377,7 +385,6 @@ Workflows invoke validation through npm scripts defined in `package.json`:
 | `extension:prepare:prerelease`  | `pwsh ./scripts/extension/Prepare-Extension.ps1 -Channel PreRelease && npm run extension:postprocess` | extension-package.yml                       |
 | `extension:postprocess`         | `markdownlint-cli2 + markdown-table-formatter (extension/**/*.md)`                                    | extension-package.yml                       |
 | `extension:package`             | `Package-Extension.ps1`                                                                               | extension-package.yml                       |
-| `package:extension`             | Alias for `extension:package`                                                                         | extension-package.yml                       |
 | `extension:package:prerelease`  | `Package-Extension.ps1 -PreRelease`                                                                   | extension-package.yml                       |
 | `plugin:generate`               | `Generate-Plugins.ps1` + post-process                                                                 | plugin-package.yml                          |
 | `plugin:validate`               | Marketplace package metadata and closure validation                                                   | plugin-validation.yml                       |

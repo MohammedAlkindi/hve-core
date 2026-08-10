@@ -6,7 +6,7 @@ BeforeAll {
     $script:ScriptPath = Join-Path $PSScriptRoot '../../release/Update-VersionFiles.ps1'
     # Pass a dummy version to satisfy the mandatory parameter during dot-source.
     # The main execution guard prevents any file changes.
-    . $script:ScriptPath -Version '0.0.0' -Channel Main
+    . $script:ScriptPath -Version '0.0.0' -Channel Stable
     Mock Write-Host {}
 }
 
@@ -256,19 +256,9 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
         }
     }
 
-    It 'Removes an existing release ref and sha from every entry on Main' {
-        $catalog = Update-MarketplaceCatalogVersion `
-            -Catalog (New-TestCatalog -Ref 'v1.0.0' -Sha $script:TestSha) -Version '2.3.4' -Channel Main
-        foreach ($plugin in $catalog.plugins) {
-            $plugin.source.PSObject.Properties.Name | Should -Not -Contain 'ref'
-            $plugin.source.PSObject.Properties.Name | Should -Not -Contain 'sha'
-        }
-    }
-
     It 'Advances catalog and package versions with the ref change' -ForEach @(
         @{ Channel = 'PreRelease' }
         @{ Channel = 'Stable' }
-        @{ Channel = 'Main' }
     ) {
         $catalog = Update-MarketplaceCatalogVersion -Catalog (New-TestCatalog -Ref 'v1.0.0') -Version '2.3.4' -Channel $Channel
         $catalog.metadata.version | Should -BeExactly '2.3.4'
@@ -278,7 +268,6 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
     It 'Is byte-stable when applied twice with the same inputs' -ForEach @(
         @{ Channel = 'PreRelease' }
         @{ Channel = 'Stable' }
-        @{ Channel = 'Main' }
     ) {
         $catalog = New-TestCatalog -Ref 'v1.0.0' -Sha $script:TestSha
         $first = Update-MarketplaceCatalogVersion -Catalog $catalog -Version '2.3.4' -Channel $Channel
@@ -288,7 +277,6 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
     }
 
     It 'Maps each channel to its exact ref namespace' -ForEach @(
-        @{ Channel = 'Main'; Expected = '' }
         @{ Channel = 'PreRelease'; Expected = 'prerelease-v2.3.4' }
         @{ Channel = 'Stable'; Expected = 'v2.3.4' }
     ) {
@@ -296,7 +284,6 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
     }
 
     It 'Produces no hve-core-v ref for any channel' -ForEach @(
-        @{ Channel = 'Main' }
         @{ Channel = 'PreRelease' }
         @{ Channel = 'Stable' }
     ) {
@@ -711,16 +698,10 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         $LASTEXITCODE | Should -Not -Be 0
     }
 
-    It 'Rejects a candidate action on the ref-less Main channel' {
-        {
-            & $script:ScriptPath `
-                -Version '2.9.0' `
-                -Channel Main `
-                -RepoRoot $script:FakeRoot `
-                -SkipManifest `
-                -SkipPluginGenerate `
-                -CandidateAction Verify
-        } | Should -Throw '*requires the PreRelease or Stable channel*'
+    It 'Rejects an unknown channel value' {
+        & pwsh -NoProfile -NonInteractive -File $script:ScriptPath `
+            -Version '2.9.0' -Channel 'Main' -RepoRoot $script:FakeRoot -SkipManifest -SkipPluginGenerate 2>$null
+        $LASTEXITCODE | Should -Not -Be 0
     }
 
     # Promotion restores the complete prior catalog before recording. The

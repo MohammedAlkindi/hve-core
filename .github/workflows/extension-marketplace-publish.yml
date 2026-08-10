@@ -18,10 +18,6 @@ on:
         required: false
         type: boolean
         default: false
-      attestation-signer-workflow:
-        description: "Repository-relative workflow path that attested the release VSIX"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -44,7 +40,6 @@ jobs:
           INPUT_PACKAGES_MATRIX: ${{ inputs.packages-matrix }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_PRE_RELEASE: ${{ inputs.pre-release }}
-          INPUT_SIGNER_WORKFLOW: ${{ inputs.attestation-signer-workflow }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -72,13 +67,11 @@ jobs:
           case "$INPUT_PRE_RELEASE" in
             true)
               expected_pattern='^prerelease-v[0-9]+\.[0-9]+\.[0-9]+$'
-              expected_signer='.github/workflows/release-prerelease.yml'
               expected_minor_parity=1
               expected_parity_label='odd'
               ;;
             false)
               expected_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
-              expected_signer='.github/workflows/extension-provenance.yml'
               expected_minor_parity=0
               expected_parity_label='even'
               ;;
@@ -89,10 +82,6 @@ jobs:
           esac
           if [[ ! "$INPUT_TAG" =~ $expected_pattern ]]; then
             echo "::error::Release tag does not match the selected channel"
-            exit 1
-          fi
-          if [[ "$INPUT_SIGNER_WORKFLOW" != "$expected_signer" ]]; then
-            echo "::error::Attestation signer does not match the selected channel"
             exit 1
           fi
           # The tag namespace is validated above, so the minor is read from that
@@ -214,7 +203,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DIGEST: ${{ needs.validate-inputs.outputs.release-digest }}
           REPOSITORY: ${{ github.repository }}
-          SIGNER_WORKFLOW: ${{ github.repository }}/${{ inputs.attestation-signer-workflow }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/extension-provenance.yml
         run: |
           set -euo pipefail
           CHECKOUT_DIGEST=$(git rev-parse HEAD)
@@ -428,7 +417,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DIGEST: ${{ needs.validate-inputs.outputs.release-digest }}
           REPOSITORY: ${{ github.repository }}
-          SIGNER_WORKFLOW: ${{ github.repository }}/${{ inputs.attestation-signer-workflow }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/extension-provenance.yml
         run: |
           set -euo pipefail
           gh attestation verify "$VSIX_FILE" --repo "$REPOSITORY" \

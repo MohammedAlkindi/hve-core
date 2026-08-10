@@ -2,7 +2,7 @@
 title: Extension Packaging Guide
 description: Developer guide for packaging and publishing the HVE Core VS Code extension
 author: Microsoft
-ms.date: 2026-08-08
+ms.date: 2026-08-10
 ms.topic: reference
 ---
 
@@ -260,12 +260,13 @@ publish.
 
 | Channel    | Release asset selector  | Attestation signer         | Marketplace mode                  |
 |------------|-------------------------|----------------------------|-----------------------------------|
-| PreRelease | `prerelease-v<version>` | `release-prerelease.yml`   | `vsce --pre-release` through OIDC |
+| PreRelease | `prerelease-v<version>` | `extension-provenance.yml` | `vsce --pre-release` through OIDC |
 | Stable     | `v<version>`            | `extension-provenance.yml` | Stable publication through OIDC   |
 
-The generic publisher receives the channel package matrix, exact release tag,
-and signer workflow. It downloads the matching VSIX release asset, verifies
-its provenance attestation, and publishes it with `--azure-credential`.
+The generic publisher receives the channel package matrix and the exact release
+tag, and resolves the signer to the one workflow both channels attest from. It
+downloads the matching VSIX release asset, verifies its provenance attestation,
+and publishes it with `--azure-credential`.
 
 ## What Gets Included
 

@@ -758,41 +758,35 @@ jobs:
   close-milestone:
     name: Close Release Milestone
     needs: [validate-release, publish-release]
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/release-close-milestone.yml
+    with:
+      version: ${{ needs.validate-release.outputs.version }}
     permissions:
       issues: write
-    steps:
-      - name: Close milestone for released version
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          VERSION: ${{ needs.validate-release.outputs.version }}
-        run: |
-          set -euo pipefail
-          MAJOR=$(echo "$VERSION" | cut -d. -f1)
-          MINOR=$(echo "$VERSION" | cut -d. -f2)
-          TITLE="v${MAJOR}.${MINOR}.0"
-          NUMBER=$(gh api "/repos/$REPOSITORY/milestones?state=open&per_page=100" \
-            --jq ".[] | select(.title == \"$TITLE\") | .number")
-          if [ -n "$NUMBER" ]; then
-            gh api "/repos/$REPOSITORY/milestones/$NUMBER" \
-              -X PATCH -f state=closed
-            echo "✅ Closed milestone $TITLE (#$NUMBER)"
-          else
-            echo "ℹ️ No open milestone found matching '$TITLE' — skipping"
-          fi
 
-  extension-provenance:
-    name: Package and Attest VS Code Extensions (Release)
-    needs: [validate-release, generate-dependency-sbom]
+  extension-package-release:
+    name: Package VS Code Extensions (Release)
+    needs: [validate-release]
     # A verified published release is complete. Skipping the roots keeps every
     # dependent attest, upload, provenance, notes, and publication job skipped.
     if: ${{ needs.validate-release.outputs.release-state != 'published' }}
-    uses: ./.github/workflows/extension-provenance.yml
+    uses: ./.github/workflows/extension-package.yml
     with:
       source-ref: ${{ needs.validate-release.outputs.sha }}
       version: ${{ needs.validate-release.outputs.version }}
       channel: Stable
+    permissions:
+      contents: read
+
+  extension-provenance:
+    name: Attest VS Code Extensions (Release)
+    needs:
+      [validate-release, extension-package-release, generate-dependency-sbom]
+    if: ${{ needs.validate-release.outputs.release-state != 'published' }}
+    uses: ./.github/workflows/extension-provenance.yml
+    with:
+      source-ref: ${{ needs.validate-release.outputs.sha }}
+      packages-matrix: ${{ needs.extension-package-release.outputs.packages-matrix }}
       release-tag: ${{ needs.validate-release.outputs.tag_name }}
     permissions:
       contents: write
@@ -807,7 +801,6 @@ jobs:
     uses: ./.github/workflows/plugin-package.yml
     with:
       source-ref: ${{ needs.validate-release.outputs.sha }}
-      source-policy: release-tag
       release-tag: ${{ needs.validate-release.outputs.tag_name }}
       version: ${{ needs.validate-release.outputs.version }}
     permissions:

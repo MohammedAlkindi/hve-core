@@ -2,7 +2,7 @@
 title: GitHub Actions Workflows
 description: Modular CI/CD workflow architecture for validation, security scanning, and automated maintenance
 author: HVE Core Team
-ms.date: 2026-08-09
+ms.date: 2026-08-10
 ms.topic: reference
 keywords:
   - github actions
@@ -61,13 +61,13 @@ The validation jobs in `pr-validation.yml` feed the `pr-validation-success` aggr
 
 release-stable.yml jobs: prepare-promotion, open-promotion-pr
 
-release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-pr, validate-release, close-milestone, extension-provenance, plugin-package-release, generate-dependency-sbom, upload-plugin-packages, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
+release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-pr, validate-release, close-milestone, extension-package-release, extension-provenance, plugin-package-release, generate-dependency-sbom, upload-plugin-packages, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
 
 release-prerelease-prepare.yml jobs: prepare-promotion, open-promotion-pr
 
 release-prerelease.yml jobs: release-please, sync-release-pr, validate-release,
 close-milestone, extension-package-prerelease, plugin-package-prerelease,
-generate-dependency-sbom, attest-and-upload,
+generate-dependency-sbom, extension-provenance-prerelease,
 upload-plugin-packages, verify-provenance, publish-release
 
 ### Release Channel Contract

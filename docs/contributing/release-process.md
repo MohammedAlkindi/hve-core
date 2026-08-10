@@ -2,7 +2,7 @@
 title: Release Process
 description: Release HVE Core through reviewed PreRelease metadata and Stable promotion workflows
 sidebar_position: 9
-ms.date: 2026-08-08
+ms.date: 2026-08-10
 ms.topic: how-to
 author: WilliamBerryiii
 ---
@@ -285,10 +285,11 @@ published event triggers its matching Marketplace workflow:
 * [`release-marketplace-prerelease.yml`](https://github.com/microsoft/hve-core/blob/main/.github/workflows/release-marketplace-prerelease.yml)
 * [`release-marketplace-stable.yml`](https://github.com/microsoft/hve-core/blob/main/.github/workflows/release-marketplace-stable.yml)
 
-Both Marketplace workflows pass the validated exact release tag and the
-workflow that attested its VSIX to the generic publisher. The publisher
-downloads the release asset, verifies its lane-specific attestation, and
-publishes through Azure OIDC authentication.
+Both Marketplace workflows pass the validated exact release tag to the generic
+publisher, which resolves the attesting workflow to the one constant both
+channels sign from. The publisher downloads the release asset, verifies its
+attestation against that signer, and publishes through Azure OIDC
+authentication.
 
 ### Manual Fallback
 
@@ -301,7 +302,8 @@ matching channel workflow dispatch fallback:
 3. Choose the workflow from its default branch
 4. Optionally specify a version; an empty value auto-detects the latest
     published release for that channel
-5. Optionally enable dry-run mode to package without publishing
+5. Optionally enable dry-run mode to validate the version and catalog without
+    publishing
 6. Click **Run workflow**
 
 ### When to Publish
