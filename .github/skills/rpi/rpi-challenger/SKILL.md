@@ -14,6 +14,12 @@ Use [references/challenge.md](references/challenge.md) for challenge posture, ad
 
 Help the user examine a confirmed subject through adaptive, skeptical questions that surface material assumptions, boundaries, evidence needs, and unresolved decisions without turning the active exchange into a review, solution, or coaching session.
 
+## Decision spine stage
+
+This skill serves the `Challenge` stage of the shared decision spine. It can be entered from any stage, because a decision worth attacking can appear at any point before the work is acted on.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Flow
 
 1. Form a factual candidate scope from caller-supplied subject, targets, context, and focus. When those inputs are insufficient, inspect only the focused likely targets needed to form a scope, or ask for the smallest missing context.

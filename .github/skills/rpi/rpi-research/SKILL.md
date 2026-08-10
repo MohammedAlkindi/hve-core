@@ -16,6 +16,12 @@ Use `templates/research.md` as the primary-artifact skeleton. Read `references/r
 
 Derive `{{task_slug}}` from the primary target with lower-kebab-case and use the current date in `YYYY-MM-DD`. The default artifact path is .copilot-tracking/research/YYYY-MM-DD/{{task_slug}}-research.md. A caller-provided trusted sandbox or evidence root may mirror research/YYYY-MM-DD/{{task_slug}}-research.md; record the resolved root before writing.
 
+## Decision spine stage
+
+This skill serves the `Understand` and `Explore` stages of the shared decision spine. The wider wave establishes what the task is and what constrains it, and the deeper and contrarian waves widen the option surface before anything is committed.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Flow
 
 1. Establish the research brief in the primary artifact: topic, purpose, audience or use, scope and non-goals, criteria, requested outputs, output mode, initial questions, research posture and its provenance, and any explicit limits or deadline. Infer an initial topic only when the conversation provides enough context, and label assumptions for verification.

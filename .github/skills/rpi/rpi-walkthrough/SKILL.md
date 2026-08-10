@@ -20,6 +20,12 @@ A target is source code, UI or UX wiring, a library or feature, a prompt-enginee
 
 When a ledger is needed, derive `{{task_slug}}` in lower-kebab-case from the primary target's main subject, such as the primary file's base name without its extension or the feature or area name. Use the current date in `YYYY-MM-DD` and create `.copilot-tracking/walkthroughs/{{YYYY-MM-DD}}/{{task_slug}}-decisions.md` from [templates/walkthrough.md](templates/walkthrough.md).
 
+## Decision spine stage
+
+This skill serves the `Understand` stage of the shared decision spine, because its entire output is establishing what is true about an existing target. It is commonly entered mid-loop, when a user needs to understand something before continuing, and entering it does not advance the caller's own position in the loop.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Execution
 
 1. Resolve the walkthrough target and detail level from explicit input, attached or open files, then conversation context. Default `detail` to `normal`. When chat context is enabled, incorporate it to refine scope. If no target can be formed, stop and ask; if multiple unrelated targets match, ask the user to choose one. When prior conversation context is unavailable, ask the user for the target and desired starting point instead of reconstructing progress from a ledger.

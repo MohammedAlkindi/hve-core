@@ -14,6 +14,12 @@ Produce an implementation-ready, ordinary Markdown plan and separate phase detai
 
 Read [references/planning.md](references/planning.md) for readiness, executive-summary, delegation, and artifact guidance.
 
+## Decision spine stage
+
+This skill serves the `Decide` stage of the shared decision spine. It converts evidence and user direction into a committed approach with stated scope, requirements, and acceptance criteria.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Flow
 
 1. Establish the task identity and build `## User Decisions and Requirements` from user prompts, user-pointed external documents, tasks, issues, and prior research that captures the user's task, goals, requirements, or accepted decisions. Preserve the user's meaning without forcing entries into categories. Distinguish evidence, assumptions, and open choices. Treat supplied evidence as the starting point, not as a reason to repeat investigation.

@@ -12,6 +12,12 @@ user-invocable: true
 
 Coordinate one task through evidence, planning, execution, review, and explicit follow-up without duplicating the phase skills' detailed responsibilities.
 
+## Decision spine stage
+
+This skill spans the full decision spine, from `Understand` through `Verify`, because it coordinates the loop rather than occupying one position in it. The stage a user is in at any moment is the stage owned by the phase skill currently active.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Flow
 
 1. Assess research readiness from caller-supplied research, task details, decisions, and plan inputs.

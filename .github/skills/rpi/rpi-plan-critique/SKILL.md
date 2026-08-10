@@ -12,6 +12,12 @@ user-invocable: true
 
 Return a substantive, evidence-grounded credibility assessment of an RPI plan and its phase details. The critique is read-only with respect to plan sources and writes only the caller-specified critique artifact.
 
+## Decision spine stage
+
+This skill serves the `Challenge` stage of the shared decision spine. It attacks a decision before it is acted on, which is what separates `Challenge` from `Verify`.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Flow
 
 1. Confirm the exact plan, phase-details, evidence, requirements, decisions, dependencies, acceptance criteria, and critique output path supplied by the caller.

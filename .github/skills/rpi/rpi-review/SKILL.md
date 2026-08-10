@@ -12,6 +12,12 @@ user-invocable: true
 
 Write one evidence-based review record after implementation finishes. Assess the supplied task once, keep execution separate from outcome, and route each finding to the stage or later work that can resolve it.
 
+## Decision spine stage
+
+This skill serves the `Verify` stage of the shared decision spine. It assesses work that has already shipped, and its findings close the loop by returning to `Understand` as new work rather than reopening the completed task.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Flow
 
 1. Resolve one task artifact set: current plan, phase details, latest plan critique, changes record, and relevant research. Use the supplied paths or the stable task slug and date. Stop if multiple unrelated sets remain ambiguous.

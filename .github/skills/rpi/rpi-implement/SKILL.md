@@ -12,6 +12,12 @@ user-invocable: true
 
 Deliver the approved outcome using the current plan and phase details as evidence. Keep task completion, implementation evidence, plan maintenance, and validation trustworthy for the caller.
 
+## Decision spine stage
+
+This skill serves the `Execute` stage of the shared decision spine. It carries out a decision that has already been made and challenged.
+
+Stage names are display vocabulary. They change no skill name, command name, routing description, or artifact path.
+
 ## Flow
 
 1. Resolve the exact plan at `.copilot-tracking/plans/{{YYYY-MM-DD}}/{{task_slug}}-plan.md`, related plan details, and declared invocation scope: the full plan, one `Pxx` phase, or one `Pxx-Txx` task. The declared scope limits completion claims and active implementation.
