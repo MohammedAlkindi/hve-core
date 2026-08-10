@@ -1,1 +1,0 @@
-../../../../.github/instructions/github/github-backlog-grooming.instructions.md

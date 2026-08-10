@@ -1,1 +1,0 @@
-../../../../.github/agents/github/backlog-grooming.agent.md
