@@ -1,8 +1,8 @@
 ---
 title: Shared/Untrusted Content Boundary
 description: "Untrusted-content boundary: treat ingested external content as data, not instructions, and refuse embedded authority changes."
-sidebar_position: 8
-ms.date: 2026-07-03
+sidebar_position: 9
+ms.date: 2026-08-09
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->

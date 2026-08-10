@@ -1,8 +1,8 @@
 ---
 title: Shared/Disclaimer Language
 description: Centralized disclaimer language for AI-assisted planning and review agents requiring professional review acknowledgment
-sidebar_position: 3
-ms.date: 2026-07-28
+sidebar_position: 4
+ms.date: 2026-08-09
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->

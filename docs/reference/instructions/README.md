@@ -2,7 +2,7 @@
 title: Instructions
 description: Reference documentation for HVE Core instructions.
 sidebar_position: 0
-ms.date: 2026-07-30
+ms.date: 2026-08-09
 ---
 
 <!-- BEGIN AUTO-GENERATED: index -->
@@ -77,6 +77,7 @@ This page lists the generated reference documentation for HVE Core instructions.
 | [Security/Vex Standards](security/vex-standards.md)                                               | VEX document standards: canonical rule reference, licensing posture, author-of-record contract, and document mutation contract for OpenVEX management - Brought to you by microsoft/hve-core                                                                                          |
 | [Shared/Coaching Patterns](shared/coaching-patterns.md)                                           | Shared exploration-first coaching patterns for planning agents (RAI, security, SSSC, Privacy) adapted from Design Thinking research methods                                                                                                                                           |
 | [Shared/Content Policy Citation](shared/content-policy-citation.md)                               | Content-policy and terms-of-service guardrails for public output and eval stimuli                                                                                                                                                                                                     |
+| [Shared/Decision Spine](shared/decision-spine.md)                                                 | Shared decision-spine vocabulary: the six stages agents display to users, the mapping from every existing phase vocabulary, the annotation convention, and the Outside Resources grouping                                                                                             |
 | [Shared/Disclaimer Language](shared/disclaimer-language.md)                                       | Centralized disclaimer language for AI-assisted planning and review agents requiring professional review acknowledgment                                                                                                                                                               |
 | [Shared/Hve Core Location](shared/hve-core-location.md)                                           | Important: hve-core is the repository containing this instruction file; Guidance: if a referenced prompt, instructions, agent, or script is missing in the current directory, fall back to this hve-core location by walking up this file's directory tree.                           |
 | [Shared/Planner Identity Base](shared/planner-identity-base.md)                                   | Shared identity scaffold for phase-based planning agents (SSSC, RAI, Security, Accessibility, Privacy) covering state-file convention, six-phase orchestration template, state protocol, resume protocol, question cadence mechanics, optional disclaimer cadence, and error handling |
