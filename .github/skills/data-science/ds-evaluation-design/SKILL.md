@@ -36,7 +36,8 @@ Produce an evaluation dataset and its supporting documentation that measure whet
 ## Success criteria
 
 * Every interview area is answered or explicitly recorded as unknown before generation begins.
-* The dataset meets its size floor and its confirmed category balance, and the recorded counts match the actual rows.
+* The dataset meets its size floor and its confirmed category balance, and the recorded difficulty counts match the actual rows.
+* Every pair records the confirmed user populations it exercises, and every confirmed population carries a count, including the ones with no pairs.
 * Each pair states its category, difficulty, expected behavior, and, where relevant, the tools the system should invoke.
 * Refusal and safety pairs assert the specific action expected, not merely that the system declines.
 * The sample review happened and its feedback is reflected in the final set.

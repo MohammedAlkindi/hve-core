@@ -46,6 +46,20 @@ Leave every review checkbox unchecked. A reviewer marks their own review; an age
 
 {Note any deviation from the default balance and what drove it}
 
+### Population coverage
+
+One row for every confirmed user population, including any population whose count is zero.
+
+| Population   | Pairs | Rationale                                 |
+|--------------|-------|-------------------------------------------|
+| {population} | {n}   | {why this population has this many pairs} |
+
+A pair may serve several populations, so these counts overlap and do not sum to the dataset total. The category table above partitions the dataset; this one does not.
+
+{Explain any population whose count is zero, and what it would take to cover it}
+
+These counts describe the evaluation pairs that were designed. They do not establish how common a population is among real users, whether the coverage is statistically adequate, whether the system treats populations fairly, or whether the dataset satisfies a legal or policy obligation. Those are assessment decisions and belong to `rai-planner`.
+
 ### Open items
 
 {Pairs marked for subject-matter review, and unresolved scope questions}
