@@ -113,7 +113,23 @@ SENSITIVE_SCHEME_VALUE = re.compile(
 # Query strings routinely carry credentials, so any query is dropped wholesale
 # rather than matched name by name.
 SENSITIVE_QUERY_KEY = SENSITIVE_KEY
-DIAGRAM_PANE_AUTOMATION_ID = "83b774ee-20a7-5ce1-ac3e-36286067963b"
+# TMT sets a surface pane's automation id to that surface's own GUID, so no
+# constant identifies "the Diagram pane". The canvas child inside every
+# surface pane does carry a stable id, and that is what anchors discovery.
+CANVAS_VIEWPORT_AUTOMATION_ID = "Viewport"
+# TMT wraps a surface tab caption as "DocumentView, Title <caption>". The
+# wrapper is the reliable marker; the caption itself is author-controlled.
+SURFACE_TAB_NAME_MARKER = "documentview"
+# Tabs owned by TMT's own panels are excluded by automation id rather than by
+# caption, so an authored surface titled "Notes" is still treated as a surface.
+NON_SURFACE_TAB_AUTOMATION_IDS = frozenset({"TAB_Messages", "TAB_Notes"})
+
+# UIA treats -1 as "leave this axis alone" in SetScrollPercent.
+UIA_SCROLL_NO_AMOUNT = -1.0
+# The tab strip is stepped rather than jumped so each intermediate position
+# materializes the tabs it exposes. Twelve steps clears the widest observed
+# strip while bounding the work on a model whose tabs already all fit.
+TAB_STRIP_SCROLL_STEPS = 12
 
 
 @dataclass(slots=True)
@@ -1437,9 +1453,9 @@ def enumerate_surface_tabs(window: Any) -> list[SurfaceTab]:
         name = _control_name(control)
         automation_id = _control_automation_id(control)
         normalized_name = _normalize_name(name)
-        if automation_id in {"TAB_Messages", "TAB_Notes"}:
+        if automation_id in NON_SURFACE_TAB_AUTOMATION_IDS:
             continue
-        if "diagram" not in normalized_name and "documentview" not in normalized_name:
+        if SURFACE_TAB_NAME_MARKER not in normalized_name:
             continue
         tabs.append(
             SurfaceTab(
@@ -1458,8 +1474,16 @@ def select_surface_tab(
     surface: SurfaceDescriptor,
     tabs: list[SurfaceTab] | list[Any],
 ) -> Any:
-    """Select a surface tab only when its identity is unambiguous."""
+    """Select a surface tab only when its identity is unambiguous.
+
+    TMT presents a surface tab as ``DocumentView, Title <surface name>``
+    rather than the bare caption, so an exact comparison never matches a
+    named surface. A suffix comparison recovers the caption without
+    depending on the wrapper wording.
+    """
     matches: list[Any] = []
+    suffix_matches: list[Any] = []
+    normalized_surface = _normalize_name(surface.surface_name)
     for tab in tabs:
         if isinstance(tab, SurfaceTab):
             candidate = tab.control
@@ -1467,8 +1491,13 @@ def select_surface_tab(
         else:
             candidate = tab
             name = _control_name(tab)
-        if _normalize_name(name) == _normalize_name(surface.surface_name):
+        normalized_tab = _normalize_name(name)
+        if normalized_tab == normalized_surface:
             matches.append(candidate)
+        elif normalized_surface and normalized_tab.endswith(normalized_surface):
+            suffix_matches.append(candidate)
+    if not matches and len(suffix_matches) == 1:
+        return suffix_matches[0]
     if len(matches) == 1:
         # `matches` holds the resolved control for both the SurfaceTab and
         # raw-control shapes, so it is returned directly. Indexing `tabs`
@@ -1477,20 +1506,35 @@ def select_surface_tab(
     if len(matches) > 1:
         if surface.tab_index < len(matches):
             return matches[surface.tab_index]
-    generic_tabs = [
-        tab.control if isinstance(tab, SurfaceTab) else tab
-        for tab in tabs
-        if "diagram"
-        in _normalize_name(
-            tab.name if isinstance(tab, SurfaceTab) else _control_name(tab)
-        )
+    if not matches and len(suffix_matches) > 1:
+        if surface.tab_index < len(suffix_matches):
+            return suffix_matches[surface.tab_index]
+    # Every enumerated tab is a drawing surface, so positional fallback uses
+    # the full list. Filtering on a generic caption such as "Diagram" would
+    # empty this list once surfaces carry their authored titles.
+    positional_tabs = [
+        tab.control if isinstance(tab, SurfaceTab) else tab for tab in tabs
     ]
-    if surface.tab_index < len(generic_tabs):
-        return generic_tabs[surface.tab_index]
+    if surface.tab_index < len(positional_tabs):
+        return positional_tabs[surface.tab_index]
     raise HarnessFailure(
         f"Unable to locate a matching surface tab for {surface.surface_name}",
         EXIT_VALIDATION_FAILURE,
     )
+
+
+def find_live_surface_tab(window: Any, surface: SurfaceDescriptor) -> Any | None:
+    """Return the currently materialized control for one expected surface."""
+    normalized_surface = _normalize_name(surface.surface_name)
+    if not normalized_surface:
+        return None
+    for tab in enumerate_surface_tabs(window):
+        normalized_tab = _normalize_name(tab.name)
+        if normalized_tab == normalized_surface or normalized_tab.endswith(
+            normalized_surface
+        ):
+            return tab.control
+    return None
 
 
 def activate_surface_tab(
@@ -1498,9 +1542,30 @@ def activate_surface_tab(
     surface: SurfaceDescriptor,
     tabs: list[SurfaceTab],
 ) -> None:
-    """Activate one expected surface using semantic name or stable tab order."""
-    selected = select_surface_tab(window, surface, tabs)
-    control = selected.control if isinstance(selected, SurfaceTab) else selected
+    """Activate one expected surface using semantic name or stable tab order.
+
+    The strip scrolls as tabs are revealed, so a control captured during an
+    earlier enumeration can name the right surface while pointing at a stale
+    screen position. Clicking that position would silently capture a
+    different surface, so the tab is re-resolved against the live tree first
+    and the supplied list is consulted only as a positional fallback.
+    """
+    control = find_live_surface_tab(window, surface)
+    if control is None:
+        scroll_interface = _find_tab_strip_scroll(window)
+        if scroll_interface is not None:
+            for step in range(1, TAB_STRIP_SCROLL_STEPS + 1):
+                percent = min(100.0, step * (100.0 / TAB_STRIP_SCROLL_STEPS))
+                try:
+                    scroll_interface.SetScrollPercent(percent, UIA_SCROLL_NO_AMOUNT)
+                except Exception:
+                    break
+                control = find_live_surface_tab(window, surface)
+                if control is not None:
+                    break
+    if control is None:
+        selected = select_surface_tab(window, surface, tabs)
+        control = selected.control if isinstance(selected, SurfaceTab) else selected
     selector = getattr(control, "select", None)
     if callable(selector):
         try:
@@ -1511,24 +1576,50 @@ def activate_surface_tab(
     control.click_input()
 
 
-def find_diagram_pane(window: Any) -> Any:
-    """Locate the Diagram pane using the researched UIA selectors."""
+def find_diagram_pane(window: Any, surface: SurfaceDescriptor | None = None) -> Any:
+    """Locate the drawing-surface pane for the active surface.
+
+    TMT names the surface pane with the surface caption and sets its
+    automation id to that surface's own GUID, so there is no single constant
+    that identifies "the Diagram pane". Resolution therefore runs from the
+    most specific evidence to the least: the surface GUID, then the surface
+    caption, then any pane containing the stable ``Viewport`` canvas child.
+    """
+    surface_guid = (surface.surface_guid or "") if surface else ""
+    normalized_surface = _normalize_name(surface.surface_name) if surface else ""
+    caption_match: Any | None = None
+    viewport_match: Any | None = None
+
     for control in _iter_controls(window):
         if _control_type(control) != "Pane":
             continue
         automation_id = _control_automation_id(control)
-        name = _control_name(control)
-        if (
-            automation_id == DIAGRAM_PANE_AUTOMATION_ID
-            or _normalize_name(name) == "diagram"
-        ):
-            if automation_id == DIAGRAM_PANE_AUTOMATION_ID:
-                return control
+        if surface_guid and automation_id == surface_guid:
             return control
+        name = _control_name(control)
+        if normalized_surface and _normalize_name(name) == normalized_surface:
+            if caption_match is None:
+                caption_match = control
+            continue
+        if viewport_match is None and _has_viewport_child(control):
+            viewport_match = control
+
+    if caption_match is not None:
+        return caption_match
+    if viewport_match is not None:
+        return viewport_match
     raise HarnessFailure(
         "Unable to locate the Diagram pane for surface capture",
         EXIT_VALIDATION_FAILURE,
     )
+
+
+def _has_viewport_child(control: Any) -> bool:
+    """Report whether a pane owns the stable Viewport drawing canvas."""
+    for child in getattr(control, "descendants", lambda: [])():
+        if _control_automation_id(child) == CANVAS_VIEWPORT_AUTOMATION_ID:
+            return True
+    return False
 
 
 def read_canvas_announcement(diagram_pane: Any) -> str:
@@ -1552,12 +1643,74 @@ def read_canvas_announcement(diagram_pane: Any) -> str:
     return _control_name(diagram_pane)
 
 
+def _find_tab_strip_scroll(window: Any) -> Any | None:
+    """Return the horizontal Scroll pattern owning the surface tab strip."""
+    for control in _iter_controls(window):
+        if _control_type(control) != "Tab":
+            continue
+        candidates = [control, *getattr(control, "descendants", lambda: [])()]
+        for candidate in candidates:
+            try:
+                scroll_interface = candidate.iface_scroll
+                float(scroll_interface.CurrentHorizontalScrollPercent)
+            except Exception:
+                continue
+            return scroll_interface
+    return None
+
+
+def materialize_surface_tabs(window: Any, expected_count: int) -> list[SurfaceTab]:
+    """Reveal every surface tab, scrolling past tabs TMT has not materialized.
+
+    TMT clips the tab strip to the window width and omits every clipped tab
+    from the accessibility tree, so a model with more surfaces than fit on
+    screen exposes only the visible prefix. A nine-surface model on a 2400 px
+    display exposes six. Scrolling the strip brings the remainder into the
+    tree; discovery order is preserved so positional selection stays correct.
+    """
+    discovered: dict[str, SurfaceTab] = {}
+
+    def record() -> int:
+        added = 0
+        for tab in enumerate_surface_tabs(window):
+            key = _normalize_name(tab.name)
+            if key and key not in discovered:
+                discovered[key] = SurfaceTab(
+                    control=tab.control,
+                    name=tab.name,
+                    automation_id=tab.automation_id,
+                    control_type=tab.control_type,
+                    tab_index=len(discovered),
+                )
+                added += 1
+        return added
+
+    record()
+    if len(discovered) >= expected_count:
+        return list(discovered.values())
+
+    scroll_interface = _find_tab_strip_scroll(window)
+    if scroll_interface is None:
+        return list(discovered.values())
+
+    for step in range(1, TAB_STRIP_SCROLL_STEPS + 1):
+        percent = min(100.0, step * (100.0 / TAB_STRIP_SCROLL_STEPS))
+        try:
+            scroll_interface.SetScrollPercent(percent, UIA_SCROLL_NO_AMOUNT)
+        except Exception:
+            break
+        record()
+        if len(discovered) >= expected_count:
+            break
+    return list(discovered.values())
+
+
 def _find_scroll_interface(diagram_pane: Any) -> Any | None:
     """Return the first usable UIA Scroll pattern in the diagram subtree."""
     controls = [diagram_pane, *getattr(diagram_pane, "descendants", lambda: [])()]
     controls.sort(
         key=lambda control: (
-            _control_automation_id(control) != "Viewport",
+            _control_automation_id(control) != CANVAS_VIEWPORT_AUTOMATION_ID,
             _control_type(control) != "Pane",
         )
     )
@@ -1638,7 +1791,7 @@ def capture_surface_evidence(
     # segment before it can name a file inside the evidence bundle.
     surface_slug = _evidence_slug(surface.surface_id)
     try:
-        diagram_pane = find_diagram_pane(window)
+        diagram_pane = find_diagram_pane(window, surface)
     except HarnessFailure:
         if require_feedback_evidence:
             raise
@@ -3062,7 +3215,7 @@ def _capture_feedback_surface_evidence(
         surfaces = surfaces[: max(0, int(surface_limit))]
     if not surfaces:
         return []
-    tabs = enumerate_surface_tabs(window)
+    tabs = materialize_surface_tabs(window, len(surfaces))
     if require_feedback_evidence and len(tabs) < len(surfaces):
         raise HarnessFailure(
             f"Strict feedback evidence requires {len(surfaces)} surface tabs; "

@@ -954,8 +954,8 @@ def test_given_excessive_scroll_extent_when_capture_then_marks_evidence_incomple
     )
     diagram_pane = FakeControl(
         "Pane",
-        "Diagram",
-        automation_id=validate_tm7_with_tmt.DIAGRAM_PANE_AUTOMATION_ID,
+        "System context",
+        automation_id="guid-context",
         left=0,
         top=0,
         width=1200,
@@ -975,7 +975,7 @@ def test_given_excessive_scroll_extent_when_capture_then_marks_evidence_incomple
     monkeypatch.setattr(
         validate_tm7_with_tmt,
         "find_diagram_pane",
-        lambda window: diagram_pane,
+        lambda window, surface=None: diagram_pane,
     )
     monkeypatch.setattr(
         validate_tm7_with_tmt,
@@ -1021,8 +1021,8 @@ def test_given_tiled_surface_evidence_when_capture_then_binds_tile_manifest(
     )
     diagram_pane = FakeControl(
         "Pane",
-        "Diagram",
-        automation_id=validate_tm7_with_tmt.DIAGRAM_PANE_AUTOMATION_ID,
+        "System context",
+        automation_id="guid-context",
         left=0,
         top=0,
         width=1200,
@@ -1045,7 +1045,7 @@ def test_given_tiled_surface_evidence_when_capture_then_binds_tile_manifest(
     monkeypatch.setattr(
         validate_tm7_with_tmt,
         "find_diagram_pane",
-        lambda window: diagram_pane,
+        lambda window, surface=None: diagram_pane,
     )
     monkeypatch.setattr(
         validate_tm7_with_tmt,
@@ -1124,8 +1124,8 @@ def test_given_measured_pane_when_calibrated_then_measurements_beat_defaults(
     )
     diagram_pane = FakeControl(
         "Pane",
-        "Diagram",
-        automation_id=validate_tm7_with_tmt.DIAGRAM_PANE_AUTOMATION_ID,
+        "System context",
+        automation_id="guid-context",
         left=10,
         top=20,
         width=1200,
@@ -1145,7 +1145,7 @@ def test_given_measured_pane_when_calibrated_then_measurements_beat_defaults(
     monkeypatch.setattr(
         validate_tm7_with_tmt,
         "find_diagram_pane",
-        lambda window: diagram_pane,
+        lambda window, surface=None: diagram_pane,
     )
     monkeypatch.setattr(
         validate_tm7_with_tmt,
@@ -3291,6 +3291,265 @@ def test_given_matching_tabs_when_selecting_surface_then_returns_tab() -> None:
     assert selected is tab
 
 
+def test_given_documentview_wrapped_tab_when_selecting_surface_then_returns_tab() -> (
+    None
+):
+    # Arrange
+    # TMT names a surface tab "DocumentView, Title <caption>". This wrapper is
+    # taken verbatim from a captured UIA tree, so an exact comparison against
+    # the bare caption never matches once surfaces carry authored titles.
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="ctx-01",
+        surface_guid="guid-ctx",
+        surface_name="System context and trust boundaries",
+        tab_index=1,
+    )
+    other = FakeControl(
+        "TabItem",
+        "DocumentView, Title Copilot telemetry capture, storage, and cloud artifact "
+        "generation",
+    )
+    wanted = FakeControl(
+        "TabItem", "DocumentView, Title System context and trust boundaries"
+    )
+
+    # Act
+    selected = validate_tm7_with_tmt.select_surface_tab(
+        FakeWindow("Window", 100, 100),
+        surface,
+        [other, wanted],
+    )
+
+    # Assert
+    assert selected is wanted
+
+
+def test_given_authored_tab_titles_when_selecting_then_positional_fallback() -> None:
+    # Arrange
+    # No tab carries the generic "Diagram" caption any more, so a fallback that
+    # filtered on it would find nothing and refuse an otherwise resolvable tab.
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="unmatched",
+        surface_guid="guid-unmatched",
+        surface_name="Surface absent from the tab strip",
+        tab_index=1,
+    )
+    tabs = [
+        FakeControl("TabItem", "DocumentView, Title First authored surface"),
+        FakeControl("TabItem", "DocumentView, Title Second authored surface"),
+    ]
+
+    # Act
+    selected = validate_tm7_with_tmt.select_surface_tab(
+        FakeWindow("Window", 100, 100),
+        surface,
+        tabs,
+    )
+
+    # Assert
+    assert selected is tabs[1]
+
+
+class _ScrollingTabStrip:
+    """Window double whose tab strip reveals tabs only as it is scrolled."""
+
+    def __init__(self, names: list[str], visible: int) -> None:
+        self._names = names
+        self._visible = visible
+        self._offset = 0
+        self.scroll_calls: list[float] = []
+        outer = self
+
+        class _Scroll:
+            CurrentHorizontalScrollPercent = 0.0
+            CurrentVerticalScrollPercent = 0.0
+
+            def SetScrollPercent(self, horizontal: float, vertical: float) -> None:
+                outer.scroll_calls.append(horizontal)
+                span = max(1, len(outer._names) - outer._visible)
+                outer._offset = min(span, round(span * horizontal / 100.0))
+
+        self._scroll = _Scroll()
+
+    def descendants(self) -> list[Any]:
+        window = self
+
+        class _TabContainer:
+            element_info = type(
+                "ElementInfo",
+                (),
+                {"control_type": "Tab", "name": "", "automation_id": ""},
+            )()
+            iface_scroll = self._scroll
+
+            def descendants(self) -> list[Any]:
+                return []
+
+        visible_names = window._names[window._offset : window._offset + window._visible]
+        return [_TabContainer()] + [
+            FakeControl("TabItem", f"DocumentView, Title {name}")
+            for name in visible_names
+        ]
+
+
+def test_given_virtualized_tab_strip_when_materializing_then_all_tabs_found() -> None:
+    # Arrange
+    # TMT clips the tab strip to the window width and omits clipped tabs from
+    # the accessibility tree, so a nine-surface model exposes only six.
+    names = [f"Surface {index}" for index in range(9)]
+    window = _ScrollingTabStrip(names, visible=6)
+
+    # Act
+    tabs = validate_tm7_with_tmt.materialize_surface_tabs(window, len(names))
+
+    # Assert
+    assert len(tabs) == 9
+    assert [tab.name for tab in tabs] == [
+        f"DocumentView, Title {name}" for name in names
+    ]
+    assert window.scroll_calls
+
+
+def test_given_all_tabs_visible_when_materializing_then_no_scrolling() -> None:
+    # Arrange
+    names = [f"Surface {index}" for index in range(4)]
+    window = _ScrollingTabStrip(names, visible=4)
+
+    # Act
+    tabs = validate_tm7_with_tmt.materialize_surface_tabs(window, len(names))
+
+    # Assert
+    assert len(tabs) == 4
+    assert window.scroll_calls == []
+
+
+def test_given_no_tab_scroll_pattern_when_materializing_then_returns_visible() -> None:
+    # Arrange
+    window = FakeWindow(
+        "Window",
+        100,
+        100,
+        descendants=[FakeControl("TabItem", "DocumentView, Title Only surface")],
+    )
+
+    # Act
+    tabs = validate_tm7_with_tmt.materialize_surface_tabs(window, 3)
+
+    # Assert
+    assert len(tabs) == 1
+
+
+def test_given_stale_tab_control_when_activating_then_uses_live_tree() -> None:
+    # Arrange
+    # A control captured before the strip scrolled still names the right
+    # surface but points at a stale screen position, so clicking it would
+    # capture a different surface under the expected name.
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="ctx-01",
+        surface_guid="guid-ctx",
+        surface_name="System context and trust boundaries",
+        tab_index=0,
+    )
+    live = FakeControl(
+        "TabItem", "DocumentView, Title System context and trust boundaries"
+    )
+    stale = FakeControl(
+        "TabItem", "DocumentView, Title System context and trust boundaries"
+    )
+    clicked: list[Any] = []
+    live.click_input = lambda: clicked.append(live)  # type: ignore[method-assign]
+    stale.click_input = lambda: clicked.append(stale)  # type: ignore[method-assign]
+    window = FakeWindow("Window", 100, 100, descendants=[live])
+    stale_tabs = [
+        validate_tm7_with_tmt.SurfaceTab(
+            control=stale,
+            name=stale.element_info.name,
+            control_type="TabItem",
+        )
+    ]
+
+    # Act
+    validate_tm7_with_tmt.activate_surface_tab(window, surface, stale_tabs)
+
+    # Assert
+    assert clicked == [live]
+
+
+def test_given_per_surface_pane_guids_when_finding_pane_then_matches_surface() -> None:
+    # Arrange
+    # TMT sets each surface pane's automation id to that surface's own GUID,
+    # so no single constant identifies "the Diagram pane". Selecting the wrong
+    # pane would capture a different surface under the expected name.
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="ctx-01",
+        surface_guid="guid-ctx",
+        surface_name="System context and trust boundaries",
+        tab_index=1,
+    )
+    other = FakeControl("Pane", "Other surface", automation_id="guid-other")
+    wanted = FakeControl(
+        "Pane", "System context and trust boundaries", automation_id="guid-ctx"
+    )
+    window = FakeWindow("Window", 100, 100, descendants=[other, wanted])
+
+    # Act
+    pane = validate_tm7_with_tmt.find_diagram_pane(window, surface)
+
+    # Assert
+    assert pane is wanted
+
+
+def test_given_pane_guid_absent_when_finding_pane_then_matches_caption() -> None:
+    # Arrange
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="ctx-01",
+        surface_guid="guid-missing",
+        surface_name="System context and trust boundaries",
+        tab_index=0,
+    )
+    wanted = FakeControl("Pane", "System context and trust boundaries")
+    window = FakeWindow(
+        "Window",
+        100,
+        100,
+        descendants=[FakeControl("Pane", "Threat List"), wanted],
+    )
+
+    # Act
+    pane = validate_tm7_with_tmt.find_diagram_pane(window, surface)
+
+    # Assert
+    assert pane is wanted
+
+
+def test_given_unidentifiable_pane_when_finding_then_uses_viewport_child() -> None:
+    # Arrange
+    # The canvas child carries a stable automation id even though the pane
+    # itself is identified per surface.
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="ctx-01",
+        surface_guid="guid-missing",
+        surface_name="Absent caption",
+        tab_index=0,
+    )
+    canvas = FakeControl(
+        "Pane", "Threat Model Drawing Canvas", automation_id="Viewport"
+    )
+    wanted = FakeControl("Pane", "Unrecognized", descendants=[canvas])
+    window = FakeWindow(
+        "Window",
+        100,
+        100,
+        descendants=[FakeControl("Pane", "Threat List"), wanted],
+    )
+
+    # Act
+    pane = validate_tm7_with_tmt.find_diagram_pane(window, surface)
+
+    # Assert
+    assert pane is wanted
+
+
 def test_given_ambiguous_tab_names_when_selecting_surface_then_fails() -> None:
     # Arrange
     surface = validate_tm7_with_tmt.SurfaceDescriptor(
@@ -3496,10 +3755,14 @@ def test_given_scrollable_surface_when_captured_then_corners_dedupe_and_restore(
             self.positions.append((horizontal, vertical))
 
     scroll = ScrollInterface()
-    pane = FakeControl("Pane", "Diagram")
+    pane = FakeControl("Pane", "System context and trust boundaries")
     pane.iface_scroll = scroll
     window = FakeWindow("TMT", 1000, 800)
-    monkeypatch.setattr(validate_tm7_with_tmt, "find_diagram_pane", lambda _: pane)
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "find_diagram_pane",
+        lambda window, surface=None: pane,
+    )
     monkeypatch.setattr(
         validate_tm7_with_tmt,
         "capture_window_screenshot",
@@ -3548,8 +3811,12 @@ def test_given_no_scroll_pattern_when_strict_capture_then_it_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
-    pane = FakeControl("Pane", "Diagram")
-    monkeypatch.setattr(validate_tm7_with_tmt, "find_diagram_pane", lambda _: pane)
+    pane = FakeControl("Pane", "System context and trust boundaries")
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "find_diagram_pane",
+        lambda window, surface=None: pane,
+    )
     monkeypatch.setattr(
         validate_tm7_with_tmt,
         "capture_window_screenshot",
