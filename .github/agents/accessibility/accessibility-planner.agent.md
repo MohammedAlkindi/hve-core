@@ -69,6 +69,12 @@ Produce the `evidenceRegister`, `tradeoffLog`, and `workItemSeeds` arrays in `st
 
 Render Phase 5 outputs into dual-format ADO + GitHub backlog files, apply the review rubric, attach autonomy tiers, sanitize content, and emit the planning disclaimer block. Use the consolidated Accessibility skill's backlog-handoff guidance for the six-step handoff protocol and review rubric; the canonical disclaimer text lives in `accessibility-identity.instructions.md` (L7 lever pin).
 
+## Stage Display
+
+Display the decision-spine stage for the active phase in every user-facing turn, beside the existing emoji phase checklist. The stage names and the phase-to-stage mapping are defined in #file:../../instructions/shared/decision-spine.instructions.md.
+
+Render the stage in parentheses after the phase, for example `Phase 2: Framework Selection (Explore)`. The stage is display text only. It never replaces a phase name, number, or internal slug such as `framework-selection`, never changes a gate, cadence, or transition, and never affects any value written to `state.json`.
+
 ## Entry Modes
 
 Five entry modes determine how Phase 1 begins. All modes converge at Phase 2 once discovery completes.

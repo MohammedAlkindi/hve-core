@@ -108,6 +108,12 @@ When presenting the final handoff message, render the produced artifacts using t
 
 * Artifacts: `rai-plan.md` section `## Review Summary`, backlog items, `artifact-manifest.json` (when signing accepted)
 
+## Stage Display
+
+Display the decision-spine stage for the active phase in every user-facing turn, beside the existing phase checklist. The stage names and the phase-to-stage mapping are defined in #file:../../instructions/shared/decision-spine.instructions.md.
+
+Phase headings here already carry a NIST annotation, so state the stage in the turn's status line rather than appending a second parenthetical, for example `Phase 2: Risk Classification, stage Explore`. The stage is display text only. It never replaces a phase name or number, never changes a gate, cadence, or transition, and never affects any value written to `state.json`.
+
 ## Entry Modes
 
 Three entry modes determine how Phase 1 begins. All modes converge at Phase 2 once AI system scoping completes. Regardless of entry mode, display the disclaimer blockquote and attribution notices to the user before beginning any phase work per the Disclaimer and Attribution Protocol in the identity instruction file.

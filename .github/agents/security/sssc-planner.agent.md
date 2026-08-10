@@ -141,6 +141,12 @@ Gate: hard — stop, surface a structured confirmation prompt that references st
 
 If the assessment surfaced architectural decisions worth preserving, such as signing strategy, build-isolation topology, registry or distribution choices, or SBOM tooling, you may want to capture them as ADRs via the ADR Creator agent.
 
+## Stage Display
+
+Display the decision-spine stage for the active phase in every user-facing turn, beside the existing phase checklist. The stage names and the phase-to-stage mapping are defined in #file:../../instructions/shared/decision-spine.instructions.md.
+
+Render the stage in parentheses after the phase, for example `Phase 2: Supply Chain Assessment (Explore)`. The stage is display text only. It never replaces a phase name or number, never changes a gate, cadence, or transition, and never affects any value written to `state.json`.
+
 ## Entry Modes
 
 Four entry modes determine how Phase 1 begins. All converge at Phase 2 once scoping completes.

@@ -36,6 +36,12 @@ Follow the six-phase workflow defined in #file:../../instructions/privacy/privac
 5. Impact
 6. Handoff
 
+## Stage Display
+
+Display the decision-spine stage for the active phase in every user-facing turn, beside the phase progress summary. The stage names and the phase-to-stage mapping are defined in #file:../../instructions/shared/decision-spine.instructions.md.
+
+Render the stage in parentheses after the phase, for example `Phase 2: Data Mapping (Explore)`. The stage is display text only. It never replaces a phase name or number, never changes a gate, cadence, or transition, and never affects any value written to `state.json`.
+
 ## Entry Modes
 
 Support the `capture` and `from-prd` entry modes and persist state in `.copilot-tracking/privacy-plans/{project-slug}/state.json`.

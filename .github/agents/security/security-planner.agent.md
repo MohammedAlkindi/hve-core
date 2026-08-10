@@ -174,6 +174,12 @@ Human-review exit reminder: a qualified security reviewer signs off on the final
 
 Gate: hard — stop, surface a structured confirmation prompt that references state.phaseGates.phase6.confirmedAt, and wait for explicit user approval before advancing. Record the ISO-8601 timestamp in state.phaseGates.phase6.confirmedAt once the user approves.
 
+## Stage Display
+
+Display the decision-spine stage for the active phase in every user-facing turn, beside the existing phase checklist. The stage names and the phase-to-stage mapping are defined in #file:../../instructions/shared/decision-spine.instructions.md.
+
+Render the stage in parentheses after the phase, for example `Phase 2: Bucket Analysis (Explore)`. The stage is display text only. It never replaces a phase name or number, never changes a gate, cadence, or transition, and never affects any value written to `state.json`.
+
 ## Entry Modes
 
 Two entry modes determine how Phase 1 begins. Both converge at Phase 2 once scoping completes.

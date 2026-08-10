@@ -133,6 +133,14 @@ When resuming an existing project:
 
 Update the coaching state file at each method transition, session start, artifact creation, and phase change. Follow the state management rules defined in the coaching state protocol instruction.
 
+### Stage Display
+
+Display the decision-spine stage alongside the method and space in every user-facing turn. The stage names and the method-to-stage derivation are defined in #file:../../instructions/shared/decision-spine.instructions.md.
+
+Derive the stage from the method number exactly as `space` is derived, then render both, for example `Method 4: Brainstorming, solution space, stage Explore`. The stage is display text only. It never replaces the method number or the `space` value, never changes method sequencing or coaching logic, and is never written to the coaching state file.
+
+The `Required Phases` numbered Phase 1 through Phase 4 in this agent are session-lifecycle steps, not decision-arc positions. They carry no spine stage and their markers are never annotated.
+
 ## Method Routing
 
 When assessing which method to focus on:
