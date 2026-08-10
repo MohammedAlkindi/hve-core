@@ -3350,93 +3350,151 @@ def test_given_authored_tab_titles_when_selecting_then_positional_fallback() -> 
     assert selected is tabs[1]
 
 
-class _ScrollingTabStrip:
-    """Window double whose tab strip reveals tabs only as it is scrolled."""
+class _DocumentMenu:
+    """Menu double listing every open document regardless of tab visibility."""
 
-    def __init__(self, names: list[str], visible: int) -> None:
+    def __init__(self, names: list[str], activated: list[str]) -> None:
+        self.element_info = type(
+            "ElementInfo",
+            (),
+            {
+                "control_type": "MenuItem",
+                "name": "Diagram",
+                "automation_id": "WindowMenuItem",
+            },
+        )()
         self._names = names
-        self._visible = visible
-        self._offset = 0
-        self.scroll_calls: list[float] = []
-        outer = self
+        self._activated = activated
+        self.expanded = False
 
-        class _Scroll:
-            CurrentHorizontalScrollPercent = 0.0
-            CurrentVerticalScrollPercent = 0.0
+    def expand(self) -> None:
+        self.expanded = True
 
-            def SetScrollPercent(self, horizontal: float, vertical: float) -> None:
-                outer.scroll_calls.append(horizontal)
-                span = max(1, len(outer._names) - outer._visible)
-                outer._offset = min(span, round(span * horizontal / 100.0))
-
-        self._scroll = _Scroll()
+    def collapse(self) -> None:
+        self.expanded = False
 
     def descendants(self) -> list[Any]:
-        window = self
-
-        class _TabContainer:
-            element_info = type(
-                "ElementInfo",
-                (),
-                {"control_type": "Tab", "name": "", "automation_id": ""},
-            )()
-            iface_scroll = self._scroll
-
-            def descendants(self) -> list[Any]:
-                return []
-
-        visible_names = window._names[window._offset : window._offset + window._visible]
-        return [_TabContainer()] + [
-            FakeControl("TabItem", f"DocumentView, Title {name}")
-            for name in visible_names
-        ]
+        if not self.expanded:
+            return []
+        entries = []
+        for name in self._names:
+            entry = FakeControl("MenuItem", name)
+            entry.invoke = (  # type: ignore[method-assign]
+                lambda captured=name: self._activated.append(captured)
+            )
+            entries.append(entry)
+        return entries
 
 
-def test_given_virtualized_tab_strip_when_materializing_then_all_tabs_found() -> None:
+def test_given_clipped_tab_strip_when_materializing_then_returns_visible_only() -> None:
     # Arrange
-    # TMT clips the tab strip to the window width and omits clipped tabs from
-    # the accessibility tree, so a nine-surface model exposes only six.
-    names = [f"Surface {index}" for index in range(9)]
-    window = _ScrollingTabStrip(names, visible=6)
-
-    # Act
-    tabs = validate_tm7_with_tmt.materialize_surface_tabs(window, len(names))
-
-    # Assert
-    assert len(tabs) == 9
-    assert [tab.name for tab in tabs] == [
-        f"DocumentView, Title {name}" for name in names
-    ]
-    assert window.scroll_calls
-
-
-def test_given_all_tabs_visible_when_materializing_then_no_scrolling() -> None:
-    # Arrange
-    names = [f"Surface {index}" for index in range(4)]
-    window = _ScrollingTabStrip(names, visible=4)
-
-    # Act
-    tabs = validate_tm7_with_tmt.materialize_surface_tabs(window, len(names))
-
-    # Assert
-    assert len(tabs) == 4
-    assert window.scroll_calls == []
-
-
-def test_given_no_tab_scroll_pattern_when_materializing_then_returns_visible() -> None:
-    # Arrange
+    # TMT clips the strip, omits clipped tabs from the tree, and exposes no
+    # scroll pattern there, so only the visible prefix is reachable this way.
     window = FakeWindow(
         "Window",
         100,
         100,
-        descendants=[FakeControl("TabItem", "DocumentView, Title Only surface")],
+        descendants=[
+            FakeControl("TabItem", "DocumentView, Title Surface 0"),
+            FakeControl("TabItem", "DocumentView, Title Surface 1"),
+        ],
     )
 
     # Act
-    tabs = validate_tm7_with_tmt.materialize_surface_tabs(window, 3)
+    tabs = validate_tm7_with_tmt.materialize_surface_tabs(window, 9)
 
     # Assert
-    assert len(tabs) == 1
+    assert len(tabs) == 2
+
+
+def test_given_surface_without_a_tab_when_activating_then_uses_document_menu() -> None:
+    # Arrange
+    # The surface is open but its tab is clipped, so no TabItem names it and
+    # the document menu is the only path that reaches it.
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="dom-planning",
+        surface_guid="guid-planning",
+        surface_name="Security-planning artifact generation",
+        tab_index=7,
+    )
+    activated: list[str] = []
+    menu = _DocumentMenu(
+        [
+            "System context and trust boundaries",
+            "Security-planning artifact generation",
+        ],
+        activated,
+    )
+    window = FakeWindow(
+        "Window",
+        100,
+        100,
+        descendants=[
+            FakeControl("TabItem", "DocumentView, Title System context"),
+            menu,
+        ],
+    )
+
+    # Act
+    validate_tm7_with_tmt.activate_surface_tab(window, surface, [])
+
+    # Assert
+    assert activated == ["Security-planning artifact generation"]
+
+
+def test_given_visible_tab_when_activating_then_menu_is_not_opened() -> None:
+    # Arrange
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="ctx-01",
+        surface_guid="guid-ctx",
+        surface_name="System context and trust boundaries",
+        tab_index=0,
+    )
+    activated: list[str] = []
+    menu = _DocumentMenu(["System context and trust boundaries"], activated)
+    tab = FakeControl(
+        "TabItem", "DocumentView, Title System context and trust boundaries"
+    )
+    clicked: list[Any] = []
+    tab.click_input = lambda: clicked.append(tab)  # type: ignore[method-assign]
+    window = FakeWindow("Window", 100, 100, descendants=[tab, menu])
+
+    # Act
+    validate_tm7_with_tmt.activate_surface_tab(window, surface, [])
+
+    # Assert
+    assert clicked == [tab]
+    assert activated == []
+    assert menu.expanded is False
+
+
+def test_given_no_document_menu_when_activating_then_falls_back_positionally() -> None:
+    # Arrange
+    surface = validate_tm7_with_tmt.SurfaceDescriptor(
+        surface_id="absent",
+        surface_guid="guid-absent",
+        surface_name="Surface with no tab and no menu",
+        tab_index=0,
+    )
+    fallback = FakeControl("TabItem", "DocumentView, Title Some other surface")
+    clicked: list[Any] = []
+    fallback.click_input = lambda: clicked.append(  # type: ignore[method-assign]
+        fallback
+    )
+    window = FakeWindow("Window", 100, 100, descendants=[fallback])
+    tabs = [
+        validate_tm7_with_tmt.SurfaceTab(
+            control=fallback,
+            name=fallback.element_info.name,
+            control_type="TabItem",
+        )
+    ]
+
+    # Act
+    validate_tm7_with_tmt.activate_surface_tab(window, surface, tabs)
+
+    # Assert
+    assert clicked == [fallback]
 
 
 def test_given_stale_tab_control_when_activating_then_uses_live_tree() -> None:

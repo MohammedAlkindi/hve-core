@@ -126,10 +126,11 @@ NON_SURFACE_TAB_AUTOMATION_IDS = frozenset({"TAB_Messages", "TAB_Notes"})
 
 # UIA treats -1 as "leave this axis alone" in SetScrollPercent.
 UIA_SCROLL_NO_AMOUNT = -1.0
-# The tab strip is stepped rather than jumped so each intermediate position
-# materializes the tabs it exposes. Twelve steps clears the widest observed
-# strip while bounding the work on a model whose tabs already all fit.
-TAB_STRIP_SCROLL_STEPS = 12
+# TMT clips its tab strip and omits clipped tabs from the accessibility tree,
+# and the strip exposes no scroll pattern, so tabs alone cannot reach every
+# surface. This menu is the standard MDI document switcher and lists every
+# open document regardless of tab visibility.
+DOCUMENT_MENU_AUTOMATION_ID = "WindowMenuItem"
 
 
 @dataclass(slots=True)
@@ -1537,6 +1538,82 @@ def find_live_surface_tab(window: Any, surface: SurfaceDescriptor) -> Any | None
     return None
 
 
+def _invoke_control(control: Any) -> None:
+    """Invoke a UIA control through whichever pattern it supports."""
+    for attribute in ("invoke", "select", "click_input"):
+        action = getattr(control, attribute, None)
+        if callable(action):
+            action()
+            return
+    raise HarnessFailure(
+        "UI control supports neither invoke, select, nor click",
+        EXIT_VALIDATION_FAILURE,
+    )
+
+
+def _expand_document_menu(window: Any) -> Any | None:
+    """Open the document menu that lists every open drawing surface.
+
+    TMT clips its tab strip and omits the clipped tabs from the accessibility
+    tree entirely, so a model with more surfaces than fit on screen cannot be
+    navigated through tabs alone. The menu carrying ``WindowMenuItem`` is the
+    standard MDI document switcher and lists every open document regardless of
+    tab visibility, which makes it the reliable activation path.
+    """
+    for control in _iter_controls(window):
+        if _control_type(control) != "MenuItem":
+            continue
+        if _control_automation_id(control) != DOCUMENT_MENU_AUTOMATION_ID:
+            continue
+        try:
+            expand = getattr(control, "expand", None)
+            if callable(expand):
+                expand()
+            else:
+                _invoke_control(control)
+        except Exception:
+            return None
+        return control
+    return None
+
+
+def _collapse_menu(menu: Any) -> None:
+    """Close an opened menu, ignoring a control that cannot be collapsed."""
+    try:
+        collapse = getattr(menu, "collapse", None)
+        if callable(collapse):
+            collapse()
+    except Exception:
+        pass
+
+
+def activate_surface_via_document_menu(
+    window: Any,
+    surface: SurfaceDescriptor,
+) -> bool:
+    """Activate a surface through the document menu; report whether it worked."""
+    menu = _expand_document_menu(window)
+    if menu is None:
+        return False
+    normalized_surface = _normalize_name(surface.surface_name)
+    try:
+        for entry in _iter_controls(menu):
+            if _control_type(entry) != "MenuItem":
+                continue
+            normalized_entry = _normalize_name(_control_name(entry))
+            if not normalized_entry:
+                continue
+            if normalized_entry == normalized_surface or normalized_entry.endswith(
+                normalized_surface
+            ):
+                _invoke_control(entry)
+                return True
+    except Exception:
+        pass
+    _collapse_menu(menu)
+    return False
+
+
 def activate_surface_tab(
     window: Any,
     surface: SurfaceDescriptor,
@@ -1552,17 +1629,12 @@ def activate_surface_tab(
     """
     control = find_live_surface_tab(window, surface)
     if control is None:
-        scroll_interface = _find_tab_strip_scroll(window)
-        if scroll_interface is not None:
-            for step in range(1, TAB_STRIP_SCROLL_STEPS + 1):
-                percent = min(100.0, step * (100.0 / TAB_STRIP_SCROLL_STEPS))
-                try:
-                    scroll_interface.SetScrollPercent(percent, UIA_SCROLL_NO_AMOUNT)
-                except Exception:
-                    break
-                control = find_live_surface_tab(window, surface)
-                if control is not None:
-                    break
+        # The surface has no visible tab, so the document menu is the only
+        # path that reaches it. Tab-strip scrolling cannot help: TMT exposes
+        # no scroll pattern there and omits clipped tabs from the tree.
+        if activate_surface_via_document_menu(window, surface):
+            return
+        control = find_live_surface_tab(window, surface)
     if control is None:
         selected = select_surface_tab(window, surface, tabs)
         control = selected.control if isinstance(selected, SurfaceTab) else selected
@@ -1644,7 +1716,12 @@ def read_canvas_announcement(diagram_pane: Any) -> str:
 
 
 def _find_tab_strip_scroll(window: Any) -> Any | None:
-    """Return the horizontal Scroll pattern owning the surface tab strip."""
+    """Return the horizontal Scroll pattern owning the surface tab strip.
+
+    TMT was measured to expose no scroll pattern on its tab container, so this
+    returns ``None`` there. It is retained because a future TMT build, or a
+    differently sized session, may present one.
+    """
     for control in _iter_controls(window):
         if _control_type(control) != "Tab":
             continue
@@ -1660,48 +1737,27 @@ def _find_tab_strip_scroll(window: Any) -> Any | None:
 
 
 def materialize_surface_tabs(window: Any, expected_count: int) -> list[SurfaceTab]:
-    """Reveal every surface tab, scrolling past tabs TMT has not materialized.
+    """Reveal every surface tab that TMT is willing to expose.
 
-    TMT clips the tab strip to the window width and omits every clipped tab
+    TMT clips the tab strip to the available width and omits every clipped tab
     from the accessibility tree, so a model with more surfaces than fit on
-    screen exposes only the visible prefix. A nine-surface model on a 2400 px
-    display exposes six. Scrolling the strip brings the remainder into the
-    tree; discovery order is preserved so positional selection stays correct.
+    screen exposes only the visible prefix. Nine surfaces need roughly 3170 px
+    of strip against a 2400 px display, and the strip carries no scroll
+    pattern, so the remainder cannot be revealed here at all. Activation
+    through the document menu reaches them instead, and each activation brings
+    its document to the front of the strip.
     """
     discovered: dict[str, SurfaceTab] = {}
-
-    def record() -> int:
-        added = 0
-        for tab in enumerate_surface_tabs(window):
-            key = _normalize_name(tab.name)
-            if key and key not in discovered:
-                discovered[key] = SurfaceTab(
-                    control=tab.control,
-                    name=tab.name,
-                    automation_id=tab.automation_id,
-                    control_type=tab.control_type,
-                    tab_index=len(discovered),
-                )
-                added += 1
-        return added
-
-    record()
-    if len(discovered) >= expected_count:
-        return list(discovered.values())
-
-    scroll_interface = _find_tab_strip_scroll(window)
-    if scroll_interface is None:
-        return list(discovered.values())
-
-    for step in range(1, TAB_STRIP_SCROLL_STEPS + 1):
-        percent = min(100.0, step * (100.0 / TAB_STRIP_SCROLL_STEPS))
-        try:
-            scroll_interface.SetScrollPercent(percent, UIA_SCROLL_NO_AMOUNT)
-        except Exception:
-            break
-        record()
-        if len(discovered) >= expected_count:
-            break
+    for tab in enumerate_surface_tabs(window):
+        key = _normalize_name(tab.name)
+        if key and key not in discovered:
+            discovered[key] = SurfaceTab(
+                control=tab.control,
+                name=tab.name,
+                automation_id=tab.automation_id,
+                control_type=tab.control_type,
+                tab_index=len(discovered),
+            )
     return list(discovered.values())
 
 
@@ -3216,10 +3272,13 @@ def _capture_feedback_surface_evidence(
     if not surfaces:
         return []
     tabs = materialize_surface_tabs(window, len(surfaces))
-    if require_feedback_evidence and len(tabs) < len(surfaces):
+    # A visible tab per surface is not required, because TMT clips its tab
+    # strip and activation falls back to the document menu. Missing evidence
+    # is caught per surface below, where a failure names the surface it
+    # belongs to instead of reporting an unactionable tab count.
+    if require_feedback_evidence and not tabs:
         raise HarnessFailure(
-            f"Strict feedback evidence requires {len(surfaces)} surface tabs; "
-            f"found {len(tabs)}",
+            "Strict feedback evidence requires at least one surface tab; found 0",
             EXIT_VALIDATION_FAILURE,
         )
     payloads: list[dict[str, Any]] = []
