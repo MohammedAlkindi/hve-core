@@ -3,11 +3,11 @@ title: Project Planning Agents
 description: Agents for requirements gathering, architecture decisions, and security planning
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-06-29
+ms.date: 2026-08-11
 ms.topic: concept
 ---
 
-Four agents and **three** portable skills support structured project planning across requirements, architecture, security, **and performance**. Each agent follows a guided workflow to produce specific deliverables, from business requirements documents to security assessment plans and reliability targets.
+Four agents and **four** portable skills support structured project planning across requirements, architecture, security, performance, and proposal response work. Each agent follows a guided workflow to produce specific deliverables, from business requirements documents to security assessment plans and reliability targets.
 
 ## Why Use Project Planning Agents
 
@@ -38,6 +38,7 @@ These agents bring structure and consistency to activities that teams often hand
 | [requirements-author](pathname://../../../.github/skills/project-planning/requirements-author/SKILL.md) | Requirements              | Drives the BRD/PRD Builder Q&A workflows                         |
 | [architecture-diagrams](pathname://../../../.github/skills/hve-core/architecture-diagrams/SKILL.md)     | Architecture              | ASCII/Mermaid diagrams from IaC analysis                         |
 | [performance-slo-planner](../../reference/skills/project-planning/performance-slo-planner.md)           | Performance & Reliability | SLIs, SLOs, load models, test matrices, and reliability backlogs |
+| [proposal-response](../../reference/skills/project-planning/proposal-response.md)                       | Proposal Responses        | Traceable internal-review question, claim, evidence, and drafts  |
 
 ## Requirements
 
@@ -47,6 +48,8 @@ The BRD Builder follows a three-phase lifecycle (Discover, Define, Govern) and t
 > BRD and PRD builders share the same underlying workflow engine. Switching between them mid-project requires only a scope adjustment, not a restart.
 
 See the [BRD & PRD Builders](brd-prd-builders) guide for the shared workflow, feature comparison, and invocation details.
+
+For RFI, RFP, tender, bid, or questionnaire work, use `proposal-response` directly or ask a builder for an explicitly scoped contribution. The output always remains internal review material. See the [canonical proposal response workflow](brd-prd-builders#proposal-response-workflow) for operations, examples, and human review boundaries.
 
 ## Architecture
 
@@ -95,6 +98,7 @@ Select any agent using the agent picker in the Copilot Chat pane. Each agent sta
 | Visual documentation   | architecture-diagrams skill | Generate ASCII or Mermaid architecture diagrams for onboarding or reviews  |
 | Performance targets    | performance-slo-planner     | Define SLIs, SLOs, load models, and reliability backlogs before launch     |
 | Security review        | Security Planner            | Assess threats and plan mitigations after architecture decisions stabilize |
+| Proposal questionnaire | proposal-response           | Analyze questions or draft traceable internal-review response evidence     |
 
 ### Recommended Sequencing
 

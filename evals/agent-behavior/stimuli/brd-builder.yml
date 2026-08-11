@@ -20,3 +20,44 @@ stimuli:
         config:
           pattern: '(?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)'
           negate: true
+  - name: brd-builder-proposal-response-contribution
+    prompt: |
+      Contribute business evidence to RFP question Q1, "What business outcome
+      and governance does the onboarding program provide?" Approved BRD
+      evidence: BG-001 targets reducing onboarding from 10 days to 4 days;
+      the Program Sponsor owns outcome approval; CON-002 requires regional
+      privacy review; RISK-003 identifies delayed legal review. Return traceable
+      internal-review response evidence and include the state update
+      `extensionsLoaded: [proposal-response#contribute:business]`.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: agent-behavior
+      scenario: brd-proposal-positive
+    graders:
+      - type: output-matches
+        name: business-extension-activation
+        config:
+          pattern: '(?i)(proposal-response#contribute:business|proposal-response.*(business|contribute))'
+      - type: output-matches
+        name: authority-boundary
+        config:
+          pattern: '(?i)(internal.review|outside.*scope|not.*(approved|authorized|release)|external.use.prohibited)'
+  - name: brd-builder-ordinary-request-no-proposal-extension
+    prompt: |
+      Resume my customer onboarding BRD and refine its stakeholder roles and
+      measurable business goals. Do not create any supplemental appendix.
+    tags:
+      category: agent-behavior
+      scenario: brd-proposal-negative
+    graders:
+      - type: output-matches
+        name: ordinary-brd-work
+        config:
+          pattern: '(?i)(BRD|business goal|stakeholder|Discover|Define|Govern)'
+      - type: output-matches
+        name: no-proposal-extension
+        config:
+          pattern: '(?i)(proposal-response|RESPONSE_EVIDENCE_V1|extensionsLoaded)'
+          negate: true

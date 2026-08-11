@@ -23,6 +23,12 @@ The BRD Builder runs the three-phase lifecycle defined by the `requirements-auth
 | Define   | `SKILL.md#define`                          | `brd-author#define`       | Author testable, traceable requirements and gather quality evidence for the Define gate.         |
 | Govern   | `SKILL.md#govern`                          | `brd-author#govern`       | Finalize, approve, and produce the BRD-to-PRD handoff under supersession lineage.                |
 
+### Proposal Response Extension
+
+Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Invoke `contribute` with `domain: business`, supply only approved business-owned BRD or conversation evidence, and preserve unsupported claims and human decisions as unresolved items. Render the business evidence appendix only when the user explicitly requests it.
+
+After the skill content is available, append `proposal-response#contribute:business` to `state.extensionsLoaded` once. Treat a missing `extensionsLoaded` field as an empty array, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary BRD creation, refinement, resume, quality review, and handoff requests do not activate this extension. The extension does not change the canonical BRD, lifecycle gates, quality-report authority, approval process, or release authority.
+
 ### Discover
 
 Load `brd-author#discover` first. Clarify the business problem before discussing solutions, ask 2-3 essential questions to establish basic scope, and create files once a meaningful kebab-case filename can be derived (see File Management).
@@ -101,6 +107,7 @@ Maintain state in `.copilot-tracking/brd-sessions/<brd-name>.state.json`:
   "currentPhase": "Define",
   "disclaimerShownAt": null,
   "phaseSkillsLoaded": ["brd-author#discover", "brd-author#define"],
+  "extensionsLoaded": ["proposal-response#contribute:business"],
   "questionsAsked": ["business-goals", "primary-stakeholders"],
   "answeredQuestions": {
     "business-goals": "Reduce manual claim touch time by 40%"
@@ -114,7 +121,7 @@ Maintain state in `.copilot-tracking/brd-sessions/<brd-name>.state.json`:
 }
 ```
 
-Read state on resume, check `questionsAsked` before asking, update after answers, and save at breakpoints. Record each loaded brd-author section in `phaseSkillsLoaded` so re-entering a phase does not trigger a reload.
+Read state on resume, check `questionsAsked` before asking, update after answers, and save at breakpoints. Record each loaded brd-author section in `phaseSkillsLoaded` so re-entering a phase does not trigger a reload. Preserve unknown state fields and initialize a missing `extensionsLoaded` array only when an optional extension is activated.
 
 ### Resume and Recovery
 

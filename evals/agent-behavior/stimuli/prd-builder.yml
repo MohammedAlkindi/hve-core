@@ -20,3 +20,43 @@ stimuli:
         config:
           pattern: '(?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)'
           negate: true
+  - name: prd-builder-proposal-response-contribution
+    prompt: |
+      Contribute product evidence to questionnaire Q1, "What availability and
+      identity integration does the service support?" Approved PRD evidence:
+      NFR-014 targets 99.9% monthly availability; FR-022 requires Microsoft
+      Entra ID integration; AC-031 verifies SSO login. Return traceable
+      internal-review response evidence and include the state update
+      `extensionsLoaded: [proposal-response#contribute:product]`.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: agent-behavior
+      scenario: prd-proposal-positive
+    graders:
+      - type: output-matches
+        name: product-extension-activation
+        config:
+          pattern: '(?i)(proposal-response#contribute:product|proposal-response.*(product|contribute))'
+      - type: output-matches
+        name: authority-boundary
+        config:
+          pattern: '(?i)(internal.review|outside.*scope|not.*(approved|authorized|release)|external.use.prohibited)'
+  - name: prd-builder-ordinary-request-no-proposal-extension
+    prompt: |
+      Resume my notification preferences PRD and refine its user stories,
+      acceptance criteria, and success metrics. Do not create an appendix.
+    tags:
+      category: agent-behavior
+      scenario: prd-proposal-negative
+    graders:
+      - type: output-matches
+        name: ordinary-prd-work
+        config:
+          pattern: '(?i)(PRD|user stor|acceptance criteria|success metric|Build|Validate)'
+      - type: output-matches
+        name: no-proposal-extension
+        config:
+          pattern: '(?i)(proposal-response|RESPONSE_EVIDENCE_V1|extensionsLoaded)'
+          negate: true

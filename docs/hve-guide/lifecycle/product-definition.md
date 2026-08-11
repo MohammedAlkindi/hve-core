@@ -3,7 +3,7 @@ title: "Stage 3: Product Definition"
 description: Transform business requirements into product specifications and architecture decisions
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-06-28
+ms.date: 2026-08-11
 ms.topic: how-to
 keywords:
   - ai-assisted project lifecycle
@@ -59,6 +59,8 @@ the vehicle tracking dashboard requirements with acceptance criteria for
 real-time GPS updates, geofence alerting, and non-functional requirements
 for sub-500ms map tile rendering at 10,000 concurrent sessions.
 ```
+
+For explicit proposal-response work, ask PRD Builder to contribute approved product evidence, or use `proposal-response` draft mode after business and product claims are assembled. Structural readiness is advisory and never grants approval or release authority. See the [proposal response workflow](../../agents/project-planning/brd-prd-builders#proposal-response-workflow).
 
 Select **adr-creation** agent:
 

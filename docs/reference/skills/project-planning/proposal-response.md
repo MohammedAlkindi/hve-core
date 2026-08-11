@@ -1,0 +1,43 @@
+---
+title: proposal-response
+description: "Build traceable internal-review proposal, RFI, RFP, tender, bid, and questionnaire responses from supplied questions and approved sources. Use to analyze questions, contribute business or product evidence, or draft qualified responses."
+sidebar_position: 4
+ms.date: 2026-08-11
+---
+
+<!-- BEGIN AUTO-GENERATED: metadata -->
+| Field       | Value                                                                               |
+|-------------|-------------------------------------------------------------------------------------|
+| Kind        | skill                                                                               |
+| Source      | `.github/skills/project-planning/proposal-response`                                 |
+| Invocation  | Invoked directly as `/proposal-response`, or loaded on demand by referencing agents |
+| Interactive | No                                                                                  |
+<!-- END AUTO-GENERATED: metadata -->
+
+## What it does
+
+<!-- BEGIN AUTO-GENERATED: overview -->
+Build traceable internal-review proposal, RFI, RFP, tender, bid, and questionnaire responses from supplied questions and approved sources. Use to analyze questions, contribute business or product evidence, or draft qualified responses.
+<!-- END AUTO-GENERATED: overview -->
+
+## When to use it
+
+Use `proposal-response` when you have source questions and approved artifacts for an RFI, RFP, tender, bid, questionnaire, or reusable response-evidence task. It can classify questions, contribute business or product evidence, and render traceable internal-review drafts.
+
+Use BRD Builder or PRD Builder for ordinary requirements authoring. Use human legal, commercial, security, and business owners for disclosure, commitment, approval, submission, and release decisions.
+
+## How to use it
+
+Invoke `/proposal-response` with `operation=analyze`, `operation=contribute`, or `operation=draft`. Supply the source questions, identify approved sources, and name `domain=business` or `domain=product` for contributions. Ask for an optional appendix only when you need one.
+
+The result uses `RESPONSE_EVIDENCE_V1` and always remains an internal-review draft. See the [proposal response workflow](../../../agents/project-planning/brd-prd-builders#proposal-response-workflow) for builder activation, complete examples, and human review boundaries.
+
+## Example usage
+
+```text
+/proposal-response operation=analyze
+Classify the supplied questionnaire questions, map required claims to the
+approved BRD and PRD, and keep unsupported claims as unresolved items.
+```
+
+The output contains stable question and claim IDs, evidence-review states, coverage, and advisory structural readiness. It cannot represent external-use approval or release authorization.

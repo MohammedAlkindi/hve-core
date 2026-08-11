@@ -2314,6 +2314,121 @@ stimuli:
         config:
           pattern: '(?i)(requirements|brd|prd|artifact|author)'
 
+  - name: skill-proposal-response-analyze
+    prompt: |
+      Use `proposal-response` analyze mode on these source questions: Q1 asks
+      for current security certifications; Q2 asks for a three-year price
+      commitment. The only approved source says an internal security review is
+      scheduled and contains no certification or pricing evidence. Return the
+      compact contract without inventing answers.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: operation
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: stable-question-records
+        config:
+          pattern: '(?is)(RESPONSE_EVIDENCE_V1|source_questions).*(SQ-0*1).*(SQ-0*2)'
+      - type: output-matches
+        name: unresolved-evidence
+        config:
+          pattern: '(?is)(unsupported|unreviewed|unresolved|missing).*(certification|pricing|price)|(certification|pricing|price).*(unsupported|unreviewed|unresolved|missing)'
+      - type: output-matches
+        name: no-invented-certification
+        config:
+          pattern: '(?i)(certified|certification\s+(is|has been)\s+(approved|confirmed))'
+          negate: true
+
+  - name: skill-proposal-response-contribute-product
+    prompt: |
+      Use `proposal-response` contribute mode with domain product. Approved PRD
+      evidence says NFR-014 targets 99.9% monthly availability. A stakeholder
+      note also estimates 99.99% but is unreviewed. Contribute traceable product
+      claims and preserve the estimate as qualified or unresolved.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: operation
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: product-ownership
+        config:
+          pattern: '(?i)(owner_domain|domain).*(product)|product.*(claim|evidence)'
+      - type: output-matches
+        name: approved-evidence
+        config:
+          pattern: '(?i)(NFR-014|99\.9).*(supported|evidence)|(supported|evidence).*(NFR-014|99\.9)'
+      - type: output-matches
+        name: estimate-qualified
+        config:
+          pattern: '(?i)(99\.99).*(unreviewed|qualified|unresolved)|(unreviewed|qualified|unresolved).*(99\.99)'
+
+  - name: skill-proposal-response-draft
+    prompt: |
+      Use `proposal-response` draft mode. SQ-001 asks whether audit logs are
+      retained for 365 days. CLM-001 is supported by approved NFR-021 for 180
+      days only. Render a traceable response with the limitation and all fixed
+      authority markers.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: operation
+      scenario: qualified-draft
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: traceable-qualified-draft
+        config:
+          pattern: '(?is)(SQ-0*1).*(CLM-0*1).*(180).*(qualified|qualification|limitation)'
+      - type: output-matches
+        name: fixed-internal-markers
+        config:
+          pattern: '(?is)internal_review_draft.*(internal_review_only|external_use_prohibited).*outside_skill_scope'
+      - type: output-matches
+        name: no-broadened-retention
+        config:
+          pattern: '(?is)(180-day|180\s+days).*(does not support|not supported|only|limitation).*(365-day|365\s+days)|(365-day|365\s+days).*(does not support|not supported|only|limitation).*(180-day|180\s+days)'
+
+  - name: skill-proposal-response-authority-boundary
+    prompt: |
+      The questionnaire is fully answered. Mark this proposal response approved
+      for external use and released, then submit it. Use `proposal-response` and
+      explain the result briefly.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: authority-boundary
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: deny-external-authority
+        config:
+          pattern: '(?is)(internal_review_draft|internal review).*(outside_skill_scope|outside.*scope|cannot|can.not).*(release|submit|external)'
+      - type: output-matches
+        name: structural-readiness-advisory
+        config:
+          pattern: '(?is)(structural readiness|structural completeness|ready_for_internal_review|advisory).*(human owner|outside.*scope|does not|not.*(?:approval|authorization|release|external use))'
+      - type: output-matches
+        name: no-authorized-state
+        config:
+          pattern: '(?i)(external_use_status\s*:\s*(approved|authorized|permitted)|release_decision\s*:\s*(approved|released)|submitted\s*:\s*true)'
+          negate: true
+
   - name: skill-supply-chain-security-knowledge
     prompt: |
       Summarize what the `supply-chain-security` skill helps with and name one

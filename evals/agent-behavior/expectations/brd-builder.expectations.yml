@@ -167,3 +167,32 @@ expectations:
     priority: medium
     stimulus_scoped: true
     contract_ref: "stimulus design (per-stimulus, not agent-intrinsic)"
+
+  - expectation_id: proposal-response-business-activation
+    summary: Explicit proposal-response intent activates business-domain contribution only.
+    signal: Output names `proposal-response#contribute:business` or the equivalent skill and domain operation.
+    pass_criteria: |
+      An explicit RFI, RFP, questionnaire, tender, bid-response, proposal, or
+      reusable response-evidence request invokes `proposal-response` contribute
+      mode with the business domain, uses approved business-owned evidence, and
+      retains internal-review and outside-scope authority markers.
+    failure_modes:
+      - Product-owned proof or release authority is supplied by BRD Builder.
+      - The extension load is recorded in `phaseSkillsLoaded` instead of `extensionsLoaded`.
+    priority: high
+    applies_when: "stimulus explicitly requests proposal-response contribution"
+    contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"
+
+  - expectation_id: ordinary-brd-no-proposal-activation
+    summary: Ordinary BRD work does not activate proposal-response behavior.
+    signal: Output contains no proposal-response contract, appendix, or extension-load language.
+    pass_criteria: |
+      Creation, refinement, resume, quality review, and BRD-to-PRD handoff
+      requests continue through the canonical BRD lifecycle without loading or
+      emitting proposal-response artifacts.
+    failure_modes:
+      - An ordinary BRD request emits `RESPONSE_EVIDENCE_V1`.
+      - A missing `extensionsLoaded` array triggers proposal-response activation.
+    priority: high
+    applies_when: "stimulus contains no explicit proposal-response intent"
+    contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"

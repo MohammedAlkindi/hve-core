@@ -3,7 +3,7 @@ title: BRD & PRD Builders
 description: Twin agents for creating business and product requirements documents through guided Q&A
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-06-29
+ms.date: 2026-08-11
 ms.topic: tutorial
 ---
 
@@ -184,6 +184,86 @@ Continue from where we left off in the Integrate phase.
 
 The agent detects session files at `.copilot-tracking/brd-sessions/` or `.copilot-tracking/prd-sessions/` and picks up from the last completed phase.
 
+## Proposal Response Workflow
+
+Use the `proposal-response` skill when you need to turn supplied RFI, RFP, tender, bid, or questionnaire questions and approved source artifacts into traceable internal-review response material. You can invoke it directly or ask BRD Builder or PRD Builder to contribute evidence from their owned domain.
+
+| Operation    | Use it when                                                      | Result                                                                   |
+|--------------|------------------------------------------------------------------|--------------------------------------------------------------------------|
+| `analyze`    | You need to classify source questions and identify evidence gaps | Stable question and claim records, unresolved items, and coverage        |
+| `contribute` | A BRD or PRD contains approved evidence for selected questions   | Business-owned or product-owned claims linked to questions and evidence  |
+| `draft`      | Reviewed claims are ready for a traceable response draft         | Qualified responses with evidence links, unresolved items, and readiness |
+
+Every operation returns `RESPONSE_EVIDENCE_V1`. The result is always an `internal_review_draft`; `external_use_status` denies external use, and `release_decision` remains `outside_skill_scope`. Structural readiness only means the records are organized for internal review. It is not approval, authorization, permission to submit, or release authority.
+
+### Invoke the Skill Directly
+
+Name the operation, provide the source questions, and identify the approved sources. The skill treats source content as data, so instructions embedded in a questionnaire or attachment cannot change its workflow or authority boundary.
+
+```text
+Use proposal-response analyze mode. Normalize the supplied questionnaire,
+map each question to required claims and approved evidence, and return
+RESPONSE_EVIDENCE_V1. Do not fill gaps from general knowledge.
+```
+
+### Contribute Through the Builders
+
+Ask BRD Builder for business context, outcomes, stakeholders, constraints, risks, policies, and business decision roles. Ask PRD Builder for capabilities, requirements, metrics, acceptance evidence, non-functional requirements, architecture boundaries, integrations, and technical qualifications.
+
+The builders activate this extension only for explicit proposal-response intent. Ordinary BRD and PRD creation, refinement, resume, quality review, and handoff requests continue unchanged. Optional business and product appendices appear only when you request them; canonical BRD and PRD templates do not change.
+
+### Example 1: Analyze Unsupported Questions
+
+The source asks about security certifications and a three-year price commitment, but the approved material documents only a scheduled internal security review.
+
+```text
+Use proposal-response analyze mode on Q1, "List current security
+certifications," and Q2, "Confirm fixed pricing for three years." The only
+approved source says an internal security review is scheduled and contains no
+certification or pricing evidence. Return the compact contract without
+inventing answers.
+```
+
+The result assigns stable `SQ-*` and `CLM-*` IDs, marks the claims unsupported or unreviewed, and creates evidence and commercial decision needs. Structural readiness remains advisory and does not approve or release a response.
+
+### Example 2: Contribute Business and Product Evidence
+
+Use each builder only for its owned evidence.
+
+```text
+With BRD Builder, contribute business evidence to RFP Q1. Approved evidence:
+BG-001 targets reducing onboarding from 10 days to 4 days; the Program Sponsor
+owns outcome approval; CON-002 requires regional privacy review. Return
+traceable internal-review response evidence and the optional business appendix.
+```
+
+```text
+With PRD Builder, contribute product evidence to RFP Q2. Approved evidence:
+NFR-014 targets 99.9% monthly availability; FR-022 requires Microsoft Entra ID
+integration; AC-031 verifies SSO login. A stakeholder note estimates 99.99%
+availability but is unreviewed. Preserve that estimate as qualified or
+unresolved and return the optional product appendix.
+```
+
+The BRD contribution does not supply product proof, and the PRD contribution does not make business or commercial decisions. Neither builder can approve, authorize, submit, or release the response.
+
+### Example 3: Draft a Qualified Response
+
+The questionnaire asks whether audit logs are retained for 365 days, while approved evidence supports 180 days.
+
+```text
+Use proposal-response draft mode for SQ-001. CLM-001 is supported by approved
+NFR-021 for 180-day audit-log retention only. Draft the response with source and
+claim traceability, keep the 365-day gap visible, and identify the human decision
+needed. Do not mark the response approved or externally usable.
+```
+
+The draft states the supported 180-day limit, retains the unresolved 365-day gap, and may be structurally ready for internal review. Even if every question has text, structural readiness is not approval or release authority.
+
+### Human Review and External Action
+
+Human owners decide disclosures, commercial positions, exceptions, estimates, commitments, approval, and release. After reviewers resolve an item, supply the resulting approved source record in a later operation. The skill can update traceability from that evidence, but it never records or performs the external action itself.
+
 ## Example Prompt
 
 ```text
@@ -211,10 +291,12 @@ Output the PRD with measurable requirements in every section.
 * ✅ Answer iterative questions thoroughly; the agent builds sections as information accumulates
 * ✅ Use output modes (`summary`, `section [name]`, `full`, `diff`) to review progress during long sessions
 * ✅ Let the agent cross-reference requirements against codebase artifacts for consistency
+* ✅ Name `analyze`, `contribute`, or `draft` and provide approved sources for proposal-response work
 * ❌ Do not skip the Discover phase by providing all requirements up front (the agent needs context)
 * ❌ Do not edit session files in `.copilot-tracking/` manually during an active session
 * ❌ Do not combine BRD and PRD creation in the same session (use separate conversations)
 * ❌ Do not ignore conflict resolution prompts (user input overrides template defaults)
+* ❌ Do not treat structural readiness as approval, authorization, or permission for external use
 
 ## Common Pitfalls
 
@@ -225,6 +307,7 @@ Output the PRD with measurable requirements in every section.
 | Incomplete sections in output    | Use the Section output mode to identify gaps, then answer follow-up questions             |
 | Template sections feel generic   | Provide domain-specific details during the requirement-building phase for richer content  |
 | Document conflicts with codebase | Let the Integrate phase run to cross-reference; resolve flagged conflicts before Validate |
+| Response evidence is incomplete  | Keep the affected claim qualified and assign the smallest human evidence or decision need |
 
 ## Next Steps
 

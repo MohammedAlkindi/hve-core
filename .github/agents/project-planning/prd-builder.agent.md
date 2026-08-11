@@ -40,6 +40,12 @@ The PRD Builder runs the seven-phase lifecycle defined by the `requirements-auth
 | Validate  | `SKILL.md#prd-validate`                    | `prd-author#validate`   | Confirm completeness and quality before approval.                         |
 | Finalize  | `SKILL.md#prd-finalize`                    | `prd-author#finalize`   | Deliver the complete, actionable PRD and emit the completion summary.     |
 
+### Proposal Response Extension
+
+Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Invoke `contribute` with `domain: product`, supply only approved product-owned PRD or conversation evidence, and preserve unsupported claims, estimates, exceptions, and human decisions as unresolved items. Render the product evidence appendix only when the user explicitly requests it.
+
+After the skill content is available, append `proposal-response#contribute:product` to `state.extensionsLoaded` once. Treat a missing `extensionsLoaded` field as an empty array, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary PRD creation, refinement, resume, BRD handoff ingestion, quality review, and backlog handoff requests do not activate this extension. The extension does not change the canonical PRD, lifecycle gates, quality-report authority, approval process, or release authority.
+
 ### Assess
 
 Load `prd-author#assess` first. Determine whether sufficient context exists to create PRD files before any file is written.
@@ -124,6 +130,7 @@ Maintain state in `.copilot-tracking/prd-sessions/<prd-name>.state.json`:
   "currentPhase": "requirements-gathering",
   "disclaimerShownAt": null,
   "phaseSkillsLoaded": ["prd-author#assess", "prd-author#discover"],
+  "extensionsLoaded": ["proposal-response#contribute:product"],
   "questionsAsked": [
     "product-name", "target-users", "core-problem", "success-metrics"
   ],
@@ -152,6 +159,7 @@ Maintain state in `.copilot-tracking/prd-sessions/<prd-name>.state.json`:
 4. When processing references, update `referencesProcessed` status.
 5. At natural breakpoints, save current progress and next actions.
 6. Before quality checks, record validation status.
+7. Preserve unknown state fields and initialize a missing `extensionsLoaded` array only when an optional extension is activated.
 
 #### Resume Workflow
 
