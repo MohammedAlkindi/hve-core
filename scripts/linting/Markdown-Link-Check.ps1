@@ -252,6 +252,183 @@ function Get-RelativePrefix {
     return $normalized
 }
 
+function Split-MarkdownTargetBatch {
+    <#
+    .SYNOPSIS
+        Splits Markdown targets into deterministic balanced batches.
+
+    .DESCRIPTION
+        Sorts the supplied target paths and distributes them across no more than
+        the configured throttle limit. Each returned object preserves its file
+        array as one pipeline item for parallel processing.
+
+    .PARAMETER Target
+        Repository-relative Markdown file paths to batch.
+
+    .PARAMETER ThrottleLimit
+        Maximum number of batches to create.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [string[]]$Target,
+
+        [ValidateRange(1, 32)]
+        [int]$ThrottleLimit
+    )
+
+    $sortedTargets = @($Target | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object)
+    if ($sortedTargets.Count -eq 0) {
+        return
+    }
+
+    $batchCount = [Math]::Min($sortedTargets.Count, $ThrottleLimit)
+    $baseSize = [Math]::Floor($sortedTargets.Count / $batchCount)
+    $remainder = $sortedTargets.Count % $batchCount
+    $offset = 0
+
+    for ($index = 0; $index -lt $batchCount; $index++) {
+        $batchSize = $baseSize + $(if ($index -lt $remainder) { 1 } else { 0 })
+        $files = @($sortedTargets[$offset..($offset + $batchSize - 1)])
+        [pscustomobject]@{
+            Index = $index
+            Files = $files
+        }
+        $offset += $batchSize
+    }
+}
+
+function ConvertFrom-MarkdownLinkCheckReport {
+    <#
+    .SYNOPSIS
+        Converts a batched JUnit report into per-file link-check results.
+
+    .DESCRIPTION
+        Matches each JUnit suite to an expected file through its full file
+        property. Selective attribution is trusted only when suites and expected
+        files form a one-to-one set; otherwise every expected file fails closed
+        while links from suites that could be identified remain available.
+
+    .PARAMETER ExpectedFile
+        Repository-relative files supplied to one CLI invocation.
+
+    .PARAMETER ReportContent
+        JUnit XML emitted by markdown-link-check.
+
+    .PARAMETER ExitCode
+        Aggregate exit code from the batched CLI invocation.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [string[]]$ExpectedFile,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$ReportContent,
+
+        [int]$ExitCode = 0
+    )
+
+    $expectedFiles = @($ExpectedFile | Sort-Object)
+    if ($expectedFiles.Count -eq 0) {
+        return
+    }
+
+    $pathComparer = if ($IsWindows) {
+        [System.StringComparer]::OrdinalIgnoreCase
+    }
+    else {
+        [System.StringComparer]::Ordinal
+    }
+    $expectedByNormalizedPath = [System.Collections.Generic.Dictionary[string, string]]::new($pathComparer)
+    $linksByFile = @{}
+    $failedByFile = @{}
+    $reportTrusted = $true
+    $reportError = $null
+
+    foreach ($expected in $expectedFiles) {
+        $normalized = $expected -replace '\\', '/'
+        if ($expectedByNormalizedPath.ContainsKey($normalized)) {
+            $reportTrusted = $false
+        }
+        else {
+            $expectedByNormalizedPath.Add($normalized, $expected)
+        }
+        $linksByFile[$expected] = @()
+        $failedByFile[$expected] = $false
+    }
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($ReportContent)) {
+            throw 'The JUnit report was not created.'
+        }
+
+        [xml]$xml = $ReportContent
+        $seenFiles = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
+        foreach ($testSuite in @($xml.testsuites.testsuite)) {
+            $fileProperties = @($testSuite.properties.property | Where-Object { $_.name -eq 'file' })
+            if ($fileProperties.Count -ne 1 -or [string]::IsNullOrWhiteSpace($fileProperties[0].value)) {
+                $reportTrusted = $false
+                continue
+            }
+
+            $normalizedSuiteFile = ([string]$fileProperties[0].value) -replace '\\', '/'
+            if (-not $expectedByNormalizedPath.ContainsKey($normalizedSuiteFile) -or -not $seenFiles.Add($normalizedSuiteFile)) {
+                $reportTrusted = $false
+                continue
+            }
+
+            $expected = $expectedByNormalizedPath[$normalizedSuiteFile]
+            $links = foreach ($testCase in @($testSuite.testcase)) {
+                if ($null -eq $testCase) {
+                    continue
+                }
+
+                $properties = @($testCase.properties.property)
+                [pscustomobject]@{
+                    Url = ($properties | Where-Object { $_.name -eq 'url' } | Select-Object -First 1).value
+                    Status = ($properties | Where-Object { $_.name -eq 'status' } | Select-Object -First 1).value
+                    StatusCode = ($properties | Where-Object { $_.name -eq 'statusCode' } | Select-Object -First 1).value
+                }
+            }
+            $linksByFile[$expected] = @($links)
+            $failedByFile[$expected] = (
+                [int]$testSuite.failures -gt 0 -or
+                [int]$testSuite.errors -gt 0 -or
+                @($links | Where-Object { $_.Status -in @('dead', 'error') }).Count -gt 0
+            )
+        }
+
+        if ($seenFiles.Count -ne $expectedByNormalizedPath.Count) {
+            $reportTrusted = $false
+        }
+    }
+    catch {
+        $reportTrusted = $false
+        $reportError = $_.Exception.Message
+    }
+
+    $hasReportedFailure = @($failedByFile.Values | Where-Object { $_ }).Count -gt 0
+    $unexplainedExit = $reportTrusted -and $ExitCode -ne 0 -and -not $hasReportedFailure
+
+    foreach ($expected in $expectedFiles) {
+        [pscustomobject]@{
+            File = $expected
+            Links = @($linksByFile[$expected])
+            Failed = (-not $reportTrusted) -or $unexplainedExit -or $failedByFile[$expected]
+            ParseFailed = -not $reportTrusted
+            ReportError = $reportError
+        }
+    }
+}
+
 function Invoke-MarkdownLinkCheck {
     [CmdletBinding()]
     [OutputType([void])]
@@ -287,9 +464,15 @@ function Invoke-MarkdownLinkCheck {
         Write-Output 'No changed markdown files to validate.'
     }
 
-    $cli = Join-Path -Path $repoRoot.Path -ChildPath 'node_modules/.bin/markdown-link-check'
-    if ($IsWindows) {
-        $cli += '.cmd'
+    $cliOverride = Get-Variable -Name MarkdownLinkCheckCliOverride -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+    if ($cliOverride) {
+        $cli = [string]$cliOverride
+    }
+    else {
+        $cli = Join-Path -Path $repoRoot.Path -ChildPath 'node_modules/.bin/markdown-link-check'
+        if ($IsWindows) {
+            $cli += '.cmd'
+        }
     }
 
     if (-not (Test-Path -LiteralPath $cli)) {
@@ -312,45 +495,29 @@ function Invoke-MarkdownLinkCheck {
         $relativeTargets = @($filesToCheck | ForEach-Object {
             [System.IO.Path]::GetRelativePath($rootPath, (Resolve-Path -LiteralPath $_))
         })
+        $targetBatches = @(Split-MarkdownTargetBatch -Target $relativeTargets -ThrottleLimit $ThrottleLimit)
 
-        # Each file is an independent CLI invocation, so they run concurrently and
-        # every result is aggregated serially afterwards to keep output ordered and
-        # to keep CI annotations on the caller's runspace.
-        $fileResults = @($relativeTargets | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+        $batchResults = @($targetBatches | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
             Set-Location -LiteralPath $using:rootPath
-            $relative = $_
+            $batch = $_
 
-            # Create temp file for XML output
             $xmlFile = [System.IO.Path]::GetTempFileName() + '.xml'
-            $links = @()
             $output = $null
             $exitCode = 0
-            $parseFailed = $false
+            $reportContent = $null
+            $invocationError = $null
             try {
-                $commandArgs = $using:baseArguments + @($relative, '--reporters', 'default,junit', '--junit-output', $xmlFile)
+                $commandArgs = $using:baseArguments + @($batch.Files) + @('--reporters', 'default,junit', '--junit-output', $xmlFile)
 
-                # Run markdown-link-check with XML output and capture output
                 $output = & $using:cli @commandArgs 2>&1
                 $exitCode = $LASTEXITCODE
 
-                # Parse XML output
                 if (Test-Path $xmlFile) {
-                    [xml]$xml = Get-Content $xmlFile -Raw -Encoding utf8
-
-                    foreach ($testsuite in $xml.testsuites.testsuite) {
-                        foreach ($testcase in $testsuite.testcase) {
-                            $links += [pscustomobject]@{
-                                Url        = ($testcase.properties.property | Where-Object { $_.name -eq 'url' }).value
-                                Status     = ($testcase.properties.property | Where-Object { $_.name -eq 'status' }).value
-                                StatusCode = ($testcase.properties.property | Where-Object { $_.name -eq 'statusCode' }).value
-                            }
-                        }
-                    }
+                    $reportContent = Get-Content $xmlFile -Raw -Encoding utf8
                 }
             }
             catch {
-                Write-Warning "Failed to parse XML output for $relative : $_"
-                $parseFailed = $true
+                $invocationError = $_.Exception.Message
             }
             finally {
                 if (Test-Path $xmlFile) {
@@ -359,11 +526,12 @@ function Invoke-MarkdownLinkCheck {
             }
 
             [pscustomobject]@{
-                File        = $relative
-                ExitCode    = $exitCode
-                Links       = $links
-                Output      = $output
-                ParseFailed = $parseFailed
+                Index = $batch.Index
+                Files = @($batch.Files)
+                ExitCode = $exitCode
+                Output = $output
+                ReportContent = $reportContent
+                InvocationError = $invocationError
             }
         })
     }
@@ -371,14 +539,34 @@ function Invoke-MarkdownLinkCheck {
         Pop-Location
     }
 
+    $fileResults = @()
+    foreach ($batchResult in ($batchResults | Sort-Object -Property Index)) {
+        if (($VerbosePreference -eq 'Continue' -or $batchResult.ExitCode -ne 0) -and $null -ne $batchResult.Output) {
+            Write-Host $batchResult.Output
+        }
+
+        $convertedResults = @(ConvertFrom-MarkdownLinkCheckReport `
+            -ExpectedFile $batchResult.Files `
+            -ReportContent $batchResult.ReportContent `
+            -ExitCode $batchResult.ExitCode)
+        if (@($convertedResults | Where-Object ParseFailed).Count -gt 0) {
+            $reason = if ($batchResult.InvocationError) {
+                $batchResult.InvocationError
+            }
+            elseif ($convertedResults[0].ReportError) {
+                $convertedResults[0].ReportError
+            }
+            else {
+                'The report did not contain one unique suite for every expected file.'
+            }
+            Write-Warning "Failed to parse or attribute XML output for batch $($batchResult.Index): $reason"
+        }
+        $fileResults += $convertedResults
+    }
+
     foreach ($fileResult in ($fileResults | Sort-Object -Property File)) {
         $relative = $fileResult.File
         Write-Output "Checking $relative"
-
-        # Display output if verbose mode or if there were errors
-        if (($VerbosePreference -eq 'Continue' -or $fileResult.ExitCode -ne 0) -and $null -ne $fileResult.Output) {
-            Write-Host $fileResult.Output
-        }
 
         foreach ($link in $fileResult.Links) {
             $totalLinks++
@@ -408,8 +596,7 @@ function Invoke-MarkdownLinkCheck {
             }
         }
 
-        # A malformed report is treated as a failure even when the CLI exits zero.
-        if (($fileResult.ExitCode -ne 0 -or $fileResult.ParseFailed) -and $failedFiles -notcontains $relative) {
+        if ($fileResult.Failed -and $failedFiles -notcontains $relative) {
             $failedFiles += $relative
         }
     }
