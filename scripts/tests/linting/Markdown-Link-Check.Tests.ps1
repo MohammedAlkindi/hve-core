@@ -16,12 +16,125 @@ BeforeAll {
 
     # Import LintingHelpers for mocking
     Import-Module (Join-Path $PSScriptRoot '../../linting/Modules/LintingHelpers.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot '../../lib/Modules/CIHelpers.psm1') -Force
 
     $script:FixtureDir = Join-Path $PSScriptRoot '../fixtures/Linting'
+
+    function New-TestMarkdownLinkCheckReport {
+        [CmdletBinding()]
+        [OutputType([string])]
+        param(
+            [hashtable[]]$Suite
+        )
+
+        $suiteXml = foreach ($suiteDefinition in $Suite) {
+            $fileProperty = if (-not $suiteDefinition.ContainsKey('IncludeFile') -or $suiteDefinition.IncludeFile) {
+                $escapedFile = [System.Security.SecurityElement]::Escape([string]$suiteDefinition.File)
+                "<property name=`"file`" value=`"$escapedFile`"/>"
+            }
+            else {
+                ''
+            }
+
+            $links = @($suiteDefinition.Links)
+            $failures = @($links | Where-Object { $_.Status -eq 'dead' }).Count
+            $errors = @($links | Where-Object { $_.Status -eq 'error' }).Count
+            $testCases = foreach ($link in $links) {
+                $escapedUrl = [System.Security.SecurityElement]::Escape([string]$link.Url)
+                $statusCode = if ($null -ne $link.StatusCode) {
+                    "<property name=`"statusCode`" value=`"$($link.StatusCode)`"/>"
+                }
+                else {
+                    ''
+                }
+                $resultElement = switch ($link.Status) {
+                    'dead' { '<failure message="dead" type="DeadLink"/>' }
+                    'error' { '<error message="error" type="LinkCheckError"/>' }
+                    'ignored' { '<skipped message="ignored"/>' }
+                    default { '' }
+                }
+
+                @"
+<testcase name="$escapedUrl" classname="test" time="0"><properties><property name="url" value="$escapedUrl"/><property name="status" value="$($link.Status)"/>$statusCode</properties>$resultElement</testcase>
+"@
+            }
+
+            @"
+<testsuite name="test" tests="$($links.Count)" failures="$failures" errors="$errors" skipped="0" time="0"><properties>$fileProperty</properties>$($testCases -join '')</testsuite>
+"@
+        }
+
+        return "<testsuites name=`"markdown-link-check`">$($suiteXml -join '')</testsuites>"
+    }
+
+    function New-TestMarkdownLinkCheckCli {
+        [CmdletBinding()]
+        [OutputType([string])]
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$Directory
+        )
+
+        $scriptPath = Join-Path $Directory 'fake-markdown-link-check.js'
+        $scriptContent = @'
+const fs = require('fs');
+const path = require('path');
+
+const args = process.argv.slice(2);
+const targets = [];
+let junitOutput;
+for (let index = 0; index < args.length; index++) {
+    const argument = args[index];
+    if (argument === '-c' || argument === '--reporters') {
+        index++;
+    } else if (argument === '--junit-output') {
+        junitOutput = args[++index];
+    } else if (argument !== '-q') {
+        targets.push(argument);
+    }
+}
+
+const escapeXml = (value) => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+
+const recordPath = path.join(process.env.MARKDOWN_LINK_CHECK_TEST_LEDGER, `${process.pid}.json`);
+fs.writeFileSync(recordPath, JSON.stringify({ Targets: targets }), 'utf8');
+
+const suites = targets.map((target) => {
+    const escapedTarget = escapeXml(target);
+    const isDead = target === process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET;
+    const status = isDead ? 'dead' : 'alive';
+    const statusCode = isDead ? '404' : '200';
+    const failureCount = isDead ? '1' : '0';
+    const resultElement = isDead ? '<failure message="dead" type="DeadLink"/>' : '';
+    return `<testsuite name="test" tests="1" failures="${failureCount}" errors="0" skipped="0" time="0"><properties><property name="file" value="${escapedTarget}"/></properties><testcase name="https://example.test/${escapedTarget}" classname="test" time="0"><properties><property name="url" value="https://example.test/${escapedTarget}"/><property name="status" value="${status}"/><property name="statusCode" value="${statusCode}"/></properties>${resultElement}</testcase></testsuite>`;
+});
+
+fs.writeFileSync(junitOutput, `<testsuites name="markdown-link-check">${suites.join('')}</testsuites>`, 'utf8');
+process.exit(targets.includes(process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET) ? 1 : 0);
+'@
+        Set-Content -LiteralPath $scriptPath -Value $scriptContent -Encoding utf8
+
+        if ($IsWindows) {
+            $cliPath = Join-Path $Directory 'markdown-link-check.cmd'
+            Set-Content -LiteralPath $cliPath -Value "@node `"$scriptPath`" %*" -Encoding ascii
+            return $cliPath
+        }
+
+        $cliPath = Join-Path $Directory 'markdown-link-check'
+        Set-Content -LiteralPath $cliPath -Value "#!/usr/bin/env node`n$scriptContent" -Encoding utf8
+        & chmod +x $cliPath
+        return $cliPath
+    }
 }
 
 AfterAll {
     Remove-Module LintingHelpers -Force -ErrorAction SilentlyContinue
+    Remove-Module CIHelpers -Force -ErrorAction SilentlyContinue
 }
 
 #region Get-MarkdownTarget Tests
@@ -306,6 +419,123 @@ Describe 'Get-RelativePrefix' -Tag 'Unit' {
 
 #endregion
 
+#region Split-MarkdownTargetBatch Tests
+
+Describe 'Split-MarkdownTargetBatch' -Tag 'Unit' {
+    It 'Creates exactly the bounded batch count for <TargetCount> targets and throttle <ThrottleLimit>' -ForEach @(
+        @{ TargetCount = 0; ThrottleLimit = 4; ExpectedBatchCount = 0 }
+        @{ TargetCount = 1; ThrottleLimit = 4; ExpectedBatchCount = 1 }
+        @{ TargetCount = 4; ThrottleLimit = 4; ExpectedBatchCount = 4 }
+        @{ TargetCount = 7; ThrottleLimit = 4; ExpectedBatchCount = 4 }
+        @{ TargetCount = 7; ThrottleLimit = 1; ExpectedBatchCount = 1 }
+    ) {
+        $targets = @(0..($TargetCount - 1) | ForEach-Object { "file-$_.md" })
+        if ($TargetCount -eq 0) {
+            $targets = @()
+        }
+
+        $batches = @(Split-MarkdownTargetBatch -Target $targets -ThrottleLimit $ThrottleLimit)
+
+        $batches.Count | Should -Be $ExpectedBatchCount
+        @($batches | Where-Object { @($_.Files).Count -eq 0 }).Count | Should -Be 0
+    }
+
+    It 'Sorts targets and distributes them into balanced contiguous batches' {
+        $batches = @(Split-MarkdownTargetBatch -Target @('z.md', 'a.md', 'm.md', 'b.md', 'x.md') -ThrottleLimit 2)
+
+        @($batches[0].Files) | Should -Be @('a.md', 'b.md', 'm.md')
+        @($batches[1].Files) | Should -Be @('x.md', 'z.md')
+        $sizes = @($batches | ForEach-Object { @($_.Files).Count })
+        (($sizes | Measure-Object -Maximum).Maximum - ($sizes | Measure-Object -Minimum).Minimum) | Should -BeLessOrEqual 1
+    }
+}
+
+#endregion
+
+#region ConvertFrom-MarkdownLinkCheckReport Tests
+
+Describe 'ConvertFrom-MarkdownLinkCheckReport' -Tag 'Unit' {
+    It 'Maps trustworthy suites by normalized full file path and explains a nonzero exit selectively' {
+        $report = New-TestMarkdownLinkCheckReport -Suite @(
+            @{ File = 'docs\readme.md'; Links = @(@{ Url = 'https://alive.test'; Status = 'alive'; StatusCode = 200 }) }
+            @{ File = 'other/readme.md'; Links = @(@{ Url = 'https://dead.test'; Status = 'dead'; StatusCode = 404 }) }
+            @{ File = 'third.md'; Links = @(@{ Url = 'https://ignored.test'; Status = 'ignored'; StatusCode = 0 }) }
+            @{ File = 'fourth.md'; Links = @(@{ Url = 'https://error.test'; Status = 'error'; StatusCode = 500 }) }
+        )
+
+        $results = @(ConvertFrom-MarkdownLinkCheckReport `
+            -ExpectedFile @('other/readme.md', 'docs/readme.md', 'third.md', 'fourth.md') `
+            -ReportContent $report -ExitCode 1)
+
+        @($results.File) | Should -Be @('docs/readme.md', 'fourth.md', 'other/readme.md', 'third.md')
+        ($results | Where-Object File -eq 'docs/readme.md').Failed | Should -BeFalse
+        ($results | Where-Object File -eq 'other/readme.md').Failed | Should -BeTrue
+        ($results | Where-Object File -eq 'fourth.md').Failed | Should -BeTrue
+        ($results | Where-Object File -eq 'third.md').Failed | Should -BeFalse
+        @($results | Where-Object ParseFailed).Count | Should -Be 0
+    }
+
+    It 'Fails every expected file for an unexplained nonzero exit' {
+        $report = New-TestMarkdownLinkCheckReport -Suite @(
+            @{ File = 'a.md'; Links = @(@{ Url = 'https://a.test'; Status = 'alive'; StatusCode = 200 }) }
+            @{ File = 'b.md'; Links = @(@{ Url = 'https://b.test'; Status = 'alive'; StatusCode = 200 }) }
+        )
+
+        $results = @(ConvertFrom-MarkdownLinkCheckReport -ExpectedFile @('a.md', 'b.md') -ReportContent $report -ExitCode 1)
+
+        @($results | Where-Object Failed).Count | Should -Be 2
+        @($results | Where-Object ParseFailed).Count | Should -Be 0
+    }
+
+    It 'Fails closed for every untrustworthy report shape' {
+        $expected = @('a.md', 'b.md')
+        $cases = @(
+            @{ Name = 'absent'; Report = $null }
+            @{ Name = 'malformed'; Report = '<testsuites><testsuite>' }
+            @{ Name = 'missing file property'; Report = (New-TestMarkdownLinkCheckReport -Suite @(
+                @{ IncludeFile = $false; Links = @() }
+                @{ File = 'b.md'; Links = @() }
+            )) }
+            @{ Name = 'empty file property'; Report = (New-TestMarkdownLinkCheckReport -Suite @(
+                @{ File = ''; Links = @() }
+                @{ File = 'b.md'; Links = @() }
+            )) }
+            @{ Name = 'duplicate file'; Report = (New-TestMarkdownLinkCheckReport -Suite @(
+                @{ File = 'a.md'; Links = @() }
+                @{ File = 'a.md'; Links = @() }
+            )) }
+            @{ Name = 'unexpected file'; Report = (New-TestMarkdownLinkCheckReport -Suite @(
+                @{ File = 'a.md'; Links = @() }
+                @{ File = 'unexpected.md'; Links = @() }
+            )) }
+            @{ Name = 'missing expected file'; Report = (New-TestMarkdownLinkCheckReport -Suite @(
+                @{ File = 'a.md'; Links = @() }
+            )) }
+        )
+
+        foreach ($case in $cases) {
+            $results = @(ConvertFrom-MarkdownLinkCheckReport -ExpectedFile $expected -ReportContent $case.Report -ExitCode 0)
+
+            @($results | Where-Object Failed).Count | Should -Be 2 -Because $case.Name
+            @($results | Where-Object ParseFailed).Count | Should -Be 2 -Because $case.Name
+        }
+    }
+
+    It 'Retains known dead-link details when incomplete attribution fails the batch' {
+        $report = New-TestMarkdownLinkCheckReport -Suite @(
+            @{ File = 'a.md'; Links = @(@{ Url = 'https://dead.test'; Status = 'dead'; StatusCode = 404 }) }
+        )
+
+        $results = @(ConvertFrom-MarkdownLinkCheckReport -ExpectedFile @('a.md', 'b.md') -ReportContent $report -ExitCode 1)
+
+        @($results | Where-Object Failed).Count | Should -Be 2
+        @($results | Where-Object ParseFailed).Count | Should -Be 2
+        ($results | Where-Object File -eq 'a.md').Links[0].Url | Should -Be 'https://dead.test'
+    }
+}
+
+#endregion
+
 #region Script Integration Tests
 
 Describe 'Markdown-Link-Check Integration' -Tag 'Integration' {
@@ -436,11 +666,111 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
         }
     }
 
-    Context 'Malformed report handling' {
-        It 'Marks XML parsing failures as file failures regardless of the CLI exit code' {
-            $src = Get-Content (Join-Path $PSScriptRoot '../../linting/Markdown-Link-Check.ps1') -Raw
-            $src | Should -Match '(?s)catch\s*\{\s*Write-Warning "Failed to parse XML output.*?\$parseFailed = \$true'
-            $src | Should -Match '(?s)\$fileResult\.ParseFailed.*?\$failedFiles \+= \$relative'
+    Context 'Batched CLI boundary and aggregation' {
+        BeforeEach {
+            $script:LedgerDir = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
+            New-Item -ItemType Directory -Path $script:LedgerDir -Force | Out-Null
+            $env:MARKDOWN_LINK_CHECK_TEST_LEDGER = $script:LedgerDir
+            $script:MarkdownLinkCheckCliOverride = New-TestMarkdownLinkCheckCli -Directory $TestDrive
+
+            $targetDir = Join-Path $TestDrive 'batch-targets'
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            $script:BatchTargets = @('z.md', 'a.md', 'm.md', 'b.md', 'x.md') | ForEach-Object {
+                $targetPath = Join-Path $targetDir $_
+                Set-Content -LiteralPath $targetPath -Value '# Test' -Encoding utf8
+                $targetPath
+            }
+            $script:ExpectedRelativeTargets = @($script:BatchTargets | ForEach-Object {
+                [System.IO.Path]::GetRelativePath($script:RepoRoot, $_)
+            } | Sort-Object)
+
+            $script:ResultsPath = Join-Path $script:RepoRoot 'logs/markdown-link-check-results.json'
+            $script:OriginalResults = if (Test-Path -LiteralPath $script:ResultsPath) {
+                Get-Content -LiteralPath $script:ResultsPath -Raw
+            }
+            else {
+                $null
+            }
+
+            Mock Get-MarkdownTarget { return $script:BatchTargets }
+            Mock Write-CIStepSummary { }
+            Mock Write-CIAnnotation { }
+            Mock Set-CIEnv { }
+            Mock Write-Host { }
+        }
+
+        AfterEach {
+            Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_LEDGER -ErrorAction SilentlyContinue
+            Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET -ErrorAction SilentlyContinue
+            Remove-Variable MarkdownLinkCheckCliOverride -Scope Script -ErrorAction SilentlyContinue
+            if ($null -ne $script:OriginalResults) {
+                Set-Content -LiteralPath $script:ResultsPath -Value $script:OriginalResults -NoNewline -Encoding utf8
+            }
+            else {
+                Remove-Item -LiteralPath $script:ResultsPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'Invokes one fake CLI process per batch without flattening or dropping targets' {
+            Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ThrottleLimit 2 -Quiet
+
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
+            $recordedTargets = @($records | ForEach-Object { @($_.Targets) })
+
+            $records.Count | Should -Be 2
+            @($records | Where-Object { @($_.Targets).Count -eq 0 }).Count | Should -Be 0
+            @($records | Where-Object { @($_.Targets).Count -gt 1 }).Count | Should -Be 2
+            @($recordedTargets | Sort-Object) | Should -Be $script:ExpectedRelativeTargets
+            foreach ($target in $script:ExpectedRelativeTargets) {
+                @($recordedTargets | Where-Object { $_ -eq $target }).Count | Should -Be 1
+            }
+        }
+
+        It 'Preserves mixed batch JSON, annotation, summary, and sorted output semantics' {
+            $env:MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET = $script:ExpectedRelativeTargets[2]
+
+            $captured = @(& {
+                try {
+                    Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ThrottleLimit 2 -Quiet
+                }
+                catch {
+                    Write-Output "THREW: $($_.Exception.Message)"
+                }
+            })
+
+            $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
+            @($result.PSObject.Properties.Name | Sort-Object) | Should -Be @('broken_links', 'script', 'summary', 'Timestamp')
+            $result.summary.total_files | Should -Be 5
+            $result.summary.files_with_broken_links | Should -Be 1
+            $result.summary.total_links_checked | Should -Be 5
+            $result.summary.total_broken_links | Should -Be 1
+            $result.broken_links[0].File | Should -Be $env:MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET
+            @($captured | Where-Object { $_ -like 'Checking *' } | ForEach-Object { $_ -replace '^Checking ', '' }) |
+                Should -Be $script:ExpectedRelativeTargets
+            @($captured | Where-Object { $_ -like 'THREW:*' }).Count | Should -Be 1
+            Should -Invoke Write-CIAnnotation -Times 1 -Exactly -ParameterFilter {
+                $Level -eq 'Error' -and $File -eq $env:MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET
+            }
+            Should -Invoke Write-CIStepSummary -Times 1 -Exactly -ParameterFilter {
+                $Content -match 'Files with broken links:\*\* 1 / 5' -and
+                $Content -match 'Total broken links:\*\* 1'
+            }
+        }
+
+        It 'Completes an empty changed-file invocation without creating a batch process' {
+            Mock Get-MarkdownTarget { return @() }
+
+            $output = @(Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ChangedFilesOnly -ThrottleLimit 2 -Quiet)
+
+            @($output | Where-Object { $_ -eq 'No changed markdown files to validate.' }).Count | Should -Be 1
+            @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json').Count | Should -Be 0
+            $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
+            $result.summary.total_files | Should -Be 0
+            $result.summary.files_with_broken_links | Should -Be 0
+            $result.summary.total_links_checked | Should -Be 0
+            $result.summary.total_broken_links | Should -Be 0
         }
     }
 }
