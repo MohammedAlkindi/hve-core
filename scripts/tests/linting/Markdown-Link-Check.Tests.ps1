@@ -83,9 +83,12 @@ const path = require('path');
 const args = process.argv.slice(2);
 const targets = [];
 let junitOutput;
+let configPath;
 for (let index = 0; index < args.length; index++) {
     const argument = args[index];
-    if (argument === '-c' || argument === '--reporters') {
+    if (argument === '-c') {
+        configPath = args[++index];
+    } else if (argument === '--reporters') {
         index++;
     } else if (argument === '--junit-output') {
         junitOutput = args[++index];
@@ -101,21 +104,140 @@ const escapeXml = (value) => value
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;');
 
+const decodeHtml = (value) => value
+    .replaceAll('&quot;', '"')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
+
+const extractTestUrls = (target) => {
+    const content = fs.readFileSync(target, 'utf8');
+    const urls = [];
+    for (const pattern of [
+        /\]\((https?:\/\/[^\s)]+)\)/gi,
+        /href="([^"]+)"/gi,
+        /<(https?:\/\/[^>]+)>/gi
+    ]) {
+        for (const match of content.matchAll(pattern)) {
+            urls.push(decodeHtml(match[1]));
+        }
+    }
+    return [...new Set(urls)];
+};
+
+const urlMode = process.env.MARKDOWN_LINK_CHECK_TEST_URL_MODE === 'true';
+const config = configPath ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
+const sourceStage = (config.ignorePatterns || []).some(({ pattern }) =>
+    pattern === '^[Hh][Tt][Tt][Pp][Ss]?://'
+);
+const aggregateStage = targets.some((target) => path.basename(target).startsWith('external-links-'));
+const stage = sourceStage ? 'source' : (aggregateStage ? 'aggregate' : 'legacy');
+const urlsByTarget = new Map(targets.map((target) => [
+    target,
+    urlMode || aggregateStage ? extractTestUrls(target) : [`https://example.test/${target}`]
+]));
+const aggregateUrls = stage === 'aggregate' ? [...new Set([...urlsByTarget.values()].flat())] : [];
+const fetchedUrls = sourceStage ? [] : [...urlsByTarget.values()].flat().filter((url) =>
+    url !== process.env.MARKDOWN_LINK_CHECK_TEST_IGNORED_URL
+);
 const recordPath = path.join(process.env.MARKDOWN_LINK_CHECK_TEST_LEDGER, `${process.pid}.json`);
-fs.writeFileSync(recordPath, JSON.stringify({ Targets: targets }), 'utf8');
+fs.writeFileSync(recordPath, JSON.stringify({
+    Targets: targets,
+    Stage: stage,
+    AggregateUrls: aggregateUrls,
+    FetchedUrls: fetchedUrls,
+    ConfigPath: configPath,
+    IgnorePatterns: config.ignorePatterns,
+    JunitOutput: junitOutput
+}), 'utf8');
+
+const aggregateDefect = aggregateStage ? process.env.MARKDOWN_LINK_CHECK_TEST_AGGREGATE_DEFECT : undefined;
+const defectUrl = process.env.MARKDOWN_LINK_CHECK_TEST_DEFECT_URL;
+const allUrls = [...urlsByTarget.values()].flat();
+const defectProcess = Boolean(aggregateDefect) && (!defectUrl || allUrls.includes(defectUrl));
+
+const createResult = (url, target) => {
+    const ignored = sourceStage || url === process.env.MARKDOWN_LINK_CHECK_TEST_IGNORED_URL;
+    const isDead = urlMode
+        ? url === process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_URL
+        : target === process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET ||
+            url === `https://example.test/${process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET}`;
+    const status = ignored ? 'ignored' : (isDead ? 'dead' : 'alive');
+    return {
+        url,
+        status,
+        statusCode: ignored ? '0' : (isDead ? '404' : '200'),
+        resultElement: ignored
+            ? '<skipped message="ignored"/>'
+            : (isDead ? '<failure message="dead" type="DeadLink"/>' : '')
+    };
+};
+
+const renderResult = (result, applyDefect) => {
+    const escapedUrl = escapeXml(result.url);
+    const status = applyDefect && aggregateDefect === 'unsupported-status'
+        ? 'unsupported'
+        : result.status;
+    const properties = [];
+    if (!(applyDefect && aggregateDefect === 'missing-url-property')) {
+        properties.push(`<property name="url" value="${escapedUrl}"/>`);
+        if (applyDefect && aggregateDefect === 'duplicate-url-property') {
+            properties.push(`<property name="url" value="${escapedUrl}"/>`);
+        }
+    }
+    if (!(applyDefect && aggregateDefect === 'missing-status-property')) {
+        properties.push(`<property name="status" value="${status}"/>`);
+        if (applyDefect && aggregateDefect === 'duplicate-status-property') {
+            properties.push(`<property name="status" value="${status}"/>`);
+        }
+    }
+    properties.push(`<property name="statusCode" value="${result.statusCode}"/>`);
+    if (applyDefect && aggregateDefect === 'duplicate-status-code-property') {
+        properties.push(`<property name="statusCode" value="${result.statusCode}"/>`);
+    }
+    return `<testcase name="${escapedUrl}" classname="test" time="0"><properties>${properties.join('')}</properties>${result.resultElement}</testcase>`;
+};
 
 const suites = targets.map((target) => {
     const escapedTarget = escapeXml(target);
-    const isDead = target === process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET;
-    const status = isDead ? 'dead' : 'alive';
-    const statusCode = isDead ? '404' : '200';
-    const failureCount = isDead ? '1' : '0';
-    const resultElement = isDead ? '<failure message="dead" type="DeadLink"/>' : '';
-    return `<testsuite name="test" tests="1" failures="${failureCount}" errors="0" skipped="0" time="0"><properties><property name="file" value="${escapedTarget}"/></properties><testcase name="https://example.test/${escapedTarget}" classname="test" time="0"><properties><property name="url" value="https://example.test/${escapedTarget}"/><property name="status" value="${status}"/><property name="statusCode" value="${statusCode}"/></properties>${resultElement}</testcase></testsuite>`;
+    const results = urlsByTarget.get(target).map((url) => createResult(url, target));
+    if (defectProcess && aggregateDefect === 'unexpected-result' && target === targets[0]) {
+        results.push(createResult('https://unexpected.example.test/result', target));
+    }
+    const failures = results.filter(({ status }) => status === 'dead').length;
+    const skipped = results.filter(({ status }) => status === 'ignored').length;
+    const testCases = [];
+    for (const result of results) {
+        const applyDefect = defectProcess && (!defectUrl || result.url === defectUrl);
+        if (applyDefect && aggregateDefect === 'missing-result') {
+            continue;
+        }
+        const testCase = renderResult(result, applyDefect);
+        testCases.push(testCase);
+        if (applyDefect && aggregateDefect === 'duplicate-result') {
+            testCases.push(testCase);
+        }
+    }
+    return `<testsuite name="test" tests="${testCases.length}" failures="${failures}" errors="0" skipped="${skipped}" time="0"><properties><property name="file" value="${escapedTarget}"/></properties>${testCases.join('')}</testsuite>`;
 });
 
+if (defectProcess && aggregateDefect === 'invocation-error') {
+    process.exit(2);
+}
+if (defectProcess && aggregateDefect === 'malformed-xml') {
+    fs.writeFileSync(junitOutput, '<testsuites><testsuite>', 'utf8');
+    process.exit(1);
+}
 fs.writeFileSync(junitOutput, `<testsuites name="markdown-link-check">${suites.join('')}</testsuites>`, 'utf8');
-process.exit(targets.includes(process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET) ? 1 : 0);
+const hasDeadResult = [...urlsByTarget.entries()].some(([target, urls]) => urlMode
+    ? urls.includes(process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_URL) && !sourceStage
+    : !sourceStage && (
+        target === process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET ||
+        urls.includes(`https://example.test/${process.env.MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET}`)
+    )
+);
+process.exit(hasDeadResult || (defectProcess && aggregateDefect === 'unexplained-exit') ? 1 : 0);
 '@
         Set-Content -LiteralPath $scriptPath -Value $scriptContent -Encoding utf8
 
@@ -637,14 +759,10 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
     Context 'Quiet mode base arguments' {
         It 'Passes -q flag when Quiet switch is set' {
             Mock Get-MarkdownTarget { return @('file.md') }
-            Mock Resolve-Path { return [PSCustomObject]@{ Path = $script:RepoRoot } }
             Mock Test-Path { return $true } -ParameterFilter { $LiteralPath -and $LiteralPath -like '*markdown-link-check*' }
-            Mock Push-Location { }
-            Mock Pop-Location { }
             Mock Resolve-Path { return [PSCustomObject]@{ Path = "$TestDrive/file.md" } } -ParameterFilter { $LiteralPath -eq 'file.md' }
-            Mock New-Item { } -ParameterFilter { $ItemType -eq 'Directory' }
-            Mock Set-Content { }
             Mock Write-Host { }
+            Mock Invoke-MarkdownLinkCheckBatch { return @() }
 
             try {
                 Invoke-MarkdownLinkCheck -Path @('file.md') -ConfigPath $script:FixtureConfig -Quiet
@@ -654,7 +772,9 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
             }
 
             Should -Invoke Get-MarkdownTarget -Times 1
-            Should -Invoke Push-Location -Times 1
+            Should -Invoke Invoke-MarkdownLinkCheckBatch -Times 1 -ParameterFilter {
+                $BaseArgument -contains '-q'
+            }
         }
     }
 
@@ -702,6 +822,11 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
         AfterEach {
             Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_LEDGER -ErrorAction SilentlyContinue
             Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET -ErrorAction SilentlyContinue
+            Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_URL_MODE -ErrorAction SilentlyContinue
+            Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_DEAD_URL -ErrorAction SilentlyContinue
+            Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_IGNORED_URL -ErrorAction SilentlyContinue
+            Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_AGGREGATE_DEFECT -ErrorAction SilentlyContinue
+            Remove-Item Env:MARKDOWN_LINK_CHECK_TEST_DEFECT_URL -ErrorAction SilentlyContinue
             Remove-Variable MarkdownLinkCheckCliOverride -Scope Script -ErrorAction SilentlyContinue
             if ($null -ne $script:OriginalResults) {
                 Set-Content -LiteralPath $script:ResultsPath -Value $script:OriginalResults -NoNewline -Encoding utf8
@@ -711,21 +836,222 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
             }
         }
 
-        It 'Invokes one fake CLI process per batch without flattening or dropping targets' {
+        It 'Invokes bounded source and aggregate processes without flattening or dropping targets' {
             Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ThrottleLimit 2 -Quiet
 
             $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
                 Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
             })
-            $recordedTargets = @($records | ForEach-Object { @($_.Targets) })
+            $sourceRecords = @($records | Where-Object Stage -eq 'source')
+            $aggregateRecords = @($records | Where-Object Stage -eq 'aggregate')
+            $recordedTargets = @($sourceRecords | ForEach-Object { @($_.Targets) })
 
-            $records.Count | Should -Be 2
-            @($records | Where-Object { @($_.Targets).Count -eq 0 }).Count | Should -Be 0
-            @($records | Where-Object { @($_.Targets).Count -gt 1 }).Count | Should -Be 2
+            $sourceRecords.Count | Should -Be 2
+            $aggregateRecords.Count | Should -Be 2
+            @($sourceRecords | Where-Object { @($_.Targets).Count -eq 0 }).Count | Should -Be 0
+            @($sourceRecords | Where-Object { @($_.Targets).Count -gt 1 }).Count | Should -Be 2
+            @($aggregateRecords | Where-Object { @($_.Targets).Count -ne 1 }).Count | Should -Be 0
             @($recordedTargets | Sort-Object) | Should -Be $script:ExpectedRelativeTargets
             foreach ($target in $script:ExpectedRelativeTargets) {
                 @($recordedTargets | Where-Object { $_ -eq $target }).Count | Should -Be 1
             }
+        }
+
+        It 'Checks one shared exact external URL once and replays a dead result to both source files' {
+            $sharedUrl = 'https://dead.example.test/shared'
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            $env:MARKDOWN_LINK_CHECK_TEST_DEAD_URL = $sharedUrl
+            $script:BatchTargets = @('first.md', 'second.md') | ForEach-Object {
+                $targetPath = Join-Path (Split-Path $script:BatchTargets[0] -Parent) $_
+                Set-Content -LiteralPath $targetPath -Value "[Shared]($sharedUrl)" -Encoding utf8
+                $targetPath
+            }
+
+            $captured = @(& {
+                try {
+                    Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ThrottleLimit 2 -Quiet
+                }
+                catch {
+                    Write-Output "THREW: $($_.Exception.Message)"
+                }
+            })
+
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
+            $aggregateUrls = @($records | ForEach-Object { @($_.AggregateUrls) })
+            $fetchedUrls = @($records | ForEach-Object { @($_.FetchedUrls) })
+            $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
+
+            @($aggregateUrls | Where-Object { $_ -eq $sharedUrl }).Count | Should -Be 1
+            @($fetchedUrls | Where-Object { $_ -eq $sharedUrl }).Count | Should -Be 1
+            $result.summary.total_files | Should -Be 2
+            $result.summary.files_with_broken_links | Should -Be 2
+            $result.summary.total_links_checked | Should -Be 2
+            $result.summary.total_broken_links | Should -Be 2
+            @($result.broken_links.Link | Where-Object { $_ -eq $sharedUrl }).Count | Should -Be 2
+            @($captured | Where-Object { $_ -like 'THREW:*' }).Count | Should -Be 1
+            Should -Invoke Write-CIAnnotation -Times 2 -Exactly -ParameterFilter {
+                $Level -eq 'Error' -and $Message -like "Broken link: $sharedUrl*"
+            }
+        }
+
+        It 'Keeps exact variants disjoint and preserves original ignored-link behavior' {
+            $sharedUrl = 'https://example.test/shared'
+            $queryUrl = 'https://example.test/shared?view=one'
+            $fragmentUrl = 'https://example.test/shared#section'
+            $ignoredUrl = 'https://ignored.example.test/link'
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            $env:MARKDOWN_LINK_CHECK_TEST_IGNORED_URL = $ignoredUrl
+            $targetDir = Split-Path $script:BatchTargets[0] -Parent
+            $script:BatchTargets = @(
+                @{ Name = 'first.md'; Content = "[Shared]($sharedUrl)`n[Query]($queryUrl)" }
+                @{ Name = 'second.md'; Content = "[Shared]($sharedUrl)`n[Fragment]($fragmentUrl)" }
+                @{ Name = 'third.md'; Content = "[Ignored]($ignoredUrl)" }
+            ) | ForEach-Object {
+                $targetPath = Join-Path $targetDir $_.Name
+                Set-Content -LiteralPath $targetPath -Value $_.Content -Encoding utf8
+                $targetPath
+            }
+
+            Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ThrottleLimit 2 -Quiet
+
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
+            $aggregateRecords = @($records | Where-Object Stage -eq 'aggregate')
+            $aggregateUrls = @($aggregateRecords | ForEach-Object { @($_.AggregateUrls) })
+            $fetchedUrls = @($records | ForEach-Object { @($_.FetchedUrls) })
+            $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
+
+            $aggregateRecords.Count | Should -Be 2
+            @($aggregateUrls | Sort-Object) | Should -Be @($fragmentUrl, $ignoredUrl, $queryUrl, $sharedUrl | Sort-Object)
+            foreach ($url in @($sharedUrl, $queryUrl, $fragmentUrl, $ignoredUrl)) {
+                @($aggregateUrls | Where-Object { $_ -eq $url }).Count | Should -Be 1
+            }
+            @($fetchedUrls | Where-Object { $_ -eq $sharedUrl }).Count | Should -Be 1
+            @($fetchedUrls | Where-Object { $_ -eq $queryUrl }).Count | Should -Be 1
+            @($fetchedUrls | Where-Object { $_ -eq $fragmentUrl }).Count | Should -Be 1
+            @($fetchedUrls | Where-Object { $_ -eq $ignoredUrl }).Count | Should -Be 0
+            $result.summary.total_files | Should -Be 3
+            $result.summary.total_links_checked | Should -Be 5
+            $result.summary.total_broken_links | Should -Be 0
+        }
+
+        It 'Supports a checker config that omits ignorePatterns' {
+            $configWithoutIgnorePatterns = Join-Path $TestDrive 'config-without-ignore-patterns.json'
+            @{
+                projectBaseUrl = '.'
+                timeout = '20s'
+                retryOn429 = $true
+                replacementPatterns = @()
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configWithoutIgnorePatterns -Encoding utf8
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            $targetDir = Split-Path $script:BatchTargets[0] -Parent
+            $targetPath = Join-Path $targetDir 'without-ignore-patterns.md'
+            Set-Content -LiteralPath $targetPath -Value '[Link](https://example.test/config)' -Encoding utf8
+            $script:BatchTargets = @($targetPath)
+
+            { Invoke-MarkdownLinkCheck `
+                -Path @('unused') `
+                -ConfigPath $configWithoutIgnorePatterns `
+                -ThrottleLimit 1 `
+                -Quiet } | Should -Not -Throw
+
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
+            $sourceRecord = @($records | Where-Object Stage -eq 'source')
+            $sourceRecord.Count | Should -Be 1
+            @($sourceRecord[0].IgnorePatterns).Count | Should -Be 1
+            $sourceRecord[0].IgnorePatterns[0].pattern | Should -Be '^[Hh][Tt][Tt][Pp][Ss]?://'
+        }
+
+        It 'Fails only the source file mapped to an aggregate with <Defect>' -ForEach @(
+            @{ Defect = 'missing-url-property' }
+            @{ Defect = 'duplicate-url-property' }
+            @{ Defect = 'missing-status-property' }
+            @{ Defect = 'duplicate-status-property' }
+            @{ Defect = 'duplicate-status-code-property' }
+            @{ Defect = 'unsupported-status' }
+            @{ Defect = 'missing-result' }
+            @{ Defect = 'duplicate-result' }
+            @{ Defect = 'unexpected-result' }
+            @{ Defect = 'unexplained-exit' }
+        ) {
+            $defectUrl = 'https://example.test/defect'
+            $healthyUrl = 'https://example.test/healthy'
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            $env:MARKDOWN_LINK_CHECK_TEST_AGGREGATE_DEFECT = $Defect
+            $env:MARKDOWN_LINK_CHECK_TEST_DEFECT_URL = $defectUrl
+            $targetDir = Split-Path $script:BatchTargets[0] -Parent
+            $script:BatchTargets = @(
+                @{ Name = 'defect.md'; Url = $defectUrl }
+                @{ Name = 'healthy.md'; Url = $healthyUrl }
+            ) | ForEach-Object {
+                $targetPath = Join-Path $targetDir $_.Name
+                Set-Content -LiteralPath $targetPath -Value "[Link]($($_.Url))" -Encoding utf8
+                $targetPath
+            }
+
+            $captured = @(& {
+                try {
+                    Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ThrottleLimit 2 -Quiet
+                }
+                catch {
+                    Write-Output "THREW: $($_.Exception.Message)"
+                }
+            })
+
+            $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
+            $result.summary.files_with_broken_links | Should -Be 1
+            $result.summary.total_broken_links | Should -Be 0
+            @($captured | Where-Object { $_ -like 'THREW:*' }).Count | Should -Be 1
+            Should -Invoke Write-CIAnnotation -Times 0 -Exactly
+        }
+
+        It 'Removes one common task workspace after <Outcome>' -ForEach @(
+            @{ Outcome = 'success'; Defect = $null; Dead = $false }
+            @{ Outcome = 'dead link'; Defect = $null; Dead = $true }
+            @{ Outcome = 'malformed report'; Defect = 'malformed-xml'; Dead = $false }
+            @{ Outcome = 'invocation error'; Defect = 'invocation-error'; Dead = $false }
+        ) {
+            $url = 'https://example.test/cleanup'
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            if ($Dead) {
+                $env:MARKDOWN_LINK_CHECK_TEST_DEAD_URL = $url
+            }
+            if ($Defect) {
+                $env:MARKDOWN_LINK_CHECK_TEST_AGGREGATE_DEFECT = $Defect
+                $env:MARKDOWN_LINK_CHECK_TEST_DEFECT_URL = $url
+            }
+            $targetDir = Split-Path $script:BatchTargets[0] -Parent
+            $targetPath = Join-Path $targetDir 'cleanup.md'
+            Set-Content -LiteralPath $targetPath -Value "[Cleanup]($url)" -Encoding utf8
+            $script:BatchTargets = @($targetPath)
+
+            try {
+                Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ThrottleLimit 1 -Quiet
+            }
+            catch {
+                Write-Verbose "Expected controlled $Outcome result: $_"
+            }
+
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
+            $derivedConfig = @($records.ConfigPath | Where-Object {
+                [System.IO.Path]::GetFileName($_) -eq 'source-config.json'
+            } | Select-Object -Unique)
+            $derivedConfig.Count | Should -Be 1
+            $taskRoot = Split-Path $derivedConfig[0] -Parent
+            $taskPaths = @(
+                $derivedConfig
+                $records.JunitOutput
+                $records | Where-Object Stage -eq 'aggregate' | ForEach-Object { @($_.Targets) }
+            )
+            @($taskPaths | Where-Object { -not $_.StartsWith($taskRoot, [System.StringComparison]::Ordinal) }).Count | Should -Be 0
+            Test-Path -LiteralPath $taskRoot | Should -BeFalse
         }
 
         It 'Preserves mixed batch JSON, annotation, summary, and sorted output semantics' {
