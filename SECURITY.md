@@ -2,7 +2,7 @@
 title: Security
 description: Security vulnerability reporting procedures and Microsoft's coordinated disclosure policy
 author: Microsoft Security Response Center
-ms.date: 2026-08-09
+ms.date: 2026-08-10
 ms.topic: reference
 keywords:
   - security
@@ -105,7 +105,7 @@ HVE Core publishes cryptographically attested assets under exact channel tags:
 
    # PreRelease VSIX
    gh attestation verify hve-core-<version>.vsix -R microsoft/hve-core \
-     --signer-workflow microsoft/hve-core/.github/workflows/release-prerelease.yml
+     --signer-workflow microsoft/hve-core/.github/workflows/extension-provenance.yml
 
    # Stable plugin ZIP
    gh attestation verify <plugin-id>.zip -R microsoft/hve-core \
@@ -180,7 +180,7 @@ The `.sigstore.json` bundle contains the full Sigstore verification material. Th
 | Subject or predicate payload           | Channel               | Signer workflow              |
 |----------------------------------------|-----------------------|------------------------------|
 | VSIX subject                           | Stable                | `extension-provenance.yml`   |
-| VSIX subject                           | PreRelease            | `release-prerelease.yml`     |
+| VSIX subject                           | PreRelease            | `extension-provenance.yml`   |
 | Plugin ZIP subject                     | Stable                | `release-stable-publish.yml` |
 | Plugin ZIP subject                     | PreRelease            | `release-prerelease.yml`     |
 | SPDX predicates over VSIX or ZIP       | Stable and PreRelease | Same signer as the subject   |

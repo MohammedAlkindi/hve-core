@@ -64,7 +64,8 @@ jobs:
           # release can never ship a VSIX built from a different commit.
           template_version=$(jq -r .version extension/templates/package.template.json)
           if [ "$version" != "$template_version" ]; then
-            echo "::notice::Packaging $version from a source whose committed template version is $template_version"
+            echo "::error::extension/templates/package.template.json is $template_version but the caller requested $version"
+            exit 1
           fi
 
       - name: Discover marketplace packages

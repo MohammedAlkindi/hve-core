@@ -13,7 +13,7 @@ on:
         type: string
         default: ""
       dry-run:
-        description: "Dry run (package only, do not publish)"
+        description: "Dry run (validate the version, exact tag, and catalog and discover packages; do not publish)"
         required: false
         type: boolean
         default: false
@@ -108,10 +108,11 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=prerelease-v$VERSION" >> "$GITHUB_OUTPUT"
 
+  # A dry run stops before the credentialed publisher but still proves the exact
+  # tag, its catalog version, and the package matrix, matching the Stable lane.
   discover:
     name: Discover Pre-Release Marketplace Packages
     needs: [validate-version]
-    if: ${{ !inputs.dry-run }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

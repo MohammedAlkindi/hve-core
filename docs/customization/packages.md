@@ -2,7 +2,7 @@
 title: Managing the Marketplace Recipe
 description: Maintain ordinary Copilot plugin and VSIX recipes through the marketplace catalog
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-10
 ms.topic: how-to
 keywords:
   - marketplace
@@ -33,7 +33,8 @@ Do not install `hve-core` and `hve-core-all` together. Both include overlapping 
   `hooks/*.json`.
 3. Align lifecycle maturity for every declared membership.
 4. Update `docs/plugins/<name>.md` for each affected package.
-5. Run marketplace validation, plugin generation, extension preparation, and focused tests.
+5. Run the local-safe package checks in
+  [Validation and Package Staging](#validation-and-package-staging).
 
 A recipe path maps deterministically to a canonical source path. Do not add a fallback reader, duplicate manifest, or manually copy generated output.
 

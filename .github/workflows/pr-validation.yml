@@ -466,6 +466,95 @@ jobs:
         shell: pwsh
         run: ./scripts/security/Test-PrValidationGate.ps1 -FailOnViolation
 
+      # The promotion head is the last reviewable state before release-please
+      # can consume its exact release intent, so grammar, parity, advancement,
+      # and the retained candidate record are proved while the pull request is
+      # still open. Branch rulesets decide whether this failing check blocks the
+      # merge; release-prerelease.yml independently revalidates the same intent
+      # before any tag can be created.
+      - name: Validate PreRelease promotion intent advances release/prerelease
+        if: >
+          github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.base.ref == 'release/prerelease'
+          && github.event.pull_request.head.ref == 'release-promotion--main--to--release-prerelease'
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PROMOTION_HEAD: release-promotion--main--to--release-prerelease
+        run: |
+          set -euo pipefail
+          if [ "$HEAD_BRANCH" != "$PROMOTION_HEAD" ]; then
+            echo "::error::PreRelease promotion head $HEAD_BRANCH is not the canonical promotion head"
+            exit 1
+          fi
+          if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::PreRelease promotion event carries an invalid pull request number"
+            exit 1
+          fi
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::PreRelease promotion event carries an invalid head SHA"
+            exit 1
+          fi
+
+          # hve-core is public, so this origin access is intentionally
+          # credential free; the fetch and ls-remote below stop working if the
+          # repository ever becomes private.
+
+          # The verified commit is the exact event head, so a head that moved
+          # after the event fails rather than being proved at a later tip.
+          git fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/pull/$PR_NUMBER/head" \
+            "+refs/heads/release/prerelease:refs/remotes/origin/release/prerelease"
+          if [ "$(git rev-parse "refs/remotes/pull/$PR_NUMBER/head")" != "$HEAD_SHA" ]; then
+            echo "::error::Fetched PreRelease promotion head does not match event head $HEAD_SHA"
+            exit 1
+          fi
+
+          CANDIDATE=$(git show "refs/remotes/pull/$PR_NUMBER/head:release-please-prerelease-config.json" | jq -r '.packages["."]["release-as"] // ""')
+          BASELINE=$(git show 'refs/remotes/origin/release/prerelease:.release-please-prerelease-manifest.json' | jq -r '.["."] // ""')
+          for entry in "candidate:$CANDIDATE" "baseline:$BASELINE"; do
+            value=${entry#*:}
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* || ! "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::${entry%%:*} PreRelease version is not canonical MAJOR.MINOR.PATCH"
+              exit 1
+            fi
+          done
+          CANDIDATE_MINOR=${CANDIDATE#*.}
+          CANDIDATE_MINOR=${CANDIDATE_MINOR%%.*}
+          if (( 10#$CANDIDATE_MINOR % 2 == 0 )); then
+            echo "::error::PreRelease candidate $CANDIDATE has an even minor"
+            exit 1
+          fi
+          if [ "$CANDIDATE" = "$BASELINE" ] || [ "$(printf '%s\n%s\n' "$CANDIDATE" "$BASELINE" | sort -V | tail -1)" = "$BASELINE" ]; then
+            echo "::error::$HEAD_BRANCH proposes $CANDIDATE but release/prerelease already carries $BASELINE"
+            exit 1
+          fi
+
+          # The retained record, not the pull request body or the moving head,
+          # is what the managed release pull request later replays, so a head
+          # whose record does not name this exact intent is stale.
+          if ! git show "refs/remotes/pull/$PR_NUMBER/head:.github/plugin/release-candidate.json" | jq -e \
+            --arg version "$CANDIDATE" '
+              .version == $version and
+              (.sourceCommit | type == "string" and test("^[0-9a-f]{40}$"))
+            ' >/dev/null; then
+            echo "::error::release-candidate.json at $HEAD_SHA does not record $CANDIDATE with a full immutable source commit"
+            exit 1
+          fi
+
+          # A tag is immutable, so a transport failure aborts under set -e
+          # instead of reporting the identity as available.
+          CANDIDATE_REF="refs/tags/prerelease-v$CANDIDATE"
+          OCCUPIED=$(git ls-remote origin "$CANDIDATE_REF")
+          if [ -n "$OCCUPIED" ]; then
+            echo "::error::$CANDIDATE_REF already exists; the PreRelease release identity is occupied"
+            exit 1
+          fi
+
+          echo "$HEAD_BRANCH advances release/prerelease from $BASELINE to $CANDIDATE"
+
       - name: Validate Stable promotion intent advances release/stable
         if: >
           github.event_name == 'pull_request'

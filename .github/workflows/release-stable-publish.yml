@@ -537,13 +537,15 @@ jobs:
 
       # A draft release is invisible to the workflow token, so classification
       # reads it through the release App token instead. Job permissions stay
-      # contents: read; App token capability is granted separately.
+      # contents: read, and the installation token requests contents: write
+      # because a draft release is only visible at that scope.
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v2.0.0
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       # Release-please owns tag and release creation. A retry may only
       # reconcile a tag that already targets this managed merge and a release
@@ -622,6 +624,9 @@ jobs:
           echo "release-id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
           echo "Resuming $RELEASE_TAG at $TAG_SHA (draft=$DRAFT prerelease=$PRERELEASE state=$RECOVERY_STATE)"
 
+      - name: Setup PowerShell modules
+        uses: ./.github/actions/setup-ps-modules
+
       # A matching published release already carries its immutable asset set,
       # so it is verified rather than rebuilt or clobbered. Incomplete evidence
       # is terminal; an explicitly missing Marketplace publication stays with
@@ -633,47 +638,51 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RELEASE_ID: ${{ steps.classify.outputs.release-id }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          REQUIRED_ASSETS: |
+            dependencies.spdx.json
+            plugin-release-evidence.json
+            hve-core.openvex.json
         run: |
           set -euo pipefail
-          ASSETS=$(gh api --paginate "/repos/$REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
-          if [ -z "$ASSETS" ]; then
+          ASSET_INDEX="$RUNNER_TEMP/published-assets.tsv"
+          gh api --paginate "/repos/$REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+            --jq '.[] | [.id, .name] | @tsv' > "$ASSET_INDEX"
+          if [ ! -s "$ASSET_INDEX" ]; then
             echo "::error::published $RELEASE_TAG carries no release assets"
             exit 1
           fi
+          ASSET_NAMES="$RUNNER_TEMP/published-asset-names.txt"
+          cut -f2 "$ASSET_INDEX" > "$ASSET_NAMES"
+          REQUIRED_LIST="$RUNNER_TEMP/published-required-assets.txt"
+          printf '%s\n' "$REQUIRED_ASSETS" > "$REQUIRED_LIST"
 
-          INCOMPLETE=0
-          for required in 'dependencies.spdx.json' 'plugin-release-evidence.json' 'hve-core.openvex.json'; do
-            if ! grep -Fxq -- "$required" <<<"$ASSETS"; then
-              echo "::error::published $RELEASE_TAG is missing required asset $required"
-              INCOMPLETE=1
-            fi
-          done
-
-          VSIX_COUNT=0
-          ZIP_COUNT=0
-          while IFS= read -r asset; do
-            case "$asset" in
-              *.vsix) VSIX_COUNT=$((VSIX_COUNT + 1)) ;;
-              *.zip) ZIP_COUNT=$((ZIP_COUNT + 1)) ;;
-              *) continue ;;
-            esac
-            for sidecar in "$asset.spdx.json" "$asset.sigstore.json" "$asset.intoto.jsonl"; do
-              if ! grep -Fxq -- "$sidecar" <<<"$ASSETS"; then
-                echo "::error::published $RELEASE_TAG is missing $sidecar for $asset"
-                INCOMPLETE=1
-              fi
-            done
-          done <<<"$ASSETS"
-
-          if [ "$VSIX_COUNT" -eq 0 ] || [ "$ZIP_COUNT" -eq 0 ]; then
-            echo "::error::published $RELEASE_TAG carries $VSIX_COUNT VSIX and $ZIP_COUNT plugin ZIP assets; both are required"
-            INCOMPLETE=1
-          fi
-          if [ "$INCOMPLETE" -ne 0 ]; then
-            echo "::error::published $RELEASE_TAG has incomplete release assets; reconcile it before rerunning"
+          # The evidence document names the exact plugin packages this release
+          # published, so it is read back through its own asset id instead of
+          # being reproduced from the working tree.
+          EVIDENCE_COUNT=$(awk -F'\t' '$2 == "plugin-release-evidence.json"' "$ASSET_INDEX" | wc -l)
+          if [ "$EVIDENCE_COUNT" -ne 1 ]; then
+            echo "::error::published $RELEASE_TAG carries $EVIDENCE_COUNT plugin-release-evidence.json assets; exactly one is required"
             exit 1
           fi
-          echo "Verified $VSIX_COUNT VSIX and $ZIP_COUNT plugin ZIP assets with complete sidecars on published $RELEASE_TAG"
+          EVIDENCE_ID=$(awk -F'\t' '$2 == "plugin-release-evidence.json" { print $1 }' "$ASSET_INDEX")
+          EVIDENCE_PATH="$RUNNER_TEMP/plugin-release-evidence.json"
+          gh api -H 'Accept: application/octet-stream' \
+            "/repos/$REPOSITORY/releases/assets/$EVIDENCE_ID" > "$EVIDENCE_PATH"
+
+          # Plugin ZIP and VSIX identities both come from the released catalog
+          # under the channel package policy, and the evidence document is
+          # reconciled against that catalog-derived set, so no expected count
+          # is maintained by hand and no single asset defines its own
+          # expectation.
+          pwsh -NoProfile -File ./scripts/release/Assert-ReleaseAssetSet.ps1 \
+            -AssetNamePath "$ASSET_NAMES" \
+            -EvidencePath "$EVIDENCE_PATH" \
+            -RequiredAssetPath "$REQUIRED_LIST" \
+            -CatalogPath .github/plugin/marketplace.json \
+            -Channel Stable \
+            -Version "$RELEASE_VERSION" \
+            -ReleaseTag "$RELEASE_TAG"
 
       - name: Verify release version and committed state
         env:
@@ -732,9 +741,6 @@ jobs:
               -RepoRoot "$PWD" \
               -CandidateAction Verify
 
-      - name: Setup PowerShell modules
-        uses: ./.github/actions/setup-ps-modules
-
       - name: Verify cross-channel package-set consistency
         shell: pwsh
         run: |
@@ -758,6 +764,19 @@ jobs:
   close-milestone:
     name: Close Release Milestone
     needs: [validate-release, publish-release]
+    # Ordinary runs close after publish-release succeeds. A published-state
+    # recovery skips that job, so an already-verified published release closes
+    # the milestone too. Every other publish-release result stays closed out.
+    if: >
+      !cancelled()
+      && needs.validate-release.result == 'success'
+      && (
+        needs.publish-release.result == 'success'
+        || (
+          needs.publish-release.result == 'skipped'
+          && needs.validate-release.outputs.release-state == 'published'
+        )
+      )
     uses: ./.github/workflows/release-close-milestone.yml
     with:
       version: ${{ needs.validate-release.outputs.version }}

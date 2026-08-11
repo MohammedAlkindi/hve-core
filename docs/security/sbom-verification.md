@@ -3,7 +3,7 @@ title: SBOM Verification
 description: Verify, download, and inspect the Software Bill of Materials published with each HVE Core release
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-09
+ms.date: 2026-08-10
 ms.topic: how-to
 keywords:
   - SBOM
@@ -69,7 +69,7 @@ gh attestation verify hve-core-<version>.vsix -R microsoft/hve-core \
 
 # PreRelease VSIX
 gh attestation verify hve-core-<version>.vsix -R microsoft/hve-core \
-  --signer-workflow microsoft/hve-core/.github/workflows/release-prerelease.yml \
+  --signer-workflow microsoft/hve-core/.github/workflows/extension-provenance.yml \
   --predicate-type https://spdx.dev/Document/v2.3
 
 # Stable plugin ZIP

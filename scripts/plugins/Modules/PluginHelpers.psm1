@@ -897,7 +897,7 @@ function Write-PluginHookArtifact {
     # materialized copy keeps the established plain plugin-root placeholder.
     $manifestText = Get-Content -LiteralPath $SourceManifest -Raw -Encoding utf8
     $manifestText = $manifestText.Replace('${CLAUDE_PLUGIN_ROOT:-.github}/hooks/', '${CLAUDE_PLUGIN_ROOT}/hooks/')
-    $manifestText = $manifestText.Replace('& (Join-Path ($env:CLAUDE_PLUGIN_ROOT ?? ''.github'') ''hooks/', '& (Join-Path $env:CLAUDE_PLUGIN_ROOT ''hooks/')
+    $manifestText = $manifestText.Replace('& (Join-Path ([string]::IsNullOrWhiteSpace($env:CLAUDE_PLUGIN_ROOT) ? ''.github'' : $env:CLAUDE_PLUGIN_ROOT) ''hooks/', '& (Join-Path $env:CLAUDE_PLUGIN_ROOT ''hooks/')
     $manifestText = $manifestText.Replace('.github/hooks/', '${CLAUDE_PLUGIN_ROOT}/hooks/')
     Set-ContentIfChanged -Path $DestinationManifest -Value $manifestText | Out-Null
 

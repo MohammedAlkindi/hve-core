@@ -392,9 +392,9 @@ Use the reviewed two-PR workflow for publishing pre-releases:
     plugin ZIPs, `plugin-release-evidence.json`, SBOM, Sigstore, and in-toto
     assets for the same release SHA.
 7. Verify the release GitHub App token publishes the prerelease. The
-    Marketplace workflow passes the validated tag and `release-prerelease.yml`
-    signer to the generic publisher for release-asset verification and OIDC
-    publication.
+    Marketplace workflow passes the validated tag and
+    `.github/workflows/extension-provenance.yml` signer to the generic
+    publisher for release-asset verification and OIDC publication.
 
 ### Lifecycle Disclosure
 

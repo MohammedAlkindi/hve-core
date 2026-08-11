@@ -15,14 +15,180 @@ on:
     types: [closed]
     branches:
       - release/prerelease
+# One release at a time per target branch. The reviewed promotion merge and the
+# managed release merge carry different pull request numbers but mutate the same
+# branch, so the lock is the branch identity and a run is never cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-release/prerelease
   cancel-in-progress: false
 permissions:
   contents: read
 jobs:
+  # Every mutable pre-tag decision happens here, before any job holds release
+  # write permission. validate-release keeps sole ownership of the post-tag
+  # release-output and channel-state checks.
+  validate-trigger:
+    name: Validate Pre-Release Trigger
+    if: >
+      github.event.pull_request.merged == true
+      && github.event.pull_request.base.ref == 'release/prerelease'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (
+        github.event.pull_request.head.ref == 'release-promotion--main--to--release-prerelease'
+        || github.event.pull_request.head.ref == 'release-please--branches--release/prerelease'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.identity.outputs.mode }}
+    steps:
+      - name: Validate merged head identity
+        id: identity
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          MANAGED_HEAD: release-please--branches--release/prerelease
+          MERGED: ${{ github.event.pull_request.merged }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PROMOTION_HEAD: release-promotion--main--to--release-prerelease
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$MERGED" != 'true' ] || [ "$BASE_REF" != 'release/prerelease' ] || [ "$HEAD_REPOSITORY" != "$REPOSITORY" ]; then
+            echo "::error::Pre-Release trigger is not a merged same-repository pull request into release/prerelease"
+            exit 1
+          fi
+          if [ "$MERGE_SHA" != "$EVENT_SHA" ]; then
+            echo "::error::Pull request merge commit $MERGE_SHA does not match event SHA $EVENT_SHA"
+            exit 1
+          fi
+          if ! printf '%s' "$EVENT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Pre-Release trigger carries an invalid event SHA"
+            exit 1
+          fi
+
+          # Head classification is exact equality against the two authorized
+          # constants, never a prefix or substring match.
+          if [ "$HEAD_REF" = "$MANAGED_HEAD" ]; then
+            MODE='managed'
+          elif [ "$HEAD_REF" = "$PROMOTION_HEAD" ]; then
+            MODE='promotion'
+          else
+            echo "::error::Merged head $HEAD_REF is not an authorized Pre-Release release head"
+            exit 1
+          fi
+
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      # Executable tooling would come from main, but this job runs none: the
+      # workspace exists only so read-only git commands have a repository.
+      - name: Checkout Pre-Release trigger validation workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: trigger-validation
+          persist-credentials: false
+
+      - name: Validate promotion intent and candidate state
+        if: ${{ steps.identity.outputs.mode == 'promotion' }}
+        env:
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/trigger-validation"
+
+          # hve-core is public, so this origin access is intentionally
+          # credential free; the fetch and ls-remote below stop working if the
+          # repository ever becomes private.
+
+          # Every value is read from the immutable merge commit, never from the
+          # moving branch, the pull request body, or transient job state.
+          git fetch --no-tags --depth 1 origin "$EVENT_SHA"
+          CANDIDATE=$(git show "$EVENT_SHA:release-please-prerelease-config.json" | jq -r '.packages["."]["release-as"] // ""')
+          BASELINE=$(git show "$EVENT_SHA:.release-please-prerelease-manifest.json" | jq -r '.["."] // ""')
+          for entry in "candidate:$CANDIDATE" "baseline:$BASELINE"; do
+            value=${entry#*:}
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* || ! "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::${entry%%:*} PreRelease version is not canonical MAJOR.MINOR.PATCH"
+              exit 1
+            fi
+          done
+          CANDIDATE_MINOR=${CANDIDATE#*.}
+          CANDIDATE_MINOR=${CANDIDATE_MINOR%%.*}
+          if (( 10#$CANDIDATE_MINOR % 2 == 0 )); then
+            echo "::error::PreRelease candidate $CANDIDATE has an even minor"
+            exit 1
+          fi
+          if [ "$CANDIDATE" = "$BASELINE" ] || [ "$(printf '%s\n%s\n' "$CANDIDATE" "$BASELINE" | sort -V | tail -1)" = "$BASELINE" ]; then
+            echo "::error::PreRelease promotion proposes $CANDIDATE but release/prerelease already carries $BASELINE"
+            exit 1
+          fi
+
+          # The retained record is the candidate authority every later job
+          # replays, so a merged promotion whose record does not name this exact
+          # intent is stale before release-please can consume it.
+          if ! git show "$EVENT_SHA:.github/plugin/release-candidate.json" | jq -e \
+            --arg version "$CANDIDATE" '
+              .version == $version and
+              (.sourceCommit | type == "string" and test("^[0-9a-f]{40}$"))
+            ' >/dev/null; then
+            echo "::error::release-candidate.json at $EVENT_SHA does not record $CANDIDATE with a full immutable source commit"
+            exit 1
+          fi
+
+          # release-please creates this tag next, and a tag is immutable, so a
+          # transport failure aborts under set -e instead of reporting the
+          # identity as available.
+          CANDIDATE_REF="refs/tags/prerelease-v$CANDIDATE"
+          OCCUPIED=$(git ls-remote origin "$CANDIDATE_REF")
+          if [ -n "$OCCUPIED" ]; then
+            echo "::error::$CANDIDATE_REF already exists; the PreRelease release identity is occupied"
+            exit 1
+          fi
+
+          echo "Merged promotion advances release/prerelease from $BASELINE to $CANDIDATE"
+
+      # A managed rerun recovers the release already created at this immutable
+      # merge commit, so this arm proves consumed intent and release parity
+      # without treating an existing identity as a failure.
+      - name: Validate managed release intent was consumed
+        if: ${{ steps.identity.outputs.mode == 'managed' }}
+        env:
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/trigger-validation"
+
+          # hve-core is public, so this origin access is intentionally
+          # credential free; the fetch below stops working if the repository
+          # ever becomes private.
+          git fetch --no-tags --depth 1 origin "$EVENT_SHA"
+          INTENT=$(git show "$EVENT_SHA:release-please-prerelease-config.json" | jq -r '.packages["."]["release-as"] // ""')
+          if [ -n "$INTENT" ]; then
+            echo "::error::Managed Pre-Release merge still carries release-as $INTENT"
+            exit 1
+          fi
+
+          VERSION=$(git show "$EVENT_SHA:.release-please-prerelease-manifest.json" | jq -r '.["."] // ""')
+          if [[ "$VERSION" == *$'\n'* || "$VERSION" == *$'\r'* || ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::.release-please-prerelease-manifest.json at $EVENT_SHA is not canonical MAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          VERSION_MINOR=${VERSION#*.}
+          VERSION_MINOR=${VERSION_MINOR%%.*}
+          if (( 10#$VERSION_MINOR % 2 == 0 )); then
+            echo "::error::Managed Pre-Release release $VERSION has an even minor"
+            exit 1
+          fi
+
+          echo "Managed Pre-Release merge is ready to tag prerelease-v$VERSION"
+
   release-please:
     name: Release Please on release/prerelease
+    needs: [validate-trigger]
     if: >
       github.event.pull_request.merged == true
       && github.event.pull_request.base.ref == 'release/prerelease'
@@ -58,15 +224,18 @@ jobs:
           manifest-file: .release-please-prerelease-manifest.json
           target-branch: release/prerelease
           # Only the managed release pull request tags. The reviewed promotion
-          # merge prepares metadata without creating a tag.
-          skip-github-release: ${{ github.event.pull_request.head.ref != 'release-please--branches--release/prerelease' }}
-          skip-github-pull-request: ${{ github.event.pull_request.head.ref == 'release-please--branches--release/prerelease' }}
+          # merge prepares metadata without creating a tag. The classification
+          # comes from validate-trigger, so the raw head ref is never
+          # reinterpreted after it was authorized.
+          skip-github-release: ${{ needs.validate-trigger.outputs.mode != 'managed' }}
+          skip-github-pull-request: ${{ needs.validate-trigger.outputs.mode == 'managed' }}
       - name: Validate release-please outputs
         id: release-pr
         env:
           EVENT_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           MERGED_HEAD: ${{ github.event.pull_request.head.ref }}
+          VALIDATED_MODE: ${{ needs.validate-trigger.outputs.mode }}
           PRS_CREATED: ${{ steps.release.outputs.prs_created }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}
           RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
@@ -90,7 +259,7 @@ jobs:
           # A promotion merge exists to prepare a release. No managed pull
           # request means either nothing changelog-visible was promoted or a
           # pending release interlock blocked preparation.
-          if [ "$MERGED_HEAD" != 'release-please--branches--release/prerelease' ] && [ -z "$branch" ]; then
+          if [ "$VALIDATED_MODE" = 'promotion' ] && [ -z "$branch" ]; then
             echo "::error::release-please prepared no release pull request for merged promotion $MERGED_HEAD; check for changelog-visible commits and any pending release interlock"
             exit 1
           fi
@@ -100,7 +269,7 @@ jobs:
           # commit is recovered into the job outputs from the manifest at that
           # commit rather than from the moving branch. validate-release keeps
           # sole ownership of tag-target and channel-state classification.
-          if [ "$MERGED_HEAD" = 'release-please--branches--release/prerelease' ] && [ "$RELEASE_CREATED" != 'true' ]; then
+          if [ "$VALIDATED_MODE" = 'managed' ] && [ "$RELEASE_CREATED" != 'true' ]; then
             RELEASE_VERSION=$(gh api \
               "/repos/$REPOSITORY/contents/.release-please-prerelease-manifest.json?ref=$EVENT_SHA" \
               --jq '.content' 2>/dev/null | base64 --decode | jq -r '.["."] // ""' || true)
@@ -363,13 +532,15 @@ jobs:
           git checkout --detach "$RELEASE_SHA"
       # A draft release is invisible to the workflow token, so classification
       # reads it through the release App token instead. Job permissions stay
-      # contents: read; App token capability is granted separately.
+      # contents: read, and the installation token requests contents: write
+      # because a draft release is only visible at that scope.
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v2.0.0
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
       # Release-please owns tag and release creation. A retry may only
       # reconcile a tag that already targets this managed merge and a release
       # whose channel state is compatible; every other state is terminal.
@@ -447,6 +618,9 @@ jobs:
       # so it is verified rather than rebuilt or clobbered. Incomplete evidence
       # is terminal; an explicitly missing Marketplace publication stays with
       # the existing manual dispatch outside this workflow.
+      - name: Setup PowerShell modules
+        if: ${{ steps.classify.outputs.release-state == 'published' }}
+        uses: ./.github/actions/setup-ps-modules
       - name: Verify published release assets
         if: ${{ steps.classify.outputs.release-state == 'published' }}
         env:
@@ -454,47 +628,50 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RELEASE_ID: ${{ steps.classify.outputs.release-id }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          REQUIRED_ASSETS: |
+            dependencies.spdx.json
+            plugin-release-evidence.json
         run: |
           set -euo pipefail
-          ASSETS=$(gh api --paginate "/repos/$REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
-          if [ -z "$ASSETS" ]; then
+          ASSET_INDEX="$RUNNER_TEMP/published-assets.tsv"
+          gh api --paginate "/repos/$REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+            --jq '.[] | [.id, .name] | @tsv' > "$ASSET_INDEX"
+          if [ ! -s "$ASSET_INDEX" ]; then
             echo "::error::published $RELEASE_TAG carries no release assets"
             exit 1
           fi
+          ASSET_NAMES="$RUNNER_TEMP/published-asset-names.txt"
+          cut -f2 "$ASSET_INDEX" > "$ASSET_NAMES"
+          REQUIRED_LIST="$RUNNER_TEMP/published-required-assets.txt"
+          printf '%s\n' "$REQUIRED_ASSETS" > "$REQUIRED_LIST"
 
-          INCOMPLETE=0
-          for required in 'dependencies.spdx.json' 'plugin-release-evidence.json'; do
-            if ! grep -Fxq -- "$required" <<<"$ASSETS"; then
-              echo "::error::published $RELEASE_TAG is missing required asset $required"
-              INCOMPLETE=1
-            fi
-          done
-
-          VSIX_COUNT=0
-          ZIP_COUNT=0
-          while IFS= read -r asset; do
-            case "$asset" in
-              *.vsix) VSIX_COUNT=$((VSIX_COUNT + 1)) ;;
-              *.zip) ZIP_COUNT=$((ZIP_COUNT + 1)) ;;
-              *) continue ;;
-            esac
-            for sidecar in "$asset.spdx.json" "$asset.sigstore.json" "$asset.intoto.jsonl"; do
-              if ! grep -Fxq -- "$sidecar" <<<"$ASSETS"; then
-                echo "::error::published $RELEASE_TAG is missing $sidecar for $asset"
-                INCOMPLETE=1
-              fi
-            done
-          done <<<"$ASSETS"
-
-          if [ "$VSIX_COUNT" -eq 0 ] || [ "$ZIP_COUNT" -eq 0 ]; then
-            echo "::error::published $RELEASE_TAG carries $VSIX_COUNT VSIX and $ZIP_COUNT plugin ZIP assets; both are required"
-            INCOMPLETE=1
-          fi
-          if [ "$INCOMPLETE" -ne 0 ]; then
-            echo "::error::published $RELEASE_TAG has incomplete release assets; reconcile it before rerunning"
+          # The evidence document names the exact plugin packages this release
+          # published, so it is read back through its own asset id instead of
+          # being reproduced from the working tree.
+          EVIDENCE_COUNT=$(awk -F'\t' '$2 == "plugin-release-evidence.json"' "$ASSET_INDEX" | wc -l)
+          if [ "$EVIDENCE_COUNT" -ne 1 ]; then
+            echo "::error::published $RELEASE_TAG carries $EVIDENCE_COUNT plugin-release-evidence.json assets; exactly one is required"
             exit 1
           fi
-          echo "Verified $VSIX_COUNT VSIX and $ZIP_COUNT plugin ZIP assets with complete sidecars on published $RELEASE_TAG"
+          EVIDENCE_ID=$(awk -F'\t' '$2 == "plugin-release-evidence.json" { print $1 }' "$ASSET_INDEX")
+          EVIDENCE_PATH="$RUNNER_TEMP/plugin-release-evidence.json"
+          gh api -H 'Accept: application/octet-stream' \
+            "/repos/$REPOSITORY/releases/assets/$EVIDENCE_ID" > "$EVIDENCE_PATH"
+
+          # Plugin ZIP and VSIX identities both come from the released catalog
+          # under the channel package policy, and the evidence document is
+          # reconciled against that catalog-derived set, so no expected count
+          # is maintained by hand and no single asset defines its own
+          # expectation.
+          pwsh -NoProfile -File ./scripts/release/Assert-ReleaseAssetSet.ps1 \
+            -AssetNamePath "$ASSET_NAMES" \
+            -EvidencePath "$EVIDENCE_PATH" \
+            -RequiredAssetPath "$REQUIRED_LIST" \
+            -CatalogPath .github/plugin/marketplace.json \
+            -Channel PreRelease \
+            -Version "$RELEASE_VERSION" \
+            -ReleaseTag "$RELEASE_TAG"
       - name: Verify committed pre-release state
         env:
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
@@ -547,6 +724,19 @@ jobs:
     needs:
       - validate-release
       - publish-release
+    # Ordinary runs close after publish-release succeeds. A published-state
+    # recovery skips that job, so an already-verified published release closes
+    # the milestone too. Every other publish-release result stays closed out.
+    if: >
+      !cancelled()
+      && needs.validate-release.result == 'success'
+      && (
+        needs.publish-release.result == 'success'
+        || (
+          needs.publish-release.result == 'skipped'
+          && needs.validate-release.outputs.release-state == 'published'
+        )
+      )
     uses: ./.github/workflows/release-close-milestone.yml
     with:
       version: ${{ needs.validate-release.outputs.version }}
