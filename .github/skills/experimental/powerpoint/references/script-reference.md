@@ -24,7 +24,7 @@ python scripts/build_deck.py \
   --output slide-deck/presentation.pptx
 ```
 
-Reads all `content/slide-*/content.yaml` files in numeric order and generates the complete deck. Executes `content-extra.py` files when present. Exit codes:
+Reads all `content/slide-*/content.yaml` files in numeric order and generates the complete deck. `content-extra.py` files are not executed unless `--allow-scripts` is passed; when one is present without that flag the build fails. Exit codes:
 
 * code 0: deck built successfully (`EXIT_SUCCESS`)
 * code 1: one or more slide-level build errors (`EXIT_FAILURE`)
@@ -260,7 +260,7 @@ python scripts/build_deck.py \
   --dry-run
 ```
 
-Validates content files without producing a PPTX. Parses all `content.yaml` files, checks for speaker notes, runs AST validation on `content-extra.py` scripts, and counts image assets. Exit codes:
+Validates content files without producing a PPTX. Parses all `content.yaml` files, checks for speaker notes, reports `content-extra.py` scripts, and counts image assets. Without `--allow-scripts`, a present `content-extra.py` is reported as refused and counts as an error; with it, the script is linted. Exit codes:
 
 * code 0: no errors found
 * code 1: one or more slide-level content errors (YAML parse failures, invalid scripts)
