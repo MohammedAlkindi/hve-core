@@ -130,7 +130,9 @@ See the [content-extra.py template](content-extra-py-template.md) for the full t
 
 ### Security Validation
 
-Before executing a `content-extra.py` file, the build script performs AST-based static analysis to reject dangerous code. Validation runs automatically unless the `--allow-scripts` flag is passed.
+`content-extra.py` execution is disabled by default. When a slide folder contains one and `--allow-scripts` is not passed, the build fails with an error naming the file. Pass `--allow-scripts` to authorize execution after reviewing the script.
+
+When execution is authorized, the build script performs AST-based static analysis before running the file and rejects the patterns below. This analysis is a lint that catches obvious mistakes early. It is not a security boundary: a blocked module reached through an alias is not detected, and `pathlib` and `open` are permitted. Authorization is the control.
 
 **Allowed imports:**
 
@@ -146,14 +148,13 @@ Before executing a `content-extra.py` file, the build script performs AST-based 
 
 * Dangerous: `eval`, `exec`, `__import__`, `compile`, `breakpoint`
 * Indirect bypass: `getattr`, `setattr`, `delattr`, `globals`, `locals`, `vars`
-
-**Runtime namespace restriction:**
-
-Even after AST validation passes, the executed module runs in a restricted namespace where `__builtins__` is limited to safe builtins only. The dangerous and indirect-bypass builtins listed above are removed from the module namespace before execution (`__import__` is kept because the import machinery requires it; the AST checker blocks direct `__import__()` calls).
+* Attribute-form calls onto `builtins`, `os`, `sys`, `subprocess`, and `importlib` (for example `builtins.eval(...)`)
 
 **`--allow-scripts` flag:**
 
-Pass `--allow-scripts` to skip AST validation and namespace restriction for trusted content. This flag is required when a `content-extra.py` script legitimately needs blocked imports or builtins.
+Pass `--allow-scripts` to authorize execution of `content-extra.py` files. Without it, a present script fails the build rather than being skipped, so a deck never silently loses custom drawings. The flag authorizes execution; it does not skip the lint.
+
+This is a behavior change. A deck that previously built with a `content-extra.py` present now requires `--allow-scripts`, and a script relying on a blocked import no longer has a bypass.
 
 ```bash
 python scripts/build_deck.py \
