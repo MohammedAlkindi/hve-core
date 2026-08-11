@@ -22,6 +22,15 @@
 .PARAMETER Quiet
     Suppress non-error output from markdown-link-check.
 
+.PARAMETER ChangedFilesOnly
+    Restrict validation to Markdown files changed relative to BaseBranch.
+
+.PARAMETER BaseBranch
+    Branch reference used by -ChangedFilesOnly to compute the changed-file set.
+
+.PARAMETER ThrottleLimit
+    Maximum number of files checked concurrently.
+
 .EXAMPLE
     # Validate all markdown files in default paths
     ./Markdown-Link-Check.ps1
@@ -29,6 +38,10 @@
 .EXAMPLE
     # Validate specific path with verbose output
     ./Markdown-Link-Check.ps1 -Path ".github" -Quiet:$false
+
+.EXAMPLE
+    # Validate only markdown files changed against the default base branch
+    ./Markdown-Link-Check.ps1 -ChangedFilesOnly
     #>
 
 [CmdletBinding()]
@@ -41,7 +54,14 @@ param(
 
     [string]$ConfigPath = (Join-Path -Path $PSScriptRoot -ChildPath 'markdown-link-check.config.json'),
 
-    [switch]$Quiet
+    [switch]$Quiet,
+
+    [switch]$ChangedFilesOnly,
+
+    [string]$BaseBranch = 'origin/main',
+
+    [ValidateRange(1, 32)]
+    [int]$ThrottleLimit = 8
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,11 +83,21 @@ function Get-MarkdownTarget {
     .PARAMETER InputPath
         Files or directories that may contain Markdown content.
 
+    .PARAMETER ChangedFilesOnly
+        Restrict the result to Markdown files changed relative to BaseBranch.
+
+    .PARAMETER BaseBranch
+        Branch reference used to compute the changed-file set.
+
     .OUTPUTS
         System.String[]
     #>
     param(
-        [string[]]$InputPath
+        [string[]]$InputPath,
+
+        [switch]$ChangedFilesOnly,
+
+        [string]$BaseBranch = 'origin/main'
     )
 
     $targets = @()
@@ -75,6 +105,9 @@ function Get-MarkdownTarget {
 
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Not in a git repository, falling back to file system search"
+        if ($ChangedFilesOnly) {
+            Write-Warning "Changed-files-only mode requires a git repository; scanning all Markdown files"
+        }
         # Fallback to original implementation if not in git repo
         foreach ($item in $InputPath) {
             if ([string]::IsNullOrWhiteSpace($item)) {
@@ -104,6 +137,17 @@ function Get-MarkdownTarget {
     Write-Verbose "Searching for tracked and untracked, nonignored markdown files..."
     Write-Verbose "Repository root: $repoRoot"
 
+    # Repo-relative changed-file allowlist; $null means "no changed-file filtering".
+    $changedSet = $null
+    if ($ChangedFilesOnly) {
+        $changedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($changed in @(Get-ChangedFilesFromGit -BaseBranch $BaseBranch -FileExtensions @('*.md'))) {
+            [void]$changedSet.Add(($changed -replace '\\', '/'))
+        }
+
+        Write-Verbose "Changed markdown files detected against ${BaseBranch}: $($changedSet.Count)"
+    }
+
     # Git-aware implementation
     foreach ($item in $InputPath) {
         if ([string]::IsNullOrWhiteSpace($item)) {
@@ -121,7 +165,9 @@ function Get-MarkdownTarget {
             }
 
             if ($listed -and $item -like "*.md") {
-                $targets += $absolutePath
+                if ($null -eq $changedSet -or $changedSet.Contains($relativePath)) {
+                    $targets += $absolutePath
+                }
             }
             elseif (-not $listed) {
                 Write-Warning "File is ignored by git: $item"
@@ -148,7 +194,8 @@ function Get-MarkdownTarget {
                 Where-Object { $prefix -eq '' -or $_.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) } |
                 Where-Object { $_ -notlike 'scripts/tests/*fixtures/*' } |
                 # Generated output; 490 of its 504 markdown files symlink to sources already checked.
-                Where-Object { $_ -notlike 'plugins/*' }
+                Where-Object { $_ -notlike 'plugins/*' } |
+                Where-Object { $null -eq $changedSet -or $changedSet.Contains($_) }
 
             if ($trackedFiles) {
                 foreach ($file in $trackedFiles) {
@@ -211,17 +258,33 @@ function Invoke-MarkdownLinkCheck {
     param(
         [string[]]$Path,
         [string]$ConfigPath,
-        [switch]$Quiet
+        [switch]$Quiet,
+        [switch]$ChangedFilesOnly,
+        [string]$BaseBranch = 'origin/main',
+        [int]$ThrottleLimit = 8
     )
 
     $scriptRootParent = Split-Path -Path $PSScriptRoot -Parent
     $repoRootPath = Split-Path -Path $scriptRootParent -Parent
     $repoRoot = Resolve-Path -LiteralPath $repoRootPath
     $config = Resolve-Path -LiteralPath $ConfigPath -ErrorAction Stop
-    $filesToCheck = @(Get-MarkdownTarget -InputPath $Path)
+
+    $targetParams = @{ InputPath = $Path }
+    if ($ChangedFilesOnly) {
+        $targetParams['ChangedFilesOnly'] = $true
+        $targetParams['BaseBranch'] = $BaseBranch
+    }
+
+    $filesToCheck = @(Get-MarkdownTarget @targetParams)
 
     if (-not $filesToCheck -or @($filesToCheck).Count -eq 0) {
-        throw 'No markdown files were found to validate.'
+        # An empty changed-file set is the expected outcome for pull requests that
+        # touch no Markdown, so it reports a clean run instead of failing.
+        if (-not $ChangedFilesOnly) {
+            throw 'No markdown files were found to validate.'
+        }
+
+        Write-Output 'No changed markdown files to validate.'
     }
 
     $cli = Join-Path -Path $repoRoot.Path -ChildPath 'node_modules/.bin/markdown-link-check'
@@ -242,27 +305,33 @@ function Invoke-MarkdownLinkCheck {
     $brokenLinks = @()
     $totalLinks = 0
     $totalFiles = $filesToCheck.Count
+    $rootPath = $repoRoot.Path
 
-    Push-Location $repoRoot.Path
+    Push-Location $rootPath
     try {
-        foreach ($file in $filesToCheck) {
-            $absolute = Resolve-Path -LiteralPath $file
-            $relative = [System.IO.Path]::GetRelativePath($repoRoot.Path, $absolute)
-            Write-Output "Checking $relative"
+        $relativeTargets = @($filesToCheck | ForEach-Object {
+            [System.IO.Path]::GetRelativePath($rootPath, (Resolve-Path -LiteralPath $_))
+        })
+
+        # Each file is an independent CLI invocation, so they run concurrently and
+        # every result is aggregated serially afterwards to keep output ordered and
+        # to keep CI annotations on the caller's runspace.
+        $fileResults = @($relativeTargets | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+            Set-Location -LiteralPath $using:rootPath
+            $relative = $_
 
             # Create temp file for XML output
             $xmlFile = [System.IO.Path]::GetTempFileName() + '.xml'
+            $links = @()
+            $output = $null
+            $exitCode = 0
+            $parseFailed = $false
             try {
-                $commandArgs = $baseArguments + @($relative, '--reporters', 'default,junit', '--junit-output', $xmlFile)
+                $commandArgs = $using:baseArguments + @($relative, '--reporters', 'default,junit', '--junit-output', $xmlFile)
 
                 # Run markdown-link-check with XML output and capture output
-                $output = & $cli @commandArgs 2>&1
+                $output = & $using:cli @commandArgs 2>&1
                 $exitCode = $LASTEXITCODE
-
-                # Display output if verbose mode or if there were errors
-                if ($VerbosePreference -eq 'Continue' -or $exitCode -ne 0) {
-                    Write-Host $output
-                }
 
                 # Parse XML output
                 if (Test-Path $xmlFile) {
@@ -270,59 +339,79 @@ function Invoke-MarkdownLinkCheck {
 
                     foreach ($testsuite in $xml.testsuites.testsuite) {
                         foreach ($testcase in $testsuite.testcase) {
-                            $totalLinks++
-
-                            # Extract properties
-                            $url = ($testcase.properties.property | Where-Object { $_.name -eq 'url' }).value
-                            $status = ($testcase.properties.property | Where-Object { $_.name -eq 'status' }).value
-                            $statusCode = ($testcase.properties.property | Where-Object { $_.name -eq 'statusCode' }).value
-
-                            # Display human-readable output if not quiet
-                            if (-not $Quiet) {
-                                if ($status -eq 'alive') {
-                                    Write-Host "  ✓ $url" -ForegroundColor Green
-                                }
-                                elseif ($status -eq 'ignored') {
-                                    Write-Host "  / $url (ignored)" -ForegroundColor Yellow
-                                }
-                                elseif ($status -eq 'dead') {
-                                    Write-Host "  ✖ $url → Status: $statusCode" -ForegroundColor Red
-                                }
-                            }
-
-                            # Process broken links
-                            if ($status -eq 'dead') {
-                                $brokenLinks += @{
-                                    File = $relative
-                                    Link = $url
-                                    Status = "$statusCode"
-                                }
-
-                                Write-CIAnnotation -Message "Broken link: $url (Status: $statusCode)" -Level Error -File $relative
+                            $links += [pscustomobject]@{
+                                Url        = ($testcase.properties.property | Where-Object { $_.name -eq 'url' }).value
+                                Status     = ($testcase.properties.property | Where-Object { $_.name -eq 'status' }).value
+                                StatusCode = ($testcase.properties.property | Where-Object { $_.name -eq 'statusCode' }).value
                             }
                         }
                     }
                 }
-
-                if ($exitCode -ne 0) {
-                    $failedFiles += $relative
-                }
             }
             catch {
                 Write-Warning "Failed to parse XML output for $relative : $_"
-                if ($failedFiles -notcontains $relative) {
-                    $failedFiles += $relative
-                }
+                $parseFailed = $true
             }
             finally {
                 if (Test-Path $xmlFile) {
                     Remove-Item $xmlFile -Force
                 }
             }
-        }
+
+            [pscustomobject]@{
+                File        = $relative
+                ExitCode    = $exitCode
+                Links       = $links
+                Output      = $output
+                ParseFailed = $parseFailed
+            }
+        })
     }
     finally {
         Pop-Location
+    }
+
+    foreach ($fileResult in ($fileResults | Sort-Object -Property File)) {
+        $relative = $fileResult.File
+        Write-Output "Checking $relative"
+
+        # Display output if verbose mode or if there were errors
+        if (($VerbosePreference -eq 'Continue' -or $fileResult.ExitCode -ne 0) -and $null -ne $fileResult.Output) {
+            Write-Host $fileResult.Output
+        }
+
+        foreach ($link in $fileResult.Links) {
+            $totalLinks++
+
+            # Display human-readable output if not quiet
+            if (-not $Quiet) {
+                if ($link.Status -eq 'alive') {
+                    Write-Host "  ✓ $($link.Url)" -ForegroundColor Green
+                }
+                elseif ($link.Status -eq 'ignored') {
+                    Write-Host "  / $($link.Url) (ignored)" -ForegroundColor Yellow
+                }
+                elseif ($link.Status -eq 'dead') {
+                    Write-Host "  ✖ $($link.Url) → Status: $($link.StatusCode)" -ForegroundColor Red
+                }
+            }
+
+            # Process broken links
+            if ($link.Status -eq 'dead') {
+                $brokenLinks += @{
+                    File = $relative
+                    Link = $link.Url
+                    Status = "$($link.StatusCode)"
+                }
+
+                Write-CIAnnotation -Message "Broken link: $($link.Url) (Status: $($link.StatusCode))" -Level Error -File $relative
+            }
+        }
+
+        # A malformed report is treated as a failure even when the CLI exits zero.
+        if (($fileResult.ExitCode -ne 0 -or $fileResult.ParseFailed) -and $failedFiles -notcontains $relative) {
+            $failedFiles += $relative
+        }
     }
 
     # Create logs directory and export results
@@ -406,7 +495,8 @@ Great job! All markdown links are valid. 🎉
 #region Main Execution
 if ($MyInvocation.InvocationName -ne '.') {
     try {
-        Invoke-MarkdownLinkCheck -Path $Path -ConfigPath $ConfigPath -Quiet:$Quiet
+        Invoke-MarkdownLinkCheck -Path $Path -ConfigPath $ConfigPath -Quiet:$Quiet `
+            -ChangedFilesOnly:$ChangedFilesOnly -BaseBranch $BaseBranch -ThrottleLimit $ThrottleLimit
         exit 0
     }
     catch {
