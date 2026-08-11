@@ -6,7 +6,7 @@ compatibility: 'Requires Python 3.11+, uv, and the experimental powerpoint skill
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-08-09"
+  last_updated: "2026-08-10"
 ---
 
 # Customer Card Render Skill
@@ -151,11 +151,11 @@ For complete mapping details, see [references/mapping-spec.md](references/mappin
 
 ## Troubleshooting
 
-| Issue                           | Cause                                     | Solution                                                                                 |
-|---------------------------------|-------------------------------------------|------------------------------------------------------------------------------------------|
-| `uv` not found                  | uv not installed                          | Run `curl -LsSf https://astral.sh/uv/install.sh \| sh` (macOS/Linux) or `pip install uv` |
-| Python not found by uv          | No Python 3.11+ on PATH                   | Run `uv python install 3.11`                                                             |
-| Template not found              | `--canonical-dir` contains unknown type   | Check frontmatter `type:` field against supported artifact types                         |
-| Empty output directory          | No canonical markdown files found         | Confirm `--canonical-dir` path and that files have `---` frontmatter                     |
-| PPTX build fails after generate | PowerPoint skill missing or not activated | Activate the `powerpoint` skill by name and confirm it resolves                          |
+| Issue                           | Cause                                     | Solution                                                                                                                 |
+|---------------------------------|-------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
+| `uv` not found                  | uv not installed                          | Run `curl -LsSf https://astral.sh/uv/install.sh \| sh` (macOS/Linux) or `pip install uv`                                 |
+| Python not found by uv          | No Python 3.11+ on PATH                   | Run `uv python install 3.11`                                                                                             |
+| Template not found              | `--canonical-dir` contains unknown type   | Check frontmatter `type:` field against supported artifact types                                                         |
+| Empty output directory          | No canonical markdown files found         | Confirm `--canonical-dir` path and that files have `---` frontmatter                                                     |
+| PPTX build fails after generate | PowerPoint skill missing or not activated | Activate the `powerpoint` skill by name. When its content does not arrive, stop and report the build step as unavailable |
 

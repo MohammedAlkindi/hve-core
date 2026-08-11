@@ -133,9 +133,11 @@ Create `.vscode/mcp.json` using ONLY the templates below. Use HTTP type with man
 
 ```json
 {
-  "github": {
-    "type": "http",
-    "url": "https://api.githubcopilot.com/mcp/"
+  "servers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    }
   }
 }
 ```
@@ -172,10 +174,12 @@ Create `.vscode/mcp.json` using ONLY the templates below. Use HTTP type with man
 
 ```json
 {
-  "context7": {
-    "type": "stdio",
-    "command": "npx",
-    "args": ["-y", "@upstash/context7-mcp"]
+  "servers": {
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
   }
 }
 ```
@@ -184,9 +188,11 @@ Create `.vscode/mcp.json` using ONLY the templates below. Use HTTP type with man
 
 ```json
 {
-  "microsoft-docs": {
-    "type": "http",
-    "url": "https://learn.microsoft.com/api/mcp"
+  "servers": {
+    "microsoft-docs": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    }
   }
 }
 ```
@@ -195,9 +201,11 @@ Create `.vscode/mcp.json` using ONLY the templates below. Use HTTP type with man
 
 ```json
 {
-  "figma": {
-    "type": "http",
-    "url": "https://mcp.figma.com/mcp"
+  "servers": {
+    "figma": {
+      "type": "http",
+      "url": "https://mcp.figma.com/mcp"
+    }
   }
 }
 ```

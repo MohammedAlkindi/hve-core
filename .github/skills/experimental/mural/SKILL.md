@@ -6,7 +6,7 @@ compatibility: 'Requires Python 3.11+ and a Mural OAuth app'
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-08-09"
+  last_updated: "2026-08-10"
 ---
 
 # Mural Skill
@@ -100,7 +100,7 @@ Devcontainer decision tree:
 * **Remote-SSH**: set `MURAL_CREDENTIAL_BACKEND=file` unless a SecretService daemon is configured on the remote host.
 * **WSL2**: leave `MURAL_CREDENTIAL_BACKEND=auto` when WSLg + SecretService is installed; otherwise set `MURAL_CREDENTIAL_BACKEND=file`.
 
-See the Mural Credentials guide under the repository documentation tree (`docs/agents/mural/credentials.md`) for backend selection rules, the bootstrap walkthrough, devcontainer recipes, troubleshooting, migration, and the security model. When that guide is unavailable, say so and fall back to the backend-selection rules stated above rather than guessing at bootstrap steps.
+See the Mural Credentials guide for backend selection rules, the bootstrap walkthrough, devcontainer recipes, troubleshooting, migration, and the security model. In this repository that guide is at `docs/agents/mural/credentials.md`; that path is repository-only and does not resolve in a plugin or extension install. When the guide is unavailable, say so and fall back to the backend-selection rules stated above rather than guessing at bootstrap steps.
 
 ## Authentication
 

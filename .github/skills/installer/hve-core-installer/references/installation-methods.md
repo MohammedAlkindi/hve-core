@@ -158,6 +158,7 @@ Add to devcontainer.json:
     "vscode": {
       "settings": {
         "chat.agentFilesLocations": {
+          "/workspaces/hve-core/.github/agents/accessibility": true,
           "/workspaces/hve-core/.github/agents/ado": true,
           "/workspaces/hve-core/.github/agents/coding-standards": true,
           "/workspaces/hve-core/.github/agents/data-science": true,
@@ -169,8 +170,9 @@ Add to devcontainer.json:
           "/workspaces/hve-core/.github/agents/security": true
         },
         "chat.promptFilesLocations": {
+          "/workspaces/hve-core/.github/prompts/accessibility": true,
           "/workspaces/hve-core/.github/prompts/ado": true,
-          "/workspaces/hve-core/.github/prompts/coding-standards": true,
+          "/workspaces/hve-core/.github/prompts/data-science": true,
           "/workspaces/hve-core/.github/prompts/design-thinking": true,
           "/workspaces/hve-core/.github/prompts/github": true,
           "/workspaces/hve-core/.github/prompts/hve-core": true,
@@ -181,6 +183,7 @@ Add to devcontainer.json:
           "/workspaces/hve-core/.github/instructions/coding-standards": true,
           "/workspaces/hve-core/.github/instructions/github": true,
           "/workspaces/hve-core/.github/instructions/hve-core": true,
+          "/workspaces/hve-core/.github/instructions/project-planning": true,
           "/workspaces/hve-core/.github/instructions/shared": true
         },
         "chat.agentSkillsLocations": {
@@ -189,6 +192,7 @@ Add to devcontainer.json:
           "/workspaces/hve-core/.github/skills/design-thinking": true,
           "/workspaces/hve-core/.github/skills/project-planning": true,
           "/workspaces/hve-core/.github/skills/rai": true,
+          "/workspaces/hve-core/.github/skills/rpi": true,
           "/workspaces/hve-core/.github/skills/security": true,
           "/workspaces/hve-core/.github/skills/shared": true
         },
