@@ -75,6 +75,50 @@ Describe 'Get-MarkdownTarget' -Tag 'Unit' {
         }
     }
 
+    Context 'Changed-files-only filtering' {
+        BeforeEach {
+            Set-Content -Path (Join-Path $script:TempDir 'changed.md') -Value '# Changed'
+            Set-Content -Path (Join-Path $script:TempDir 'unchanged.md') -Value '# Unchanged'
+
+            Mock git {
+                if ($args -contains 'rev-parse') {
+                    $global:LASTEXITCODE = 0
+                    return $script:TempDir
+                }
+                elseif ($args -contains 'ls-files') {
+                    $global:LASTEXITCODE = 0
+                    return @('changed.md', 'unchanged.md')
+                }
+            }
+        }
+
+        It 'Restricts targets to markdown files reported as changed' {
+            Mock Get-ChangedFilesFromGit { @('changed.md') }
+
+            $result = @(Get-MarkdownTarget -InputPath $script:TempDir -ChangedFilesOnly -BaseBranch 'origin/main')
+
+            $result.Count | Should -Be 1
+            [System.IO.Path]::GetFileName($result[0]) | Should -Be 'changed.md'
+        }
+
+        It 'Returns no targets when no markdown files changed' {
+            Mock Get-ChangedFilesFromGit { @() }
+
+            $result = @(Get-MarkdownTarget -InputPath $script:TempDir -ChangedFilesOnly)
+
+            $result.Count | Should -Be 0
+        }
+
+        It 'Returns every discovered file when the switch is absent' {
+            Mock Get-ChangedFilesFromGit { @('changed.md') }
+
+            $result = @(Get-MarkdownTarget -InputPath $script:TempDir)
+
+            $result.Count | Should -Be 2
+            Should -Invoke Get-ChangedFilesFromGit -Times 0 -Exactly
+        }
+    }
+
     Context 'Non-git fallback mode' {
         BeforeEach {
             # Create test files
@@ -395,7 +439,8 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
     Context 'Malformed report handling' {
         It 'Marks XML parsing failures as file failures regardless of the CLI exit code' {
             $src = Get-Content (Join-Path $PSScriptRoot '../../linting/Markdown-Link-Check.ps1') -Raw
-            $src | Should -Match '(?s)catch\s*\{\s*Write-Warning "Failed to parse XML output.*?\$failedFiles \+= \$relative'
+            $src | Should -Match '(?s)catch\s*\{\s*Write-Warning "Failed to parse XML output.*?\$parseFailed = \$true'
+            $src | Should -Match '(?s)\$fileResult\.ParseFailed.*?\$failedFiles \+= \$relative'
         }
     }
 }
