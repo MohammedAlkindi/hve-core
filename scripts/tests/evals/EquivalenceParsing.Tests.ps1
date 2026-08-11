@@ -358,7 +358,8 @@ Describe 'Measure-AgentInvocationEvidence' -Tag 'Unit' {
                 [int]$Trial = 0,
                 [string]$Path = '/tmp/trial/.github/agents/hve-core/rpi-agent.agent.md',
                 [bool]$Success = $true,
-                [string]$Content = "---`nname: RPI Agent`n---`n# RPI Agent"
+                [string]$Content = "---`nname: RPI Agent`n---`n# RPI Agent",
+                [string]$ToolName = 'view'
             )
 
             return [ordered]@{
@@ -371,7 +372,7 @@ Describe 'Measure-AgentInvocationEvidence' -Tag 'Unit' {
                         [ordered]@{
                             type = 'tool_call'
                             data = [ordered]@{
-                                toolName   = 'view'
+                                toolName   = $ToolName
                                 toolCallId = "call-$Stimulus-$Trial"
                                 arguments  = [ordered]@{ path = $Path }
                             }
@@ -379,7 +380,7 @@ Describe 'Measure-AgentInvocationEvidence' -Tag 'Unit' {
                         [ordered]@{
                             type = 'tool_result'
                             data = [ordered]@{
-                                toolName   = 'view'
+                                toolName   = $ToolName
                                 toolCallId = "call-$Stimulus-$Trial"
                                 success    = $Success
                                 result     = [ordered]@{ content = $Content }
@@ -417,6 +418,30 @@ Describe 'Measure-AgentInvocationEvidence' -Tag 'Unit' {
         $record = New-InvocationRecord
         $record.Remove('trialIndex')
         $record['itemId'] = 'spec::main::gpt-5.6-luna::stim-1::trial-0'
+        $root = Write-InvocationRun -Records @($record)
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Observed | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeTrue
+    }
+
+    It 'Accepts a Vally 0.12 shell reader when the correlated result returns agent content' {
+        $record = New-InvocationRecord -ToolName 'bash'
+        $record.trajectory.events[0].data.arguments = @{
+            command = "sed -n '1,240p' /tmp/trial/.github/agents/hve-core/rpi-agent.agent.md"
+        }
+        $root = Write-InvocationRun -Records @($record)
+        $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
+
+        $result.Observed | Should -Be 1
+        $result.HasCompleteEvidence | Should -BeTrue
+    }
+
+    It 'Accepts delegated exact-path evidence when the correlated result returns agent content' {
+        $record = New-InvocationRecord -ToolName 'task'
+        $record.trajectory.events[0].data.arguments = @{
+            prompt = 'Read .github/agents/hve-core/rpi-agent.agent.md and return its contents.'
+        }
         $root = Write-InvocationRun -Records @($record)
         $result = Measure-AgentInvocationEvidence -RunDir $root -StimulusNames @('stim-1')
 

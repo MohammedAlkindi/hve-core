@@ -510,7 +510,7 @@ function Get-EquivalenceQuestion {
         return @{ Question = ''; Error = 'Customized stimuli must declare exactly two turns and no prompt.' }
     }
 
-    $expectedLaunch = 'Launch .github/agents/hve-core/rpi-agent.agent.md'
+    $expectedLaunch = 'Launch .github/agents/hve-core/rpi-agent.agent.md. Read the complete agent file before continuing; if a file view fails, use the shell to read it.'
     if ([string]$turns[0] -ne $expectedLaunch) {
         return @{ Question = ''; Error = "Customized stimulus launch turn must be '$expectedLaunch'." }
     }

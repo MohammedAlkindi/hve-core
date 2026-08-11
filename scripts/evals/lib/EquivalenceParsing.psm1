@@ -301,7 +301,9 @@ function Measure-AgentInvocationEvidence {
         A staged agent file is not evidence that the model loaded it. This parser
         requires one successful structured read per expected stimulus and trial. The
         tool call must target the exact staged agent path, the correlated result must
-        succeed, and returned content must identify the RPI Agent artifact.
+        succeed, and returned content must identify the RPI Agent artifact. The tool
+        name is not restricted because Vally 0.12 can satisfy the same read through
+        view, shell readers, search tools, or a delegated tool.
 
         Missing, duplicate, failed, wrong-path, and malformed evidence is counted so
         callers can fail closed instead of treating absence as successful delivery.
@@ -409,9 +411,7 @@ function Measure-AgentInvocationEvidence {
                     else { '' }
                     $normalizedArguments = $arguments -replace '\\\\', '/'
                     $mentionsAgent = $normalizedArguments -match [regex]::Escape($normalizedAgentPath)
-                    $isRead = ([string]$trajectoryEvent.data.toolName -eq 'view') -or
-                        ($normalizedArguments -match '(?i)(Get-Content|\bcat\b|\bhead\b)')
-                    if ($mentionsAgent -and $isRead -and $trajectoryEvent.data.PSObject.Properties['toolCallId']) {
+                    if ($mentionsAgent -and $trajectoryEvent.data.PSObject.Properties['toolCallId']) {
                         $candidateCalls[[string]$trajectoryEvent.data.toolCallId] = $true
                     }
                     elseif ($normalizedArguments -match 'rpi-agent\.agent\.md' -and -not $mentionsAgent) {
