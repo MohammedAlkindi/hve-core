@@ -12,6 +12,12 @@ test.use({ contextOptions: { forcedColors: 'active' } });
 test.describe('Forced-colors accessibility regression locks', () => {
   for (const { name, path } of PAGES) {
     test(`${name} passes an axe scan in forced-colors mode`, async ({ page }) => {
+      // An axe scan is a single CPU-bound `page.evaluate` over the whole
+      // document, so its cost depends on machine load rather than on this
+      // page. `site-crawl.spec.ts` already budgets 60s for the same work; this
+      // suite did the same scan at the default 30s and sat close enough to the
+      // limit to time out when the suite ran heavier.
+      test.setTimeout(60000);
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       await waitForHydration(page);
 

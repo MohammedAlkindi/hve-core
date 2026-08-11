@@ -36,6 +36,10 @@ test.describe('Color mode toggle', () => {
   });
 
   test('dark theme doc page passes an axe scan', async ({ page }) => {
+    // Budgeted to match `site-crawl.spec.ts`, which already allows 60s for an
+    // axe scan. The scan is one CPU-bound `page.evaluate`, so its duration
+    // tracks overall machine load rather than this page's complexity.
+    test.setTimeout(60000);
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto('/hve-core/docs/getting-started/', {
       waitUntil: 'domcontentloaded',

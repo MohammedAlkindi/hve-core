@@ -67,6 +67,46 @@ test.describe('Reflow at 320 CSS px (WCAG 1.4.10)', () => {
   }
 });
 
+// The navbar brand is global chrome, identical on every page, so these checks
+// use one representative page per width rather than the full PAGES matrix.
+const BRAND_PAGE = PAGES[0];
+
+// WCAG 4.1.2 Name, Role, Value: below 421 CSS px the wordmark is taken out of
+// layout so the absolutely-positioned search field has room. The rule uses the
+// clip pattern precisely so the brand link keeps its accessible name; swapping
+// it for `display: none` or `visibility: hidden` would remove the wordmark from
+// the accessibility tree and leave the brand named only by the logo's alt text.
+// Every other assertion in this file is geometric and stays green under that
+// substitution, because an element removed from layout occupies no space either
+// way. This block is the only thing standing between that edit and a silent
+// regression.
+for (const width of [320, 420]) {
+  test.describe(`Navbar brand accessible name at ${width} CSS px (WCAG 4.1.2)`, () => {
+    test.use({ viewport: { width, height: 856 } });
+
+    test(`brand link is still reachable by its accessible name`, async ({ page }) => {
+      await visitInvariantPage(page, BRAND_PAGE);
+
+      // Resolve by role and name rather than by class, so the assertion fails
+      // when the wordmark leaves the accessibility tree even though the element
+      // is still in the DOM.
+      const brand = page.getByRole('banner').getByRole('link', { name: /HVE Core/i });
+      await expect(brand).toHaveCount(1);
+      await expect(brand).toHaveAttribute('href', '/hve-core/');
+
+      // Scoped to `.navbar__inner` because hydration adds a second, duplicate
+      // `.navbar__brand` inside the closed `.navbar-sidebar` drawer. That copy
+      // is hidden, so it carries no accessible name and the role query above
+      // already ignores it; this selector keeps the structural assertion
+      // unambiguous. Locating structurally and then asserting the name is what
+      // makes this non-circular: the element is found whether or not it is
+      // named, and only the name assertion fails when the wordmark is dropped
+      // from the accessibility tree.
+      await expect(page.locator('.navbar__inner a.navbar__brand')).toHaveAccessibleName(/HVE Core/i);
+    });
+  });
+}
+
 // WCAG 1.4.4 Resize Text: at the default viewport, enlarging text to 200% must
 // not clip or obscure primary content. Font-size is reset after each assertion
 // so the shared page state does not leak between checks.

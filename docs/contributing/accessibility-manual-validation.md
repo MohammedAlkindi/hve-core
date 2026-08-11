@@ -2,7 +2,7 @@
 title: HVE Core docs accessibility manual validation
 description: Per-behavior manual validation steps for the HVE Core documentation site accessibility fixes, paired with the shared real screen reader testing procedure.
 author: Microsoft
-ms.date: 2026-07-30
+ms.date: 2026-08-09
 ms.topic: how-to
 sidebar_position: 2
 keywords:
@@ -36,24 +36,33 @@ Each item below is grouped into a validation workstream, names the WCAG success 
 
 Use the register below to connect each validated behavior to its WCAG success criterion, the workstream or workstreams that exercise it, the automation coverage status, and the manual result recorded for each workstream. Behaviors are named by what they verify so this guide stays readable without access to an issue tracker.
 
-| Behavior                         | WCAG SC | Workstream(s) | Automated lock status                                                                | Per-workstream manual result       |
-|----------------------------------|---------|---------------|--------------------------------------------------------------------------------------|------------------------------------|
-| Search keyboard reachability     | 2.1.1   | W1            | Automated: keyboard reachability lock                                                | Record per run                     |
-| Search popup is not a focus trap | 2.1.2   | W1            | Automated: Tab and Shift+Tab leave the widget without navigating                     | Record per run                     |
-| Focus order                      | 2.4.3   | W4            | Automated: focus-order lock                                                          | Record per run                     |
-| Search placeholder at zoom       | 1.4.4   | W3            | Automated: zoom matrix at 100-250 percent; Edge remains manual-authoritative         | Record per run                     |
-| Narrow-viewport brand overlap    | 1.4.10  | W3            | Automated: reflow lock plus narrow-viewport brand overlap lock                       | Record per run                     |
-| Table and structure semantics    | 1.3.1   | W5, W7        | Automated: table and structure lock                                                  | Record per run for each workstream |
-| Search clear button name         | 4.1.2   | W1, W5        | Automated: clear-button accessible name lock; spoken output remains manual           | Record per run for each workstream |
-| Search result count announced    | 4.1.3   | W2            | Automated: status region presence and text; spoken announcement is a manual boundary | Record per run                     |
-| Heading outline                  | 1.3.1   | W6            | Automated: heading-outline lock                                                      | Record per run                     |
-| Header-cell association          | 1.3.1   | W5            | Automated: structure boundary; spoken association remains manual                     | Record per run                     |
-| Group label association          | 1.3.1   | W5            | Automated: structure boundary; spoken group label remains manual                     | Record per run                     |
-| Non-color link cue               | 1.4.1   | W6            | Automated: every prose link carries a non-color cue                                  | Record per run                     |
-| Focus indicator thickness        | 2.4.7   | W6            | Automated: focus indicator at least 2 CSS px on every focusable                      | Record per run                     |
+| Behavior                           | WCAG SC       | Workstream(s) | Automated lock status                                                                                                                     | Per-workstream manual result       |
+|------------------------------------|---------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
+| Search keyboard reachability       | 2.1.1         | W1            | Automated: keyboard reachability lock                                                                                                     | Record per run                     |
+| Search popup is not a focus trap   | 2.1.2         | W1            | Automated: Tab and Shift+Tab leave the widget without navigating                                                                          | Record per run                     |
+| Focus order                        | 2.4.3         | W4            | Automated: focus-order lock                                                                                                               | Record per run                     |
+| Sidebar category disclosure        | 4.1.2         | W4            | Automated: one native button per category header, no header link, `aria-expanded` tracks state, Enter and Space toggle without navigating | Record per run                     |
+| Sidebar category landing reachable | 2.4.3         | W4            | Automated: every linked category exposes its own landing route as its first child link                                                    | Record per run                     |
+| Search placeholder at zoom         | 1.4.4         | W3            | Automated: zoom matrix at 100-250 percent; Edge remains manual-authoritative                                                              | Record per run                     |
+| Narrow-viewport brand overlap      | 1.4.10        | W3            | Automated: reflow lock plus narrow-viewport brand overlap lock                                                                            | Record per run                     |
+| Narrow-viewport brand name         | 4.1.2         | W3            | Automated: brand link resolves by accessible name at 320 and 420 CSS px where the wordmark is visually clipped                            | Record per run                     |
+| Table and structure semantics      | 1.3.1         | W5, W7        | Automated: table and structure lock                                                                                                       | Record per run for each workstream |
+| Search clear button name           | 4.1.2         | W1, W5        | Automated: clear-button accessible name lock; spoken output remains manual                                                                | Record per run for each workstream |
+| Search result count announced      | 4.1.3         | W2            | Automated: status region presence and text; spoken announcement is a manual boundary                                                      | Record per run                     |
+| Heading outline                    | 1.3.1         | W6            | Automated: heading-outline lock                                                                                                           | Record per run                     |
+| Header-cell association            | 1.3.1         | W5            | Automated: structure boundary; spoken association remains manual                                                                          | Record per run                     |
+| Group label association            | 1.3.1         | W5            | Automated: structure boundary; spoken group label remains manual                                                                          | Record per run                     |
+| Non-color link cue                 | 1.4.1         | W6            | Automated: every prose link carries a non-color cue                                                                                       | Record per run                     |
+| Focus indicator thickness          | 2.4.7         | W6            | Automated: focus indicator at least 2 CSS px on every focusable                                                                           | Record per run                     |
+| Category toggle focus indicator    | 2.4.7, 1.4.11 | W4, W6        | Automated: category toggle keeps a focus outline in normal and forced-colors modes; perceived contrast across themes remains manual       | Record per run                     |
 
 > [!NOTE]
 > An automated lock proves the deterministic part of a behavior, such as an accessible name being present or a control being reachable. It does not prove what a screen reader speaks. Every entry above still needs one human pass before closure.
+>
+> Two boundaries are worth stating explicitly, because an automated result can look broader than it is:
+>
+> * The automated zoom coverage runs in Chromium and decides reflow behavior under SC 1.4.10. It does not decide SC 1.4.4 Resize Text. Real Microsoft Edge at 150, 200, and 250 percent remains the authority for that criterion.
+> * The automated focus and forced-colors checks decide whether an indicator is present and how thick it is. Whether it is perceivable against a given theme or high-contrast palette remains a human judgment.
 
 ## Closure verification pass
 
@@ -226,12 +235,15 @@ Do not write manual results back to any automated matrix. A downstream human rev
 ### W4: Focus order for navbar dropdown and docs sidebar (WCAG 2.4.3)
 
 * Surface and state: navbar topics menu and documentation left sidebar.
-* Expected behavior: activating a top navigation link moves focus to page content rather than back to the skip link; the topics control behaves as a menu button with focus entering the first item and arrow, home, and end cycling within it, and `Esc` returning to the toggle; the sidebar uses a roving tab model with one tab stop per category and arrow navigation within.
+* Expected behavior: activating a top navigation link moves focus to page content rather than back to the skip link; the topics control behaves as a menu button with focus entering the first item and arrow, home, and end cycling within it, and `Esc` returning to the toggle; each collapsible sidebar category header is a single native button that only expands or collapses, and category children are ordinary links in normal Tab order.
 * Steps:
   1. Keyboard only, activate a top navigation link and confirm focus lands on page content.
   2. Open the topics menu, confirm focus enters the first item, arrow and home and end cycle, and `Esc` returns to the toggle.
-  3. Move through the sidebar and confirm one tab stop per category header with arrow navigation inside.
-* Pass criteria: post-activation focus lands on content, the menu follows the expected keyboard model, and the sidebar exposes a single tab stop per category.
+  3. Tab through the sidebar and confirm each category header is one stop, that `Enter` and `Space` expand or collapse it without navigating, and that the first child of a category with a landing page links to that landing page.
+* Pass criteria: post-activation focus lands on content, the menu follows the expected keyboard model, each category header is a single tab stop that only discloses, and no category header navigates.
+
+> [!NOTE]
+> The sidebar is a set of disclosure buttons, not a tree. It does not use a roving tabindex and does not respond to arrow, `Home`, or `End` keys. Site navigation does not require a composite tree widget, and the disclosure pattern needs only a native button plus `aria-expanded`. Do not record the absence of arrow-key navigation in the sidebar as a defect.
 
 ### W5: Screen reader announcements (WCAG 1.3.1, 4.1.2)
 
