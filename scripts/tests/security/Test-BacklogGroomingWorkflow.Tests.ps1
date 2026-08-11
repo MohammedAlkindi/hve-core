@@ -11,6 +11,17 @@ BeforeAll {
         return Get-Content -LiteralPath (Join-Path $script:RepoRoot $Path) -Raw
     }
 
+    function Test-GroomingMutationFields {
+        param(
+            [Parameter(Mandatory)] [ValidateSet('Update', 'Comment')] [string]$Action,
+            [Parameter(Mandatory)] [string[]]$MutationFields
+        )
+
+        $allowedFields = if ($Action -eq 'Update') { @('title', 'body') } else { @('body') }
+        return $MutationFields.Count -gt 0 -and
+            @($MutationFields | Where-Object { $_ -notin $allowedFields }).Count -eq 0
+    }
+
     function Select-GroomingCohort {
         param(
             [Parameter(Mandatory)] [object[]]$Issues,
@@ -65,10 +76,10 @@ BeforeAll {
         $lines.Add('|---|---|---|---|---|---|---|---|')
         $lines.Add("| $($Run.Timestamp) | $($Run.Total) | $($Run.Assessed) | $($Run.Priority) | $($Run.RoundRobin) | $($Run.Deferred) | $($Run.StopReason) | $($Run.NextCursor) |")
         $lines.Add('')
-        $lines.Add('| Issue | Title | Selection reason | Activity and ownership context | Similarity outcome | Grooming finding | Recommended next step | Assessment status |')
-        $lines.Add('|---|---|---|---|---|---|---|---|')
+        $lines.Add('| Issue | Title | Selection reason | Activity and ownership context | Repository evidence | Similarity outcome | Disposition | Grooming finding | Recommended next step | Assessment status |')
+        $lines.Add('|---|---|---|---|---|---|---|---|---|---|')
         foreach ($row in $Rows) {
-            $lines.Add("| #$($row.Number) | $($row.Title) | $($row.SelectionReason) | $($row.Context) | $($row.Similarity) | $($row.Finding) | $($row.NextStep) | $($row.Status) |")
+            $lines.Add("| #$($row.Number) | $($row.Title) | $($row.SelectionReason) | $($row.Context) | $($row.Evidence) | $($row.Similarity) | $($row.Disposition) | $($row.Finding) | $($row.NextStep) | $($row.Status) |")
         }
 
         return $lines -join "`n"
@@ -92,10 +103,13 @@ BeforeAll {
         }
 
         $trackers = @($Issues | Where-Object {
-                -not $_.PullRequest -and $_.Body.Contains($marker)
+                -not $_.PullRequest -and
+                $_.Body.Contains($marker) -and
+                $_.User.Login -ceq 'github-actions[bot]' -and
+                $_.User.Type -ceq 'Bot'
             })
         if ($trackers.Count -gt 1) {
-            & $FailureSink "Expected at most one marker-bearing tracker, found $($trackers.Count)"
+            & $FailureSink "Expected at most one trusted marker-bearing tracker, found $($trackers.Count)"
             return
         }
 
@@ -123,6 +137,7 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
         $script:Source | Should -Match '(?m)^    - cron: "23 9 \* \* 3"$'
         $script:Source | Should -Match '(?m)^  workflow_dispatch:$'
         $script:Source | Should -Match '(?m)^  - \.\./agents/github/backlog-grooming\.agent\.md$'
+        $script:Source | Should -Match '(?m)^  - \.\./instructions/github/github-backlog-grooming\.instructions\.md$'
     }
 
     It 'keeps model permissions read-only and safe outputs bounded' {
@@ -145,15 +160,18 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
 
     It 'accepts absent or sole tracker state and fails closed for ambiguity' {
         $script:Source | Should -Match '<!-- gh-aw:backlog-grooming-tracker -->'
-        $script:Source | Should -Match 'When no matching issue exists'
-        $script:Source | Should -Match 'When exactly one matching issue exists'
-        $script:Source | Should -Match 'When multiple matching issues'
+        $script:Source | Should -Match 'When no trusted matching issue exists'
+        $script:Source | Should -Match 'When exactly one trusted matching issue exists'
+        $script:Source | Should -Match 'When multiple trusted matching issues'
+        $script:Source | Should -Match 'issue\.user\?\.login === "github-actions\[bot\]"'
+        $script:Source | Should -Match 'issue\.user\?\.type === "Bot"'
+        $script:Source | Should -Match 'they remain ordinary candidate issues'
         $script:Source | Should -Match 'state: "all"'
     }
 
     It 'persists every successful assessment through an independently resolved tracker lifecycle' {
         $script:Source | Should -Match 'After every successful assessment, call `publish-backlog-grooming-report` once'
-        $script:Source | Should -Match 'This includes runs where no assessed issue'
+        $script:Source | Should -Match 'This includes runs\s+where no assessed issue'
         $script:Source | Should -Match 'issue\.body\?\.includes\(marker\)'
         $script:Source | Should -Match 'trackers\.length > 1'
         $script:Source | Should -Match 'github\.rest\.issues\.create\('
@@ -165,10 +183,42 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
         $script:Source | Should -Match 'safe-output job independently revalidates tracker state'
     }
 
-    It 'feeds one sanitized report variable to persistence before the Actions summary' {
+    It 'validates structured report data and renders escaped Markdown before persistence' {
+        $script:Source | Should -Match 'JSON\.parse\(String\(requests\[0\]\["report-data"\]'
+        $script:Source | Should -Match 'exactKeys\(payload, \["run", "issues"\]\)'
+        $script:Source | Should -Match 'const similarities = new Set\(\["Match", "Similar", "Distinct", "Uncertain"\]\)'
+        $script:Source | Should -Match 'const dispositions = new Set\(\["Still needed", "Likely completed", "Superseded", "Possible duplicate", "Needs correction", "Uncertain"\]\)'
+        $script:Source | Should -Match 'row\.acceptance_signals'
+        $script:Source | Should -Match 'const lineageKeys = \["original_delivery", "replacement_or_removal"\]'
+        $script:Source | Should -Match 'Superseded requires distinct original-delivery and replacement-or-removal evidence'
+        $script:Source | Should -Match 'Original delivery: \$\{item\}'
+        $script:Source | Should -Match 'Replacement or removal: \$\{item\}'
+        $script:Source | Should -Match 'evidence\.map\(escapeCell\)'
+        $script:Source | Should -Match 'assessedRows !== run\.assessed \|\| deferredRows !== run\.deferred'
+        $script:Source | Should -Match 'Report row statuses do not match the run counts'
+        $script:Source | Should -Match '\.replace\(/\\\|/g, "\\\\\|"\)'
         $script:Source | Should -Match 'const body = `\$\{marker\}\\n\\n\$\{report\}`;'
         $script:Source | Should -Match 'await core\.summary\.addRaw\(report\)\.write\(\);'
         $script:Source | Should -Match '(?s)issues\.create\(.*issues\.update\(.*core\.summary\.addRaw\(report\)'
+    }
+
+    It 'reads the hyphenated report-data field from the safe-output envelope' {
+        $agentOutput = @{
+            items = @(
+                @{
+                    type = 'publish_backlog_grooming_report'
+                    'report-data' = '{"run":{"timestamp":"2026-08-11T00:33:20Z"},"issues":[]}'
+                }
+            )
+        } | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+
+        $request = $agentOutput.items | Where-Object type -EQ 'publish_backlog_grooming_report'
+        $payload = $request.'report-data' | ConvertFrom-Json
+
+        $payload.run.timestamp.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') |
+            Should -Be '2026-08-11T00:33:20Z'
+        $payload.issues.Count | Should -Be 0
+        $script:Source | Should -Not -Match 'requests\[0\]\.report_data'
     }
 }
 
@@ -178,11 +228,14 @@ Describe 'Compiled backlog grooming workflow' -Tag 'Unit' {
         $script:Lock | Should -Match '(?m)^  schedule:$'
         $script:Lock | Should -Match '(?m)^  workflow_dispatch:$'
         $script:Lock | Should -Match '(?m)^      issues: read$'
+        $script:Lock | Should -Match 'runtime-import \.github/instructions/github/github-backlog-grooming\.instructions\.md'
     }
 
     It 'allows only the tracker-bound publisher and noop from agent output' {
         $script:Lock | Should -Match 'publish_backlog_grooming_report'
         $script:Lock | Should -Match '"noop":\{"max":1,"report-as-issue":"false"\}'
+        $script:Lock | Should -Match 'issue\.user\?\.login === "github-actions\[bot\]"'
+        $script:Lock | Should -Match 'issue\.user\?\.type === "Bot"'
         $script:Lock | Should -Not -Match '"add_comment"'
         $script:Lock | Should -Not -Match '"(create_issue|update_issue|close_issue|add_labels|remove_labels)"'
         $script:Lock | Should -Not -Match 'GH_AW_\w*CREATE_ISSUE'
@@ -191,6 +244,9 @@ Describe 'Compiled backlog grooming workflow' -Tag 'Unit' {
 
     It 'publishes the validated report to the step summary without SARIF permissions' {
         $script:Lock | Should -Match 'Append agent step summary'
+        $script:Lock | Should -Match 'JSON\.parse\(String\(requests\[0\]\["report-data"\]'
+        $script:Lock | Should -Match 'Possible duplicate requires a Match or Similar outcome'
+        $script:Lock | Should -Match 'Superseded requires distinct original-delivery and replacement-or-removal evidence'
         $script:Lock | Should -Match 'await core\.summary\.addRaw\(report\)\.write\(\);'
         $script:Lock | Should -Not -Match '(?m)^\s*security-events: write$'
         $script:Lock | Should -Not -Match 'create_code_scanning_alert'
@@ -205,21 +261,98 @@ Describe 'Backlog grooming policy and agent' -Tag 'Unit' {
         $script:Policy | Should -Match 'Wrap to the start of the inventory'
         $script:Policy | Should -Match 'Do not impose an age threshold or fixed semantic issue-count limit'
         $script:Policy | Should -Match 'When no issue requires a maintainer action'
-        $script:Policy | Should -Match 'the model never supplies the destination issue number'
-        $script:Policy | Should -Match 'create one open issue titled `Backlog\s+grooming tracker`'
+        $script:Policy | Should -Match '[Tt]he model never supplies the destination\s+issue\s+number'
+        $script:Policy | Should -Match 'create one open issue titled\s+`Backlog\s+grooming tracker`'
         $script:Policy | Should -Match 'set\s+its state to open in the same update'
     }
 
     It 'defines the canonical tables and qualitative outcomes' {
         $script:Policy | Should -Match '\| Run timestamp \| Total open inventory \| Assessed \| Priority cohort \| Round-robin cohort \| Deferred \| Stop reason \| Next cursor \|'
-        $script:Policy | Should -Match '\| Issue \| Title \| Selection reason \| Activity and ownership context \| Similarity outcome \| Grooming finding \| Recommended next step \| Assessment status \|'
+        $script:Policy | Should -Match '\| Issue \| Title \| Selection reason \| Activity and ownership context \| Acceptance signals \| Repository evidence \| Similarity outcome \| Disposition \| Grooming finding \| Recommended next step \| Assessment status \|'
         foreach ($outcome in @('Match', 'Similar', 'Distinct', 'Uncertain')) {
             $script:Policy | Should -Match "\* ``$outcome``"
         }
     }
 
+    It 'gives the model the exact structured publisher contract' {
+        foreach ($key in @('timestamp', 'total_open_inventory', 'assessed', 'priority_cohort', 'round_robin_cohort', 'deferred', 'stop_reason', 'next_cursor')) {
+            $script:Agent | Should -Match ([regex]::Escape("`"$key`""))
+        }
+        foreach ($key in @('issue', 'title', 'selection_reason', 'activity_and_ownership_context', 'acceptance_signals', 'repository_evidence', 'lineage_evidence', 'original_delivery', 'replacement_or_removal', 'similarity_outcome', 'disposition', 'grooming_finding', 'recommended_next_step', 'assessment_status')) {
+            $script:Agent | Should -Match ([regex]::Escape("`"$key`""))
+        }
+        $script:Agent | Should -Match 'Use integers without `#` or prose for `issue`, `next_cursor`, and every count'
+        $script:Agent | Should -Match 'Use exactly `Assessed` or `Deferred` for `assessment_status`'
+        $script:Agent | Should -Match 'put compared issue numbers in the finding rather than the\s+enum value'
+    }
+
+    It 'requires repository-grounded dispositions and evidence-backed maintainer actions' {
+        $script:Agent | Should -Match 'extract.*requested outcomes.*acceptance signals'
+        $script:Agent | Should -Match 'default branch.*code.*configuration.*documentation'
+        $script:Agent | Should -Match 'open, merged, and closed pull requests'
+        $script:Agent | Should -Match 'open and closed issues'
+        $script:Agent | Should -Match 'commits or releases'
+        $script:Agent | Should -Match 'Use `Uncertain` when'
+        $script:Agent | Should -Match 'unlinked pull requests and commits as valid lineage evidence'
+        $script:Policy | Should -Match 'Direct issue linkage is not required'
+        $script:Source | Should -Match 'Do not require a direct issue link'
+        $script:Policy | Should -Match '\| Issue \| Title \| Selection reason \| Activity and ownership context \| Acceptance signals \| Repository evidence \| Similarity outcome \| Disposition \|'
+        foreach ($disposition in @('Still needed', 'Likely completed', 'Superseded', 'Possible duplicate', 'Needs correction', 'Uncertain')) {
+            $script:Policy | Should -Match "\* ``$disposition``"
+        }
+        $script:Policy | Should -Match 'recommend that a maintainer close the\s+issue'
+        $script:Policy | Should -Match 'recommend specific title or body corrections'
+        $script:Agent | Should -Not -Match 'Do not add closure language, mutation proposals'
+    }
+
+    It 'requires complete legacy and replacement lineage for superseded work' {
+        $script:Agent | Should -Match 'For `Superseded`, record both the original surface''s delivery lineage and its\s+removal or replacement lineage when both are available'
+        $script:Policy | Should -Match 'cite the original\s+surface''s delivery issue or pull request and the later removal or replacement\s+issue or pull request'
+        $script:Policy | Should -Match '`lineage_evidence` with exactly\s+`original_delivery` and `replacement_or_removal` arrays'
+        $script:Policy | Should -Match 'Both arrays are\s+non-empty and contain distinct stable identifiers for `Superseded`'
+    }
+
+    It 'defines discriminating evidence rules for representative dispositions' -ForEach @(
+        @{
+            Scenario = 'implemented capability on the default branch with merged delivery history'
+            Disposition = 'Likely completed'
+            EvidencePattern = 'default-branch evidence satisfies.*acceptance signals.*merged pull-request, commit, or release evidence'
+        },
+        @{
+            Scenario = 'legacy surface removed and replaced by a current capability'
+            Disposition = 'Superseded'
+            EvidencePattern = 'named surface was removed,\s+replaced, or intentionally abandoned.*replacement or\s+decision history'
+        },
+        @{
+            Scenario = 'requested outcome remains absent with no completing work'
+            Disposition = 'Still needed'
+            EvidencePattern = 'requested outcome is\s+absent or incomplete.*no merged or closed work establishes completion'
+        },
+        @{
+            Scenario = 'matching issue has no distinct repository need'
+            Disposition = 'Possible duplicate'
+            EvidencePattern = 'similarity outcome is `Match` or `Similar`.*same outcome.*does\s+not establish a distinct remaining need'
+        },
+        @{
+            Scenario = 'issue text conflicts with current repository facts'
+            Disposition = 'Needs correction'
+            EvidencePattern = 'title or body conflicts with verified current\s+paths, names, behavior, or scope.*corrected issue would still describe\s+useful work'
+        },
+        @{
+            Scenario = 'acceptance or repository history is ambiguous'
+            Disposition = 'Uncertain'
+            EvidencePattern = 'acceptance signals are ambiguous.*searches cannot be\s+completed.*evidence conflicts'
+        }
+    ) {
+        $script:Policy | Should -Match "``$Disposition``:"
+        $script:Policy | Should -Match "(?s)$EvidencePattern"
+    }
+
     It 'keeps candidate content inert and sensitive output minimized' {
         $script:Agent | Should -Match 'untrusted\s+inert data'
+        $script:Agent | Should -Match 'escape backslashes and pipe characters'
+        $script:Agent | Should -Match 'replace line breaks with `<br>`'
+        $script:Agent | Should -Match 'zero-width space after `@`'
         $script:Agent | Should -Match 'sensitive context omitted'
         $script:Agent | Should -Match 'Do not close, create, edit, assign, milestone, label, or comment on candidate'
     }
@@ -239,6 +372,23 @@ Describe 'Interactive grooming route and fresh-state execution' -Tag 'Unit' {
         $script:Policy | Should -Match 'at most one mutating operation per issue'
         $script:Policy | Should -Match 'It never contains `Close`'
         $script:Policy | Should -Match 'Require explicit per-field approval'
+    }
+
+    It 'enforces operation-specific Grooming mutation field allowlists' {
+        foreach ($fields in @(@('title'), @('body'), @('title', 'body'))) {
+            Test-GroomingMutationFields -Action Update -MutationFields $fields | Should -BeTrue
+        }
+        Test-GroomingMutationFields -Action Comment -MutationFields @('body') | Should -BeTrue
+
+        foreach ($field in @('labels', 'assignees', 'milestone', 'state', 'state_reason', 'type', 'duplicate_of', 'unsupported')) {
+            Test-GroomingMutationFields -Action Update -MutationFields @($field) | Should -BeFalse
+        }
+        Test-GroomingMutationFields -Action Comment -MutationFields @('title') | Should -BeFalse
+
+        $script:Executor | Should -Match 'For a Grooming Update, accept `title` and `body` as the only mutation fields'
+        $script:Executor | Should -Match 'For a Grooming Comment, accept `body` as the only mutation field'
+        $script:Executor | Should -Match 'Reject `labels`, `assignees`, `milestone`, `state`, `state_reason`, `type`, `duplicate_of`'
+        $script:Executor | Should -Match 'Immediately before each Grooming Update or Comment API call, revalidate'
     }
 
     It 'suppresses stale mutations and requires renewed approval' {
@@ -304,7 +454,13 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
             $updates = [System.Collections.Generic.List[object]]::new()
             $summaries = [System.Collections.Generic.List[string]]::new()
             $failures = [System.Collections.Generic.List[string]]::new()
-            $tracker = [pscustomobject]@{ Number = 10; State = $state; PullRequest = $false; Body = "$marker`n`nOld report" }
+            $tracker = [pscustomobject]@{
+                Number = 10
+                State = $state
+                PullRequest = $false
+                Body = "$marker`n`nOld report"
+                User = [pscustomobject]@{ Login = 'github-actions[bot]'; Type = 'Bot' }
+            }
 
             Publish-GroomingReport -Report "Replacement report for $state tracker" -Issues @($tracker) `
                 -CreateSink { param($title, $body) $creates.Add([pscustomobject]@{ Title = $title; Body = $body }) } `
@@ -326,7 +482,13 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
         $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
         foreach ($states in @(@('open', 'open'), @('closed', 'closed'), @('open', 'closed'))) {
             $issues = @(0..1 | ForEach-Object {
-                    [pscustomobject]@{ Number = 10 + $_; State = $states[$_]; PullRequest = $false; Body = $marker }
+                    [pscustomobject]@{
+                        Number = 10 + $_
+                        State = $states[$_]
+                        PullRequest = $false
+                        Body = $marker
+                        User = [pscustomobject]@{ Login = 'github-actions[bot]'; Type = 'Bot' }
+                    }
                 })
             $creates = [System.Collections.Generic.List[object]]::new()
             $updates = [System.Collections.Generic.List[object]]::new()
@@ -348,7 +510,13 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
 
     It 'excludes marker-bearing pull requests and creates the tracker' {
         $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
-        $pullRequest = [pscustomobject]@{ Number = 20; State = 'open'; PullRequest = $true; Body = $marker }
+        $pullRequest = [pscustomobject]@{
+            Number = 20
+            State = 'open'
+            PullRequest = $true
+            Body = $marker
+            User = [pscustomobject]@{ Login = 'github-actions[bot]'; Type = 'Bot' }
+        }
         $creates = [System.Collections.Generic.List[object]]::new()
         $updates = [System.Collections.Generic.List[object]]::new()
 
@@ -362,9 +530,67 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
         $updates | Should -HaveCount 0
     }
 
+    It 'ignores an untrusted marker-bearing issue and creates the tracker' {
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        $untrusted = [pscustomobject]@{
+            Number = 20
+            State = 'open'
+            PullRequest = $false
+            Body = $marker
+            User = [pscustomobject]@{ Login = 'contributor'; Type = 'User' }
+        }
+        $creates = [System.Collections.Generic.List[object]]::new()
+        $updates = [System.Collections.Generic.List[object]]::new()
+
+        Publish-GroomingReport -Report 'Canonical report with enough content' -Issues @($untrusted) `
+            -CreateSink { param($title, $body) $creates.Add([pscustomobject]@{ Title = $title; Body = $body }) } `
+            -UpdateSink { param($number, $body, $state) $updates.Add(@($number, $body, $state)) } `
+            -SummarySink { param($value) } `
+            -FailureSink { param($value) }
+
+        $creates | Should -HaveCount 1
+        $updates | Should -HaveCount 0
+    }
+
+    It 'updates only the trusted tracker in a mixed marker set' {
+        $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
+        $trusted = [pscustomobject]@{
+            Number = 10
+            State = 'open'
+            PullRequest = $false
+            Body = $marker
+            User = [pscustomobject]@{ Login = 'github-actions[bot]'; Type = 'Bot' }
+        }
+        $untrusted = [pscustomobject]@{
+            Number = 20
+            State = 'open'
+            PullRequest = $false
+            Body = $marker
+            User = [pscustomobject]@{ Login = 'contributor'; Type = 'User' }
+        }
+        $creates = [System.Collections.Generic.List[object]]::new()
+        $updates = [System.Collections.Generic.List[object]]::new()
+
+        Publish-GroomingReport -Report 'Canonical report with enough content' -Issues @($trusted, $untrusted) `
+            -CreateSink { param($title, $body) $creates.Add([pscustomobject]@{ Title = $title; Body = $body }) } `
+            -UpdateSink { param($number, $body, $state) $updates.Add([pscustomobject]@{ Number = $number; Body = $body; State = $state }) } `
+            -SummarySink { param($value) } `
+            -FailureSink { param($value) }
+
+        $creates | Should -HaveCount 0
+        $updates | Should -HaveCount 1
+        $updates[0].Number | Should -Be 10
+    }
+
     It 'does not write the summary when tracker persistence fails' {
         $marker = '<!-- gh-aw:backlog-grooming-tracker -->'
-        $tracker = [pscustomobject]@{ Number = 10; State = 'open'; PullRequest = $false; Body = $marker }
+        $tracker = [pscustomobject]@{
+            Number = 10
+            State = 'open'
+            PullRequest = $false
+            Body = $marker
+            User = [pscustomobject]@{ Login = 'github-actions[bot]'; Type = 'Bot' }
+        }
         foreach ($issues in @(@(), @($tracker))) {
             $summaryReports = [System.Collections.Generic.List[string]]::new()
 
@@ -396,7 +622,9 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
                 Title = 'Assigned issue'
                 SelectionReason = 'Priority'
                 Context = 'Assigned today'
+                Evidence = 'src/current.md; PR #17 merged'
                 Similarity = 'Distinct'
+                Disposition = 'Still needed'
                 Finding = 'Current'
                 NextStep = 'No change'
                 Status = 'Assessed'
@@ -406,7 +634,9 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
                 Title = 'Deferred issue'
                 SelectionReason = 'Round-robin'
                 Context = 'Not hydrated'
+                Evidence = 'Not collected'
                 Similarity = 'Uncertain'
+                Disposition = 'Uncertain'
                 Finding = 'Deferred: report budget reached'
                 NextStep = 'Assess next run'
                 Status = 'Deferred'
@@ -448,7 +678,9 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
                 Title = 'No issues assessed'
                 SelectionReason = '-'
                 Context = '-'
+                Evidence = '-'
                 Similarity = '-'
+                Disposition = '-'
                 Finding = 'No maintainer action'
                 NextStep = 'None'
                 Status = 'Assessed'

@@ -16,8 +16,9 @@ similarity comparison, autonomy, and state persistence. Use
 Every open non-pull-request issue except the workflow-owned marker-bearing
 tracker remains eligible for eventual assessment.
 Each run surfaces recent work promptly, advances starvation-free coverage
-through the remaining backlog, and produces an advisory Markdown report without
-closing or mutating candidate issues.
+through the remaining backlog, reconciles selected issues with current
+repository state, and produces an advisory Markdown report without closing or
+mutating candidate issues.
 
 ## Eligibility and Inventory
 
@@ -77,6 +78,60 @@ in the activity and ownership context. Never apply or remove `duplicate`,
 `stale`, `do-not-close`, `pinned`, `maintainers-only`, or any other label while
 grooming.
 
+## Repository Evidence Protocol
+
+For every deeply assessed issue, extract its concrete requested outcomes and
+acceptance signals, then reconcile them with the repository's current state.
+Complete all applicable evidence checks before assigning a disposition:
+
+1. Search default-branch code, configuration, and documentation for evidence
+   that the requested behavior exists, is absent, or has changed.
+2. Search open, merged, and closed pull requests for implementation, attempted
+   implementation, reversion, replacement, or intentional removal.
+3. Search open and closed issues for duplicate, completion, supersession, or
+   changed-direction evidence.
+4. Follow explicit links among issues, pull requests, commits, and releases.
+5. Inspect relevant commits or releases when issue and pull-request history does
+   not establish the current state.
+
+Direct issue linkage is not required. Treat an unlinked pull request or commit
+as lineage evidence only when changed paths, delivered behavior, and current
+default-branch state corroborate the extracted acceptance signals.
+
+Record the evidence chain with stable paths, issue or pull-request numbers,
+commit identifiers, or release identifiers. A search with no result is not
+proof of absence unless the searched scope and query are recorded. Use
+`Uncertain` when required evidence is unavailable, conflicting, or too weak.
+
+Assign exactly one repository-grounded disposition:
+
+* `Still needed`: current repository evidence shows the requested outcome is
+   absent or incomplete, and no merged or closed work establishes completion,
+   replacement, or intentional removal.
+* `Likely completed`: current default-branch evidence satisfies the extracted
+   acceptance signals and merged pull-request, commit, or release evidence
+   establishes how it was delivered.
+* `Superseded`: current repository evidence shows the named surface was removed,
+   replaced, or intentionally abandoned, and identifies the replacement or
+   decision history. When repository history contains both, cite the original
+   surface's delivery issue or pull request and the later removal or replacement
+   issue or pull request so the evidence chain establishes both states.
+* `Possible duplicate`: the similarity outcome is `Match` or `Similar`, another
+   open or closed issue requests the same outcome, and repository history does
+   not establish a distinct remaining need. Treat this as a maintainer decision,
+   not a final duplicate declaration.
+* `Needs correction`: the issue's title or body conflicts with verified current
+   paths, names, behavior, or scope, while a corrected issue would still describe
+   useful work.
+* `Uncertain`: acceptance signals are ambiguous, required searches cannot be
+   completed, or current and historical evidence conflicts.
+
+For `Likely completed` or `Superseded`, recommend that a maintainer close the
+issue only after verifying the cited acceptance evidence. For `Needs
+correction`, recommend specific title or body corrections and cite the current
+repository facts that make the existing text inaccurate. These are advisory
+maintainer actions; the automated workflow never executes them.
+
 ## Report Contract
 
 Render one canonical Markdown report in both the GitHub Actions job summary and
@@ -89,13 +144,26 @@ Use this run-summary table:
 
 Use this issue-results table:
 
-| Issue | Title | Selection reason | Activity and ownership context | Similarity outcome | Grooming finding | Recommended next step | Assessment status |
-|-------|-------|------------------|--------------------------------|--------------------|------------------|-----------------------|-------------------|
+| Issue | Title | Selection reason | Activity and ownership context | Acceptance signals | Repository evidence | Similarity outcome | Disposition | Grooming finding | Recommended next step | Assessment status |
+|-------|-------|------------------|--------------------------------|--------------------|---------------------|--------------------|-------------|------------------|-----------------------|-------------------|
 
 Include exactly one issue-results row for every selected issue. Use `Deferred`
 as the assessment status and state the reason when a selected issue was not
 deeply assessed. Include `Distinct` and no-change results. When no issues were
 selected, render `No issues assessed` instead of omitting the table.
+
+In structured report data, every issue includes `lineage_evidence` with exactly
+`original_delivery` and `replacement_or_removal` arrays. Both arrays are
+non-empty and contain distinct stable identifiers for `Superseded`; use empty
+arrays when a lineage category does not apply. Render these identifiers in the
+Repository evidence cell with their lineage category.
+
+Encode every untrusted text cell before rendering Markdown: escape backslashes
+and pipe characters, replace line breaks with `<br>`, remove ASCII control
+characters, and neutralize mention-like text by inserting a zero-width space
+after `@`. The isolated publisher independently repeats these transformations.
+Keep the corresponding structured report values raw and let the publisher apply
+these transformations only when rendering its own Markdown.
 
 Minimize security-sensitive or vulnerability content. Use the issue reference
 and `sensitive context omitted` instead of reproducing sensitive titles or
@@ -107,29 +175,36 @@ are not source-located code-scanning findings and do not require
 
 ## Tracker Contract
 
-Identify the workflow-owned tracker issue by this immutable body marker:
+Identify the workflow-owned tracker issue by its immutable body marker and
+GitHub Actions creator identity:
 
 ```html
 <!-- gh-aw:backlog-grooming-tracker -->
 ```
 
-Resolve open and closed tracker state before assessment. No match means no prior
-timestamp or cursor. One match supplies continuation state even when closed.
-Multiple matches across any state combination call `noop` with guidance to
-retain the marker on one tracker and remove it from the others.
+The trusted tracker predicate requires a non-pull-request issue with this exact
+marker, creator login `github-actions[bot]`, and creator type `Bot`. Ignore
+marker-bearing issues that fail this predicate for tracker resolution,
+continuation, ambiguity counting, and mutation; they remain ordinary candidate
+issues. Resolve open and closed trusted tracker state before assessment. No
+trusted match means no prior timestamp or cursor. One trusted match supplies
+continuation state even when closed. Multiple trusted matches across any state
+combination call `noop` with guidance to retain the marker on one trusted
+tracker and remove it from the others.
 
 After successful assessment, the publishing safe-output job independently
-enumerates all issues and repeats the exact marker match immediately before
-mutation. With no non-pull-request match, create one open issue titled `Backlog
-grooming tracker` whose body is the marker followed by the canonical report.
-With one match, replace its body with the marker and canonical report and set
-its state to open in the same update. With multiple matches, fail without
-mutation. The model never supplies the destination issue number.
+enumerates all issues and repeats the complete trusted tracker predicate
+immediately before mutation. With no trusted match, create one open issue titled
+`Backlog grooming tracker` whose body is the marker followed by the canonical
+report. With one trusted match, replace its body with the marker and canonical
+report and set its state to open in the same update. With multiple trusted
+matches, fail without mutation. The model never supplies the destination issue
+number.
 
 Do not post per-candidate comments or mutate candidate issues. Workflow
-serialization reduces overlapping workflow writes, but a concurrent external
-marker creation can still cause a detectable publication conflict that requires
-maintainer repair.
+serialization reduces overlapping workflow writes, but concurrent creation of
+more than one trusted tracker still causes a detectable publication conflict
+that requires maintainer repair.
 
 ## Interactive Grooming Handoff
 
@@ -138,10 +213,14 @@ Store interactive Grooming state under the `backlog` planning type defined by
 `Update` or `Comment` operations and at most one mutating operation per issue.
 It never contains `Close`.
 
-Require explicit per-field approval for proposed title or body changes. Combine
-separately approved title and body fields into one `Update`; use `Comment` only
-as an alternative operation. Record the issue's RFC 3339 `updated_at` value as
-`Expected Updated At` on every approved grooming operation.
+Require explicit per-field approval for proposed title or body changes. For an
+`Update`, permit `title` and `body` as the only mutation fields and require at
+least one; combine separately approved title and body fields into one operation.
+For a `Comment`, permit `body` as the only mutation field and use it only as an
+alternative operation. Reject labels, assignees, milestone, state,
+`state_reason`, type, `duplicate_of`, and every other non-allowlisted mutation
+field. Record the issue's RFC 3339 `updated_at` value as `Expected Updated At`
+on every approved grooming operation.
 
 The executor must re-read and compare `Expected Updated At` immediately before
 mutation according to `github-backlog-update.instructions.md`. A stale skip
@@ -160,9 +239,9 @@ Automated grooming does not:
 * Close, create, edit, assign, or milestone issues
 * Apply or remove labels
 * Import or invoke the interactive backlog manager
-* Make final duplicate or stale dispositions
+* Execute a recommended close, title correction, or body correction
 * Publish per-candidate comments
-* Modify any issue that does not contain the exact tracker marker
+* Modify any issue that does not satisfy the complete trusted tracker predicate
 
 When no issue requires a maintainer action, retain all assessed rows and publish
 the report so its run timestamp and next cursor become durable continuation

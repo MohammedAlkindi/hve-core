@@ -1,15 +1,15 @@
 ---
 title: GitHub
-description: GitHub issue discovery, triage, sprint planning, and backlog execution agents and prompts
+description: GitHub issue grooming, discovery, triage, sprint planning, and backlog execution agents and prompts
 sidebar_position: 6
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-10
 ms.topic: reference
 ---
 
-Choose this package for teams that manage issue backlogs, sprint planning, and issue operations in GitHub.
+Choose this package for teams that groom issue backlogs, plan sprints, and manage issue operations in GitHub.
 
-It provides a GitHub backlog management agent, prompts for discovery through execution, community interaction guidance, and code-scanning support.
+It provides automated backlog grooming, a GitHub backlog management agent, prompts for discovery through execution, community interaction guidance, and code-scanning support.
 
 Lifecycle labels are disclosure metadata. In the channel model, Stable and PreRelease have equal active content, including components labeled stable, preview, and experimental; publication cadence and source ownership can differ.
 
@@ -19,9 +19,10 @@ Lifecycle labels are disclosure metadata. In the channel model, Stable and PreRe
 
 ### Chat Agents
 
-| Name                       | Maturity | Description                                                                       |
-|----------------------------|----------|-----------------------------------------------------------------------------------|
-| **github-backlog-manager** | stable   | GitHub backlog orchestrator for triage, discovery, sprint planning, and execution |
+| Name                       | Maturity | Description                                                                                                           |
+|----------------------------|----------|-----------------------------------------------------------------------------------------------------------------------|
+| **backlog-grooming**       | stable   | Assesses open GitHub issues for backlog health and returns bounded advisory reports without mutating candidate issues |
+| **github-backlog-manager** | stable   | GitHub backlog orchestrator for triage, discovery, sprint planning, and execution                                     |
 
 ### Prompts
 
@@ -40,6 +41,7 @@ Lifecycle labels are disclosure metadata. In the channel model, Stable and PreRe
 |-------------------------------------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **github/community-interaction**    | stable   | Community interaction voice, tone, and response templates for GitHub-facing agents and prompts                                                                                                                                                              |
 | **github/github-backlog-discovery** | stable   | GitHub issue backlog discovery: artifact-driven, user-centric, search-based                                                                                                                                                                                 |
+| **github/github-backlog-grooming**  | stable   | GitHub backlog grooming policy for complete coverage, advisory assessment, bounded reporting, and approved writeback                                                                                                                                        |
 | **github/github-backlog-planning**  | stable   | GitHub backlog management: planning files, search protocols, similarity assessment, and state persistence                                                                                                                                                   |
 | **github/github-backlog-triage**    | stable   | GitHub issue backlog triage: label suggestion, milestone assignment, and duplicate detection                                                                                                                                                                |
 | **github/github-backlog-update**    | stable   | GitHub issue backlog execution: consumes planning handoffs and runs issue operations                                                                                                                                                                        |

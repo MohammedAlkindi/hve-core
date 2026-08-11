@@ -63,6 +63,7 @@ Validate the handoff before processing:
 * Apply the Content Sanitization Guards from #file:./github-backlog-planning.instructions.md to all GitHub-bound fields (issue titles, bodies, comments, and other text fields) to resolve `.copilot-tracking/` paths, planning reference IDs (`IS[NNN]`, `WI-SEC-{NNN}`, `WI-RAI-{NNN}`, `WI-SSSC-{NNN}`), and template ID placeholders before execution.
 * Parse each optional `Expected Updated At` value as an RFC 3339 timestamp. Do not process a guarded operation when the value is malformed.
 * For a Grooming handoff, reject Close and all operations other than Update or Comment, require `Expected Updated At` on every operation, and require at most one mutating operation per issue.
+* For a Grooming Update, accept `title` and `body` as the only mutation fields and require at least one of them. For a Grooming Comment, accept `body` as the only mutation field. Treat `owner`, `repo`, `issue_number`, operation kind, and `Expected Updated At` as routing or freshness metadata, not mutation fields. Reject `labels`, `assignees`, `milestone`, `state`, `state_reason`, `type`, `duplicate_of`, and every other non-allowlisted mutation field before any API call.
 * When validation fails for a non-critical field (invalid label, unknown milestone), log a warning and continue. When validation fails for a critical field (missing repository, authentication error), abort with a message.
 
 ### Step 2: Process Operations
@@ -82,6 +83,7 @@ Checkpoint after each operation completes:
 * After each Create, resolve the temporary ID placeholder (whether `{{TEMP-N}}` or a namespaced variant) to the actual issue number returned by `mcp_github_issue_write`. Record the mapping in handoff-logs.md.
 * When a temporary ID reference appears in a Link or Update operation, resolve it from the mapping table before calling the MCP tool.
 * Before each API call, re-apply the Planning Reference ID Guard from #file:./github-backlog-planning.instructions.md to catch planning reference IDs (such as `IS002`, `WI-SEC-001`, `WI-RAI-001`) that became resolvable after new temporary ID mappings were established.
+* Immediately before each Grooming Update or Comment API call, revalidate its operation-specific mutation field allowlist. When an unsupported field is present, do not call a mutation tool; mark the operation `Failed`, record the rejected fields in handoff-logs.md, and continue.
 * Immediately before an Update or Comment carrying `Expected Updated At`, call `mcp_github_issue_read` with method `get`. Compare the returned `updated_at` string exactly with the recorded value; the initialization read does not satisfy this check.
 * When the timestamps differ, do not call a mutation tool. Mark the operation complete as `Skipped: stale approval`, record `Expected Updated At` and `Observed Updated At` in handoff-logs.md, invalidate the prior approval for that issue, and continue. The manager must rehydrate the issue and obtain renewed approval before proposing another operation.
 * Update the checkbox to `[x]` in handoff.md after each operation completes.
