@@ -233,7 +233,9 @@ foreach ($raw in $Component) {
     }
     $sourceRelative = "$($descriptor.Root)/$relative"
     $sourceFull = Join-Path $sourceRoot $sourceRelative
-    $targetFull = Assert-WithinTargetRoot -Base $targetBase -RelativePath $sourceRelative -Component $normalized
+    # Preflight bounds the component; the resolved path is recomputed at the
+    # write site, so only the assertion's failure behaviour is needed here.
+    Assert-WithinTargetRoot -Base $targetBase -RelativePath $sourceRelative -Component $normalized | Out-Null
     if (-not $seenTargets.Add($sourceRelative)) {
         throw "Component '$normalized' resolves to duplicate target '$sourceRelative'."
     }

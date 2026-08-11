@@ -207,10 +207,7 @@ def _validate_content_extra(script_path: Path) -> None:
                     )
             elif isinstance(func, ast.Attribute):
                 value = func.value
-                if (
-                    isinstance(value, ast.Name)
-                    and value.id in _ATTRIBUTE_CALL_ROOTS
-                ):
+                if isinstance(value, ast.Name) and value.id in _ATTRIBUTE_CALL_ROOTS:
                     raise ContentExtraError(
                         f"Blocked attribute call '{value.id}.{func.attr}' "
                         f"in {script_path}"
@@ -1212,8 +1209,7 @@ def main():
                 if extra.exists():
                     if not args.allow_scripts:
                         extra_status = (
-                            " | extra: ❌ refused, execution requires"
-                            " --allow-scripts"
+                            " | extra: ❌ refused, execution requires --allow-scripts"
                         )
                         errors += 1
                     else:

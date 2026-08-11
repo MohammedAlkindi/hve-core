@@ -1829,8 +1829,7 @@ class TestContentExtraValidation:
         marker_file = tmp_path / "must_not_exist"
         script = content_dir / "content-extra.py"
         script.write_text(
-            "from pathlib import Path\n"
-            f"Path(r'{marker_file}').write_text('executed')\n"
+            f"from pathlib import Path\nPath(r'{marker_file}').write_text('executed')\n"
         )
 
         slide_content = {"layout": "Blank", "elements": []}
@@ -1914,9 +1913,7 @@ class TestContentExtraValidation:
             )
         assert not marker_file.exists()
 
-    def test_allow_scripts_false_refuses_execution(
-        self, blank_presentation, tmp_path
-    ):
+    def test_allow_scripts_false_refuses_execution(self, blank_presentation, tmp_path):
         """An explicit allow_scripts=False refuses rather than linting."""
         content_dir = tmp_path / "slide-001"
         content_dir.mkdir()
