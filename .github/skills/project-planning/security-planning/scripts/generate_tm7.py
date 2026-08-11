@@ -3214,43 +3214,90 @@ def _zone_node_lane_entries(
     return lanes
 
 
+def _rank_band_indices(ranks: Any, band_size: int) -> dict[int, int]:
+    """Map each distinct graph rank to the band that shares one row.
+
+    Ranks are sparse and unevenly spaced, so banding is applied to their sorted
+    positions rather than to their values. Band one preserves the default
+    reading order of one rank per row.
+    """
+    distinct = sorted({int(rank) for rank in ranks})
+    size = max(1, int(band_size))
+    return {rank: index // size for index, rank in enumerate(distinct)}
+
+
 def _simulate_packed_rows(
     entries: list[tuple[str, float, float, int]],
     available_width: float,
     gutter: float,
+    *,
+    band_size: int = 1,
 ) -> list[float]:
     """Return per-row heights for the packing node placement performs.
 
-    Placement starts a new row when the next node changes graph rank or when it
-    no longer fits the available width, so a column split alone cannot predict
-    the row count. Rows have unequal heights once nodes grow with their label
-    text, so heights are returned rather than a count.
+    Placement starts a new row when the next node leaves the current rank band
+    or when it no longer fits the available width, so a column split alone
+    cannot predict the row count. Rows have unequal heights once nodes grow
+    with their label text, so heights are returned rather than a count.
     """
+    bands = _rank_band_indices((entry[3] for entry in entries), band_size)
     rows: list[float] = []
     current_height = 0.0
     current_width = 0.0
-    current_rank: int | None = None
+    current_band: int | None = None
     started = False
     for _, width, height, rank in entries:
+        band = bands.get(int(rank), 0)
         if not started:
             started = True
             current_height = height
             current_width = width
-            current_rank = rank
+            current_band = band
             continue
         projected_width = current_width + gutter + width
-        if rank != current_rank or projected_width > available_width:
+        if band != current_band or projected_width > available_width:
             rows.append(current_height)
             current_height = height
             current_width = width
-            current_rank = rank
+            current_band = band
             continue
         current_height = max(current_height, height)
         current_width = projected_width
-        current_rank = rank
+        current_band = band
     if started:
         rows.append(current_height)
     return rows
+
+
+def _fitting_rank_band_size(
+    entries: list[tuple[str, float, float, int]],
+    available_width: float,
+    gutter: float,
+    height_budget: float,
+) -> int:
+    """Return the smallest rank banding that keeps a lane inside its budget.
+
+    One rank per row makes a long flow chain grow into a column taller than the
+    canvas, and no column split can shorten it because the rank break fires
+    before the width break. Merging the fewest adjacent ranks needed to fit
+    keeps flow order readable while letting the lane use its full width.
+    """
+    distinct_ranks = len({int(entry[3]) for entry in entries})
+    if distinct_ranks <= 1 or height_budget <= 0:
+        return 1
+    for band_size in range(1, distinct_ranks + 1):
+        rows = _simulate_packed_rows(
+            entries,
+            available_width,
+            gutter,
+            band_size=band_size,
+        )
+        if not rows:
+            return band_size
+        height = sum(rows) + gutter * max(0, len(rows) - 1)
+        if height <= height_budget:
+            return band_size
+    return distinct_ranks
 
 
 def _preferred_zone_grid(
@@ -3495,12 +3542,41 @@ def _assign_zone_regions(
             contextual_content_width - MIN_NODE_SIZE,
         )
 
+        # A lane taller than the canvas is unreadable no matter how the zone is
+        # otherwise shaped, so ranks are banded only as far as fitting requires.
+        lane_height_budget = max(
+            0.0,
+            float(viewport_rect.get("height", 0.0))
+            - outer_margin * 2
+            - label_band
+            - inner_padding * 2,
+        )
+        main_band = _fitting_rank_band_size(
+            lane_entries["main"],
+            grid_content_width,
+            layout_gutter,
+            lane_height_budget,
+        )
+        return_band = _fitting_rank_band_size(
+            lane_entries["return"],
+            max(140.0, grid_content_width * 0.4),
+            layout_gutter,
+            lane_height_budget,
+        )
+        contextual_band = _fitting_rank_band_size(
+            lane_entries["contextual"],
+            max(MIN_NODE_SIZE, contextual_lane_width),
+            layout_gutter,
+            lane_height_budget,
+        )
+
         packed_height = max(
             _stack_height(
                 _simulate_packed_rows(
                     lane_entries["main"],
                     grid_content_width,
                     layout_gutter,
+                    band_size=main_band,
                 )
             ),
             _stack_height(
@@ -3508,6 +3584,7 @@ def _assign_zone_regions(
                     lane_entries["return"],
                     max(140.0, grid_content_width * 0.4),
                     layout_gutter,
+                    band_size=return_band,
                 )
             ),
             _stack_height(
@@ -3515,16 +3592,23 @@ def _assign_zone_regions(
                     lane_entries["contextual"],
                     max(MIN_NODE_SIZE, contextual_lane_width),
                     layout_gutter,
+                    band_size=contextual_band,
                 )
             ),
         )
+        # The grid row count is a shape heuristic that assumes one rank per
+        # row, so it is only a safe height floor while that holds. Once ranks
+        # are banded the simulation runs the same packing placement performs
+        # and is authoritative; keeping the grid floor would reserve rows the
+        # layout no longer creates and undo the banding.
+        ranks_are_banded = max(main_band, return_band, contextual_band) > 1
+        grid_row_floor = (
+            0.0
+            if ranks_are_banded
+            else grid_rows * cell_height + (grid_rows - 1) * layout_gutter
+        )
         grid_height = (
-            max(
-                packed_height,
-                grid_rows * cell_height + (grid_rows - 1) * layout_gutter,
-            )
-            + label_band
-            + inner_padding * 2
+            max(packed_height, grid_row_floor) + label_band + inner_padding * 2
         )
         own_min_width = max(
             220.0 if child_ids else 180.0,
@@ -4027,28 +4111,45 @@ def _place_zone_nodes(
         rows: list[list[tuple[str, float, float]]] = []
         current_row: list[tuple[str, float, float]] = []
         current_width = 0.0
-        current_rank: int | None = None
+        current_band: int | None = None
         node_ranks = graph.get("node_ranks", {})
+        # The rect was sized against the same banding, so recomputing it here
+        # from the rect keeps placement and estimation in agreement rather than
+        # letting placement overflow a zone that was measured for fewer rows.
+        band_entries = [
+            (entry[0], entry[1], entry[2], int(node_ranks.get(entry[0], 0)))
+            for entry in measured_sizes
+        ]
+        band_size = _fitting_rank_band_size(
+            band_entries,
+            available_width,
+            layout_gutter,
+            float(rect.get("height", 0.0)),
+        )
+        bands = _rank_band_indices(
+            (entry[3] for entry in band_entries),
+            band_size,
+        )
         for entry in measured_sizes:
             node_width = entry[1]
-            entry_rank = int(node_ranks.get(entry[0], 0))
+            entry_band = bands.get(int(node_ranks.get(entry[0], 0)), 0)
             projected_width = (
                 node_width
                 if not current_row
                 else current_width + layout_gutter + node_width
             )
             starts_new_row = bool(current_row) and (
-                entry_rank != current_rank or projected_width > available_width
+                entry_band != current_band or projected_width > available_width
             )
             if starts_new_row:
                 rows.append(current_row)
                 current_row = [entry]
                 current_width = node_width
-                current_rank = entry_rank
+                current_band = entry_band
                 continue
             current_row.append(entry)
             current_width = projected_width
-            current_rank = entry_rank
+            current_band = entry_band
         if current_row:
             rows.append(current_row)
 
