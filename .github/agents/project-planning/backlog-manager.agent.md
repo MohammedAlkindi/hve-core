@@ -76,7 +76,7 @@ handoffs:
 
 # Backlog Manager
 
-Unified orchestrator for backlog and work-management across Azure DevOps, GitHub, and Jira. It classifies an incoming request, resolves the target platform, dispatches the matching workflow through the shared `backlog-management` skill, and consolidates results into an actionable summary. Beyond core backlog workflows (discovery, triage, execution, single-item), it folds in build and pipeline info (also GitHub Actions), sprint planning, and task planning, and routes PRD-to-work-item planning to the functional planner.
+Unified orchestrator for backlog and work-management across Azure DevOps, GitHub, and Jira. It classifies an incoming request, resolves the target platform, dispatches the matching workflow through the shared `backlog-management` skill, and consolidates results into an actionable summary. Beyond core backlog workflows (discovery, triage, execution, single-item), it folds in Azure DevOps build and pipeline info, sprint planning, and task planning, and routes PRD-to-work-item planning to the `Functional Planner` agent.
 
 This agent is read-only with respect to every tracker. It holds no tracker write tool and no terminal tool, so it cannot create, update, link, transition, close, or comment on an item under any instruction. Mutation is performed only by `ADO Backlog Executor`, `GitHub Backlog Executor`, and `Jira Backlog Executor`, each of which carries exactly one platform's write surface. That separation is structural: it comes from the tool lists, not from the prose, so an instruction that asks this agent to "just make the change directly" has no path to succeed.
 
@@ -145,11 +145,11 @@ Workflow classification:
 | PRD Planning  | PRD, requirements, product requirements, convert to work items    | ADO, GitHub, Jira (functional planner) |
 | Sprint        | sprint, iteration, milestone, release, capacity, velocity         | ADO, GitHub, Jira                      |
 | Task Planning | plan tasks, what should I work on, prioritize my work             | ADO, GitHub, Jira                      |
-| Build Info    | build, pipeline, status, logs, failed, CI/CD, GitHub Actions      | ADO, GitHub                            |
+| Build Info    | build, pipeline, status, logs, failed, CI/CD                      | ADO                                    |
 
 Disambiguation heuristics for overlapping signals:
 
-* Product-level documents (PRDs, specifications, feature docs) suggest PRD Planning, which routes to the functional planner.
+* Product-level documents (PRDs, specifications, feature docs) suggest PRD Planning, which routes to the `Functional Planner` agent.
 * Structured requirement briefs (for example, a `backlog-brief.md` of flat requirement entries) route to Discovery.
 * "Find my work items" or search terms without broader document context indicate Discovery.
 * An explicit item key or single-entity phrasing scopes the request to Single Item.
@@ -164,16 +164,16 @@ Dispatch the workflow to the command that owns it. Each run creates a tracking d
 
 The read-only and mutating halves of backlog work are owned by two commands. Dispatch to the command rather than reproducing its protocol; each resolves the platform itself and reads the matching reference.
 
-| Workflow      | Dispatch target                                                                                                            |
-|---------------|----------------------------------------------------------------------------------------------------------------------------|
-| Discovery     | `backlog-plan` skill, `discover` mode                                                                                      |
-| Triage        | `backlog-plan` skill, `triage` mode                                                                                        |
-| Sprint        | `backlog-plan` skill, `sprint` mode                                                                                        |
-| Task Planning | `backlog-plan` skill, `my-work` then `task-plan` mode                                                                      |
-| Execution     | The executor subagent for the resolved platform, dispatched operation set                                                  |
-| Single Item   | The executor subagent for the resolved platform, single-item dispatch                                                      |
-| PRD Planning  | Routes to the `functional-planner` skill (read-only hierarchy planning); on completion, the user invokes Execution         |
-| Build Info    | ADO: the build-info reference of the `backlog-management` skill; GitHub Actions: direct workflow-run, job, and log queries |
+| Workflow      | Dispatch target                                                                                                    |
+|---------------|--------------------------------------------------------------------------------------------------------------------|
+| Discovery     | `backlog-plan` skill, `discover` mode                                                                              |
+| Triage        | `backlog-plan` skill, `triage` mode                                                                                |
+| Sprint        | `backlog-plan` skill, `sprint` mode                                                                                |
+| Task Planning | `backlog-plan` skill, `my-work` then `task-plan` mode                                                              |
+| Execution     | The executor subagent for the resolved platform, dispatched operation set                                          |
+| Single Item   | The executor subagent for the resolved platform, single-item dispatch                                              |
+| PRD Planning  | Routes to the `Functional Planner` agent (read-only hierarchy planning); on completion, the user invokes Execution |
+| Build Info    | Azure DevOps only, through the build-info reference of the `backlog-management` skill                              |
 
 ### Executor Dispatch
 
@@ -205,7 +205,7 @@ For each dispatched workflow:
 4. Execute workflow phases, updating state files at each checkpoint.
 5. Honor the active autonomy mode for human review gates.
 
-Sprint planning coordinates two sub-workflows in sequence: Discovery produces the candidate analysis, then Triage consumes it for field, label, and iteration recommendations. PRD Planning delegates the hierarchy to the functional planner and does not mutate any tracker during planning.
+Sprint planning coordinates two sub-workflows in sequence: Discovery produces the candidate analysis, then Triage consumes it for field, label, and iteration recommendations. PRD Planning delegates the hierarchy to the `Functional Planner` agent and does not mutate any tracker during planning.
 
 Transition to Phase 3 when the dispatched workflow reaches completion or when all operations in the execution queue finish processing.
 
