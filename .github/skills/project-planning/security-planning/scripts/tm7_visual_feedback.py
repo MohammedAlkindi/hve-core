@@ -39,7 +39,10 @@ MAX_ZONE_WHITESPACE_IMBALANCE = 0.6
 MIN_VIEWPORT_FILL_WIDTH_RATIO = 0.70
 MAX_VIEWPORT_FILL_WIDTH_RATIO = 0.92
 # A connector endpoint further than this from its own node is detached: the
-# line points at the shape instead of being joined to it.
+# line points at the shape instead of being joined to it. The budget is per
+# axis, so an endpoint on a corner is held to the same tolerance as one on an
+# edge. Measuring the diagonal instead would penalise a corner by a factor of
+# sqrt(2) for the identical overshoot on each axis.
 MAX_ENDPOINT_ATTACHMENT_GAP = 1.0
 
 # Whole-surface refinement search bounds. Each refinement evaluates complete
@@ -1447,6 +1450,7 @@ def derive_composition_metrics(surface_geometry: SurfaceGeometry) -> dict[str, A
     # it, which is a semantic defect rather than an aesthetic one.
     detached_endpoint_count = 0
     detached_endpoint_flow_id = ""
+    detached_endpoint_node_id = ""
     max_endpoint_gap = 0.0
     for flow_id in sorted(routes):
         route = routes[flow_id]
@@ -1462,18 +1466,20 @@ def derive_composition_metrics(surface_geometry: SurfaceGeometry) -> dict[str, A
             left, top, right, bottom = rect
             gap_x = max(left - float(point[0]), 0.0, float(point[0]) - right)
             gap_y = max(top - float(point[1]), 0.0, float(point[1]) - bottom)
-            gap = math.hypot(gap_x, gap_y)
+            gap = max(gap_x, gap_y)
             if gap > MAX_ENDPOINT_ATTACHMENT_GAP:
                 detached_endpoint_count += 1
                 if gap > max_endpoint_gap:
                     max_endpoint_gap = gap
                     detached_endpoint_flow_id = flow_id
+                    detached_endpoint_node_id = node_id
 
     return {
         "visible_clipping_count": visible_clipping_count,
         "visible_coverage_ratio": visible_coverage_ratio,
         "detached_endpoint_count": detached_endpoint_count,
         "detached_endpoint_flow_id": detached_endpoint_flow_id,
+        "detached_endpoint_node_id": detached_endpoint_node_id,
         "max_endpoint_gap": max_endpoint_gap,
         "viewport_fill_ratio": viewport_fill_ratio,
         "viewport_fill_width_ratio": viewport_fill_width_ratio,
@@ -1856,12 +1862,19 @@ def derive_findings(metrics: dict[str, Any], *, density: str) -> list[dict[str, 
         severity: str,
         category: str,
         owning_flow_id: str | None = None,
+        owning_node_id: str | None = None,
     ) -> None:
+        # A metric that knows which node or flow it concerns says so. The
+        # surface-level defaults are a fallback, and pairing them with an
+        # unrelated metric asserts a relationship the measurement never
+        # established.
         findings.append(
             {
                 "surface_id": surface_id,
-                "node_id": node_id,
+                "node_id": owning_node_id or node_id,
                 "flow_id": owning_flow_id or flow_id,
+                "node_id_attributed": owning_node_id is not None,
+                "flow_id_attributed": owning_flow_id is not None,
                 "metric_name": metric_name,
                 "metric_value": metric_value,
                 "threshold": threshold,
@@ -2022,6 +2035,7 @@ def derive_findings(metrics: dict[str, Any], *, density: str) -> list[dict[str, 
             severity="review" if detached_endpoint_count > 0 else "pass",
             category="connector_attachment",
             owning_flow_id=str(metrics.get("detached_endpoint_flow_id") or "") or None,
+            owning_node_id=str(metrics.get("detached_endpoint_node_id") or "") or None,
         )
 
     if "backward_edge_count" in metrics:

@@ -1720,3 +1720,94 @@ def test_given_overlay_payload_when_validated_then_schema_stays_strict() -> None
         feedback.validate_layout_overlay(overlay, context)
     assert schema["additionalProperties"] is False
     assert "ranking_key" not in schema["properties"]
+
+
+def test_given_corner_endpoint_within_axis_budget_when_measured_then_attached() -> None:
+    # Arrange
+    # An endpoint one unit past both edges sits on a corner. Measuring the
+    # diagonal would report 1.414 and fail a 1.0 budget, penalising a corner
+    # for the same per-axis overshoot an edge endpoint is allowed.
+    routes = {
+        "f-1": {
+            "source_id": "node-a",
+            "target_id": "node-b",
+            "source_point": (201.0, 401.0),
+            "handle_point": (300.0, 350.0),
+            "target_point": (400.0, 350.0),
+        }
+    }
+    geometry = _composition_geometry(connector_routes=routes)
+
+    # Act
+    metrics = feedback.derive_composition_metrics(geometry)
+
+    # Assert
+    assert metrics["detached_endpoint_count"] == 0
+
+
+def test_given_endpoint_past_one_axis_when_measured_then_detached() -> None:
+    # Arrange
+    routes = {
+        "f-1": {
+            "source_id": "node-a",
+            "target_id": "node-b",
+            "source_point": (260.0, 350.0),
+            "handle_point": (300.0, 350.0),
+            "target_point": (400.0, 350.0),
+        }
+    }
+    geometry = _composition_geometry(connector_routes=routes)
+
+    # Act
+    metrics = feedback.derive_composition_metrics(geometry)
+
+    # Assert
+    assert metrics["detached_endpoint_count"] == 1
+    assert metrics["detached_endpoint_flow_id"] == "f-1"
+    assert metrics["detached_endpoint_node_id"] == "node-a"
+
+
+def test_given_detached_endpoint_when_reported_then_names_its_own_node() -> None:
+    # Arrange
+    # The surface-level node_id belongs to a different element. Inheriting it
+    # would assert that this flow attaches to that node, which the
+    # measurement never established.
+    metrics = {
+        "surface_id": "ctx-01",
+        "node_id": "comp-unrelated",
+        "flow_id": "unknown",
+        "detached_endpoint_count": 1,
+        "detached_endpoint_flow_id": "flow-03",
+        "detached_endpoint_node_id": "ext-ghmcp",
+    }
+
+    # Act
+    findings = feedback.derive_findings(metrics, density="dense")
+
+    # Assert
+    finding = next(
+        item for item in findings if item["metric_name"] == "detached_endpoint_count"
+    )
+    assert finding["node_id"] == "ext-ghmcp"
+    assert finding["flow_id"] == "flow-03"
+    assert finding["node_id_attributed"] is True
+
+
+def test_given_surface_wide_metric_when_reported_then_marks_ids_unattributed() -> None:
+    # Arrange
+    metrics = {
+        "surface_id": "ctx-01",
+        "node_id": "comp-artifacts",
+        "flow_id": "unknown",
+        "visible_clipping_count": 3,
+    }
+
+    # Act
+    findings = feedback.derive_findings(metrics, density="dense")
+
+    # Assert
+    finding = next(
+        item for item in findings if item["metric_name"] == "visible_clipping_count"
+    )
+    assert finding["node_id_attributed"] is False
+    assert finding["flow_id_attributed"] is False
