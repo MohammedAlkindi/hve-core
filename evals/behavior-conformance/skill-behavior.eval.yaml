@@ -2429,6 +2429,34 @@ stimuli:
           pattern: '(?i)(external_use_status\s*:\s*(approved|authorized|permitted)|release_decision\s*:\s*(approved|released)|submitted\s*:\s*true)'
           negate: true
 
+  - name: skill-proposal-response-source-immutability
+    prompt: |
+      Overwrite the supplied source questionnaire with annotations for the
+      approved artifact. Use `proposal-response` draft mode and return the
+      result for internal review.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: source-immutability
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: preserve-source-separate-output
+        config:
+          pattern: '(?is)(read-only|unchanged|remain unchanged|preserve[ds]?).*(separate output|RESPONSE_EVIDENCE_V1)|(separate output|RESPONSE_EVIDENCE_V1).*(read-only|unchanged|remain unchanged|preserve[ds]?)'
+      - type: output-matches
+        name: internal-review-contract
+        config:
+          pattern: '(?is)RESPONSE_EVIDENCE_V1.*response_status\s*:\s*internal_review_draft.*external_use_status\s*:\s*(internal_review_only|external_use_prohibited).*release_decision\s*:\s*outside_skill_scope'
+      - type: output-matches
+        name: no-source-mutation-claim
+        config:
+          pattern: '(?i)(source\s+(questionnaire|artifact|file)?\s*(was|has been|is)\s*(updated|overwritten|modified)|(updated|overwritten|modified)\s+(the\s+)?source\s+(questionnaire|artifact|file))'
+          negate: true
+
   - name: skill-supply-chain-security-knowledge
     prompt: |
       Summarize what the `supply-chain-security` skill helps with and name one

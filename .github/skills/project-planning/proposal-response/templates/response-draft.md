@@ -10,6 +10,8 @@ description: Optional traceable internal-review response draft with qualificatio
 * Release decision: `outside_skill_scope`
 * Structural readiness: `{{not_ready_or_ready_for_internal_review}}` (advisory only)
 
+Render one visible question record for every source question. For an unresolved question, show its source question, `UNR` state, and decision or evidence need instead of an unsupported draft response.
+
 ### {{SQ-ID}}: {{Source Question}}
 
 **Draft response**

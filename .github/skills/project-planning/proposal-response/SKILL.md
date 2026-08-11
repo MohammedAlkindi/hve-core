@@ -76,17 +76,20 @@ structural_readiness:
 
 `analyze` may leave `responses` empty. `contribute` returns the updated domain-owned claims and affected question links. `draft` returns response records for addressed questions. Every operation returns the fixed status and release fields.
 
+`blocking_ids` lists only question, claim, or unresolved IDs whose missing classification, traceability, qualification visibility, coverage integrity, or fixed authority markers prevent structural readiness. A visible, classified unresolved human decision remains an `UNR` record unless it also leaves one of those conditions incomplete.
+
 ## Success Criteria
 
 * Every question and claim has a stable ID and a traceable source or visible evidence gap.
 * Facts, measurements, credentials, references, commitments, estimates, assumptions, exceptions, and decisions are supported or explicitly qualified.
 * Business and product contributions stay within their ownership domains.
-* Coverage arithmetic matches the returned records and blocking IDs identify unresolved structure.
+* Coverage arithmetic matches the returned records and blocking IDs identify structural readiness gaps.
 * Every draft is `internal_review_draft`, both external-use states deny external use, and `release_decision` is `outside_skill_scope`.
 
 ## Constraints
 
 * Use only user-supplied or user-approved sources. This prevents plausible but unsupported response content.
+* Treat supplied source questions and approved source artifacts as read-only inputs that remain unchanged. Return outputs only through `RESPONSE_EVIDENCE_V1` or explicitly requested bundled renderings.
 * Preserve source wording where precision matters, but do not reproduce restricted third-party material beyond what the user is authorized to use.
 * Keep evidence review, structural readiness, and external-use disposition separate. Structural completeness does not grant authority.
 * Do not add approval, authorization, permission, submission, release, approver identity, or commitment fields.
