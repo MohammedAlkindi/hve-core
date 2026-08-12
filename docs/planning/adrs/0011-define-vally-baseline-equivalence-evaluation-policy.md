@@ -3,7 +3,7 @@ id: "0011"
 title: "Define the Vally baseline-equivalence evaluation policy"
 description: "Define launch-based agent invocation, authoritative evidence, report-only comparison calibration, model scope, and trial posture for the baseline-equivalence suite."
 author: "HVE Core Maintainers"
-ms.date: "2026-08-08"
+ms.date: "2026-08-11"
 ms.topic: "reference"
 status: "proposed"
 proposed_date: "2026-08-01"
@@ -113,17 +113,18 @@ The decision has six parts.
 **1. The comparison rubric is an explicit repository contract, and the judge model is pinned on the invocation.** `vally compare` treats `--eval-spec` as an optional override of its embedded rubric.
 Relying on that default proved unsound: the embedded rubric asks which response is better, and two runs of one configuration still differ in wording, so the judge picks winners even when customization changed nothing.
 Measured against a preference judge, the tie ratio reports judge tie-breaking propensity rather than equivalence.
-The driver therefore passes `--eval-spec evals/baseline-equivalence/compare.eval.yml`, a contract carrying one rubric entry per canonical stimulus: `equivalent` entries instruct a tie when both variants satisfy the same behavioral contract despite differing wording, and `documented-divergence` entries state the expected direction and an explicit tie condition.
+The driver therefore passes `--eval-spec evals/baseline-equivalence/compare.eval.yml`, a contract carrying one rubric entry per canonical stimulus. Each equivalent-policy entry instructs a tie when both variants satisfy the same behavioral contract despite differing wording.
 Deterministic validation rejects any missing, duplicated, unknown, or policy-mismatched entry before a run is paid for.
 The judge model is passed explicitly as `--judge-model`, defaulting to `claude-haiku-4.5`, so both the rubric and the judge are visible in the command.
 
 **2. Agent invocation is part of the treatment and must be evidenced.** The baseline sends the canonical question as one prompt. The customized variant follows the repository's established conformance pattern: turn 0 launches `.github/agents/hve-core/rpi-agent.agent.md`, and turn 1 sends the same canonical question.
 Copying an agent file into a workspace is not invocation. Every customized `model|stimulus|trial` identity must have one successful structured read of the exact staged agent path with non-empty RPI Agent content. Failed reads, wrong paths, missing identities, duplicates, and malformed evidence are structural failures.
 
-**3. Comparison is report-only calibration until valid post-launch evidence supports a non-inferiority policy.** The 40 stimuli carry 35 `equivalent` and 5 `documented-divergence` policies. Signed scores, mean, standard deviation, 95% confidence bounds, and per-stimulus dispersion are computed separately for each model over the equivalent-policy population only. Documented-divergence outcomes cannot move those estimates.
+**3. Comparison is report-only calibration until valid post-launch evidence supports a non-inferiority policy.** The 35 stimuli all carry the `equivalent` policy. Signed scores, mean, standard deviation, 95% confidence bounds, and per-stimulus dispersion are computed separately for each model. Complete-delivery evidence resolved the boundary-stimulus decision by showing that five removed guards measured lifecycle phase behavior rather than nominal model non-degradation.
 Tie ratio and Vally's all-policy aggregate fields remain diagnostics. No comparative pass or fail state exists until a later human-owned decision defines score direction, hypotheses, numeric degradation margin, confidence level, boundary inequality, missing-bound behavior, and a rule forbidding pass-seeking recalibration. Historical values from before launch-based invocation are not comparable to the first valid calibration.
 
-**4. Tiers separate local iteration from two-model calibration while preserving authoritative evidence.** `devloop` runs one selected model and remains advisory. `calibration` and `ci` run the fixed pair `gpt-5.6-luna` and `claude-sonnet-4.6`. Comparison and boundary guards are report-only at every current tier. Deterministic invariants, successful agent invocation, run health, and structural data quality remain authoritative in `calibration` and `ci`; structural failures fail closed even in `devloop`.
+**4. Tiers separate local iteration from two-model calibration while preserving authoritative evidence.** `devloop` runs one selected model and remains advisory. `calibration` and `ci` run the fixed pair `gpt-5.6-luna` and `claude-sonnet-4.6`. Comparison and persona-bleed guards are report-only at every current tier.
+Deterministic invariants, successful agent invocation, run health, and structural data quality remain authoritative in `calibration` and `ci`; structural failures fail closed even in `devloop`.
 The former `pr` and `nightly` names remain rejected rather than aliased.
 
 **5. Judge errors are counted and structural exclusions fail closed.** `judgeErrors` and `judgeErrorRate` appear in every summary. Any missing or judge-excluded comparison population is a data-quality violation and invalidates calibration rather than silently reducing the denominator.
@@ -131,8 +132,7 @@ Their acceptable bar is unresolved pending the calibration work, and a gate that
 A judge failure is not silently tolerated: a comparison that yields no records the judge could score is a run-health failure, so an unusable judge already fails closed without a numeric budget.
 Model scope follows cost: `devloop` resolves an explicit `-Model` override, then the agent's frontmatter `model:` hint, then the low-cost default `gpt-5.6-luna`; `calibration` and `ci` sweep the fixed pair. No floating alias such as `latest` is used.
 
-**6. Stage 1 measures one subject; the multi-agent sweep is staged behind it.** The corpus backlinks nine agents, but its customization-boundary stimuli and their guards encode the RPI agent's contract, so scoring another agent against them would fail for reasons unrelated to equivalence.
-Backlinks therefore identify related artifacts rather than authorize equivalence subjects: the dedicated harness runs `rpi-agent` only, and the corpus is excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus runs that reported success without evidencing anything.
+**6. Stage 1 measures one subject; the multi-agent sweep is staged behind it.** The executable Launch turn targets the RPI Agent, while backlinks identify related artifacts rather than authorize equivalence subjects. The corpus is excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus runs that reported success without evidencing anything.
 Expanding to per-subject conditional guards across all nine agents is deferred until one clean run under the restored comparison contract exists, so the expansion multiplies a measurement that has been shown to work rather than one that has not.
 
 Declared invariants and declared divergence guards are reconciled against an expected stimulus, grader, and trial manifest in both directions.
@@ -206,7 +206,7 @@ The authoritative/report-only separation, fail-closed rules, population reconcil
 * [.github/workflows/eval-validation.yml](../../../.github/workflows/eval-validation.yml) owns the outer eval-shard timeout and credentialed calibration dispatch.
 * [scripts/evals/Invoke-BaselineEquivalence.ps1](../../../scripts/evals/Invoke-BaselineEquivalence.ps1) is the single entry point that owns tier validation, model resolution, the pinned judge invocation, and the exit policy in parts 1, 3, and 4.
 * [scripts/evals/lib/EquivalenceParsing.psm1](../../../scripts/evals/lib/EquivalenceParsing.psm1) computes both gates and the verdict described in parts 2 and 4, and reads comparison and guard results.
-* [scripts/evals/lib/EquivalenceEnvironment.psm1](../../../scripts/evals/lib/EquivalenceEnvironment.psm1) materializes the per-agent customized environment and derives the scope guard whose conformance the documented-divergence gate reads.
+* [scripts/evals/lib/EquivalenceEnvironment.psm1](../../../scripts/evals/lib/EquivalenceEnvironment.psm1) materializes the per-agent customized environment and its referenced artifacts.
 * [scripts/evals/Invoke-VallyEvals.ps1](../../../scripts/evals/Invoke-VallyEvals.ps1) dispatches the suite in CI and is the consumer that rejects an unsupported reporting-contract major version.
 * ADR 0002 adopted Vally and identified the baseline-equivalence guarantee this policy governs.
 * ADR 0010 corrected PR-time execution semantics; its typed-record parsing rule is extended here to the equivalence results reader, and the tier vocabulary it described as PR and nightly is renamed by part 3 of this decision.

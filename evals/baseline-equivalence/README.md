@@ -1,20 +1,20 @@
 ---
 title: Baseline Equivalence Suite
-description: 'Pairs identical probes across baseline and customized environments to assert only documented divergences appear'
+description: 'Pairs identical probes across baseline and customized environments to measure nominal behavior preservation'
 author: HVE Core Team
-ms.date: 2026-08-08
+ms.date: 2026-08-11
 ---
 
 ## Purpose
 
-This suite measures whether invoking an hve-core agent changes underlying GitHub Copilot model
-behavior beyond documented divergences. The agent layer is the independent variable: identical
+This suite measures whether invoking an hve-core agent changes nominal GitHub Copilot model
+behavior. The agent layer is the independent variable: identical
 questions run against the same model, once as a plain baseline prompt and once after a turn-0
 `Launch .github/agents/hve-core/rpi-agent.agent.md` directive. This is the established invocation
 pattern used by the repository's agent-conformance suites. The agent file remains staged in the
 trial workspace so the launch turn can read it.
 
-The suite answers a single question per stimulus: did customization change the model's answer, or did it change only the framing the customization explicitly requires?
+The suite answers a single question per stimulus: did customization change the model's answer under an ordinary prompt?
 
 ## Layout
 
@@ -25,10 +25,10 @@ evals/baseline-equivalence/
 │   ├── eval.yaml       # executable spec for the empty baseline run (invariant graders + response-quality)
 │   └── variant.yaml    # baseline variant metadata
 ├── customized/
-│   ├── eval.yaml       # executable spec for the materialized agent run (adds customized_required / customized_disallow)
+│   ├── eval.yaml       # executable spec for the materialized agent run (adds customized_disallow guards)
 │   └── variant.yaml    # RPI Agent variant metadata
 ├── compare.eval.yml    # comparison-judging contract: one rubric per canonical stimulus
-├── stimuli.yml         # 40 prompts across 8 subcategories at 5 per subcategory
+├── stimuli.yml         # 35 equivalent-policy prompts across 7 subcategories
 ```
 
 The baseline and customized specs are self-contained vally `eval` documents. The PowerShell driver invokes each spec in turn with `vally eval --eval-spec` and then joins the two run directories with `vally compare --eval-spec evals/baseline-equivalence/compare.eval.yml --judge-model <model> --baseline <baseline-run-dir> --treatment <customized-run-dir> --output <path>.jsonl`.
@@ -36,8 +36,8 @@ The baseline and customized specs are self-contained vally `eval` documents. The
 Comparison judging reads `compare.eval.yml`, supplied explicitly through `--eval-spec`. Without it, `vally compare` falls back to the rubric
 embedded in the baseline trajectory and then to a general-purpose preference rubric that asks which response is better. Preference judging cannot
 measure equivalence: two runs of one configuration still differ in wording, so the judge keeps picking winners and the tie ratio reports judge
-tie-breaking rather than behavioral sameness. Each entry in the contract states the behavioral contract instead: `equivalent` stimuli instruct a tie
-when both variants satisfy it, and `documented-divergence` stimuli state the expected direction and an explicit tie condition. The judge model is
+tie-breaking rather than behavioral sameness. Each entry in the contract states the behavioral contract and instructs a tie
+when both variants satisfy it. The judge model is
 pinned separately through the driver's `-ComparisonJudgeModel` parameter, so both the rubric and the judge are visible in the command.
 
 The contract is validated deterministically before any model-backed run. A missing, duplicated, unknown, or policy-mismatched entry fails `npm run ci:eval:lint:schema` and the Pester sync suite rather than silently changing what the tie ratio measures.
@@ -62,9 +62,8 @@ npm run ci:eval:equivalence -- -Agent rpi-agent -WhatIf
 
 The former `pr` and `nightly` tier names are rejected with a migration message rather than aliased, because they carried different exit policies and a silent alias would let a stale caller select the wrong one.
 
-`rpi-agent` is the only equivalence subject. The corpus backlinks nine agents, but its customization-boundary stimuli and guards encode the RPI
-agent's contract, so another agent would fail them for reasons unrelated to equivalence. Those backlinks identify related artifacts for indexing;
-they do not select subjects. The corpus is also excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus
+`rpi-agent` is the only stage 1 equivalence subject because the customized launch target is fixed to that agent. Corpus backlinks identify related artifacts for indexing;
+they do not select subjects. The corpus is excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus
 runs that reported success without measuring anything. Extending coverage to the remaining agents requires per-subject conditional guards and is
 deferred until one clean run under the restored comparison contract exists.
 
@@ -96,8 +95,8 @@ The compare invocation deliberately omits `--fail-on-regression`. Comparison is 
 | `invariantFailures`                                                  | int          | Declared-invariant violations read from the baseline run's structured results                                                                                                                   |
 | `runHealthFailures`                                                  | int          | Run-integrity signals: missing run directories, unparseable compare output, a nonzero `vally compare` exit, and a nonzero `vally eval` exit only when that run produced no usable grader signal |
 | `invocationEvidence`, `invocationFailures`                           | list, int    | Per-model expected and observed successful agent-file reads plus failed, missing, duplicate, wrong-path, and malformed evidence; any failure is structural                                      |
-| `divergenceGuardFailures`                                            | int          | Declared `customized_required` and `customized_disallow` guards that failed in the customized run                                                                                               |
-| `divergenceGuardsEvaluated`                                          | int          | Declared guards actually evaluated; zero means the gate had no signal and fails closed                                                                                                          |
+| `divergenceGuardFailures`                                            | int          | Declared `customized_disallow` guards that failed in the customized run                                                                                                                         |
+| `divergenceGuardsEvaluated`                                          | int          | Declared guards actually evaluated; current guards detect persona bleed on equivalent-policy stimuli                                                                                            |
 | `failedDivergenceGuards`                                             | list         | Up to 50 `stimulus/guard` identifiers for the failing guards                                                                                                                                    |
 | `dataQualityViolations`                                              | int          | Malformed, unmatched, duplicate, missing, or unexpected records across comparison and declared-population reconciliation; any nonzero value fails closed at every tier                          |
 | `dataQualityDiagnostics`                                             | list         | Up to 50 human-readable diagnostic strings explaining the counted data-quality violations; diagnostic aid, not a contractual enumeration                                                        |
@@ -105,7 +104,7 @@ The compare invocation deliberately omits `--fail-on-regression`. Comparison is 
 | `equivalentTrials`, `equivalentTies`, `divergenceTrials`, `tieRatio` | int, number  | Population split by comparison policy; tie ratio is retained only as a diagnostic                                                                                                               |
 | `comparisonCalibration`, `comparisonStatus`                          | list, string | Equivalent-policy signed-score count, mean, standard deviation, 95% bounds, and per-stimulus dispersion for each model; status is `report-only`                                                 |
 | `equivalenceGate`                                                    | string       | Authoritative deterministic and structural evidence status                                                                                                                                      |
-| `documentedDivergenceGate`                                           | string       | `report-only` while boundary behavior is being calibrated                                                                                                                                       |
+| `documentedDivergenceGate`                                           | string       | `report-only`; retained in the 2.x summary contract after boundary-corpus removal                                                                                                               |
 | `verdict`                                                            | string       | Authoritative deterministic and structural outcome; comparison cannot change it                                                                                                                 |
 | `variants`                                                           | list         | Per-model variant metadata (model id, baseline run directory, customized run directory)                                                                                                         |
 | `compareLogs`                                                        | list         | Absolute paths to every captured `vally compare` console log; the sibling `--output` JSONL lives at `logs/vally-compare-<model>-<runId>.jsonl`                                                  |
@@ -121,7 +120,7 @@ The baseline-equivalence specs live in two subdirectories (`baseline/eval.yaml` 
 | Command                                                                  | Purpose                                                                            |
 |--------------------------------------------------------------------------|------------------------------------------------------------------------------------|
 | `vally lint --eval-spec evals/baseline-equivalence/baseline/eval.yaml`   | Schema-validate the empty baseline spec                                            |
-| `vally lint --eval-spec evals/baseline-equivalence/customized/eval.yaml` | Schema-validate the materialized customized spec (includes the divergence graders) |
+| `vally lint --eval-spec evals/baseline-equivalence/customized/eval.yaml` | Schema-validate the materialized customized spec and persona-bleed guards          |
 | `npm run ci:eval:run:equivalence`                                        | Run both specs end to end via `vally eval --eval-spec ...` (no driver, no compare) |
 
 Run both `vally lint` commands before pushing a change to this suite. The presence linter ([scripts/evals/Test-StimulusPresence.ps1](../../scripts/evals/Test-StimulusPresence.ps1)) is wired into the changed-artifact lane and is documented in [docs/contributing/evals-ci.md](../../docs/contributing/evals-ci.md).
@@ -134,11 +133,8 @@ Onboarding a new agent (for example `security-planner`) requires a subject-aware
    [scripts/evals/lib/EquivalenceEnvironment.psm1](../../scripts/evals/lib/EquivalenceEnvironment.psm1) copies the agent file, its declared
    instructions, its subagents, `copilot-instructions.md`, and only the skills that agent actually references. Two different agents therefore
    produce different customized environments. Materialization alone is not invocation: the launch turn is the evidence-bearing treatment. The baseline runs against the same shared seed project but no agent and is cached and reused across agents, keyed on model, Vally version, and a content hash covering the baseline spec plus the seed.
-2. Divergence guards are declared inline per stimulus. Each `customization-boundary` stimulus names the specific completion claim its subject must
-   not make, so a guard is satisfiable by prompt-appropriate behavior rather than by incidental vocabulary. `Resolve-AgentScopePattern` remains
-   available in [scripts/evals/lib/EquivalenceEnvironment.psm1](../../scripts/evals/lib/EquivalenceEnvironment.psm1) for the deferred per-subject
-   guard work, but stage 1 supplies no derived guard parameter, because a parameter no spec consumes would report a guard that never ran.
-3. Add per-agent divergence graders inline in [customized/eval.yaml](customized/eval.yaml) (`customized_required` / `customized_disallow` graders attached to the relevant stimuli) for any behavior the shared guards cannot capture.
+2. Persona-bleed guards are declared inline on equivalent-policy stimuli. `Resolve-AgentScopePattern` remains available in [scripts/evals/lib/EquivalenceEnvironment.psm1](../../scripts/evals/lib/EquivalenceEnvironment.psm1) for deferred per-subject guard work.
+3. Add subject-aware guards only when evidence shows they measure nominal non-degradation rather than lifecycle phase behavior.
 
 The driver resolves the agent's frontmatter `model:` hint automatically. No new PowerShell, no new stimulus library, and no new judge prompt are required unless the agent's domain materially differs from the existing corpus.
 
@@ -147,25 +143,23 @@ Vally exposes no agent-selection flag. The repository-standard turn-0 `Launch` i
 ## Agent Coverage
 
 Any agent in `.github/agents/` can be materialized without being registered anywhere. The driver copies the target agent's surface into an isolated
-workspace at run time, so there is no onboarding list to join and no per-agent harness code to add. Stage 1 nevertheless evaluates `rpi-agent`
-alone, because the customization-boundary guards encode that agent's contract; running another subject against them would report a failure the
-run did not contain. Per-subject conditional guards are the deferred work that turns materialization into meaningful multi-agent coverage.
+workspace at run time, so there is no onboarding list to join and no per-agent harness code to add. Stage 1 evaluates `rpi-agent`
+alone because the executable Launch turn targets that agent. Subject-aware launch routing is required before meaningful multi-agent coverage.
 
 What does vary per agent is stimulus backlinking. Most stimuli are shared corpus prompts that any agent runs; a subset carries an explicit `tags.agent` backlink marking it as characteristic of that agent's domain. Those backlinks are the only per-agent data in this suite, and they are counted from [stimuli.yml](stimuli.yml):
 
-| Agent                   | Backlinked Stimuli | Why                                                                     |
-|-------------------------|--------------------|-------------------------------------------------------------------------|
-| rpi-agent               | 23                 | The suite's primary subject; carries the RPI lifecycle and scope guards |
-| documentation           | 4                  | README and documentation-coverage prompts                               |
-| code-review             | 3                  | Code walkthrough, error explanation, and correcting a prior mistake     |
-| issue-triage            | 3                  | Under-specified asks that need classification                           |
-| brd-builder             | 2                  | Requirements elicitation on vague feature requests                      |
-| github-backlog-manager  | 2                  | Grooming vague work items                                               |
-| prd-builder             | 2                  | Requirements elicitation on vague feature requests                      |
-| product-manager-advisor | 2                  | Requirements elicitation on vague feature requests                      |
-| dependency-reviewer     | 1                  | Reviewing a new package dependency entry                                |
+| Agent                   | Backlinked Stimuli | Why                                                                 |
+|-------------------------|--------------------|---------------------------------------------------------------------|
+| rpi-agent               | 18                 | The suite's primary subject and fixed launch target                 |
+| documentation           | 3                  | README and documentation-coverage prompts                           |
+| code-review             | 3                  | Code walkthrough, error explanation, and correcting a prior mistake |
+| issue-triage            | 3                  | Under-specified asks that need classification                       |
+| brd-builder             | 2                  | Requirements elicitation on vague feature requests                  |
+| github-backlog-manager  | 2                  | Grooming vague work items                                           |
+| prd-builder             | 2                  | Requirements elicitation on vague feature requests                  |
+| product-manager-advisor | 2                  | Requirements elicitation on vague feature requests                  |
 
-Counts sum to more than 40 because a stimulus may backlink several agents. An agent absent from this table is still fully runnable; it simply has no domain-specific prompt in the v1 corpus and is exercised through the shared stimuli and its derived scope guard.
+Counts sum to more than 35 because a stimulus may backlink several agents. An agent absent from this table has no domain-specific prompt in the v1 corpus.
 
 ## Authoritative and Report-Only Interpretation
 
@@ -178,10 +172,9 @@ The driver separates authoritative evidence from report-only comparison through 
 * `invariantFailures > 0` or `runHealthFailures > 0`: `warn` on `devloop`; `fail` on `calibration` and `ci`.
 * An empty equivalent population fails closed at every tier.
 
-**Report-only comparison.** Equivalent-policy signed scores are calculated independently per model. Each model reports score count, mean, standard deviation, 95% confidence bounds, and per-stimulus dispersion. Tie ratio, all-policy Vally summaries, and boundary guards remain diagnostics.
+**Report-only comparison.** Equivalent-policy signed scores are calculated independently per model. Each model reports score count, mean, standard deviation, 95% confidence bounds, and per-stimulus dispersion. Tie ratio, all-policy Vally summaries, and persona-bleed guards remain diagnostics.
 
 * No comparative pass/fail state exists yet. A valid post-launch calibration must precede any decision about a degradation margin, confidence level, inequality, or authoritative comparative tier.
-* Documented-divergence guards report behavior needed to decide whether the five boundary stimuli reflect the RPI Agent contract. They cannot change exit status.
 * Historical values from before launch-based invocation are not comparable to post-change results.
 
 The inherited `0.80` tie-ratio floor and the old all-policy `ciLow` and `ciHigh` fields are retained only for historical reporting. Neither participates in an authoritative decision.
@@ -196,7 +189,6 @@ Each entry in [stimuli.yml](stimuli.yml) uses these keys:
 | `prompt`              | canonical, baseline | The verbatim user-facing question                                                                                                                 |
 | `turns`               | customized only     | Exactly two turns: the RPI Agent launch directive followed by the canonical user question                                                         |
 | `invariants`          | both                | Named graders that gate the verdict. Measured on the baseline run, so a gating invariant must be evidence a reasonable baseline always produces   |
-| `customized_required` | customized only     | Named graders from `grader_registry.customized_required` that must match the customized trajectory; documents an expected divergence              |
 | `customized_disallow` | customized only     | Named graders from `grader_registry.customized_disallow` that must NOT match the customized trajectory; catches unintended persona or scope bleed |
 | `tags`                | filter              | `category` and `subcategory` for stimulus selection and reporting                                                                                 |
 
@@ -210,18 +202,9 @@ Reporting-without-gating is not a way to quiet a failing check. It applies when 
 
 Trajectory invariants live at the spec level (not per stimulus) and apply across the baseline-customized pair: model equality (`metadata.model` matches across A and B), baseline-no-customized-skills (the baseline trajectory invokes no skills the customization layer expects), and response length parity within plus or minus 25 percent.
 
-## Declared Divergence Allow-List
+## Customized Disallow Guards
 
-The customization layer is allowed to differ from the baseline only in ways the suite declares. Those declarations live in [stimuli.yml](stimuli.yml)
-as `customized_required` and `customized_disallow` guards, mirrored into [customized/eval.yaml](customized/eval.yaml) and enforced by the
-synchronization check. On the `customization-boundary` stimuli each guard names the specific completion claim the customized variant must not make,
-such as `avoids-external-write-claim` or `avoids-scope-bypass-edit-claim`; `writes-outside-allowed-dirs` is a shared invariant asserting neither
-environment names an out-of-scope filesystem location. Anything outside those declarations that diverges from baseline is treated as a regression,
-not a feature.
-
-Guards assert observable behavior rather than vocabulary. An earlier revision required RPI lifecycle wording and the agent's tracking directory name
-on every response, including replies to prompts as small as writing one temporary file. Every declared guard failed on every trial while the
-responses themselves were on-topic, so the gate reported a customization failure that the runs did not contain.
+The 35-stimulus corpus is entirely equivalent-policy. `customized_disallow` guards on the instruction-bleed stimuli detect unsolicited RPI Agent self-reference while leaving comparison report-only. Complete delivery evidence showed that the removed customization-boundary guards measured lifecycle phase behavior rather than nominal model non-degradation. Agent behavior testing owns those implementation and scope contracts.
 
 This framing is intentional. The suite is not a free-form quality grader; it asks the narrow question "does customization change anything beyond what we said it would?" Curated allowances keep the question crisp.
 
