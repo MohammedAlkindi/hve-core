@@ -11,9 +11,9 @@ tools:
   - search
   - web
 handoffs:
-  - label: "📋 Product Review"
-    agent: Product Manager Advisor
-    prompt: "Review this work from a product management perspective and identify any scope, risk, or alignment issues."
+  - label: "Build PRD"
+    agent: PRD Builder
+    prompt: "Create or refine a Product Requirements Document for this initiative using the research produced in this session."
     send: true
   - label: "🔍 Research Topic"
     agent: RPI Agent
@@ -154,6 +154,8 @@ Hand off to `Product Manager Advisor` when existing UX assets need business-valu
 Hand off to `RPI Agent` and begin with `rpi-research` when a design recommendation depends on unresolved technical feasibility. Pass the current evidence boundary and asset pointers.
 
 The reusable `ux-artifacts` caller contract is available to future agents, but this agent is the only new consumer wired in this change. Collection membership does not create automatic agent routes.
+
+Hand off to `prd-builder` when research findings need to become formal product requirements, and to `backlog-plan` when they need to become tracked work items.
 
 ## Constraints
 
