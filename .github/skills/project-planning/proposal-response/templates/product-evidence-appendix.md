@@ -10,6 +10,12 @@ description: Optional internal-review appendix for product-owned proposal respon
 * External use status: `{{internal_review_only_or_external_use_prohibited}}`
 * Release decision: `outside_skill_scope`
 
+### Approved Sources
+
+| Source ID  | Path     | Kind     | Version or date | Read date     | Sections used |
+|------------|----------|----------|-----------------|---------------|---------------|
+| {{SRC-ID}} | {{path}} | {{kind}} | {{version}}     | {{read-date}} | {{sections}}  |
+
 ### Source Questions
 
 | Question ID | Source reference     | Product question | State     |

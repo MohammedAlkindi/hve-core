@@ -7,12 +7,43 @@ description: Stable question, claim, evidence, response, coverage, and authority
 
 Assign IDs in source encounter order and preserve them across operations:
 
+* `SRC-001`: approved source artifact
 * `SQ-001`: source question
 * `CLM-001`: claim
 * `RSP-001`: drafted response
 * `UNR-001`: unresolved item
 
 Never renumber existing records when new material is added. Link records by ID rather than by list position.
+
+## Approved Sources
+
+An approved source is a user-named artifact, such as an existing BRD or PRD, that the user authorized as evidence for this response. Register each one before any claim cites it:
+
+```yaml
+id: SRC-001
+path: docs/planning/aster-vale-supplier-onboarding-prd.md
+kind: brd | prd | policy | attestation | other
+named_by: user
+read_date: 2026-08-12
+source_version: 1.3
+sections_used: [NFR-014, FR-021]
+```
+
+`path` is the artifact the skill actually read. `read_date` is the date this skill read it. `source_version` is the version or date the artifact declares, or `unknown` when it declares neither. `sections_used` lists the requirement, section, or heading identifiers the claims drew from.
+
+A source record is registered only after the artifact is read. Never register a path the skill has not opened, and never infer `source_version` from the filename.
+
+Source records carry no `response_state` and enter no coverage count. They do not appear in `blocking_ids`: a claim resting on a missing or unusable source already surfaces through the unsupported-claim conditions, so a separate source condition would report the same gap twice.
+
+### Evidence Reference Format
+
+A claim's `evidence_refs` entry names a registered source ID and the specific material inside it, joined by `#`:
+
+```text
+SRC-001#NFR-014
+```
+
+Use the requirement ID, section identifier, or heading text after the `#`. Every `evidence_refs` entry resolves to a registered `SRC` ID; an entry naming no registered source leaves its claim `unsupported`.
 
 ## Source Questions
 
@@ -69,7 +100,7 @@ id: CLM-001
 owner_domain: business | product | shared
 statement: The service target is defined in NFR-014.
 source_question_ids: [SQ-001]
-evidence_refs: [approved-prd.md#NFR-014]
+evidence_refs: [SRC-001#NFR-014]
 evidence_review: supported | partially_supported | unsupported | conflicting | stale | unreviewed
 qualification: null
 ```

@@ -42,18 +42,19 @@ The PRD Builder runs the seven-phase lifecycle defined by the `requirements-auth
 
 ### Proposal Response Extension
 
-Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Invoke `contribute` with `domain: product`, supply only approved product-owned PRD or conversation evidence, and preserve unsupported claims, estimates, exceptions, and human decisions as unresolved items. Continue from the supplied proposal-response artifact path, or let the skill create its canonical tracking artifact. Render the product evidence appendix only when the user explicitly requests it.
+Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Load `references/builder-extension-contract.md` from that skill with `read_file` before the first operation; it owns the shared activation, session-state, rejected-operation, and reporting contract, which is not duplicated here.
 
-After the skill content is available, append `proposal-response#contribute:product` to `state.extensionsLoaded` once. Record an artifact path only when the skill returns `RESPONSE_EVIDENCE_POINTER_V1`: create `state.proposalResponseArtifacts` if it is absent, append that pointer's `artifact_path` once, and pass that path to later operations instead of copying `RESPONSE_EVIDENCE_V1` into chat or state. When the skill returns `RESPONSE_EVIDENCE_ERROR_V1`, the operation was rejected and no artifact was written: leave `state.proposalResponseArtifacts` unchanged, do not create it, never append that payload's `artifact_path`, and report its `validation_error` and `clearing_action` to the user. Treat missing extension arrays as empty, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary PRD creation, refinement, resume, BRD handoff ingestion, quality review, and backlog handoff requests do not activate this extension. The extension does not change the canonical PRD, lifecycle gates, quality-report authority, approval process, or release authority.
+This agent binds three operations:
 
-For every proposal-response operation, return a compact YAML result that names `proposal-response#contribute:product`, `RESPONSE_EVIDENCE_POINTER_V1` or `RESPONSE_EVIDENCE_ERROR_V1`, `artifact_path`, `artifact_written`, and the fixed authority markers. For a successful continuation, include `retained_record_ids`, `changed_record_ids`, and `coverage` from the skill result, then show the resulting state arrays in this order:
+| Operation    | Binding                                                                                                                                                                                          |
+|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `analyze`    | Normalize the supplied question set and any approved PRD the user names into source questions and evidence needs.                                                                                |
+| `contribute` | Invoke with `domain: product`. Supply only approved product-owned PRD or conversation evidence, and preserve unsupported claims, estimates, exceptions, and human decisions as unresolved items. |
+| `draft`      | Render responses from reviewed claims across every domain. Drafting grants no business-domain authority; do not create or reclassify business-owned claims.                                      |
 
-```yaml
-extensionsLoaded: [proposal-response#contribute:product]
-proposalResponseArtifacts: [.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml]
-```
+Append `proposal-response#contribute:product` to `state.extensionsLoaded` once. Render the product evidence appendix or the shared response draft only when the user explicitly requests that rendering.
 
-Do not inline the full evidence payload. When approved evidence clears an unresolved item, name its `UNR` ID and the supporting PRD identifier in the compact result.
+Ordinary PRD creation, refinement, resume, BRD handoff ingestion, quality review, and backlog handoff requests do not activate this extension.
 
 ### Assess
 

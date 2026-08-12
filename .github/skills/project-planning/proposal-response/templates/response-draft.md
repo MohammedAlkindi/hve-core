@@ -13,6 +13,12 @@ description: Optional traceable internal-review response draft with qualificatio
 
 Render one visible question record for every source question. For an unresolved question, show its source question, `UNR` state, and decision or evidence need instead of an unsupported draft response.
 
+### Approved Sources
+
+| Source ID  | Path     | Kind     | Version or date | Read date     | Sections used |
+|------------|----------|----------|-----------------|---------------|---------------|
+| {{SRC-ID}} | {{path}} | {{kind}} | {{version}}     | {{read-date}} | {{sections}}  |
+
 ### {{SQ-ID}}: {{Source Question}}
 
 **Draft response**

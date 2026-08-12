@@ -12,6 +12,8 @@ Evaluate every source question, claim, response, and unresolved item. Record fai
 | Check               | Pass condition                                                                  | Failure behavior                                                           |
 |---------------------|---------------------------------------------------------------------------------|----------------------------------------------------------------------------|
 | Question fidelity   | Source wording, numbering, and reference are preserved                          | Correct the mapping or add an unresolved evidence item                     |
+| Source registration | Every `evidence_refs` entry names a registered `SRC` ID that was read           | Mark the claim `unsupported` until the source is read and registered       |
+| Source currency     | The cited source's recorded version or date still covers the claim's assertion  | Mark the claim `stale`, state the recorded version or date, and qualify it |
 | Claim traceability  | Every factual claim cites approved evidence                                     | Mark the claim `unsupported` or `unreviewed` and do not present it as fact |
 | Evidence fit        | Evidence directly supports the claim's scope and currency                       | Narrow and qualify the claim, or mark it `conflicting` or `stale`          |
 | Ownership           | Business, product, and shared claims stay in their domains                      | Reclassify the claim or request the responsible contributor                |
@@ -19,6 +21,8 @@ Evaluate every source question, claim, response, and unresolved item. Record fai
 | Decision visibility | Decisions, exceptions, estimates, and commitments name an unresolved human need | Add an unresolved item and block an unqualified response                   |
 | Coverage integrity  | Counts and percentages match source-question states                             | Recalculate coverage from records                                          |
 | Authority boundary  | Fixed internal-review and outside-scope markers are present                     | Set structural status to `not_ready` and remove authority-bearing language |
+
+Source currency is a reviewer judgement, not a fixed age limit. Key it to the `source_version` and `read_date` recorded on the cited `SRC` record: a claim is `stale` when the recorded version or date predates a change the question asks about, or when the source declares `unknown` and the assertion depends on currency. Never infer staleness from an unrecorded date.
 
 ## Structural Readiness
 
@@ -42,7 +46,7 @@ When sources conflict, preserve the competing references and ask the responsible
 
 ## Rendering Invariants
 
-Every rendered draft identifies its source question and linked claims, preserves qualifications and unresolved items, and displays:
+Every rendered draft identifies its source question and linked claims, preserves qualifications and unresolved items, lists the approved sources it drew from with their recorded version and read date, and displays:
 
 * `response_status: internal_review_draft`
 * a deny-only `external_use_status`

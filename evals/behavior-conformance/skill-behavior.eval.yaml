@@ -2,11 +2,11 @@
 name: behavior-conformance-skills
 description: >
   Advisory-tier behavior conformance evals for skills exercised through
-  knowledge, tool-trigger, and bleed-detection stimulus shapes. Total: 140
+  knowledge, tool-trigger, and bleed-detection stimulus shapes. Total: 158
   stimuli, including complete branch coverage for the RPI and prompt-builder
-  skill updates. Each tool-trigger stimulus uses two graders with AND logic,
-  and the suite-level scoring threshold gates the aggregate pass rate across
-  stimuli.
+  skill updates. Each tool-trigger stimulus uses at least two graders with AND
+  logic, and the suite-level scoring threshold gates the aggregate pass rate
+  across stimuli.
 type: capability
 defaults:
   runs: 3
@@ -2332,13 +2332,21 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: stable-question-record-pointers
+        name: compact-pointer-returned
         config:
-          pattern: '(?is)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*(SQ-0*1).*(SQ-0*2)'
+          pattern: '(?i)RESPONSE_EVIDENCE_POINTER_V1'
       - type: output-matches
-        name: unresolved-evidence
+        name: first-question-record
         config:
-          pattern: '(?is)(unresolved_ids|unresolved).*(UNR-0*1).*(UNR-0*2)'
+          pattern: '(?i)SQ-0*1'
+      - type: output-matches
+        name: second-question-record
+        config:
+          pattern: '(?i)SQ-0*2'
+      - type: output-matches
+        name: unresolved-evidence-reported
+        config:
+          pattern: '(?i)UNR-0*1'
       - type: output-matches
         name: no-invented-certification
         config:
@@ -2365,7 +2373,7 @@ stimuli:
       - type: output-matches
         name: product-artifact-pointer
         config:
-          pattern: '(?i)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*proposal-responses'
+          pattern: '(?i)proposal-responses'
       - type: output-matches
         name: changed-record-pointers
         config:
@@ -2374,6 +2382,11 @@ stimuli:
         name: estimate-unresolved-pointer
         config:
           pattern: '(?is)unresolved_ids.*UNR-0*1'
+      - type: output-matches
+        name: no-caller-state-echo
+        config:
+          pattern: '(?i)(extensionsLoaded|proposalResponseArtifacts)'
+          negate: true
 
   - name: skill-proposal-response-continuation
     prompt: |
@@ -2389,7 +2402,7 @@ stimuli:
       skills:
         - ../../.github/skills/project-planning/proposal-response
       files:
-        - src: ../agent-behavior/fixtures/proposal-response-atlas-rfp-response-evidence.txt
+        - src: fixtures/proposal-response-atlas-rfp-response-evidence.txt
           dest: .copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml
     tags:
       category: behavior-conformance
@@ -2398,17 +2411,22 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: same-path-and-preserved-records
+        name: same-artifact-path
         config:
-          pattern: '(?is)atlas-rfp[/\\]response-evidence\.yml.*SQ-0*1.*CLM-0*1'
+          pattern: '(?i)atlas-rfp[/\\]response-evidence\.yml'
       - type: output-matches
         name: operation-appropriate-addition
         config:
           pattern: '(?is)changed_record_ids.*CLM-0*2'
       - type: output-matches
-        name: recalculated-coverage
+        name: preservation-reported-as-counts
         config:
-          pattern: '(?is)coverage:.*question_count:\s*1.*addressed_count:\s*0.*qualified_count:\s*0.*unresolved_count:\s*0.*addressed_percent:\s*0\.0'
+          pattern: '(?is)record_counts:.*claims:\s*2'
+      - type: output-matches
+        name: legacy-payload-accepted
+        config:
+          pattern: '(?i)(RESPONSE_EVIDENCE_ERROR_V1|validation_error:\s*incomplete)'
+          negate: true
 
   - name: skill-proposal-response-read-only-status
     prompt: |
@@ -2420,7 +2438,7 @@ stimuli:
       skills:
         - ../../.github/skills/project-planning/proposal-response
       files:
-        - src: ../agent-behavior/fixtures/proposal-response-atlas-rfp-response-evidence.txt
+        - src: fixtures/proposal-response-atlas-rfp-response-evidence.txt
           dest: .copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml
     tags:
       category: behavior-conformance
@@ -2431,15 +2449,84 @@ stimuli:
       - type: output-matches
         name: stored-coverage-reported
         config:
-          pattern: '(?is)question_count:\s*1.*addressed_count:\s*0.*qualified_count:\s*0.*unresolved_count:\s*1.*addressed_percent:\s*0\.0'
+          pattern: '(?is)question_count:\s*1.*unresolved_count:\s*1'
       - type: output-matches
-        name: no-write-for-status-request
+        name: no-write-recorded
         config:
-          pattern: '(?is)artifact_written:\s*false.*changed_record_ids:\s*\[\s*\]|changed_record_ids:\s*\[\s*\].*artifact_written:\s*false'
+          pattern: '(?i)artifact_written:\s*false'
+      - type: output-matches
+        name: no-changed-records
+        config:
+          pattern: '(?i)changed_record_ids:\s*\[\s*\]'
       - type: output-matches
         name: no-rewrite-claimed
         config:
           pattern: '(?i)(artifact_written:\s*true|(wrote|rewrote|updated|persisted|saved)\s+(the\s+)?(evidence\s+)?artifact)'
+          negate: true
+
+  - name: skill-proposal-response-source-intake
+    prompt: |
+      Use `proposal-response` contribute mode with domain business. The approved
+      source is `docs/project-planning/northwind-onboarding-brd.md`; read it and
+      register it before citing it. SQ-001 asks what availability the supplier
+      portal commits to. Persist the payload under
+      `.copilot-tracking/proposal-responses/` and return the compact pointer.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-northwind-onboarding-brd.txt
+          dest: docs/project-planning/northwind-onboarding-brd.md
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: source-intake
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: source-record-registered
+        config:
+          pattern: '(?i)SRC-0*1'
+      - type: output-matches
+        name: source-counted
+        config:
+          pattern: '(?is)record_counts:.*approved_sources:\s*1'
+      - type: output-matches
+        name: claim-cites-source-reference
+        config:
+          pattern: '(?i)SRC-0*1#\s*NFR-0*14'
+      - type: output-matches
+        name: no-bare-filename-evidence
+        config:
+          pattern: '(?i)evidence_refs:\s*\[\s*(?:")?northwind-onboarding-brd\.md'
+          negate: true
+
+  - name: skill-proposal-response-source-unresolvable
+    prompt: |
+      Use `proposal-response` contribute mode with domain business. The approved
+      source is `docs/project-planning/does-not-exist-brd.md`. SQ-001 asks what
+      availability the supplier portal commits to. Return the result.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: source-intake
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: names-the-unresolved-path
+        config:
+          pattern: '(?i)does-not-exist-brd\.md'
+      - type: output-matches
+        name: stops-with-clearing-action
+        config:
+          pattern: '(?i)(clearing_action|supply|provide).*(path|approved (source|artifact))'
+      - type: output-matches
+        name: no-fabricated-claim
+        config:
+          pattern: '(?i)(evidence_review:\s*supported|availability (target )?is\s*99)'
           negate: true
 
   - name: skill-proposal-response-directive-not-counted
@@ -2521,7 +2608,7 @@ stimuli:
       skills:
         - ../../.github/skills/project-planning/proposal-response
       files:
-        - src: ../agent-behavior/fixtures/proposal-response-atlas-rfp-invalid-evidence.txt
+        - src: fixtures/proposal-response-atlas-rfp-invalid-evidence.txt
           dest: .copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml
     tags:
       category: behavior-conformance
@@ -2530,9 +2617,17 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: invalid-schema-rejected-at-same-path
+        name: error-contract-returned
         config:
-          pattern: '(?is)schema:\s*RESPONSE_EVIDENCE_ERROR_V1.*operation_status:\s*rejected.*artifact_path:.*atlas-rfp[/\\]response-evidence\.yml.*artifact_written:\s*false.*validation_error:\s*unknown_schema'
+          pattern: '(?i)schema:\s*RESPONSE_EVIDENCE_ERROR_V1'
+      - type: output-matches
+        name: rejected-at-supplied-path
+        config:
+          pattern: '(?i)atlas-rfp[/\\]response-evidence\.yml'
+      - type: output-matches
+        name: validation-error-named
+        config:
+          pattern: '(?i)validation_error:\s*\w+'
       - type: output-matches
         name: no-success-pointer-or-write
         config:
@@ -2548,8 +2643,8 @@ stimuli:
       Use `proposal-response` draft mode. SQ-001 asks whether audit logs are
       retained for 365 days. CLM-001 is supported by approved NFR-021 for 180
       days only. Persist a traceable response with the limitation, render the
-      requested draft beside it, and return the compact pointer with all fixed
-      authority markers.
+      requested shared response draft beside it, and return the compact pointer
+      with all fixed authority markers.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -2563,15 +2658,178 @@ stimuli:
       - type: output-matches
         name: traceable-draft-pointer
         config:
-          pattern: '(?is)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*(SQ-0*1|RSP-0*1)'
+          pattern: '(?i)RSP-0*1'
       - type: output-matches
-        name: fixed-internal-markers
+        name: internal-review-status
         config:
-          pattern: '(?is)internal_review_draft.*(internal_review_only|external_use_prohibited).*outside_skill_scope'
+          pattern: '(?i)internal_review_draft'
+      - type: output-matches
+        name: release-outside-scope
+        config:
+          pattern: '(?i)outside_skill_scope'
       - type: output-matches
         name: rendered-draft-pointer
         config:
           pattern: '(?is)rendered_artifacts.*response-draft\.md'
+
+  - name: skill-proposal-response-draft-without-rendering
+    prompt: |
+      Use `proposal-response` draft mode. SQ-001 asks for the data residency
+      commitment and CLM-001 is supported by approved CON-003. Record the
+      response, but do not render any appendix or draft file. Return the
+      compact pointer.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: rendering-separation
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: response-record-created
+        config:
+          pattern: '(?is)changed_record_ids.*RSP-0*1'
+      - type: output-matches
+        name: empty-rendered-artifacts
+        config:
+          pattern: '(?i)rendered_artifacts:\s*\[\s*\]'
+      - type: output-matches
+        name: no-draft-file-written
+        config:
+          pattern: '(?i)response-draft\.md'
+          negate: true
+
+  - name: skill-proposal-response-rerender-replaces
+    prompt: |
+      Use `proposal-response`. The stored payload already holds SQ-001 with
+      RSP-001 and SQ-002 with RSP-002. Render the shared response draft, then
+      render it a second time from the same stored payload. Show the resulting
+      draft and the compact pointer.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: rendering-separation
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: replacement-stated
+        config:
+          pattern: '(?i)(replace[sd]?|overwrit|regenerat).{0,60}(draft|rendering|response-draft)'
+      - type: output-matches
+        name: no-duplicate-response-blocks
+        config:
+          pattern: '(?is)RSP-0*1.*RSP-0*2.*RSP-0*1'
+          negate: true
+      - type: output-matches
+        name: no-append-language
+        config:
+          pattern: '(?i)append(ed|ing)?\s+(to\s+)?(the\s+)?(existing\s+)?(draft|rendering)'
+          negate: true
+
+  - name: skill-proposal-response-next-operation-terminal
+    prompt: |
+      Use `proposal-response`. Every source question now has a current response
+      record except SQ-004, which is classified `legal_or_commercial` and is
+      held by UNR-003, an open decision awaiting a commercial owner. Report the
+      compact pointer and tell me what to run next.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: routing
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: terminal-routing-value
+        config:
+          pattern: '(?i)next_operation:\s*none'
+      - type: output-matches
+        name: blocking-item-named
+        config:
+          pattern: '(?i)UNR-0*3'
+      - type: output-matches
+        name: no-skill-operation-loop
+        config:
+          pattern: '(?i)next_operation:\s*(analyze|contribute|draft)'
+          negate: true
+
+  - name: skill-proposal-response-cross-domain-draft
+    prompt: |
+      Use `proposal-response` draft mode on behalf of a caller bound to the
+      business domain. SQ-001 is answered by business-owned CLM-001 and SQ-002
+      is answered by product-owned CLM-002; both claims are reviewed and
+      supported. Record responses and return the compact pointer.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: cross-domain-draft
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: business-question-response
+        config:
+          pattern: '(?i)RSP-0*1'
+      - type: output-matches
+        name: product-question-also-drafted
+        config:
+          pattern: '(?i)RSP-0*2'
+      - type: output-matches
+        name: no-new-product-claim
+        config:
+          pattern: '(?is)changed_record_ids.*CLM-0*3'
+          negate: true
+
+  - name: skill-proposal-response-end-to-end-sequence
+    prompt: |
+      Use `proposal-response` to answer this RFP from an existing BRD. The
+      approved source is `docs/project-planning/northwind-onboarding-brd.md`.
+      Q1 asks what availability the supplier portal commits to and Q2 asks
+      where supplier data is stored. Run analyze, then contribute with domain
+      business, then draft, persisting under
+      `.copilot-tracking/proposal-responses/`. Return the compact pointer for
+      each step.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-northwind-onboarding-brd.txt
+          dest: docs/project-planning/northwind-onboarding-brd.md
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: end-to-end
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: analyze-then-contribute-then-draft
+        config:
+          pattern: '(?is)operation:\s*analyze.*operation:\s*contribute.*operation:\s*draft'
+      - type: output-matches
+        name: routing-advances-to-contribute
+        config:
+          pattern: '(?i)next_operation:\s*contribute'
+      - type: output-matches
+        name: routing-advances-to-draft
+        config:
+          pattern: '(?i)next_operation:\s*draft'
+      - type: output-matches
+        name: claims-cite-registered-source
+        config:
+          pattern: '(?i)SRC-0*1#'
+      - type: output-matches
+        name: response-records-produced
+        config:
+          pattern: '(?i)RSP-0*1'
 
   - name: skill-proposal-response-authority-boundary
     prompt: |
@@ -2616,13 +2874,21 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: preserve-source-separate-output
+        name: source-kept-read-only
         config:
-          pattern: '(?is)(read-only|unchanged|remain unchanged|preserve[ds]?).*(artifact_path|RESPONSE_EVIDENCE_POINTER_V1)|(artifact_path|RESPONSE_EVIDENCE_POINTER_V1).*(read-only|unchanged|remain unchanged|preserve[ds]?)'
+          pattern: '(?i)(read-only|unchanged|remain unchanged|preserve[ds]?)'
       - type: output-matches
-        name: internal-review-contract
+        name: separate-output-artifact
         config:
-          pattern: '(?is)RESPONSE_EVIDENCE_POINTER_V1.*response_status\s*:\s*internal_review_draft.*external_use_status\s*:\s*(internal_review_only|external_use_prohibited).*release_decision\s*:\s*outside_skill_scope'
+          pattern: '(?i)(artifact_path|RESPONSE_EVIDENCE_POINTER_V1)'
+      - type: output-matches
+        name: internal-review-status
+        config:
+          pattern: '(?i)response_status\s*:\s*internal_review_draft'
+      - type: output-matches
+        name: release-outside-scope
+        config:
+          pattern: '(?i)release_decision\s*:\s*outside_skill_scope'
       - type: output-matches
         name: no-source-mutation-claim
         config:

@@ -3,7 +3,7 @@ title: Business Program Manager Guide
 description: HVE Core support for business program managers driving stakeholder alignment, business outcomes, and program coordination
 sidebar_position: 6
 author: Microsoft
-ms.date: 2026-08-11
+ms.date: 2026-08-12
 ms.topic: how-to
 keywords:
   - BPM
@@ -83,7 +83,7 @@ Continue my claims automation BRD. Pick up where we left off
 and focus on completing the data and reporting requirements section.
 ```
 
-For an explicit RFI, RFP, tender, bid, or questionnaire, ask BRD Builder to contribute approved business outcomes, stakeholder roles, constraints, and risks. The resulting response evidence is for internal review and does not grant external-use authority. See the [proposal response workflow](../../agents/project-planning/brd-prd-builders#proposal-response-workflow).
+For an explicit RFI, RFP, tender, bid, or questionnaire, BRD Builder can carry the whole sequence: analyze the question set, contribute approved business outcomes, stakeholder roles, constraints, and risks, then draft. Name the approved BRD so each claim cites it rather than recalled text. The resulting response evidence is for internal review and does not grant external-use authority. See the [proposal response workflow](../../agents/project-planning/brd-prd-builders#proposal-response-workflow).
 
 ### Product Requirements Discovery
 

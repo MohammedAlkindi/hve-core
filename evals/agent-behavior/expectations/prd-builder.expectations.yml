@@ -150,8 +150,57 @@ expectations:
     applies_when: "stimulus explicitly requests proposal-response contribution"
     contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"
 
-  - expectation_id: proposal-response-rejected-continuation-not-recorded
-    summary: A rejected proposal-response continuation never enters durable builder state.
+  - expectation_id: proposal-response-tri-operation-binding
+    summary: PRD Builder performs analyze, contribute, and draft for the product domain.
+    signal: Output reports a pointer whose `operation` matches the requested analyze, contribute, or draft operation.
+    pass_criteria: |
+      An explicit proposal-response request for `analyze`, `contribute`, or
+      `draft` is carried inside PRD Builder without redirecting the user to
+      invoke the skill directly. `contribute` stays bound to the product
+      domain. `draft` renders responses over every reviewed claim, including
+      business-owned claims, and creates no business-owned claim of its own.
+    failure_modes:
+      - An analyze or draft request is refused or redirected to direct skill invocation.
+      - A draft omits questions answered by business-owned claims.
+      - The draft creates, edits, or reclassifies a business-owned claim.
+    priority: high
+    applies_when: "stimulus requests a proposal-response analyze, contribute, or draft operation"
+    contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"
+
+  - expectation_id: proposal-response-source-intake
+    summary: A user-named PRD becomes a registered, cited source rather than transcribed prose.
+    signal: Output reports an approved-source record for the named path and claims citing `SRC-###` references.
+    pass_criteria: |
+      When the user names an existing PRD path as approved evidence, the path is
+      read, registered with its own `SRC` ID and read date, and every resulting
+      claim's `evidence_refs` entry names that source ID plus the requirement or
+      section it drew from. A named path that does not resolve stops the
+      operation with the path and the smallest clearing action visible, and
+      produces no claim.
+    failure_modes:
+      - Claim evidence is a bare filename or transcribed sentence with no source ID.
+      - A source is registered without being read.
+      - An unresolvable source path is silently replaced by recalled content.
+    priority: high
+    applies_when: "stimulus names an approved source artifact path"
+    contract_ref: "skill §Flow, §Stop Rules; reference §Approved Sources"
+
+  - expectation_id: proposal-response-next-operation-reported
+    summary: Each proposal-response turn closes by naming the remaining step.
+    signal: Output carries the skill's `next_operation` value and states it to the user.
+    pass_criteria: |
+      The reported pointer carries `next_operation`, and the turn closes by
+      naming that operation. A payload whose only open items require a human
+      decision outside the skill reports `none` rather than looping, and names
+      the blocking unresolved items.
+    failure_modes:
+      - `next_operation` is omitted from the reported pointer.
+      - The agent invokes the next operation without a new user request.
+      - A payload blocked only by human decisions reports a further skill operation.
+    priority: medium
+    applies_when: "stimulus explicitly requests proposal-response work"
+    contract_ref: "skill §Operation Sequence; skill reference §Reporting"
+
     signal: Output reports `RESPONSE_EVIDENCE_ERROR_V1` and leaves `proposalResponseArtifacts` without the rejected path.
     pass_criteria: |
       When the skill returns `RESPONSE_EVIDENCE_ERROR_V1` with
@@ -167,7 +216,7 @@ expectations:
       - The validation error or clearing action is omitted from the report.
     priority: high
     applies_when: "skill returns a rejected continuation result"
-    contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"
+    contract_ref: "skill reference §Rejected Operations"
 
   - expectation_id: ordinary-prd-no-proposal-activation
     summary: Ordinary PRD work does not activate proposal-response behavior.

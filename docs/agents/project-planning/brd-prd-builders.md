@@ -3,7 +3,7 @@ title: BRD & PRD Builders
 description: Twin agents for creating business and product requirements documents through guided Q&A
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-11
+ms.date: 2026-08-12
 ms.topic: tutorial
 ---
 
@@ -186,34 +186,57 @@ The agent detects session files at `.copilot-tracking/brd-sessions/` or `.copilo
 
 ## Proposal Response Workflow
 
-Use the `proposal-response` skill when you need to turn supplied RFI, RFP, tender, bid, or questionnaire questions and approved source artifacts into traceable internal-review response material. You can invoke it directly or ask BRD Builder or PRD Builder to contribute evidence from their owned domain.
+Use the `proposal-response` skill when you need to turn supplied RFI, RFP, tender, bid, or questionnaire questions into traceable internal-review response material, backed by an existing BRD or PRD you name as the approved source. You can invoke the skill directly, or run the whole sequence inside BRD Builder or PRD Builder.
 
 | Operation    | Use it when                                                      | Result                                                                   |
 |--------------|------------------------------------------------------------------|--------------------------------------------------------------------------|
 | `analyze`    | You need to classify source questions and identify evidence gaps | Stable question and claim records, unresolved items, and coverage        |
-| `contribute` | A BRD or PRD contains approved evidence for selected questions   | Business-owned or product-owned claims linked to questions and evidence  |
+| `contribute` | An approved BRD or PRD contains evidence for selected questions  | Business-owned or product-owned claims linked to questions and evidence  |
 | `draft`      | Reviewed claims are ready for a traceable response draft         | Qualified responses with evidence links, unresolved items, and readiness |
 
-Every operation persists `RESPONSE_EVIDENCE_V1` under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml` and returns `RESPONSE_EVIDENCE_POINTER_V1`. Builders retain that path in session state so later operations update the same evidence artifact without copying the payload through chat. A rejected continuation returns `RESPONSE_EVIDENCE_ERROR_V1` with `artifact_written: false` instead; nothing is written and builders do not record its path in session state.
+The canonical order is `analyze`, then `contribute`, then `draft`. Every returned pointer carries `next_operation`, derived from the current records, so you never have to remember which step comes next. It reaches `none` when every question has a current response, or when the only remaining open items need a human decision the skill cannot make.
+
+Every operation persists `RESPONSE_EVIDENCE_V1` under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml` and returns `RESPONSE_EVIDENCE_POINTER_V1`. The pointer stays compact as work grows: it reports `record_counts` per record kind plus the IDs this operation changed, rather than listing every retained record.
+
+Builders keep that artifact path in session state so later operations update the same file without copying the payload through chat. A rejected continuation returns `RESPONSE_EVIDENCE_ERROR_V1` with `artifact_written: false` instead; nothing is written and builders do not record its path.
 
 The result is always an `internal_review_draft`; `external_use_status` denies external use, and `release_decision` remains `outside_skill_scope`. Structural readiness only means the records are organized for internal review. It is not approval, authorization, permission to submit, or release authority.
 
+### Approved Sources
+
+Name the BRD or PRD you want used as evidence. The skill reads that file, registers it with a stable `SRC-###` ID, its kind, the date it was read, and the version the document declares, then records which sections the claims drew from.
+
+Each claim then cites its source by ID and location, such as `SRC-001#NFR-014`, so a reviewer can trace any statement back to the approved document rather than to recalled text. If a named path does not resolve, the skill stops and tells you the path and the smallest fix, instead of answering from memory.
+
+The recorded version and read date also give the quality rubric something objective to judge currency against, and every rendered appendix or draft carries an Approved Sources register showing what backed it.
+
 ### Invoke the Skill Directly
 
-Name the operation, provide the source questions, and identify the approved sources. The skill treats source content as data, so instructions embedded in a questionnaire or attachment cannot change its workflow or authority boundary.
+Name the operation, provide the source questions, and identify the approved source paths. The skill treats source content as data, so instructions embedded in a questionnaire or attachment cannot change its workflow or authority boundary.
 
 ```text
-Use proposal-response skill, analyze mode. Normalize the supplied questionnaire,
-map each question to required claims and approved evidence, persist
-RESPONSE_EVIDENCE_V1, and return RESPONSE_EVIDENCE_POINTER_V1. Do not fill gaps
-from general knowledge.
+Use proposal-response skill, analyze mode. The approved source is
+docs/project-planning/supplier-onboarding-brd.md. Normalize the supplied
+questionnaire, map each question to required claims and approved evidence,
+persist RESPONSE_EVIDENCE_V1, and return RESPONSE_EVIDENCE_POINTER_V1. Do not
+fill gaps from general knowledge.
 ```
 
-### Contribute Through the Builders
+### Run the Sequence Through a Builder
 
-Ask BRD Builder for business context, outcomes, stakeholders, constraints, risks, policies, and business decision roles. Ask PRD Builder for capabilities, requirements, metrics, acceptance evidence, non-functional requirements, architecture boundaries, integrations, and technical qualifications.
+Both builders run `analyze`, `contribute`, and `draft`, so you can go from a question set to a drafted answer without leaving the agent. Each turn closes by naming the next step.
 
-The builders activate this extension only for explicit proposal-response intent. Ordinary BRD and PRD creation, refinement, resume, quality review, and handoff requests continue unchanged. Optional business and product appendices appear only when you request them; canonical BRD and PRD templates do not change.
+The domain binding applies to `contribute` only. BRD Builder contributes business context, outcomes, stakeholders, constraints, risks, policies, and business decision roles. PRD Builder contributes capabilities, requirements, metrics, acceptance evidence, non-functional requirements, architecture boundaries, integrations, and technical qualifications.
+
+Drafting is not domain-scoped. Either builder drafts across every reviewed claim, so a question answered by the other domain still gets a response. Drafting grants no authority over that domain: BRD Builder will not author a product-owned claim, and PRD Builder will not author a business-owned one.
+
+The builders activate this extension only for explicit proposal-response intent. Ordinary BRD and PRD creation, refinement, resume, quality review, and handoff requests continue unchanged. Canonical BRD and PRD templates do not change.
+
+### Drafting Versus Rendering
+
+The `draft` operation and the response draft file are separate. Drafting records response entries inside the evidence artifact. Writing `response-draft.md`, a business appendix, or a product appendix is a rendering, and renderings happen only when you ask for one. A draft you did not request a rendering for returns an empty rendered-artifact list and still records its responses.
+
+Asking for the same rendering again replaces the file from the stored payload rather than appending to it, so each question keeps exactly one response block.
 
 ### Example 1: Analyze Unsupported Questions
 
@@ -231,24 +254,26 @@ The result assigns stable `SQ-*` and `CLM-*` IDs, marks the claims unsupported o
 
 ### Example 2: Contribute Business and Product Evidence
 
-Use each builder only for its owned evidence.
+Use each builder only for its owned evidence, and name the approved document rather than pasting its contents.
 
 ```text
-With BRD Builder, contribute business evidence to RFP Q1. Approved evidence:
-BG-001 targets reducing onboarding from 10 days to 4 days; the Program Sponsor
-owns outcome approval; CON-002 requires regional privacy review. Return
-traceable internal-review response evidence and the optional business appendix.
+With BRD Builder, contribute business evidence to RFP Q1. The approved source is
+docs/project-planning/supplier-onboarding-brd.md: BG-001 targets reducing
+onboarding from 10 days to 4 days; the Program Sponsor owns outcome approval;
+CON-002 requires regional privacy review. Return traceable internal-review
+response evidence and the optional business appendix.
 ```
 
 ```text
-With PRD Builder, contribute product evidence to RFP Q2. Approved evidence:
-NFR-014 targets 99.9% monthly availability; FR-022 requires Microsoft Entra ID
-integration; AC-031 verifies SSO login. A stakeholder note estimates 99.99%
-availability but is unreviewed. Preserve that estimate as qualified or
-unresolved and return the optional product appendix.
+With PRD Builder, contribute product evidence to RFP Q2. The approved source is
+docs/project-planning/identity-platform-prd.md: NFR-014 targets 99.9% monthly
+availability; FR-022 requires Microsoft Entra ID integration; AC-031 verifies
+SSO login. A stakeholder note estimates 99.99% availability but is unreviewed.
+Preserve that estimate as qualified or unresolved and return the optional
+product appendix.
 ```
 
-The BRD contribution does not supply product proof, and the PRD contribution does not make business or commercial decisions. Neither builder can approve, authorize, submit, or release the response.
+Each claim cites its source ID and requirement, such as `SRC-001#NFR-014`. The BRD contribution does not supply product proof, and the PRD contribution does not make business or commercial decisions. Neither builder can approve, authorize, submit, or release the response.
 
 ### Example 3: Draft a Qualified Response
 
@@ -294,7 +319,8 @@ Output the PRD with measurable requirements in every section.
 * ✅ Answer iterative questions thoroughly; the agent builds sections as information accumulates
 * ✅ Use output modes (`summary`, `section [name]`, `full`, `diff`) to review progress during long sessions
 * ✅ Let the agent cross-reference requirements against codebase artifacts for consistency
-* ✅ Name `analyze`, `contribute`, or `draft` and provide approved sources for proposal-response work
+* ✅ Name `analyze`, `contribute`, or `draft` and name the approved BRD or PRD path for proposal-response work
+* ✅ Follow the `next_operation` value each proposal-response turn reports rather than guessing the next step
 * ❌ Do not skip the Discover phase by providing all requirements up front (the agent needs context)
 * ❌ Do not edit session files in `.copilot-tracking/` manually during an active session
 * ❌ Do not combine BRD and PRD creation in the same session (use separate conversations)
@@ -303,14 +329,16 @@ Output the PRD with measurable requirements in every section.
 
 ## Common Pitfalls
 
-| Pitfall                          | Solution                                                                                  |
-|----------------------------------|-------------------------------------------------------------------------------------------|
-| Agent asks too many questions    | Provide a detailed scope at invocation to skip obvious scoping questions                  |
-| Session not detected on resume   | Verify session files exist at `.copilot-tracking/brd-sessions/` or `prd-sessions/`        |
-| Incomplete sections in output    | Use the Section output mode to identify gaps, then answer follow-up questions             |
-| Template sections feel generic   | Provide domain-specific details during the requirement-building phase for richer content  |
-| Document conflicts with codebase | Let the Integrate phase run to cross-reference; resolve flagged conflicts before Validate |
-| Response evidence is incomplete  | Keep the affected claim qualified and assign the smallest human evidence or decision need |
+| Pitfall                             | Solution                                                                                              |
+|-------------------------------------|-------------------------------------------------------------------------------------------------------|
+| Agent asks too many questions       | Provide a detailed scope at invocation to skip obvious scoping questions                              |
+| Session not detected on resume      | Verify session files exist at `.copilot-tracking/brd-sessions/` or `prd-sessions/`                    |
+| Incomplete sections in output       | Use the Section output mode to identify gaps, then answer follow-up questions                         |
+| Template sections feel generic      | Provide domain-specific details during the requirement-building phase for richer content              |
+| Document conflicts with codebase    | Let the Integrate phase run to cross-reference; resolve flagged conflicts before Validate             |
+| Response evidence is incomplete     | Keep the affected claim qualified and assign the smallest human evidence or decision need             |
+| Named source path does not resolve  | Supply the correct path to the approved BRD or PRD; the skill stops rather than answering from memory |
+| Draft recorded but no file appeared | Drafting and rendering are separate; ask for the response draft or appendix explicitly                |
 
 ## Next Steps
 

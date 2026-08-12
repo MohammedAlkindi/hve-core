@@ -3,7 +3,7 @@ title: Project Planning Agents
 description: Agents for requirements gathering, architecture decisions, and security planning
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-11
+ms.date: 2026-08-12
 ms.topic: concept
 ---
 
@@ -57,7 +57,7 @@ The BRD Builder follows a three-phase lifecycle (Discover, Define, Govern) and t
 
 See the [BRD & PRD Builders](brd-prd-builders) guide for the shared workflow, feature comparison, and invocation details.
 
-For RFI, RFP, tender, bid, or questionnaire work, use `proposal-response` directly or ask a builder for an explicitly scoped contribution. The output always remains internal review material. See the [canonical proposal response workflow](brd-prd-builders#proposal-response-workflow) for operations, examples, and human review boundaries.
+For RFI, RFP, tender, bid, or questionnaire work, use `proposal-response` directly or run the full `analyze`, `contribute`, `draft` sequence inside BRD Builder or PRD Builder, naming the approved BRD or PRD as the source. The output always remains internal review material. See the [canonical proposal response workflow](brd-prd-builders#proposal-response-workflow) for operations, examples, and human review boundaries.
 
 ## Architecture
 

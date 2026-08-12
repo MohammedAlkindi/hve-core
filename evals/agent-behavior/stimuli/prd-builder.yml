@@ -67,19 +67,44 @@ stimuli:
       - type: output-matches
         name: same-artifact-pointer
         config:
-          pattern: '(?is)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*identity-questionnaire[/\\]response-evidence\.yml'
+          pattern: '(?i)identity-questionnaire[/\\]response-evidence\.yml'
       - type: output-matches
-        name: retained-builder-state-once
+        name: pointer-contract-returned
         config:
-          pattern: '(?is)extensionsLoaded\s*:\s*\[(?![^\]]*proposal-response#contribute:product[^\]]*proposal-response#contribute:product)[^\]]*proposal-response#contribute:product[^\]]*\].*proposalResponseArtifacts\s*:\s*\[(?![^\]]*identity-questionnaire[/\\]response-evidence\.yml[^\]]*identity-questionnaire[/\\]response-evidence\.yml)[^\]]*identity-questionnaire[/\\]response-evidence\.yml[^\]]*\]'
+          pattern: '(?i)RESPONSE_EVIDENCE_POINTER_V1'
       - type: output-matches
-        name: preserved-records-and-recalculated-coverage
+        name: retained-extension-entry
         config:
-          pattern: '(?is)SQ-0*1.*CLM-0*1.*changed_record_ids.*CLM-0*2.*coverage:.*question_count:\s*1.*addressed_count:\s*0.*qualified_count:\s*0.*unresolved_count:\s*0.*addressed_percent:\s*0\.0'
+          pattern: '(?is)extensionsLoaded\s*:\s*\[[^\]]*proposal-response#contribute:product[^\]]*\]'
+      - type: output-matches
+        name: retained-artifact-entry
+        config:
+          pattern: '(?is)proposalResponseArtifacts\s*:\s*\[[^\]]*identity-questionnaire[/\\]response-evidence\.yml[^\]]*\]'
+      - type: output-matches
+        name: builder-state-not-duplicated
+        config:
+          pattern: '(?is)extensionsLoaded\s*:\s*\[[^\]]*proposal-response#contribute:product[^\]]*proposal-response#contribute:product|proposalResponseArtifacts\s*:\s*\[[^\]]*identity-questionnaire[/\\]response-evidence\.yml[^\]]*identity-questionnaire[/\\]response-evidence\.yml'
+          negate: true
+      - type: output-matches
+        name: operation-appropriate-addition
+        config:
+          pattern: '(?is)changed_record_ids.*CLM-0*2'
+      - type: output-matches
+        name: preservation-reported-as-counts
+        config:
+          pattern: '(?is)record_counts:.*claims:\s*2'
+      - type: output-matches
+        name: recalculated-coverage
+        config:
+          pattern: '(?is)coverage:.*question_count:\s*1.*unresolved_count:\s*0'
+      - type: output-matches
+        name: next-operation-reported
+        config:
+          pattern: '(?i)next_operation:\s*(analyze|contribute|draft|none)'
       - type: output-matches
         name: unresolved-cleared-by-approved-evidence
         config:
-          pattern: '(?is)UNR-0*1.*(clear|cleared|resolved|closed|satisfied).*NFR-0*14|NFR-0*14.*(clear|cleared|resolved|closed|satisfied).*UNR-0*1'
+          pattern: '(?is)UNR-0*1.*(clear|cleared|resolved|closed|satisfied)|(clear|cleared|resolved|closed|satisfied).*UNR-0*1'
   - name: prd-builder-proposal-response-rejected-continuation
     prompt: |
       Continue product evidence contribution for questionnaire Q1, "What
@@ -104,15 +129,95 @@ stimuli:
       - type: output-matches
         name: rejection-reported
         config:
-          pattern: '(?is)RESPONSE_EVIDENCE_ERROR_V1.*(operation_status\s*:\s*rejected|rejected).*(artifact_written\s*:\s*false|not written|no artifact was written)'
+          pattern: '(?i)RESPONSE_EVIDENCE_ERROR_V1'
+      - type: output-matches
+        name: no-artifact-written
+        config:
+          pattern: '(?i)(artifact_written\s*:\s*false|not written|no artifact was written)'
+      - type: output-matches
+        name: validation-error-reported
+        config:
+          pattern: '(?i)(validation_error|unknown_schema)'
       - type: output-matches
         name: clearing-action-reported
         config:
-          pattern: '(?is)(validation_error|unknown_schema).*(supply|provide|replace with).*(complete|valid).*RESPONSE_EVIDENCE_V1'
+          pattern: '(?i)(supply|provide|replace with).*(complete|valid).*RESPONSE_EVIDENCE_V1'
       - type: output-matches
         name: rejected-path-not-recorded
         config:
           pattern: '(?is)proposalResponseArtifacts\s*:\s*\[[^\]]*atlas-rfp[/\\]response-evidence\.yml'
+          negate: true
+  - name: prd-builder-proposal-response-source-intake-analyze
+    prompt: |
+      Analyze this questionnaire for a bid response: Q1 asks what monthly
+      availability the service commits to, and Q2 asks which identity provider
+      it federates with. The approved source is the existing PRD at
+      `docs/project-planning/northwind-identity-prd.md`; read and register it
+      before citing it. Persist under `.copilot-tracking/proposal-responses/`,
+      report the builder state fields, and tell me what to run next.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-northwind-identity-prd.txt
+          dest: docs/project-planning/northwind-identity-prd.md
+    tags:
+      category: agent-behavior
+      scenario: prd-proposal-source-intake
+    graders:
+      - type: output-matches
+        name: analyze-operation-performed
+        config:
+          pattern: '(?i)operation:\s*analyze'
+      - type: output-matches
+        name: source-registered
+        config:
+          pattern: '(?i)SRC-0*1'
+      - type: output-matches
+        name: source-path-recorded
+        config:
+          pattern: '(?i)northwind-identity-prd\.md'
+      - type: output-matches
+        name: next-operation-reported
+        config:
+          pattern: '(?i)next_operation:\s*(contribute|draft|none)'
+      - type: output-matches
+        name: not-redirected-to-direct-skill-use
+        config:
+          pattern: '(?i)(cannot|can.t|unable to|not able to)\s+(run|perform|invoke)\s+analyze'
+          negate: true
+  - name: prd-builder-proposal-response-draft
+    prompt: |
+      Draft the proposal responses for the identity questionnaire. The stored
+      payload at
+      `.copilot-tracking/proposal-responses/identity-questionnaire/response-evidence.yml`
+      holds SQ-001 answered by product-owned CLM-001 and SQ-002 answered by
+      business-owned CLM-002; both claims are reviewed and supported. Do not
+      render any appendix or draft file. Report the builder state fields and the
+      skill result.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: agent-behavior
+      scenario: prd-proposal-draft
+    graders:
+      - type: output-matches
+        name: draft-operation-performed
+        config:
+          pattern: '(?i)operation:\s*draft'
+      - type: output-matches
+        name: cross-domain-question-drafted
+        config:
+          pattern: '(?i)RSP-0*2'
+      - type: output-matches
+        name: no-rendering-without-request
+        config:
+          pattern: '(?i)rendered_artifacts:\s*\[\s*\]'
+      - type: output-matches
+        name: no-business-claim-authored
+        config:
+          pattern: '(?is)changed_record_ids[^\n]*CLM-0*3'
           negate: true
   - name: prd-builder-ordinary-request-no-proposal-extension
     prompt: |
