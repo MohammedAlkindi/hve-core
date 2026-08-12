@@ -29,7 +29,7 @@ _FIXTURE_ARTIFACT = (
     _FIXTURE_REPO / "design-intent/.verification/valid-surface.earl.json"
 )
 _FIXTURE_DIGEST = (
-    "sha256:bf341bec83bde1e7d8a10d69c44675f46081d08675ce3336723b50d6613d540a"
+    "sha256:02e31c5823b0044fe1d5c4ea90b74fe679f2af29cdd8bc51016d9a4abab4de02"
 )
 
 # The shared contract fixture lives in the hve-core repository, not in the
@@ -65,7 +65,7 @@ def _write_results(tmp_path: Path, rows: list[dict[str, object]]) -> Path:
 
 
 _SIMPLE_RECORD = """
-schemaVersion: "1.0"
+schemaVersion: "1.1"
 surfaceId: s1
 title: Simple surface
 owner: Team
@@ -162,7 +162,7 @@ class TestAuthoredContract:
     ) -> None:
         body = _SIMPLE_RECORD
         if replacement.startswith("schemaVersion"):
-            body = body.replace('schemaVersion: "1.0"', replacement)
+            body = body.replace('schemaVersion: "1.1"', replacement)
         elif replacement.startswith("decidedOn"):
             body = body.replace('decidedOn: "2026-01-01"', replacement)
         else:
@@ -502,7 +502,7 @@ class TestBlockingEvaluation:
         self, tmp_path: Path
     ) -> None:
         body = """
-schemaVersion: "1.0"
+schemaVersion: "1.1"
 surfaceId: s1
 title: Multi intent
 owner: Team
@@ -1025,6 +1025,45 @@ class TestManualDecidingCustom:
 
 
 class TestCli:
+    @pytest.mark.parametrize(
+        ("failure_marker", "explicit_output"),
+        [
+            ({"quarantined": True}, True),
+            ({"operationalFailure": {"reason": "probe stopped"}}, False),
+        ],
+    )
+    def test_given_incomplete_results_when_verify_intent_then_rejects_without_artifact(
+        self,
+        tmp_path: Path,
+        failure_marker: dict[str, object],
+        explicit_output: bool,
+    ) -> None:
+        record_path = _write_record(tmp_path, _SIMPLE_RECORD)
+        results_path = tmp_path / "results.json"
+        results_path.write_text(
+            json.dumps({"results": [_row()], **failure_marker}),
+            encoding="utf-8",
+        )
+        destination = (
+            tmp_path / "explicit.json"
+            if explicit_output
+            else record_path.parent / ".verification" / "s1.earl.json"
+        )
+        argv = [
+            "verify-intent",
+            "--record",
+            str(record_path),
+            "--results",
+            str(results_path),
+        ]
+        if explicit_output:
+            argv.extend(["--out", str(destination)])
+
+        code = cli.main(argv)
+
+        assert code == EXIT_USAGE
+        assert not destination.exists()
+
     def test_given_clean_run_when_verify_intent_then_exit_success(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

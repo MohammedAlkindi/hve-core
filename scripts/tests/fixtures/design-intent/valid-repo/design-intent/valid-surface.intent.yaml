@@ -1,5 +1,5 @@
 # Synthetic contract fixture. Not a product decision and not a production record.
-schemaVersion: "1.0"
+schemaVersion: "1.1"
 surfaceId: valid-surface
 title: Checkout summary panel
 owner: Design Systems Guild

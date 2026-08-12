@@ -13,7 +13,7 @@ This reference names the fields an author must supply. It is a companion to the 
 
 | Field           | Required | Notes                                                                                               |
 |-----------------|----------|-----------------------------------------------------------------------------------------------------|
-| `schemaVersion` | Yes      | Fixed at `"1.0"`                                                                                    |
+| `schemaVersion` | Yes      | Fixed at `"1.1"`                                                                                    |
 | `surfaceId`     | Yes      | Lower-kebab-case. Must equal the filename stem and a surface declared in `a11y-runtime.config.json` |
 | `title`         | Yes      | Short human-readable name for the surface decision                                                  |
 | `owner`         | Yes      | Accountable person or team                                                                          |
@@ -87,7 +87,7 @@ The shipped Python verifier rejects duplicate YAML keys, validates the complete 
 
 | Input or output       | Supported contract                 | CLI behavior                                                                                               | Migration and rejection behavior                                                                                       |
 |-----------------------|------------------------------------|------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
-| Authored record       | `schemaVersion: "1.0"`             | `verify-intent` accepts the record after schema and semantic validation                                    | Existing complete overrides remain valid and unchanged. Any other authored schema version fails before artifact write. |
+| Authored record       | `schemaVersion: "1.1"`             | `verify-intent` accepts the record after schema and semantic validation                                    | Existing complete overrides remain valid and unchanged. Any other authored schema version fails before artifact write. |
 | Verification artifact | `schemaVersion: "1.1"`             | The Python adapter emits 1.1 with observed `outcome`, fail-safe `effectiveOutcome`, and `overrideConflict` | The repository validator accepts 1.1. Any other verification schema version fails schema validation.                   |
 | Manual review         | Existing 1.0 `override` object     | Passed review settles an unresolved observation; failed review blocks; no review remains uncovered         | No second object or automatic expiry is introduced. Users replace or remove the existing override explicitly.          |
 | Conclusive conflict   | Authored 1.0 plus verification 1.1 | A blocking conflict returns design-intent drift and emits a warning                                        | A human pass never masks a current observed failure.                                                                   |

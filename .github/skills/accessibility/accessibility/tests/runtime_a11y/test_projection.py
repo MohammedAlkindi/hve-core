@@ -13,7 +13,7 @@ from runtime_a11y import _projection as projection
 from runtime_a11y._errors import EXIT_SUCCESS, EXIT_USAGE, ScriptError
 
 _FULL_RECORD = """
-schemaVersion: "1.0"
+schemaVersion: "1.1"
 surfaceId: checkout-panel
 title: Checkout summary panel
 owner: Design Systems Guild
@@ -60,7 +60,7 @@ intents:
 """
 
 _MINIMAL_RECORD = """
-schemaVersion: "1.0"
+schemaVersion: "1.1"
 surfaceId: bare
 title: Bare surface
 owner: Team

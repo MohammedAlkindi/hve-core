@@ -18,12 +18,21 @@ Describe 'Accessibility coverage workflow template' -Tag 'Unit' {
         $script:template | Should -Match 'Design intent records exist, but .*TARGET_CONFIG.* is missing'
     }
 
-    It 'Removes stale results before invoking run-all' {
+    It 'Uses vendored direct-script invocations after removing stale results' {
         $removeIndex = $script:template.IndexOf('rm -f -- "${{ env.TARGET_RESULTS }}"')
-        $runIndex = $script:template.IndexOf('runtime_a11y run-all')
+        $runInvocation = 'uv run --project "${{ github.workspace }}/${{ env.HARNESS_PROJECT_DIR }}" "${{ github.workspace }}/${{ env.HARNESS_PROJECT_DIR }}/scripts/runtime_a11y/__main__.py" run-all'
+        $verifyInvocation = 'uv run --project "${{ github.workspace }}/${{ env.HARNESS_PROJECT_DIR }}" "${{ github.workspace }}/${{ env.HARNESS_PROJECT_DIR }}/scripts/runtime_a11y/__main__.py" verify-intent'
+        $runIndex = $script:template.IndexOf($runInvocation)
 
         $removeIndex | Should -BeGreaterThan -1
         $removeIndex | Should -BeLessThan $runIndex
+        $runIndex | Should -BeGreaterThan -1
+        $script:template.IndexOf($verifyInvocation) | Should -BeGreaterThan $runIndex
+    }
+
+    It 'Prefers explicit probe identity and falls back to evidence text' {
+        $script:template | Should -Match '(?s)def probe_for\(item\):\s+probe_id = item\.get\("probeId"\)\s+if probe_id in all_gated:\s+return probe_id\s+evidence = str\(item\.get\("evidence", ""\)\)'
+        $script:template | Should -Match 'probe_id = probe_for\(item\)'
     }
 
     It 'Fails when authored records exist without current runtime results' {

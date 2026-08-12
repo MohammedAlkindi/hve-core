@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.1",
   "surfaceId": "valid-surface",
-  "intentDigest": "sha256:bf341bec83bde1e7d8a10d69c44675f46081d08675ce3336723b50d6613d540a",
+  "intentDigest": "sha256:02e31c5823b0044fe1d5c4ea90b74fe679f2af29cdd8bc51016d9a4abab4de02",
   "assertedBy": "hve-core synthetic contract fixture",
   "timestamp": "2026-07-21T09:15:00Z",
   "assertions": [

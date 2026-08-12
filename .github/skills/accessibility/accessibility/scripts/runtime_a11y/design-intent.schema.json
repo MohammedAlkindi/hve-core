@@ -17,7 +17,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": "1.0",
+      "const": "1.1",
       "description": "Contract version of this authored record."
     },
     "surfaceId": {
@@ -163,6 +163,8 @@
             "probe-focus-obscured",
             "probe-live-region",
             "probe-aria-tree",
+            "probe-virtual-sr",
+            "probe-real-sr",
             "probe-widget-keyboard",
             "probe-reflow-resize",
             "probe-target-size",

@@ -308,6 +308,12 @@ def load_results(results_path: Path) -> dict[str, Any]:
         ) from exc
     if not isinstance(payload, dict):
         raise ScriptError(f"Results document must be a JSON object: {results_path}")
+    if payload.get("quarantined") is True or "operationalFailure" in payload:
+        raise ScriptError(
+            "Results document is incomplete or quarantined and cannot be used "
+            f"for Design Intent verification: {results_path}",
+            EXIT_USAGE,
+        )
     return payload
 
 
