@@ -210,6 +210,7 @@ Huggingface
 Rekor
 sscp
 unforgeable
+unrequested
 hyperconverged
 hyperparameters
 hypervisor
