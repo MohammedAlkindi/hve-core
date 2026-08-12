@@ -142,7 +142,8 @@ block above is also empty:
 * Do not call `report_incomplete` or `missing_data`.
 * Leave `needs-triage` in place so the issue stays in the human triage queue.
 * Add one comment stating that automated triage could not read the issue and that
-  a maintainer will triage it manually, then call `noop` and stop.
+  a maintainer will triage it manually, then stop. Do not call `noop` after
+  `add_comment`; `noop` is only for runs that emit no other safe output.
 
 ## Triage Procedure
 
