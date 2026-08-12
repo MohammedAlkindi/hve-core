@@ -1,8 +1,8 @@
 ---
 title: experiment-design
 description: "Experiment design reference for Minimum Viable Experiment coaching, hypothesis formation, vetting and red flags, and experiment readiness. Use when framing, vetting, scoping, or evaluating an experiment of any kind, including data feasibility, architecture, LLM, performance, use-case, UX, prototyping, and hardware experiments."
-sidebar_position: 2
-ms.date: 2026-08-03
+sidebar_position: 5
+ms.date: 2026-08-11
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->

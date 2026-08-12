@@ -176,7 +176,7 @@ stimuli:
 
 Agents that convert user requests, PRDs, or triage input into work item drafts (ADO, GitHub, Jira).
 
-**Members (8):** ado-backlog-manager, ado-prd-to-wit, agile-coach, github-backlog-manager, issue-triage, jira-backlog-manager, jira-prd-to-wit, product-manager-advisor
+**Members (3):** backlog-manager, functional-planner, issue-triage
 
 **Required Graders:**
 
@@ -189,17 +189,17 @@ Agents that convert user requests, PRDs, or triage input into work item drafts (
 
 **Optional Graders:**
 
-* `header-present` - No workitem-manager agents currently declare a `Start responses with:` directive. This grader is omitted for all 8 members of this class.
+* `header-present` - No workitem-manager agents currently declare a `Start responses with:` directive. This grader is omitted for all 3 members of this class.
 
-#### Worked Example: github-backlog-manager
+#### Worked Example: backlog-manager
 
 ```yaml
-# evals/agent-behavior/stimuli/github-backlog-manager.yml
+# evals/agent-behavior/stimuli/backlog-manager.yml
 stimuli:
-  - name: github-backlog-manager-creates-issue-draft
+  - name: backlog-manager-creates-issue-draft
     prompt: |
       The app crashes when I click the "Submit" button on the contact form.
-      Generate a GitHub issue draft for this bug.
+      Generate a work item draft for this bug.
     tags:
       category: agent-behavior
     graders:
@@ -252,11 +252,9 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 |------------------------------|------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | accessibility-planner        | planner-coach    | light     | [.github/agents/accessibility/accessibility-planner.agent.md](../../.github/agents/accessibility/accessibility-planner.agent.md)                     |
 | accessibility-reviewer       | code-reviewer    | light     | [.github/agents/accessibility/accessibility-reviewer.agent.md](../../.github/agents/accessibility/accessibility-reviewer.agent.md)                   |
-| ado-backlog-manager          | workitem-manager | light     | [.github/agents/ado/ado-backlog-manager.agent.md](../../.github/agents/ado/ado-backlog-manager.agent.md)                                             |
-| ado-prd-to-wit               | workitem-manager | light     | [.github/agents/ado/ado-prd-to-wit.agent.md](../../.github/agents/ado/ado-prd-to-wit.agent.md)                                                       |
 | adr-creation                 | research-writer  | light     | [.github/agents/project-planning/adr-creation.agent.md](../../.github/agents/project-planning/adr-creation.agent.md)                                 |
 | agentic-workflows            | planner-coach    | light     | [.github/agents/agentic-workflows.agent.md](../../.github/agents/agentic-workflows.agent.md)                                                         |
-| agile-coach                  | workitem-manager | light     | [.github/agents/project-planning/agile-coach.agent.md](../../.github/agents/project-planning/agile-coach.agent.md)                                   |
+| backlog-manager              | workitem-manager | light     | [.github/agents/project-planning/backlog-manager.agent.md](../../.github/agents/project-planning/backlog-manager.agent.md)                           |
 | brd-builder                  | research-writer  | light     | [.github/agents/project-planning/brd-builder.agent.md](../../.github/agents/project-planning/brd-builder.agent.md)                                   |
 | code-review                  | code-reviewer    | light     | [.github/agents/coding-standards/code-review.agent.md](../../.github/agents/coding-standards/code-review.agent.md)                                   |
 | data-workstream-coach        | planner-coach    | light     | [.github/agents/data-science/data-workstream-coach.agent.md](../../.github/agents/data-science/data-workstream-coach.agent.md)                       |
@@ -265,17 +263,14 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 | dt-coach                     | planner-coach    | light     | [.github/agents/design-thinking/dt-coach.agent.md](../../.github/agents/design-thinking/dt-coach.agent.md)                                           |
 | dt-learning-tutor            | planner-coach    | light     | [.github/agents/design-thinking/dt-learning-tutor.agent.md](../../.github/agents/design-thinking/dt-learning-tutor.agent.md)                         |
 | experiment-designer          | planner-coach    | light     | [.github/agents/experimental/experiment-designer.agent.md](../../.github/agents/experimental/experiment-designer.agent.md)                           |
-| github-backlog-manager       | workitem-manager | light     | [.github/agents/github/github-backlog-manager.agent.md](../../.github/agents/github/github-backlog-manager.agent.md)                                 |
+| functional-planner           | workitem-manager | light     | [.github/agents/project-planning/functional-planner.agent.md](../../.github/agents/project-planning/functional-planner.agent.md)                     |
 | issue-triage                 | workitem-manager | light     | [.github/agents/issue-triage.agent.md](../../.github/agents/issue-triage.agent.md)                                                                   |
-| jira-backlog-manager         | workitem-manager | light     | [.github/agents/jira/jira-backlog-manager.agent.md](../../.github/agents/jira/jira-backlog-manager.agent.md)                                         |
-| jira-prd-to-wit              | workitem-manager | light     | [.github/agents/jira/jira-prd-to-wit.agent.md](../../.github/agents/jira/jira-prd-to-wit.agent.md)                                                   |
 | meeting-analyst              | research-writer  | light     | [.github/agents/project-planning/meeting-analyst.agent.md](../../.github/agents/project-planning/meeting-analyst.agent.md)                           |
 | network-isa95-planner        | research-writer  | light     | [.github/agents/project-planning/network-isa95-planner.agent.md](../../.github/agents/project-planning/network-isa95-planner.agent.md)               |
 | pptx                         | planner-coach    | light     | [.github/agents/experimental/pptx.agent.md](../../.github/agents/experimental/pptx.agent.md)                                                         |
 | prd-builder                  | research-writer  | light     | [.github/agents/project-planning/prd-builder.agent.md](../../.github/agents/project-planning/prd-builder.agent.md)                                   |
 | privacy-planner              | planner-coach    | light     | [.github/agents/privacy/privacy-planner.agent.md](../../.github/agents/privacy/privacy-planner.agent.md)                                             |
 | privacy-reviewer             | code-reviewer    | light     | [.github/agents/privacy/privacy-reviewer.agent.md](../../.github/agents/privacy/privacy-reviewer.agent.md)                                           |
-| product-manager-advisor      | workitem-manager | light     | [.github/agents/project-planning/product-manager-advisor.agent.md](../../.github/agents/project-planning/product-manager-advisor.agent.md)           |
 | rai-planner                  | planner-coach    | light     | [.github/agents/rai-planning/rai-planner.agent.md](../../.github/agents/rai-planning/rai-planner.agent.md)                                           |
 | rai-reviewer                 | code-reviewer    | light     | [.github/agents/rai-planning/rai-reviewer.agent.md](../../.github/agents/rai-planning/rai-reviewer.agent.md)                                         |
 | rpi-agent                    | planner-coach    | light     | [.github/agents/hve-core/rpi-agent.agent.md](../../.github/agents/hve-core/rpi-agent.agent.md)                                                       |
