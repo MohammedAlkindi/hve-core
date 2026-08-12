@@ -291,7 +291,7 @@ stimuli:
     turns:
       - *agent-launch
       - "Add a feature."
-    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [brd-builder, github-backlog-manager, issue-triage, prd-builder, product-manager-advisor, rpi-agent], policy: equivalent}
+    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [backlog-manager, brd-builder, issue-triage, prd-builder, rpi-agent], policy: equivalent}
     graders:
       - {type: output-matches, name: asks-clarifying-question, config: {pattern: '(?i)(which|what|clarif|specif|more\s+detail|\?)'}}
       - {type: prompt, name: response-quality, config: {prompt: "Does the response ask for clarification before adding a feature?"}}
@@ -331,7 +331,7 @@ stimuli:
     turns:
       - *agent-launch
       - "Update the thing."
-    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [brd-builder, github-backlog-manager, issue-triage, prd-builder, product-manager-advisor, rpi-agent], policy: equivalent}
+    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [backlog-manager, brd-builder, issue-triage, prd-builder, rpi-agent], policy: equivalent}
     graders:
       - {type: output-matches, name: asks-clarifying-question, config: {pattern: '(?i)(which|what|clarif|specif|more\s+detail|\?)'}}
       - {type: prompt, name: response-quality, config: {prompt: "Does the response ask for clarification about what to update?"}}

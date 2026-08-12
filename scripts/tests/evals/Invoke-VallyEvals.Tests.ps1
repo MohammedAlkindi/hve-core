@@ -2356,9 +2356,8 @@ Describe 'Stage 1 equivalence subject selection' -Tag 'Unit' {
     BeforeAll {
         $script:Subjects = @('rpi-agent')
         $script:Backlinked = @(
-            'brd-builder', 'code-review', 'dependency-reviewer', 'documentation',
-            'github-backlog-manager', 'issue-triage', 'prd-builder',
-            'product-manager-advisor', 'rpi-agent'
+            'backlog-manager', 'brd-builder', 'code-review', 'documentation',
+            'issue-triage', 'prd-builder', 'rpi-agent'
         )
     }
 
@@ -2375,7 +2374,7 @@ Describe 'Stage 1 equivalence subject selection' -Tag 'Unit' {
     }
 
     It 'Preserves every backlink record for stage 2 indexing' {
-        $script:Backlinked.Count | Should -Be 9
+        $script:Backlinked.Count | Should -Be 7
     }
 }
 

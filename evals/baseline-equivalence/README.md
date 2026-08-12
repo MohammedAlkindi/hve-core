@@ -148,16 +148,15 @@ alone because the executable Launch turn targets that agent. Subject-aware launc
 
 What does vary per agent is stimulus backlinking. Most stimuli are shared corpus prompts that any agent runs; a subset carries an explicit `tags.agent` backlink marking it as characteristic of that agent's domain. Those backlinks are the only per-agent data in this suite, and they are counted from [stimuli.yml](stimuli.yml):
 
-| Agent                   | Backlinked Stimuli | Why                                                                 |
-|-------------------------|--------------------|---------------------------------------------------------------------|
-| rpi-agent               | 18                 | The suite's primary subject and fixed launch target                 |
-| documentation           | 3                  | README and documentation-coverage prompts                           |
-| code-review             | 3                  | Code walkthrough, error explanation, and correcting a prior mistake |
-| issue-triage            | 3                  | Under-specified asks that need classification                       |
-| brd-builder             | 2                  | Requirements elicitation on vague feature requests                  |
-| github-backlog-manager  | 2                  | Grooming vague work items                                           |
-| prd-builder             | 2                  | Requirements elicitation on vague feature requests                  |
-| product-manager-advisor | 2                  | Requirements elicitation on vague feature requests                  |
+| Agent           | Backlinked Stimuli | Why                                                                 |
+|-----------------|--------------------|---------------------------------------------------------------------|
+| rpi-agent       | 18                 | The suite's primary subject and fixed launch target                 |
+| documentation   | 3                  | README and documentation-coverage prompts                           |
+| code-review     | 3                  | Code walkthrough, error explanation, and correcting a prior mistake |
+| issue-triage    | 3                  | Under-specified asks that need classification                       |
+| backlog-manager | 2                  | Grooming vague work items                                           |
+| brd-builder     | 2                  | Requirements elicitation on vague feature requests                  |
+| prd-builder     | 2                  | Requirements elicitation on vague feature requests                  |
 
 Counts sum to more than 35 because a stimulus may backlink several agents. An agent absent from this table has no domain-specific prompt in the v1 corpus.
 

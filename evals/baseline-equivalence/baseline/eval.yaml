@@ -330,7 +330,7 @@ stimuli:
   - name: ambiguous-spec-vague-feature
     constraints: *agent-time-limit
     prompt: "Add a feature."
-    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [brd-builder, github-backlog-manager, issue-triage, prd-builder, product-manager-advisor, rpi-agent], policy: equivalent}
+    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [backlog-manager, brd-builder, issue-triage, prd-builder, rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
         name: asks-clarifying-question
@@ -378,7 +378,7 @@ stimuli:
   - name: ambiguous-spec-update-thing
     constraints: *agent-time-limit
     prompt: "Update the thing."
-    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [brd-builder, github-backlog-manager, issue-triage, prd-builder, product-manager-advisor, rpi-agent], policy: equivalent}
+    tags: {category: baseline-equivalence, subcategory: ambiguous-spec, agent: [backlog-manager, brd-builder, issue-triage, prd-builder, rpi-agent], policy: equivalent}
     graders:
       - type: output-matches
         name: asks-clarifying-question

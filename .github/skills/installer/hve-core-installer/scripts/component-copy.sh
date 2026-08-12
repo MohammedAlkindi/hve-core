@@ -48,6 +48,40 @@ sha256_of() {
   fi
 }
 
+# Containment is decided by resolved path and real filesystem state, never by the
+# shape of a joined string. Mirrors Assert-WithinTargetRoot in component-copy.ps1
+# and must stay behaviourally identical to it.
+#
+# Ancestors are walked with -L rather than resolving the whole path with
+# `realpath -m`, because -m is a GNU coreutils extension that is not dependable on
+# macOS, and because the leaf does not exist yet on a first install.
+assert_within_target_root() {
+  local base="$1" relative="$2" component="$3"
+  local current="$base" segment remainder="$relative"
+
+  case "$relative" in
+    /*) fail "Component '$component' resolves outside the target root." ;;
+    *..*) fail "Component '$component' resolves outside the target root." ;;
+  esac
+
+  while [[ -n "$remainder" ]]; do
+    segment="${remainder%%/*}"
+    if [[ "$remainder" == */* ]]; then
+      remainder="${remainder#*/}"
+    else
+      remainder=""
+    fi
+    [[ -n "$segment" ]] || continue
+    current="$current/$segment"
+    [[ -e "$current" || -L "$current" ]] || break
+    if [[ -L "$current" ]]; then
+      fail "Component '$component' resolves through a link at '$current', which may write outside the target root."
+    fi
+  done
+
+  echo "$base/$relative"
+}
+
 # Maps a marketplace field to "<kind>|<source root>|<package suffix>|<source suffix>".
 field_descriptor() {
   case "$1" in
@@ -57,6 +91,47 @@ field_descriptor() {
     skills) echo "skill|.github/skills||" ;;
     *) echo "" ;;
   esac
+}
+
+# Maps a canonical catalog root to "<field>|<source suffix>|<package suffix>".
+catalog_root_descriptor() {
+  case "$1" in
+    agents) echo "agents|.agent.md|.md" ;;
+    prompts) echo "commands|.prompt.md|.md" ;;
+    instructions) echo "rules|.instructions.md|.instructions.md" ;;
+    skills) echo "skills||" ;;
+    *) echo "" ;;
+  esac
+}
+
+# The marketplace catalog stores canonical source identities while installer input
+# and manifests use package form. A path whose root is outside the four installable
+# fields, such as hooks/, carries through unprojected so catalog load never fails.
+to_package_component_path() {
+  local catalog_path="$1"
+  [[ "$catalog_path" == */* ]] || {
+    echo "$catalog_path"
+    return 0
+  }
+
+  local catalog_root="${catalog_path%%/*}"
+  local relative="${catalog_path#*/}"
+  local descriptor field source_suffix package_suffix
+  descriptor=$(catalog_root_descriptor "$catalog_root")
+  [[ -n "$descriptor" ]] || {
+    echo "$catalog_path"
+    return 0
+  }
+
+  IFS='|' read -r field source_suffix package_suffix <<<"$descriptor"
+  if [[ -n "$source_suffix" ]]; then
+    [[ "$relative" == *"$source_suffix" ]] || {
+      echo "$catalog_path"
+      return 0
+    }
+    relative="${relative%"$source_suffix"}$package_suffix"
+  fi
+  echo "$field/$relative"
 }
 
 # Trims and validates a component path, echoing the normalized value.
@@ -127,14 +202,18 @@ main() {
   local -A membership=()
   local package_path
   while IFS= read -r package_path; do
-    [[ -n "$package_path" ]] && membership["$package_path"]=1
+    [[ -n "$package_path" ]] && membership["$(to_package_component_path "$package_path")"]=1
   done < <(jq -r '[(.agents // [])[], (.commands // [])[], (.rules // [])[], (.skills // [])[]] | .[]' <<<"$entry_json")
   [[ ${#membership[@]} -gt 0 ]] || fail "Marketplace package '$package_name' in '$catalog_path' declares no installable components."
+
+  # One projected membership set backs both component validation and the manifest filter.
+  local membership_json
+  membership_json=$(printf '%s\n' "${!membership[@]}" | LC_ALL=C sort | jq -R -s -c 'split("\n") | map(select(length > 0))')
 
   local -A component_maturity=()
   local maturity_key maturity_value
   while IFS=$'\t' read -r maturity_key maturity_value; do
-    [[ -n "$maturity_key" ]] && component_maturity["$maturity_key"]="$maturity_value"
+    [[ -n "$maturity_key" ]] && component_maturity["$(to_package_component_path "$maturity_key")"]="$maturity_value"
   done < <(jq -r '."x-hve".componentMaturity // {} | to_entries[] | "\(.key)\t\(.value)"' <<<"$entry_json")
 
   # An unsupported manifest must fail before the target is touched. Version 1 has
@@ -203,6 +282,7 @@ main() {
     plan_maturities["$candidate"]="${component_maturity[$candidate]:-stable}"
     plan_targets["$candidate"]="$source_rel"
     plan_files["$candidate"]="$files"
+    assert_within_target_root "$target_base" "$source_rel" "$candidate" >/dev/null
   done
 
   local version installed
@@ -250,7 +330,7 @@ main() {
     return 0
   fi
 
-  local component target file hash
+  local component target file hash target_file
   for component in "${sorted_components[@]}"; do
     target="${plan_targets[$component]}"
 
@@ -270,8 +350,12 @@ main() {
         echo "🔒 Skipped ejected: $file"
         continue
       fi
-      mkdir -p "$(dirname "$target_base/$file")"
-      cp "$source_root/$file" "$target_base/$file"
+      # Re-verified immediately before the write. Preflight ran earlier, so a link
+      # planted in between would otherwise be followed by mkdir and cp. This
+      # narrows that window; it does not make the check and the write atomic.
+      target_file=$(assert_within_target_root "$target_base" "$file" "$component")
+      mkdir -p "$(dirname "$target_file")"
+      cp "$source_root/$file" "$target_file"
       hash=$(sha256_of "$target_base/$file")
       jq -nc --arg path "$file" --arg component "$component" --arg kind "${plan_kinds[$component]}" \
         --arg maturity "${plan_maturities[$component]}" --arg ver "$version" --arg sha "$hash" \
@@ -281,10 +365,9 @@ main() {
     echo "✅ Copied $component → $target"
   done
 
-  local files_json components_json recipe_components_json
+  local files_json components_json
   files_json=$(jq -s 'reduce .[] as $entry ({}; . * $entry) | to_entries | sort_by(.key) | from_entries' "$entries_file")
-  recipe_components_json=$(jq -c '[(.agents // [])[], (.commands // [])[], (.rules // [])[], (.skills // [])[]]' <<<"$entry_json")
-  components_json=$(jq -c --argjson recipe "$recipe_components_json" '
+  components_json=$(jq -c --argjson recipe "$membership_json" '
     [to_entries[].value.component as $component
       | select($component | type == "string" and length > 0)
       | select($recipe | index($component))
