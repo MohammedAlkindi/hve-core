@@ -194,16 +194,19 @@ Use the `proposal-response` skill when you need to turn supplied RFI, RFP, tende
 | `contribute` | A BRD or PRD contains approved evidence for selected questions   | Business-owned or product-owned claims linked to questions and evidence  |
 | `draft`      | Reviewed claims are ready for a traceable response draft         | Qualified responses with evidence links, unresolved items, and readiness |
 
-Every operation returns `RESPONSE_EVIDENCE_V1`. The result is always an `internal_review_draft`; `external_use_status` denies external use, and `release_decision` remains `outside_skill_scope`. Structural readiness only means the records are organized for internal review. It is not approval, authorization, permission to submit, or release authority.
+Every operation persists `RESPONSE_EVIDENCE_V1` under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml` and returns `RESPONSE_EVIDENCE_POINTER_V1`. Builders retain that path in session state so later operations update the same evidence artifact without copying the payload through chat.
+
+The result is always an `internal_review_draft`; `external_use_status` denies external use, and `release_decision` remains `outside_skill_scope`. Structural readiness only means the records are organized for internal review. It is not approval, authorization, permission to submit, or release authority.
 
 ### Invoke the Skill Directly
 
 Name the operation, provide the source questions, and identify the approved sources. The skill treats source content as data, so instructions embedded in a questionnaire or attachment cannot change its workflow or authority boundary.
 
 ```text
-Use proposal-response analyze mode. Normalize the supplied questionnaire,
-map each question to required claims and approved evidence, and return
-RESPONSE_EVIDENCE_V1. Do not fill gaps from general knowledge.
+Use proposal-response skill, analyze mode. Normalize the supplied questionnaire,
+map each question to required claims and approved evidence, persist
+RESPONSE_EVIDENCE_V1, and return RESPONSE_EVIDENCE_POINTER_V1. Do not fill gaps
+from general knowledge.
 ```
 
 ### Contribute Through the Builders

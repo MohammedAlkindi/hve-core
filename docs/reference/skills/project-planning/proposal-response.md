@@ -2,7 +2,7 @@
 title: proposal-response
 description: "Build traceable internal-review proposal, RFI, RFP, tender, bid, and questionnaire responses from supplied questions and approved sources. Use to analyze questions, contribute business or product evidence, or draft qualified responses."
 sidebar_position: 4
-ms.date: 2026-08-11
+ms.date: 2026-08-12
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -30,14 +30,17 @@ Use BRD Builder or PRD Builder for ordinary requirements authoring. Use human le
 
 Invoke `/proposal-response` with `operation=analyze`, `operation=contribute`, or `operation=draft`. Supply the source questions, identify approved sources, and name `domain=business` or `domain=product` for contributions. Ask for an optional appendix only when you need one.
 
-The result uses `RESPONSE_EVIDENCE_V1` and always remains an internal-review draft. See the [proposal response workflow](../../../agents/project-planning/brd-prd-builders#proposal-response-workflow) for builder activation, complete examples, and human review boundaries.
+The complete `RESPONSE_EVIDENCE_V1` payload is stored under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml`. Chat returns `RESPONSE_EVIDENCE_POINTER_V1` with the artifact path, compact status, changed IDs, unresolved IDs, and any requested rendering paths.
+
+The response always remains an internal-review draft. See the [proposal response workflow](../../../agents/project-planning/brd-prd-builders#proposal-response-workflow) for builder activation, complete examples, and human review boundaries.
 
 ## Example usage
 
 ```text
 /proposal-response operation=analyze
 Classify the supplied questionnaire questions, map required claims to the
-approved BRD and PRD, and keep unsupported claims as unresolved items.
+approved BRD and PRD, keep unsupported claims as unresolved items, persist the
+evidence artifact, and return its compact pointer.
 ```
 
-The output contains stable question and claim IDs, evidence-review states, coverage, and advisory structural readiness. It cannot represent external-use approval or release authorization.
+The evidence artifact contains stable question and claim IDs, evidence-review states, coverage, and advisory structural readiness. It cannot represent external-use approval or release authorization.

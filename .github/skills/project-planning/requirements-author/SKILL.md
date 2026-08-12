@@ -114,6 +114,8 @@ Before emitting `BRD_TO_PRD_HANDOFF_V1`, the BRD Builder applies the coverage an
 * Signoff approvers, roles, decisions, approval timestamps, comments, and active waivers.
 * Waiver records for any accepted FR-to-AC threshold gap or FR-to-BG target gap.
 
+After validation succeeds, write the complete YAML payload to `.copilot-tracking/brd-sessions/<brd-name>.handoff.yml`, record that path in BRD session state, and return the path with a compact Govern summary. Do not rely on an inline chat payload as the downstream transport.
+
 ### Hard exit gate
 
 Govern exits only when:
@@ -170,7 +172,7 @@ The PRD Builder agent runs a seven-phase lifecycle. Each phase has its own secti
 
 * Determine whether enough product context exists to create PRD artifacts.
 * Identify the initiative, problem statement, and primary target users.
-* Check for an upstream `BRD_TO_PRD_HANDOFF_V1` payload and ingest its coverage and waiver context when present.
+* Check for an upstream `BRD_TO_PRD_HANDOFF_V1` artifact path and ingest its coverage and waiver context when present.
 * Decide whether to gather more context or proceed to file creation.
 
 ### Hard exit gate
@@ -179,7 +181,7 @@ Assess exits only when:
 
 * A meaningful kebab-case PRD name can be derived.
 * Problem framing and primary users are identified.
-* Any available BRD handoff payload has been validated and its coverage metrics recorded.
+* Any available BRD handoff artifact has been read, its payload validated, and its coverage metrics recorded.
 
 ### Output artifacts
 

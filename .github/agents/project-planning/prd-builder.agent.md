@@ -42,9 +42,9 @@ The PRD Builder runs the seven-phase lifecycle defined by the `requirements-auth
 
 ### Proposal Response Extension
 
-Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Invoke `contribute` with `domain: product`, supply only approved product-owned PRD or conversation evidence, and preserve unsupported claims, estimates, exceptions, and human decisions as unresolved items. Render the product evidence appendix only when the user explicitly requests it.
+Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Invoke `contribute` with `domain: product`, supply only approved product-owned PRD or conversation evidence, and preserve unsupported claims, estimates, exceptions, and human decisions as unresolved items. Continue from the supplied proposal-response artifact path, or let the skill create its canonical tracking artifact. Render the product evidence appendix only when the user explicitly requests it.
 
-After the skill content is available, append `proposal-response#contribute:product` to `state.extensionsLoaded` once. Treat a missing `extensionsLoaded` field as an empty array, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary PRD creation, refinement, resume, BRD handoff ingestion, quality review, and backlog handoff requests do not activate this extension. The extension does not change the canonical PRD, lifecycle gates, quality-report authority, approval process, or release authority.
+After the skill content is available, append `proposal-response#contribute:product` to `state.extensionsLoaded` once. Append the returned `artifact_path` to `state.proposalResponseArtifacts` once and pass that path to later operations instead of copying `RESPONSE_EVIDENCE_V1` into chat or state. Treat missing extension arrays as empty, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary PRD creation, refinement, resume, BRD handoff ingestion, quality review, and backlog handoff requests do not activate this extension. The extension does not change the canonical PRD, lifecycle gates, quality-report authority, approval process, or release authority.
 
 ### Assess
 
@@ -52,7 +52,7 @@ Load `prd-author#assess` first. Determine whether sufficient context exists to c
 
 * Create files immediately when the user provides an explicit product name ("PRD for ExpenseTracker Pro"), a clear solution description ("mobile app for expense tracking"), or a specific project reference ("PRD for the Q4 platform upgrade").
 * Gather context first when the user provides only vague requests ("help with a PRD"), problem-only statements ("users are frustrated with current process"), or multiple potential solutions ("improve our workflow somehow").
-* Check for an upstream `BRD_TO_PRD_HANDOFF_V1` payload and ingest its coverage and waiver context when present.
+* Check for an upstream `BRD_TO_PRD_HANDOFF_V1` artifact path, read and validate its payload, and ingest its coverage and waiver context when present.
 * Context sufficiency test: can you create a meaningful kebab-case filename that accurately represents the initiative? If yes, proceed to Create. If no, stay in Discover and ask clarifying questions first.
 
 ### Discover
@@ -131,6 +131,8 @@ Maintain state in `.copilot-tracking/prd-sessions/<prd-name>.state.json`:
   "disclaimerShownAt": null,
   "phaseSkillsLoaded": ["prd-author#assess", "prd-author#discover"],
   "extensionsLoaded": ["proposal-response#contribute:product"],
+  "proposalResponseArtifacts": [".copilot-tracking/proposal-responses/northbridge-rfi/response-evidence.yml"],
+  "sourceBrdHandoff": ".copilot-tracking/brd-sessions/supplier-onboarding.handoff.yml",
   "questionsAsked": [
     "product-name", "target-users", "core-problem", "success-metrics"
   ],
@@ -159,7 +161,7 @@ Maintain state in `.copilot-tracking/prd-sessions/<prd-name>.state.json`:
 4. When processing references, update `referencesProcessed` status.
 5. At natural breakpoints, save current progress and next actions.
 6. Before quality checks, record validation status.
-7. Preserve unknown state fields and initialize a missing `extensionsLoaded` array only when an optional extension is activated.
+7. Preserve unknown state fields and initialize missing `extensionsLoaded` and `proposalResponseArtifacts` arrays only when an optional extension is activated.
 
 #### Resume Workflow
 

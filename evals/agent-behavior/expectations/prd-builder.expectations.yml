@@ -126,16 +126,26 @@ expectations:
     contract_ref: "stimulus design (per-stimulus, not agent-intrinsic)"
 
   - expectation_id: proposal-response-product-activation
-    summary: Explicit proposal-response intent activates product-domain contribution only.
-    signal: Output names `proposal-response#contribute:product` or the equivalent skill and domain operation.
+    summary: Explicit proposal-response continuation activates product-domain contribution only.
+    signal: Output names `proposal-response#contribute:product`, returns the supplied proposal-response artifact path, and preserves builder state transport.
     pass_criteria: |
       An explicit RFI, RFP, questionnaire, tender, bid-response, proposal, or
       reusable response-evidence request invokes `proposal-response` contribute
       mode with the product domain, uses approved product-owned evidence, and
-      retains internal-review and outside-scope authority markers.
+      retains internal-review and outside-scope authority markers. The complete
+      payload is persisted under `.copilot-tracking/proposal-responses/`; the
+      response and PRD state carry its supplied path rather than a payload copy.
+      A continuation passes the same path to the skill, retains it once in
+      `proposalResponseArtifacts`, retains the product extension once in
+      `extensionsLoaded`, preserves prior SQ, CLM, and UNR IDs, adds only an
+      operation-appropriate product record, and exposes recalculated coverage.
     failure_modes:
       - Business authorization or release authority is supplied by PRD Builder.
       - The extension load is recorded in `phaseSkillsLoaded` instead of `extensionsLoaded`.
+      - The complete `RESPONSE_EVIDENCE_V1` payload is returned inline without an artifact pointer.
+      - A supplied artifact path is replaced, omitted, or duplicated in `proposalResponseArtifacts`.
+      - Existing SQ, CLM, or UNR records are discarded, renumbered, or hidden.
+      - Coverage is reused without recalculation after the contribution.
     priority: high
     applies_when: "stimulus explicitly requests proposal-response contribution"
     contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"

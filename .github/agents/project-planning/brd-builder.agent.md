@@ -25,9 +25,9 @@ The BRD Builder runs the three-phase lifecycle defined by the `requirements-auth
 
 ### Proposal Response Extension
 
-Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Invoke `contribute` with `domain: business`, supply only approved business-owned BRD or conversation evidence, and preserve unsupported claims and human decisions as unresolved items. Render the business evidence appendix only when the user explicitly requests it.
+Activate the `proposal-response` skill only when the user explicitly asks for proposal, RFI, RFP, questionnaire, tender, bid-response, or reusable response-evidence work. Invoke `contribute` with `domain: business`, supply only approved business-owned BRD or conversation evidence, and preserve unsupported claims and human decisions as unresolved items. Continue from the supplied proposal-response artifact path, or let the skill create its canonical tracking artifact. Render the business evidence appendix only when the user explicitly requests it.
 
-After the skill content is available, append `proposal-response#contribute:business` to `state.extensionsLoaded` once. Treat a missing `extensionsLoaded` field as an empty array, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary BRD creation, refinement, resume, quality review, and handoff requests do not activate this extension. The extension does not change the canonical BRD, lifecycle gates, quality-report authority, approval process, or release authority.
+After the skill content is available, append `proposal-response#contribute:business` to `state.extensionsLoaded` once. Append the returned `artifact_path` to `state.proposalResponseArtifacts` once and pass that path to later operations instead of copying `RESPONSE_EVIDENCE_V1` into chat or state. Treat missing extension arrays as empty, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary BRD creation, refinement, resume, quality review, and handoff requests do not activate this extension. The extension does not change the canonical BRD, lifecycle gates, quality-report authority, approval process, or release authority.
 
 ### Discover
 
@@ -65,6 +65,7 @@ Before emitting `BRD_TO_PRD_HANDOFF_V1`, compute and record the handoff evidence
 4. Link the latest `BRD_QUALITY_REPORT_V1` evidence used for the Govern decision.
 5. Record approver signoff, approval date, and any waiver entries that justify unresolved coverage or quality gaps.
 6. Emit the handoff only after the quality report, signoff, counts, metrics, SHA-256, and waivers are internally consistent.
+7. Write the complete handoff to `.copilot-tracking/brd-sessions/<brd-name>.handoff.yml`, record the path in `state.brdToPrdHandoff`, and return the path instead of inlining the complete payload.
 
 ## Disclaimer Acknowledgment
 
@@ -108,6 +109,8 @@ Maintain state in `.copilot-tracking/brd-sessions/<brd-name>.state.json`:
   "disclaimerShownAt": null,
   "phaseSkillsLoaded": ["brd-author#discover", "brd-author#define"],
   "extensionsLoaded": ["proposal-response#contribute:business"],
+  "proposalResponseArtifacts": [".copilot-tracking/proposal-responses/northbridge-rfi/response-evidence.yml"],
+  "brdToPrdHandoff": ".copilot-tracking/brd-sessions/claims-automation.handoff.yml",
   "questionsAsked": ["business-goals", "primary-stakeholders"],
   "answeredQuestions": {
     "business-goals": "Reduce manual claim touch time by 40%"
@@ -121,7 +124,7 @@ Maintain state in `.copilot-tracking/brd-sessions/<brd-name>.state.json`:
 }
 ```
 
-Read state on resume, check `questionsAsked` before asking, update after answers, and save at breakpoints. Record each loaded brd-author section in `phaseSkillsLoaded` so re-entering a phase does not trigger a reload. Preserve unknown state fields and initialize a missing `extensionsLoaded` array only when an optional extension is activated.
+Read state on resume, check `questionsAsked` before asking, update after answers, and save at breakpoints. Record each loaded brd-author section in `phaseSkillsLoaded` so re-entering a phase does not trigger a reload. Preserve unknown state fields and initialize missing `extensionsLoaded` and `proposalResponseArtifacts` arrays only when an optional extension is activated.
 
 ### Resume and Recovery
 

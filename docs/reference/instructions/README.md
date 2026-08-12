@@ -2,7 +2,7 @@
 title: Instructions
 description: Reference documentation for HVE Core instructions.
 sidebar_position: 0
-ms.date: 2026-07-30
+ms.date: 2026-08-12
 ---
 
 <!-- BEGIN AUTO-GENERATED: index -->
@@ -51,7 +51,7 @@ This page lists the generated reference documentation for HVE Core instructions.
 | [Github/Github Backlog Triage](github/github-backlog-triage.md)                                   | GitHub issue backlog triage: label suggestion, milestone assignment, and duplicate detection                                                                                                                                                                                          |
 | [Github/Github Backlog Update](github/github-backlog-update.md)                                   | GitHub issue backlog execution: consumes planning handoffs and runs issue operations                                                                                                                                                                                                  |
 | [Hve Core/Commit Message](hve-core/commit-message.md)                                             | Commit message format and conventions                                                                                                                                                                                                                                                 |
-| [Hve Core/Copilot Tracking](hve-core/copilot-tracking.md)                                         | Shared .copilot-tracking conventions for RPI, HVE Builder, and compatibility workflow evidence                                                                                                                                                                                        |
+| [Hve Core/Copilot Tracking](hve-core/copilot-tracking.md)                                         | Shared .copilot-tracking conventions for RPI, HVE Builder, proposal response, and compatibility workflow evidence                                                                                                                                                                     |
 | [Hve Core/Git Merge](hve-core/git-merge.md)                                                       | Git merge, rebase, and rebase --onto workflows with conflict handling and stop controls                                                                                                                                                                                               |
 | [Hve Core/Hve Builder](hve-core/hve-builder.md)                                                   | Authoring standards for prompts, agents, subagents, instructions, and skills, grounded in the frontier-LLM instruction-quality research                                                                                                                                               |
 | [Hve Core/Licensing Posture](hve-core/licensing-posture.md)                                       | Repository posture for licensing, reproduction, and attribution of third-party standards in skills and tracking artifacts                                                                                                                                                             |

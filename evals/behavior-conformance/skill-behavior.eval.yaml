@@ -2,7 +2,7 @@
 name: behavior-conformance-skills
 description: >
   Advisory-tier behavior conformance evals for skills exercised through
-  knowledge, tool-trigger, and bleed-detection stimulus shapes. Total: 133
+  knowledge, tool-trigger, and bleed-detection stimulus shapes. Total: 140
   stimuli, including complete branch coverage for the RPI and prompt-builder
   skill updates. Each tool-trigger stimulus uses two graders with AND logic,
   and the suite-level scoring threshold gates the aggregate pass rate across
@@ -2319,8 +2319,9 @@ stimuli:
       Use `proposal-response` analyze mode on these source questions: Q1 asks
       for current security certifications; Q2 asks for a three-year price
       commitment. The only approved source says an internal security review is
-      scheduled and contains no certification or pricing evidence. Return the
-      compact contract without inventing answers.
+      scheduled and contains no certification or pricing evidence. Persist the
+      complete contract under `.copilot-tracking/proposal-responses/` and return
+      the compact pointer without inventing answers.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -2331,13 +2332,13 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: stable-question-records
+        name: stable-question-record-pointers
         config:
-          pattern: '(?is)(RESPONSE_EVIDENCE_V1|source_questions).*(SQ-0*1).*(SQ-0*2)'
+          pattern: '(?is)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*(SQ-0*1).*(SQ-0*2)'
       - type: output-matches
         name: unresolved-evidence
         config:
-          pattern: '(?is)(unsupported|unreviewed|unresolved|missing).*(certification|pricing|price)|(certification|pricing|price).*(unsupported|unreviewed|unresolved|missing)'
+          pattern: '(?is)(unresolved_ids|unresolved).*(UNR-0*1).*(UNR-0*2)'
       - type: output-matches
         name: no-invented-certification
         config:
@@ -2349,7 +2350,9 @@ stimuli:
       Use `proposal-response` contribute mode with domain product. Approved PRD
       evidence says NFR-014 targets 99.9% monthly availability. A stakeholder
       note also estimates 99.99% but is unreviewed. Contribute traceable product
-      claims and preserve the estimate as qualified or unresolved.
+      claims, preserve the estimate as qualified or unresolved, persist the
+      payload under `.copilot-tracking/proposal-responses/`, and return its
+      compact pointer.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -2360,23 +2363,92 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: product-ownership
+        name: product-artifact-pointer
         config:
-          pattern: '(?i)(owner_domain|domain).*(product)|product.*(claim|evidence)'
+          pattern: '(?i)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*proposal-responses'
       - type: output-matches
-        name: approved-evidence
+        name: changed-record-pointers
         config:
-          pattern: '(?i)(NFR-014|99\.9).*(supported|evidence)|(supported|evidence).*(NFR-014|99\.9)'
+          pattern: '(?is)changed_record_ids.*CLM-0*1'
       - type: output-matches
-        name: estimate-qualified
+        name: estimate-unresolved-pointer
         config:
-          pattern: '(?i)(99\.99).*(unreviewed|qualified|unresolved)|(unreviewed|qualified|unresolved).*(99\.99)'
+          pattern: '(?is)unresolved_ids.*UNR-0*1'
+
+  - name: skill-proposal-response-continuation
+    prompt: |
+      Use `proposal-response` contribute mode with domain product and continue
+      from `.copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml`.
+      Read and validate the persisted payload at that path before changing it.
+      Approved PRD evidence NFR-014 supports a 99.9% monthly availability
+      target. Add the operation-appropriate product claim as `CLM-002`, retain
+      `SQ-001`, `CLM-001`, and `UNR-001` unchanged, keep the same artifact
+      path, and return a compact pointer that exposes recalculated coverage.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: ../agent-behavior/fixtures/proposal-response-atlas-rfp-response-evidence.txt
+          dest: .copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: continuation
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: same-path-and-preserved-records
+        config:
+          pattern: '(?is)atlas-rfp[/\\]response-evidence\.yml.*SQ-0*1.*CLM-0*1.*UNR-0*1'
+      - type: output-matches
+        name: operation-appropriate-addition
+        config:
+          pattern: '(?is)changed_record_ids.*CLM-0*2'
+      - type: output-matches
+        name: recalculated-coverage
+        config:
+          pattern: '(?is)coverage:.*question_count:\s*1.*addressed_count:\s*0.*qualified_count:\s*1.*unresolved_count:\s*0.*addressed_percent:\s*0\.0'
+
+  - name: skill-proposal-response-invalid-continuation
+    prompt: |
+      Use `proposal-response` contribute mode with domain product and continue
+      from `.copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml`.
+      Read and validate the supplied file at that path.
+      Do not start fresh. Reject the invalid continuation without overwriting
+      the supplied artifact, and return the visible unresolved/error result
+      with the smallest clearing action.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: ../agent-behavior/fixtures/proposal-response-atlas-rfp-invalid-evidence.txt
+          dest: .copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: invalid-continuation
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: invalid-schema-rejected-at-same-path
+        config:
+          pattern: '(?is)schema:\s*RESPONSE_EVIDENCE_ERROR_V1.*operation_status:\s*rejected.*artifact_path:.*atlas-rfp[/\\]response-evidence\.yml.*artifact_written:\s*false.*validation_error:\s*unknown_schema'
+      - type: output-matches
+        name: no-success-pointer-or-write
+        config:
+          pattern: '(?i)(RESPONSE_EVIDENCE_POINTER_V1|artifact_written:\s*true)'
+          negate: true
+      - type: output-matches
+        name: smallest-clearing-action
+        config:
+          pattern: '(?i)(supply|provide|replace with).*(complete|valid).*RESPONSE_EVIDENCE_V1'
 
   - name: skill-proposal-response-draft
     prompt: |
       Use `proposal-response` draft mode. SQ-001 asks whether audit logs are
       retained for 365 days. CLM-001 is supported by approved NFR-021 for 180
-      days only. Render a traceable response with the limitation and all fixed
+      days only. Persist a traceable response with the limitation, render the
+      requested draft beside it, and return the compact pointer with all fixed
       authority markers.
     environment:
       skills:
@@ -2389,17 +2461,17 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: traceable-qualified-draft
+        name: traceable-draft-pointer
         config:
-          pattern: '(?is)(SQ-0*1).*(CLM-0*1).*(180).*(qualified|qualification|limitation)'
+          pattern: '(?is)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*(SQ-0*1|RSP-0*1)'
       - type: output-matches
         name: fixed-internal-markers
         config:
           pattern: '(?is)internal_review_draft.*(internal_review_only|external_use_prohibited).*outside_skill_scope'
       - type: output-matches
-        name: no-broadened-retention
+        name: rendered-draft-pointer
         config:
-          pattern: '(?is)(180-day|180\s+days).*(does not support|not supported|only|limitation).*(365-day|365\s+days)|(365-day|365\s+days).*(does not support|not supported|only|limitation).*(180-day|180\s+days)'
+          pattern: '(?is)rendered_artifacts.*response-draft\.md'
 
   - name: skill-proposal-response-authority-boundary
     prompt: |
@@ -2446,11 +2518,11 @@ stimuli:
       - type: output-matches
         name: preserve-source-separate-output
         config:
-          pattern: '(?is)(read-only|unchanged|remain unchanged|preserve[ds]?).*(separate output|RESPONSE_EVIDENCE_V1)|(separate output|RESPONSE_EVIDENCE_V1).*(read-only|unchanged|remain unchanged|preserve[ds]?)'
+          pattern: '(?is)(read-only|unchanged|remain unchanged|preserve[ds]?).*(artifact_path|RESPONSE_EVIDENCE_POINTER_V1)|(artifact_path|RESPONSE_EVIDENCE_POINTER_V1).*(read-only|unchanged|remain unchanged|preserve[ds]?)'
       - type: output-matches
         name: internal-review-contract
         config:
-          pattern: '(?is)RESPONSE_EVIDENCE_V1.*response_status\s*:\s*internal_review_draft.*external_use_status\s*:\s*(internal_review_only|external_use_prohibited).*release_decision\s*:\s*outside_skill_scope'
+          pattern: '(?is)RESPONSE_EVIDENCE_POINTER_V1.*response_status\s*:\s*internal_review_draft.*external_use_status\s*:\s*(internal_review_only|external_use_prohibited).*release_decision\s*:\s*outside_skill_scope'
       - type: output-matches
         name: no-source-mutation-claim
         config:

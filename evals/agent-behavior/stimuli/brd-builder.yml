@@ -22,16 +22,34 @@ stimuli:
           negate: true
   - name: brd-builder-proposal-response-contribution
     prompt: |
-      Contribute business evidence to RFP question Q1, "What business outcome
-      and governance does the onboarding program provide?" Approved BRD
-      evidence: BG-001 targets reducing onboarding from 10 days to 4 days;
-      the Program Sponsor owns outcome approval; CON-002 requires regional
-      privacy review; RISK-003 identifies delayed legal review. Return traceable
-      internal-review response evidence and include the state update
-      `extensionsLoaded: [proposal-response#contribute:business]`.
+      Continue business evidence contribution for RFP question Q1, "What
+      business outcome and governance does the onboarding program provide?"
+      from the supplied persisted artifact path
+      `.copilot-tracking/proposal-responses/onboarding-rfp/response-evidence.yml`.
+      Its validated RESPONSE_EVIDENCE_V1 payload already contains SQ-001,
+      CLM-001, and UNR-001. Preserve those stable IDs and the unresolved item,
+      add the operation-appropriate business record as CLM-002, and return the
+      same path. Its prior coverage is question_count 1, addressed_count 0,
+      qualified_count 0, unresolved_count 1, and addressed_percent 0.0.
+      Recalculate it after contribution as question_count 1, addressed_count
+      0, qualified_count 1, unresolved_count 0, and addressed_percent 0.0.
+      Approved BRD evidence: BG-001 targets
+      reducing onboarding from 10 days to 4 days; the Program Sponsor owns
+      outcome approval; CON-002 requires regional privacy review; RISK-003
+      identifies delayed legal review.
+
+      The existing builder state is:
+      `extensionsLoaded: [proposal-response#contribute:business]` and
+      `proposalResponseArtifacts: [.copilot-tracking/proposal-responses/onboarding-rfp/response-evidence.yml]`.
+      Pass the same path to the contribution, retain that extension and path
+      exactly once in their respective arrays, and do not inline the full
+      payload.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-onboarding-rfp-response-evidence.txt
+          dest: .copilot-tracking/proposal-responses/onboarding-rfp/response-evidence.yml
     tags:
       category: agent-behavior
       scenario: brd-proposal-positive
@@ -44,6 +62,18 @@ stimuli:
         name: authority-boundary
         config:
           pattern: '(?i)(internal.review|outside.*scope|not.*(approved|authorized|release)|external.use.prohibited)'
+      - type: output-matches
+        name: same-artifact-pointer
+        config:
+          pattern: '(?is)(RESPONSE_EVIDENCE_POINTER_V1|artifact_path).*onboarding-rfp[/\\]response-evidence\.yml'
+      - type: output-matches
+        name: retained-builder-state-once
+        config:
+          pattern: '(?is)extensionsLoaded\s*:\s*\[(?![^\]]*proposal-response#contribute:business[^\]]*proposal-response#contribute:business)[^\]]*proposal-response#contribute:business[^\]]*\].*proposalResponseArtifacts\s*:\s*\[(?![^\]]*onboarding-rfp[/\\]response-evidence\.yml[^\]]*onboarding-rfp[/\\]response-evidence\.yml)[^\]]*onboarding-rfp[/\\]response-evidence\.yml[^\]]*\]'
+      - type: output-matches
+        name: preserved-records-and-recalculated-coverage
+        config:
+          pattern: '(?is)(SQ-0*1.*CLM-0*1.*UNR-0*1|UNR-0*1.*CLM-0*1.*SQ-0*1).*changed_record_ids.*CLM-0*2.*coverage:.*question_count:\s*1.*addressed_count:\s*0.*qualified_count:\s*1.*unresolved_count:\s*0.*addressed_percent:\s*0\.0'
   - name: brd-builder-ordinary-request-no-proposal-extension
     prompt: |
       Resume my customer onboarding BRD and refine its stakeholder roles and
