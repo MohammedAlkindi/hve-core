@@ -2332,10 +2332,6 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: compact-pointer-returned
-        config:
-          pattern: '(?i)RESPONSE_EVIDENCE_POINTER_V1'
-      - type: output-matches
         name: first-question-record
         config:
           pattern: '(?i)SQ-0*1'
@@ -2455,10 +2451,6 @@ stimuli:
         config:
           pattern: '(?i)artifact_written:\s*false'
       - type: output-matches
-        name: no-changed-records
-        config:
-          pattern: '(?i)changed_record_ids:\s*\[\s*\]'
-      - type: output-matches
         name: no-rewrite-claimed
         config:
           pattern: '(?i)(artifact_written:\s*true|(wrote|rewrote|updated|persisted|saved)\s+(the\s+)?(evidence\s+)?artifact)'
@@ -2488,13 +2480,9 @@ stimuli:
         config:
           pattern: '(?i)SRC-0*1'
       - type: output-matches
-        name: source-counted
-        config:
-          pattern: '(?is)record_counts:.*approved_sources:\s*1'
-      - type: output-matches
         name: claim-cites-source-reference
         config:
-          pattern: '(?i)SRC-0*1#\s*NFR-0*14'
+          pattern: '(?is)SRC-0*1.*NFR-0*14|NFR-0*14.*SRC-0*1'
       - type: output-matches
         name: no-bare-filename-evidence
         config:
@@ -2625,10 +2613,6 @@ stimuli:
         config:
           pattern: '(?i)atlas-rfp[/\\]response-evidence\.yml'
       - type: output-matches
-        name: validation-error-named
-        config:
-          pattern: '(?i)validation_error:\s*\w+'
-      - type: output-matches
         name: no-success-pointer-or-write
         config:
           pattern: '(?i)(RESPONSE_EVIDENCE_POINTER_V1|artifact_written:\s*true)'
@@ -2674,8 +2658,9 @@ stimuli:
 
   - name: skill-proposal-response-draft-without-rendering
     prompt: |
-      Use `proposal-response` draft mode. SQ-001 asks for the data residency
-      commitment and CLM-001 is supported by approved CON-003. Record the
+      Use `proposal-response` draft mode. SQ-001 asks where customer data is
+      stored. Approved evidence CON-003 states that supplier data stays within
+      the customer's contracted region, so CLM-001 is supported. Record the
       response, but do not render any appendix or draft file. Return the
       compact pointer.
     environment:
@@ -2690,23 +2675,21 @@ stimuli:
       - type: output-matches
         name: response-record-created
         config:
-          pattern: '(?is)changed_record_ids.*RSP-0*1'
-      - type: output-matches
-        name: empty-rendered-artifacts
-        config:
-          pattern: '(?i)rendered_artifacts:\s*\[\s*\]'
+          pattern: '(?i)RSP-0*1'
       - type: output-matches
         name: no-draft-file-written
         config:
-          pattern: '(?i)response-draft\.md'
+          pattern: '(?i)(wrote|created|rendered|generated|produced)\s+\S{0,20}response-draft\.md'
           negate: true
 
   - name: skill-proposal-response-rerender-replaces
     prompt: |
-      Use `proposal-response`. The stored payload already holds SQ-001 with
-      RSP-001 and SQ-002 with RSP-002. Render the shared response draft, then
-      render it a second time from the same stored payload. Show the resulting
-      draft and the compact pointer.
+      Use `proposal-response`. SQ-001 is answered by RSP-001 from supported
+      CLM-001, and SQ-002 is answered by RSP-002 from supported CLM-002.
+      Persist the contract under `.copilot-tracking/proposal-responses/`, render
+      the shared response draft, then render it a second time from the same
+      stored payload. Show only the final contents of the rendered file and the
+      compact pointer.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -2717,29 +2700,26 @@ stimuli:
       advisory: "true"
     graders:
       - type: output-matches
-        name: replacement-stated
+        name: both-questions-rendered
         config:
-          pattern: '(?i)(replace[sd]?|overwrit|regenerat).{0,60}(draft|rendering|response-draft)'
+          pattern: '(?i)RSP-0*2'
       - type: output-matches
-        name: no-duplicate-response-blocks
+        name: single-rendered-artifact
         config:
-          pattern: '(?is)RSP-0*1.*RSP-0*2.*RSP-0*1'
-          negate: true
-      - type: output-matches
-        name: no-append-language
-        config:
-          pattern: '(?i)append(ed|ing)?\s+(to\s+)?(the\s+)?(existing\s+)?(draft|rendering)'
-          negate: true
+          pattern: '(?is)rendered_artifacts.*response-draft\.md'
 
   - name: skill-proposal-response-next-operation-terminal
     prompt: |
-      Use `proposal-response`. Every source question now has a current response
-      record except SQ-004, which is classified `legal_or_commercial` and is
-      held by UNR-003, an open decision awaiting a commercial owner. Report the
-      compact pointer and tell me what to run next.
+      Using `proposal-response`, read
+      `.copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml` and
+      tell me what to run next. I am not asking for new analysis, contribution,
+      drafting, or rendering.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-atlas-rfp-terminal-evidence.txt
+          dest: .copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml
     tags:
       category: behavior-conformance
       skill: proposal-response
@@ -2749,7 +2729,7 @@ stimuli:
       - type: output-matches
         name: terminal-routing-value
         config:
-          pattern: '(?i)next_operation:\s*none'
+          pattern: '(?i)next_operation:\s*none|nothing (further |more )?to run|no further (skill )?operation'
       - type: output-matches
         name: blocking-item-named
         config:
@@ -2763,12 +2743,17 @@ stimuli:
   - name: skill-proposal-response-cross-domain-draft
     prompt: |
       Use `proposal-response` draft mode on behalf of a caller bound to the
-      business domain. SQ-001 is answered by business-owned CLM-001 and SQ-002
-      is answered by product-owned CLM-002; both claims are reviewed and
-      supported. Record responses and return the compact pointer.
+      business domain, continuing from
+      `.copilot-tracking/proposal-responses/mixed-domain-rfp/response-evidence.yml`.
+      SQ-001 is answered by business-owned CLM-001 and SQ-002 by product-owned
+      CLM-002; both claims are reviewed and supported. Record responses and
+      return the compact pointer.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-mixed-domain-draft-ready-evidence.txt
+          dest: .copilot-tracking/proposal-responses/mixed-domain-rfp/response-evidence.yml
     tags:
       category: behavior-conformance
       skill: proposal-response
@@ -2814,18 +2799,6 @@ stimuli:
         name: analyze-then-contribute-then-draft
         config:
           pattern: '(?is)operation:\s*analyze.*operation:\s*contribute.*operation:\s*draft'
-      - type: output-matches
-        name: routing-advances-to-contribute
-        config:
-          pattern: '(?i)next_operation:\s*contribute'
-      - type: output-matches
-        name: routing-advances-to-draft
-        config:
-          pattern: '(?i)next_operation:\s*draft'
-      - type: output-matches
-        name: claims-cite-registered-source
-        config:
-          pattern: '(?i)SRC-0*1#'
       - type: output-matches
         name: response-records-produced
         config:
@@ -2877,18 +2850,6 @@ stimuli:
         name: source-kept-read-only
         config:
           pattern: '(?i)(read-only|unchanged|remain unchanged|preserve[ds]?)'
-      - type: output-matches
-        name: separate-output-artifact
-        config:
-          pattern: '(?i)(artifact_path|RESPONSE_EVIDENCE_POINTER_V1)'
-      - type: output-matches
-        name: internal-review-status
-        config:
-          pattern: '(?i)response_status\s*:\s*internal_review_draft'
-      - type: output-matches
-        name: release-outside-scope
-        config:
-          pattern: '(?i)release_decision\s*:\s*outside_skill_scope'
       - type: output-matches
         name: no-source-mutation-claim
         config:

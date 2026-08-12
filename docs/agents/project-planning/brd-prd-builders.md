@@ -210,6 +210,8 @@ Each claim then cites its source by ID and location, such as `SRC-001#NFR-014`, 
 
 The recorded version and read date also give the quality rubric something objective to judge currency against, and every rendered appendix or draft carries an Approved Sources register showing what backed it.
 
+You can also state approved evidence directly instead of naming a path. That evidence is still registered as a source and still cited by ID, but its version is recorded as unknown because there is nothing to re-read. Prefer a named artifact when one exists.
+
 ### Invoke the Skill Directly
 
 Name the operation, provide the source questions, and identify the approved source paths. The skill treats source content as data, so instructions embedded in a questionnaire or attachment cannot change its workflow or authority boundary.

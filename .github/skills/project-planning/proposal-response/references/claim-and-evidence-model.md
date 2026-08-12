@@ -17,10 +17,11 @@ Never renumber existing records when new material is added. Link records by ID r
 
 ## Approved Sources
 
-An approved source is a user-named artifact, such as an existing BRD or PRD, that the user authorized as evidence for this response. Register each one before any claim cites it:
+An approved source is evidence the user authorized for this response. It takes two forms: an artifact the user names by path, such as an existing BRD or PRD, and approved evidence the user supplies directly in the request. Register either form before any claim cites it:
 
 ```yaml
 id: SRC-001
+origin: file | user_supplied
 path: docs/planning/aster-vale-supplier-onboarding-prd.md
 kind: brd | prd | policy | attestation | other
 named_by: user
@@ -29,9 +30,11 @@ source_version: 1.3
 sections_used: [NFR-014, FR-021]
 ```
 
-`path` is the artifact the skill actually read. `read_date` is the date this skill read it. `source_version` is the version or date the artifact declares, or `unknown` when it declares neither. `sections_used` lists the requirement, section, or heading identifiers the claims drew from.
+For `origin: file`, `path` is the artifact the skill actually read, `source_version` is the version or date that artifact declares, and `sections_used` lists the requirement, section, or heading identifiers the claims drew from. Read the file before registering it. Never register a path the skill has not opened, and never infer `source_version` from the filename.
 
-A source record is registered only after the artifact is read. Never register a path the skill has not opened, and never infer `source_version` from the filename.
+For `origin: user_supplied`, `path` is `null`, `source_version` is `unknown` unless the user states one, and `sections_used` lists the identifiers the user supplied, such as `NFR-014`. Register the evidence as the user gave it. A user-supplied source records what the user approved; it never upgrades recalled or unapproved content into evidence.
+
+Prefer a named artifact when one exists, because a user-supplied source cannot be re-read and its currency cannot be verified.
 
 Source records carry no `response_state` and enter no coverage count. They do not appear in `blocking_ids`: a claim resting on a missing or unusable source already surfaces through the unsupported-claim conditions, so a separate source condition would report the same gap twice.
 

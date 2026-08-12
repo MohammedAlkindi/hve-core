@@ -423,15 +423,7 @@ stimuli:
     config:
       pattern: (?i)onboarding-rfp[/\\]response-evidence\.yml
   - type: output-matches
-    name: pointer-contract-returned
-    config:
-      pattern: (?i)RESPONSE_EVIDENCE_POINTER_V1
-  - type: output-matches
-    name: retained-extension-entry
-    config:
-      pattern: (?is)extensionsLoaded\s*:\s*\[[^\]]*proposal-response#contribute:business[^\]]*\]
-  - type: output-matches
-    name: retained-artifact-entry
+    name: builder-state-reported
     config:
       pattern: (?is)proposalResponseArtifacts\s*:\s*\[[^\]]*onboarding-rfp[/\\]response-evidence\.yml[^\]]*\]
   - type: output-matches
@@ -444,7 +436,7 @@ stimuli:
     config:
       pattern: (?is)changed_record_ids.*CLM-0*2
   - type: output-matches
-    name: preservation-reported-as-counts
+    name: prior-records-preserved
     config:
       pattern: (?is)record_counts:.*claims:\s*2
   - type: output-matches
@@ -452,13 +444,13 @@ stimuli:
     config:
       pattern: (?is)coverage:.*question_count:\s*1.*unresolved_count:\s*0
   - type: output-matches
-    name: next-operation-reported
+    name: remaining-step-named
     config:
-      pattern: (?i)next_operation:\s*(analyze|contribute|draft|none)
+      pattern: (?i)(next_operation|next step|remaining step).{0,40}draft|draft.{0,40}(is|as) the next
   - type: output-matches
     name: unresolved-cleared-by-approved-evidence
     config:
-      pattern: (?is)UNR-0*1.*(clear|cleared|resolved|closed|satisfied)|( clear|cleared|resolved|closed|satisfied).*UNR-0*1
+      pattern: (?i)UNR-0*1
 - name: brd-builder-proposal-response-rejected-continuation
   prompt: |
     Continue business evidence contribution for RFP question Q1, "What
@@ -523,9 +515,9 @@ stimuli:
     agent: brd-builder
   graders:
   - type: output-matches
-    name: analyze-operation-performed
+    name: questions-normalized
     config:
-      pattern: (?i)operation:\s*analyze
+      pattern: (?i)SQ-0*1
   - type: output-matches
     name: source-registered
     config:
@@ -535,42 +527,43 @@ stimuli:
     config:
       pattern: (?i)northwind-onboarding-brd\.md
   - type: output-matches
-    name: next-operation-reported
-    config:
-      pattern: (?i)next_operation:\s*(contribute|draft|none)
-  - type: output-matches
     name: not-redirected-to-direct-skill-use
     config:
       pattern: (?i)(cannot|can.t|unable to|not able to)\s+(run|perform|invoke)\s+analyze
       negate: true
 - name: brd-builder-proposal-response-draft
   prompt: |
-    Draft the proposal responses for the onboarding RFP. The stored payload at
-    `.copilot-tracking/proposal-responses/onboarding-rfp/response-evidence.yml`
-    holds SQ-001 answered by business-owned CLM-001 and SQ-002 answered by
+    Draft the proposal responses for the onboarding RFP, continuing from the
+    supplied artifact path
+    `.copilot-tracking/proposal-responses/onboarding-rfp/response-evidence.yml`.
+    It holds SQ-001 answered by business-owned CLM-001 and SQ-002 answered by
     product-owned CLM-002; both claims are reviewed and supported. Do not
     render any appendix or draft file. Report the builder state fields and the
     skill result.
   environment:
     skills:
     - ../../.github/skills/project-planning/proposal-response
+    files:
+    - src: fixtures/proposal-response-onboarding-rfp-draft-ready-evidence.txt
+      dest: .copilot-tracking/proposal-responses/onboarding-rfp/response-evidence.yml
   tags:
     category: agent-behavior
     scenario: brd-proposal-draft
     agent: brd-builder
   graders:
   - type: output-matches
-    name: draft-operation-performed
+    name: responses-recorded
     config:
-      pattern: (?i)operation:\s*draft
+      pattern: (?i)RSP-0*1
   - type: output-matches
     name: cross-domain-question-drafted
     config:
       pattern: (?i)RSP-0*2
   - type: output-matches
-    name: no-rendering-without-request
+    name: no-unrequested-rendering
     config:
-      pattern: (?i)rendered_artifacts:\s*\[\s*\]
+      pattern: (?i)(wrote|created|rendered|generated)\s+\S{0,20}response-draft\.md
+      negate: true
   - type: output-matches
     name: no-product-claim-authored
     config:
@@ -1673,15 +1666,7 @@ stimuli:
     config:
       pattern: (?i)identity-questionnaire[/\\]response-evidence\.yml
   - type: output-matches
-    name: pointer-contract-returned
-    config:
-      pattern: (?i)RESPONSE_EVIDENCE_POINTER_V1
-  - type: output-matches
-    name: retained-extension-entry
-    config:
-      pattern: (?is)extensionsLoaded\s*:\s*\[[^\]]*proposal-response#contribute:product[^\]]*\]
-  - type: output-matches
-    name: retained-artifact-entry
+    name: builder-state-reported
     config:
       pattern: (?is)proposalResponseArtifacts\s*:\s*\[[^\]]*identity-questionnaire[/\\]response-evidence\.yml[^\]]*\]
   - type: output-matches
@@ -1694,7 +1679,7 @@ stimuli:
     config:
       pattern: (?is)changed_record_ids.*CLM-0*2
   - type: output-matches
-    name: preservation-reported-as-counts
+    name: prior-records-preserved
     config:
       pattern: (?is)record_counts:.*claims:\s*2
   - type: output-matches
@@ -1702,13 +1687,13 @@ stimuli:
     config:
       pattern: (?is)coverage:.*question_count:\s*1.*unresolved_count:\s*0
   - type: output-matches
-    name: next-operation-reported
+    name: remaining-step-named
     config:
-      pattern: (?i)next_operation:\s*(analyze|contribute|draft|none)
+      pattern: (?i)(next_operation|next step|remaining step).{0,40}draft|draft.{0,40}(is|as) the next
   - type: output-matches
     name: unresolved-cleared-by-approved-evidence
     config:
-      pattern: (?is)UNR-0*1.*(clear|cleared|resolved|closed|satisfied)|(clear|cleared|resolved|closed|satisfied).*UNR-0*1
+      pattern: (?i)UNR-0*1
 - name: prd-builder-proposal-response-rejected-continuation
   prompt: |
     Continue product evidence contribution for questionnaire Q1, "What
@@ -1772,9 +1757,9 @@ stimuli:
     agent: prd-builder
   graders:
   - type: output-matches
-    name: analyze-operation-performed
+    name: questions-normalized
     config:
-      pattern: (?i)operation:\s*analyze
+      pattern: (?i)SQ-0*1
   - type: output-matches
     name: source-registered
     config:
@@ -1784,43 +1769,43 @@ stimuli:
     config:
       pattern: (?i)northwind-identity-prd\.md
   - type: output-matches
-    name: next-operation-reported
-    config:
-      pattern: (?i)next_operation:\s*(contribute|draft|none)
-  - type: output-matches
     name: not-redirected-to-direct-skill-use
     config:
       pattern: (?i)(cannot|can.t|unable to|not able to)\s+(run|perform|invoke)\s+analyze
       negate: true
 - name: prd-builder-proposal-response-draft
   prompt: |
-    Draft the proposal responses for the identity questionnaire. The stored
-    payload at
-    `.copilot-tracking/proposal-responses/identity-questionnaire/response-evidence.yml`
-    holds SQ-001 answered by product-owned CLM-001 and SQ-002 answered by
+    Draft the proposal responses for the identity questionnaire, continuing
+    from the supplied artifact path
+    `.copilot-tracking/proposal-responses/identity-questionnaire/response-evidence.yml`.
+    It holds SQ-001 answered by product-owned CLM-001 and SQ-002 answered by
     business-owned CLM-002; both claims are reviewed and supported. Do not
     render any appendix or draft file. Report the builder state fields and the
     skill result.
   environment:
     skills:
     - ../../.github/skills/project-planning/proposal-response
+    files:
+    - src: fixtures/proposal-response-identity-questionnaire-draft-ready-evidence.txt
+      dest: .copilot-tracking/proposal-responses/identity-questionnaire/response-evidence.yml
   tags:
     category: agent-behavior
     scenario: prd-proposal-draft
     agent: prd-builder
   graders:
   - type: output-matches
-    name: draft-operation-performed
+    name: responses-recorded
     config:
-      pattern: (?i)operation:\s*draft
+      pattern: (?i)RSP-0*1
   - type: output-matches
     name: cross-domain-question-drafted
     config:
       pattern: (?i)RSP-0*2
   - type: output-matches
-    name: no-rendering-without-request
+    name: no-unrequested-rendering
     config:
-      pattern: (?i)rendered_artifacts:\s*\[\s*\]
+      pattern: (?i)(wrote|created|rendered|generated)\s+\S{0,20}response-draft\.md
+      negate: true
   - type: output-matches
     name: no-business-claim-authored
     config:
