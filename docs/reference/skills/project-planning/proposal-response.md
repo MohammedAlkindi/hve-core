@@ -1,7 +1,7 @@
 ---
 title: proposal-response
 description: "Build traceable internal-review proposal, RFI, RFP, tender, bid, and questionnaire responses from supplied questions and approved sources. Use to analyze questions, contribute business or product evidence, or draft qualified responses."
-sidebar_position: 4
+sidebar_position: 10
 ms.date: 2026-08-12
 ---
 
