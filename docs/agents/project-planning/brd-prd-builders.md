@@ -194,7 +194,7 @@ Use the `proposal-response` skill when you need to turn supplied RFI, RFP, tende
 | `contribute` | A BRD or PRD contains approved evidence for selected questions   | Business-owned or product-owned claims linked to questions and evidence  |
 | `draft`      | Reviewed claims are ready for a traceable response draft         | Qualified responses with evidence links, unresolved items, and readiness |
 
-Every operation persists `RESPONSE_EVIDENCE_V1` under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml` and returns `RESPONSE_EVIDENCE_POINTER_V1`. Builders retain that path in session state so later operations update the same evidence artifact without copying the payload through chat.
+Every operation persists `RESPONSE_EVIDENCE_V1` under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml` and returns `RESPONSE_EVIDENCE_POINTER_V1`. Builders retain that path in session state so later operations update the same evidence artifact without copying the payload through chat. A rejected continuation returns `RESPONSE_EVIDENCE_ERROR_V1` with `artifact_written: false` instead; nothing is written and builders do not record its path in session state.
 
 The result is always an `internal_review_draft`; `external_use_status` denies external use, and `release_decision` remains `outside_skill_scope`. Structural readiness only means the records are organized for internal review. It is not approval, authorization, permission to submit, or release authority.
 

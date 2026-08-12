@@ -27,12 +27,15 @@ stimuli:
       from the supplied persisted artifact path
       `.copilot-tracking/proposal-responses/onboarding-rfp/response-evidence.yml`.
       Its validated RESPONSE_EVIDENCE_V1 payload already contains SQ-001,
-      CLM-001, and UNR-001. Preserve those stable IDs and the unresolved item,
-      add the operation-appropriate business record as CLM-002, and return the
-      same path. Its prior coverage is question_count 1, addressed_count 0,
-      qualified_count 0, unresolved_count 1, and addressed_percent 0.0.
-      Recalculate it after contribution as question_count 1, addressed_count
-      0, qualified_count 1, unresolved_count 0, and addressed_percent 0.0.
+      CLM-001, and UNR-001. Preserve those stable IDs, add the
+      operation-appropriate business record as CLM-002, and return the same
+      path. Its prior coverage is question_count 1, addressed_count 0,
+      qualified_count 0, unresolved_count 1, and addressed_percent 0.0. The
+      supplied evidence below satisfies the UNR-001 clearing action, so
+      recalculate coverage after contribution as question_count 1,
+      addressed_count 0, qualified_count 0, unresolved_count 0, and
+      addressed_percent 0.0. Contribution adds no response record, so SQ-001
+      does not become addressed or qualified.
       Approved BRD evidence: BG-001 targets
       reducing onboarding from 10 days to 4 days; the Program Sponsor owns
       outcome approval; CON-002 requires regional privacy review; RISK-003
@@ -73,7 +76,46 @@ stimuli:
       - type: output-matches
         name: preserved-records-and-recalculated-coverage
         config:
-          pattern: '(?is)(SQ-0*1.*CLM-0*1.*UNR-0*1|UNR-0*1.*CLM-0*1.*SQ-0*1).*changed_record_ids.*CLM-0*2.*coverage:.*question_count:\s*1.*addressed_count:\s*0.*qualified_count:\s*1.*unresolved_count:\s*0.*addressed_percent:\s*0\.0'
+          pattern: '(?is)SQ-0*1.*CLM-0*1.*changed_record_ids.*CLM-0*2.*coverage:.*question_count:\s*1.*addressed_count:\s*0.*qualified_count:\s*0.*unresolved_count:\s*0.*addressed_percent:\s*0\.0'
+      - type: output-matches
+        name: unresolved-cleared-by-approved-evidence
+        config:
+          pattern: '(?is)UNR-0*1.*(clear|cleared|resolved|closed|satisfied).*BG-0*1|BG-0*1.*(clear|cleared|resolved|closed|satisfied).*UNR-0*1'
+  - name: brd-builder-proposal-response-rejected-continuation
+    prompt: |
+      Continue business evidence contribution for RFP question Q1, "What
+      business outcome and governance does the onboarding program provide?"
+      from the supplied persisted artifact path
+      `.copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml`.
+      Approved BRD evidence: BG-001 targets reducing onboarding from 10 days
+      to 4 days.
+
+      The existing builder state has no `proposalResponseArtifacts` array and
+      `extensionsLoaded: []`. Report the resulting builder state fields and the
+      skill result exactly as they stand after this attempt.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-atlas-rfp-invalid-evidence.txt
+          dest: .copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml
+    tags:
+      category: agent-behavior
+      scenario: brd-proposal-rejected-continuation
+    graders:
+      - type: output-matches
+        name: rejection-reported
+        config:
+          pattern: '(?is)RESPONSE_EVIDENCE_ERROR_V1.*(operation_status\s*:\s*rejected|rejected).*(artifact_written\s*:\s*false|not written|no artifact was written)'
+      - type: output-matches
+        name: clearing-action-reported
+        config:
+          pattern: '(?is)(validation_error|unknown_schema).*(supply|provide|replace with).*(complete|valid).*RESPONSE_EVIDENCE_V1'
+      - type: output-matches
+        name: rejected-path-not-recorded
+        config:
+          pattern: '(?is)proposalResponseArtifacts\s*:\s*\[[^\]]*atlas-rfp[/\\]response-evidence\.yml'
+          negate: true
   - name: brd-builder-ordinary-request-no-proposal-extension
     prompt: |
       Resume my customer onboarding BRD and refine its stakeholder roles and

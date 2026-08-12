@@ -150,6 +150,25 @@ expectations:
     applies_when: "stimulus explicitly requests proposal-response contribution"
     contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"
 
+  - expectation_id: proposal-response-rejected-continuation-not-recorded
+    summary: A rejected proposal-response continuation never enters durable builder state.
+    signal: Output reports `RESPONSE_EVIDENCE_ERROR_V1` and leaves `proposalResponseArtifacts` without the rejected path.
+    pass_criteria: |
+      When the skill returns `RESPONSE_EVIDENCE_ERROR_V1` with
+      `artifact_written: false`, the builder reports the rejection, its
+      `validation_error`, and its `clearing_action`, leaves
+      `state.proposalResponseArtifacts` unchanged, does not create that array,
+      and never appends the rejected `artifact_path`. Only a returned
+      `RESPONSE_EVIDENCE_POINTER_V1` records a path.
+    failure_modes:
+      - The rejected `artifact_path` is appended to `proposalResponseArtifacts`.
+      - A missing `proposalResponseArtifacts` array is created for a rejected operation.
+      - The rejection is reported as a successful contribution or a written artifact.
+      - The validation error or clearing action is omitted from the report.
+    priority: high
+    applies_when: "skill returns a rejected continuation result"
+    contract_ref: "agent §Lifecycle Dispatch › Proposal Response Extension"
+
   - expectation_id: ordinary-prd-no-proposal-activation
     summary: Ordinary PRD work does not activate proposal-response behavior.
     signal: Output contains no proposal-response contract, appendix, or extension-load language.

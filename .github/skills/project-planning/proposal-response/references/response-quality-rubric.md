@@ -24,13 +24,13 @@ Evaluate every source question, claim, response, and unresolved item. Record fai
 
 Use `ready_for_internal_review` only when:
 
-* every source question has a classified state;
+* every source question has a classification, a derived `response_state`, and a response record;
 * every drafted factual statement links to reviewed evidence;
 * qualifications and unresolved items are visible beside affected responses;
 * coverage values match the source-question records; and
 * the fixed authority markers are present.
 
-Otherwise use `not_ready` and apply the response contract's `blocking_ids` definition. `advisory_only` remains `true` in both states.
+Otherwise use `not_ready` and derive `blocking_ids` from the response contract's condition table rather than selecting IDs by judgment. `advisory_only` remains `true` in both states.
 
 Structural readiness never means complete, correct, approved, authorized, externally usable, releasable, or submitted. A human review may still reject or revise a structurally ready draft.
 

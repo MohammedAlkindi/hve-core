@@ -30,7 +30,7 @@ Use BRD Builder or PRD Builder for ordinary requirements authoring. Use human le
 
 Invoke `/proposal-response` with `operation=analyze`, `operation=contribute`, or `operation=draft`. Supply the source questions, identify approved sources, and name `domain=business` or `domain=product` for contributions. Ask for an optional appendix only when you need one.
 
-The complete `RESPONSE_EVIDENCE_V1` payload is stored under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml`. Chat returns `RESPONSE_EVIDENCE_POINTER_V1` with the artifact path, compact status, changed IDs, unresolved IDs, and any requested rendering paths.
+The complete `RESPONSE_EVIDENCE_V1` payload is stored under `.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml`. Chat returns `RESPONSE_EVIDENCE_POINTER_V1` with the artifact path, compact status, whether the artifact was written, changed IDs, unresolved IDs, ignored directive references, and any requested rendering paths. A status, coverage, or readiness question is answered from the stored payload without rewriting it.
 
 The response always remains an internal-review draft. See the [proposal response workflow](../../../agents/project-planning/brd-prd-builders#proposal-response-workflow) for builder activation, complete examples, and human review boundaries.
 
