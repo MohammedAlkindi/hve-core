@@ -5,7 +5,7 @@
 // observe-before-navigation, clear-before-trigger, settle-then-read path against
 // inline fixtures, proving the live-region firing detection and the WCAG 4.1.3
 // verdict. Named *.smoke.mjs so the default browserless `node --test` run does
-// not pick them up; run them with `npm run test:a11y:smoke`.
+// not pick them up; run them with `npm run ci:test:a11y:smoke`.
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 

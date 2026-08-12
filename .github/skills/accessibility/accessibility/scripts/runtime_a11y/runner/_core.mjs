@@ -116,6 +116,80 @@ export function tagToCriterion(tag) {
   return match ? `${match[1]}.${match[2]}.${match[3]}` : null;
 }
 
+// Axe analysis is available only when the result contains an evaluated
+// violations array. A missing builder or thrown scan returns null upstream and
+// must not be interpreted as a clean page.
+export function contrastProbeEvaluation(axeResults) {
+  if (!axeResults || !Array.isArray(axeResults.violations)) {
+    return { status: 'candidate', violations: [], nodeCount: 0 };
+  }
+
+  const violations = axeResults.violations.filter(
+    (violation) => violation?.id === 'color-contrast',
+  );
+  const nodeCount = violations.reduce(
+    (count, violation) => count + (Array.isArray(violation.nodes) ? violation.nodes.length : 0),
+    0,
+  );
+  return {
+    status: nodeCount > 0 ? 'fail' : 'pass',
+    violations,
+    nodeCount,
+  };
+}
+
+export function axeProbeEvaluation(axeResults, structuralCriteria = []) {
+  const criterionToRules = new Map();
+  if (!axeResults || !Array.isArray(axeResults.violations)) {
+    return {
+      available: false,
+      violations: [],
+      criterionToRules,
+      statusByCriterion: Object.fromEntries(
+        structuralCriteria.map((criterion) => [criterion, 'candidate']),
+      ),
+    };
+  }
+
+  for (const violation of axeResults.violations) {
+    for (const tag of violation?.tags || []) {
+      const criterion = tagToCriterion(tag);
+      if (!criterion) {
+        continue;
+      }
+      if (!criterionToRules.has(criterion)) {
+        criterionToRules.set(criterion, new Set());
+      }
+      criterionToRules.get(criterion).add(violation.id);
+    }
+  }
+
+  return {
+    available: true,
+    violations: axeResults.violations,
+    criterionToRules,
+    statusByCriterion: Object.fromEntries(
+      structuralCriteria.map((criterion) => [
+        criterion,
+        criterionToRules.has(criterion) ? 'fail' : 'pass',
+      ]),
+    ),
+  };
+}
+
+export function isForcedColorsIndicatorRisk(style) {
+  if (!style || String(style.forcedColorAdjust || '').toLowerCase() !== 'none') {
+    return false;
+  }
+  const noVisibleOutline = style.outlineStyle === 'none'
+    || style.outlineWidth === '0px'
+    || style.outlineColor === 'rgba(0, 0, 0, 0)';
+  const usesBackgroundImage = Boolean(
+    style.backgroundImage && style.backgroundImage !== 'none',
+  );
+  return noVisibleOutline && usesBackgroundImage;
+}
+
 // Given the ordered focus-index sequence observed while pressing Tab, decide
 // whether focus is genuinely trapped. Identity is a stable element index (or the
 // string 'none' for the body/unmarked). A trap requires the same element index
@@ -163,6 +237,101 @@ const VSR_INTERACTIVE_ROLES = new Set([
   'option',
   'treeitem',
 ]);
+
+function unwrapAxValue(value) {
+  if (value && typeof value === 'object' && typeof value.value === 'string') {
+    return value.value.trim();
+  }
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeCdpAxNodes(nodes) {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    return null;
+  }
+  if (nodes.some((node) => node?.ignored !== true && !(
+    node?.role
+    && typeof node.role === 'object'
+    && typeof node.role.value === 'string'
+  ))) {
+    return null;
+  }
+
+  const byId = new Map(nodes.map((node) => [String(node.nodeId), node]));
+  const referenced = new Set(
+    nodes.flatMap((node) => (node.childIds || []).map((childId) => String(childId))),
+  );
+  const ordered = [];
+  const visited = new Set();
+  const visit = (node) => {
+    const nodeId = String(node?.nodeId);
+    if (!node || visited.has(nodeId)) {
+      return;
+    }
+    visited.add(nodeId);
+    ordered.push({
+      ignored: node.ignored === true,
+      name: unwrapAxValue(node.name),
+      role: unwrapAxValue(node.role),
+    });
+    for (const childId of node.childIds || []) {
+      visit(byId.get(String(childId)));
+    }
+  };
+
+  for (const node of nodes.filter((candidate) => !referenced.has(String(candidate.nodeId)))) {
+    visit(node);
+  }
+  for (const node of nodes) {
+    visit(node);
+  }
+  return ordered;
+}
+
+function normalizeLegacyAxTree(root) {
+  if (!root || typeof root !== 'object' || typeof root.role !== 'string') {
+    return null;
+  }
+  const nodes = [];
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') {
+      return;
+    }
+    nodes.push({
+      ignored: node.ignored === true,
+      name: unwrapAxValue(node.name),
+      role: unwrapAxValue(node.role),
+    });
+    for (const child of Array.isArray(node.children) ? node.children : []) {
+      visit(child);
+    }
+  };
+  visit(root);
+  return nodes;
+}
+
+// Evaluate computed names from either the real flat CDP AXNode contract or a
+// normalized legacy recursive snapshot. Unknown and empty evidence stays a
+// candidate instead of becoming an authoritative pass.
+export function ariaTreeNameEvaluation(accessibilityTree) {
+  const source = accessibilityTree?.source === 'cdp' ? 'cdp' : 'legacy';
+  const nodes = source === 'cdp'
+    ? normalizeCdpAxNodes(accessibilityTree.nodes)
+    : normalizeLegacyAxTree(accessibilityTree);
+  if (!nodes || nodes.length === 0) {
+    return { status: 'candidate', source, nodeCount: 0, namelessRoles: [] };
+  }
+
+  const namelessRoles = nodes
+    .filter((node) => !node.ignored && VSR_INTERACTIVE_ROLES.has(node.role) && !node.name)
+    .map((node) => node.role);
+  return {
+    status: namelessRoles.length > 0 ? 'fail' : 'pass',
+    source,
+    nodeCount: nodes.length,
+    namelessRoles,
+  };
+}
 
 // Given a virtual screen reader spokenPhraseLog, return the phrases that name an
 // interactive control by role but carry no accessible name. Each phrase has the

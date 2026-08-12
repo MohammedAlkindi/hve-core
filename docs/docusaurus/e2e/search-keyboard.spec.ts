@@ -34,11 +34,20 @@ async function getResultOptionIds(page: Page) {
 // Arrow down until the active descendant is the given id, or the cap is hit.
 async function arrowDownUntilActive(page: Page, input: ReturnType<Page['locator']>, targetId: string, cap: number) {
   for (let index = 0; index < cap; index += 1) {
-    if ((await input.getAttribute('aria-activedescendant')) === targetId) {
+    const previousActiveDescendant = await input.getAttribute('aria-activedescendant');
+    if (previousActiveDescendant === targetId) {
       return true;
     }
     await input.press('ArrowDown');
-    await page.waitForTimeout(60);
+    await expect
+      .poll(
+        () => input.getAttribute('aria-activedescendant'),
+        {
+          message: 'ArrowDown should update aria-activedescendant',
+          timeout: 3000,
+        },
+      )
+      .not.toBe(previousActiveDescendant);
   }
   return (await input.getAttribute('aria-activedescendant')) === targetId;
 }

@@ -984,8 +984,20 @@ test('snapshotAccessibilityTree uses the CDP accessibility tree when available',
               if (method === 'Accessibility.getFullAXTree') {
                 return {
                   nodes: [
-                    { nodeId: 1, role: 'rootWebArea', name: 'Example page', ignored: false, children: [2] },
-                    { nodeId: 2, role: 'button', name: 'Continue', ignored: false, children: [] },
+                    {
+                      nodeId: '1',
+                      role: { type: 'internalRole', value: 'RootWebArea' },
+                      name: { type: 'computedString', value: 'Example page' },
+                      ignored: false,
+                      childIds: ['2'],
+                    },
+                    {
+                      nodeId: '2',
+                      role: { type: 'role', value: 'button' },
+                      name: { type: 'computedString', value: 'Continue' },
+                      ignored: false,
+                      childIds: [],
+                    },
                   ],
                 };
               }
@@ -1005,8 +1017,9 @@ test('snapshotAccessibilityTree uses the CDP accessibility tree when available',
   const result = await snapshotAccessibilityTree(page);
 
   assert.equal(result.source, 'cdp');
-  assert.equal(result.nodes[0].role, 'rootWebArea');
-  assert.equal(result.nodes[1].name, 'Continue');
+  assert.equal(result.nodes[0].role.value, 'RootWebArea');
+  assert.equal(result.nodes[1].name.value, 'Continue');
+  assert.deepEqual(result.nodes[0].childIds, ['2']);
 });
 
 test('executeAtPlanCase reports invalid-config as a non-pass candidate', async () => {

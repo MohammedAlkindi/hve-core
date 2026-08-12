@@ -314,7 +314,7 @@ The harness resolves its Node dependencies from a skill-local package under [scr
 
 #### Testing
 
-The harness is tested in two tiers. Browserless verdict and pure-helper unit tests run under `node --test` (repo script `test:node`) and cover the decision logic in `runner/_core.mjs` (for example `virtualSrNameRoleStatus` and `liveRegionStatus`). Browser smoke tests under `tests/runtime_a11y/runner/probe-smoke/` launch system Chrome and drive the real capture path against inline fixtures to prove the DOM-to-verdict pipeline (nameless controls, live-region firing). They are named `*.smoke.mjs` so the default browserless run skips them; run them on demand with `npm run test:a11y:smoke` where Chrome and the skill-local `node_modules` are present.
+The harness is tested in two tiers. Browserless verdict and pure-helper unit tests run under `node --test` (repo script `test:node`) and cover the decision logic in `runner/_core.mjs` (for example `virtualSrNameRoleStatus` and `liveRegionStatus`). Browser smoke tests under `tests/runtime_a11y/runner/probe-smoke/` launch system Chrome and drive the real capture path against inline fixtures to prove the DOM-to-verdict pipeline, including nameless controls, live-region firing, forced-color computed styles, and CDP accessibility-node structure. They are named `*.smoke.mjs` so the default browserless run skips them. PR Validation runs them through the CI-owned `npm run ci:test:a11y:smoke` entry point. Local reproduction requires system Chrome and the skill-local `node_modules`.
 
 ### CI regression gate
 

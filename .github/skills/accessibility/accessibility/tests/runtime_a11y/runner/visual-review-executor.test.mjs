@@ -12,8 +12,21 @@ import {
   buildVisualReviewPlan,
   buildDeterministicMeasurementEnvelope,
   captureVisualReviewEvidence,
+  resolveBrowserVersion,
   resolveRouteUrl,
 } from '../../../scripts/runtime_a11y/runner/visual-review-executor.mjs';
+
+test('resolveBrowserVersion uses the configured value or synchronous browser API', () => {
+  const browser = {
+    version() {
+      return 'Chrome 140';
+    },
+  };
+
+  assert.equal(resolveBrowserVersion(browser, 'configured'), 'configured');
+  assert.equal(resolveBrowserVersion(browser, ''), 'Chrome 140');
+  assert.equal(resolveBrowserVersion({ version() { throw new Error('closed'); } }, ''), 'unknown');
+});
 
 test('buildVisualReviewPlan uses the homepage and configured search route for the required state matrix', () => {
   const plan = buildVisualReviewPlan({

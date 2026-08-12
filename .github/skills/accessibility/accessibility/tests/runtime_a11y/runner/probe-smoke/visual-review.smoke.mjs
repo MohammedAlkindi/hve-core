@@ -6,6 +6,7 @@
 // the implementation is exercised in a real browser without requiring a model.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
@@ -15,13 +16,20 @@ import { captureVisualReviewEvidence } from '../../../../scripts/runtime_a11y/ru
 let tempDir;
 let originalBaseUrl;
 let originalRunRoot;
-const inlineDocument = 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><html><head><meta charset=\"utf-8\"><title>Smoke</title></head><body><main><h1>Accessibility</h1><button>Search</button><p>Local visual review smoke</p></main></body></html>`);
+let server;
+const inlineDocument = '<!doctype html><html><head><meta charset="utf-8"><title>Smoke</title></head><body><main><h1>Accessibility</h1><button>Search</button><p>Local visual review smoke</p></main></body></html>';
 
 before(async () => {
   tempDir = await mkdtemp(path.join(os.tmpdir(), 'visual-review-smoke-'));
   originalBaseUrl = process.env.RUNTIME_A11Y_BASE_URL;
   originalRunRoot = process.env.RUNTIME_A11Y_VISUAL_REVIEW_RUN_ROOT;
-  process.env.RUNTIME_A11Y_BASE_URL = inlineDocument;
+  server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end(inlineDocument);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  process.env.RUNTIME_A11Y_BASE_URL = `http://127.0.0.1:${port}`;
   process.env.RUNTIME_A11Y_VISUAL_REVIEW_RUN_ROOT = tempDir;
 });
 
@@ -36,6 +44,7 @@ after(async () => {
   } else {
     process.env.RUNTIME_A11Y_VISUAL_REVIEW_RUN_ROOT = originalRunRoot;
   }
+  await new Promise((resolve) => server.close(resolve));
   await rm(tempDir, { recursive: true, force: true });
 });
 

@@ -218,6 +218,7 @@ def test_given_script_entrypoint_when_invoked_directly_then_module_imports_work(
 
 def test_materialize_visual_artifact_copies_and_rejects_escape(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_root = tmp_path / "run-root"
     manifest_dir = tmp_path / "manifest"
@@ -226,6 +227,13 @@ def test_materialize_visual_artifact_copies_and_rejects_escape(
     artifact_path = run_root / "artifacts" / "screenshot.png"
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_bytes(b"artifact-data")
+    monkeypatch.setattr(
+        cli.os.path,
+        "relpath",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("os.path.relpath must not own contained path conversion")
+        ),
+    )
 
     relative_artifact = cli._materialize_visual_review_artifact(
         "artifacts/screenshot.png",
@@ -236,6 +244,14 @@ def test_materialize_visual_artifact_copies_and_rejects_escape(
     assert relative_artifact == "artifacts/screenshot.png"
     copied = manifest_dir / "artifacts" / "screenshot.png"
     assert copied.read_bytes() == b"artifact-data"
+
+    absolute_artifact = cli._materialize_visual_review_artifact(
+        str(artifact_path),
+        run_root=run_root,
+        manifest_dir=manifest_dir,
+    )
+    assert absolute_artifact == "artifacts/screenshot.png"
+    assert "\\" not in absolute_artifact
 
     with pytest.raises(cli.ScriptError, match="containment"):
         cli._materialize_visual_review_artifact(

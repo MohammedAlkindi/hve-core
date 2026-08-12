@@ -5,7 +5,8 @@
 // the identical capture path the probe uses (captureVirtualSr) against inline
 // fixtures, proving the DOM -> announced-phrase-log -> verdict pipeline. They
 // are named *.smoke.mjs (not *.test.mjs) so the default browserless
-// `node --test` run does not pick them up; run them with `npm run test:a11y:smoke`.
+// `node --test` run does not pick them up; run them with
+// `npm run ci:test:a11y:smoke`.
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 

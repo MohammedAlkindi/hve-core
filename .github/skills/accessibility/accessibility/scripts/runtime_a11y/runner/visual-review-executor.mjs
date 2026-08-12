@@ -30,6 +30,17 @@ const MASKED_SELECTORS = [
   'textarea',
 ];
 
+export function resolveBrowserVersion(browser, configuredVersion) {
+  if (configuredVersion) {
+    return configuredVersion;
+  }
+  try {
+    return browser?.version?.() || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 function buildRouteSlug(route) {
   const raw = route?.path || route?.route || 'route';
   const normalized = String(raw).replace(/^\//, '').replace(/[^a-zA-Z0-9._-]+/g, '-');
@@ -285,7 +296,7 @@ export async function captureVisualReviewEvidence(config = {}) {
             tracePath: path.relative(runRoot, tracePath).replace(/\\/g, '/'),
             deterministicMetrics: envelope.metrics,
             probeOutcomes: [{ id: `${routeSlug}-${stateSlug}`, status: 'pass' }],
-            browser: { name: browserName, version: browserVersion || (await browser.version().catch(() => 'unknown')) },
+            browser: { name: browserName, version: resolveBrowserVersion(browser, browserVersion) },
             maximizeWindow: maximizeResult,
           });
         } catch (error) {

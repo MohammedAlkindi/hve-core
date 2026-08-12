@@ -628,12 +628,7 @@ def _materialize_visual_review_artifact(
             EXIT_USAGE,
         )
 
-    relative_source = os.path.relpath(resolved_source, resolved_root).replace("\\", "/")
-    if relative_source.startswith("..") or os.path.isabs(relative_source):
-        raise ScriptError(
-            "Visual review artifact paths violate containment.",
-            EXIT_USAGE,
-        )
+    relative_source = resolved_source.relative_to(resolved_root).as_posix()
 
     target_path = (manifest_dir / relative_source).resolve()
     try:
