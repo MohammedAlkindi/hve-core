@@ -22,6 +22,7 @@
     { "pattern": "^https://asmedigitalcollection\\.asme\\.org/" },
     { "pattern": "^https://www\\.cyber\\.gov\\.au/" },
     { "pattern": "^https://www\\.security\\.gov\\.uk/" },
+    { "pattern": "^https://nvd\\.nist\\.gov" },
     { "pattern": "^https://www\\.iso\\.org/" },
     { "pattern": "^https://ieeexplore\\.ieee\\.org/" },
     { "pattern": "^https://jobs-to-be-done\\.com/" },
