@@ -521,29 +521,6 @@ function Resolve-StrictSafeMaturity {
     return $fallback
 }
 
-function Test-ArtifactDeprecated {
-    <#
-    .SYNOPSIS
-    Checks whether an artifact has deprecated maturity.
-
-    .PARAMETER Maturity
-    Optional artifact maturity value.
-
-    .OUTPUTS
-    [bool] True when the artifact is deprecated.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter()]
-        [AllowNull()]
-        [AllowEmptyString()]
-        [string]$Maturity
-    )
-
-    return ((Resolve-ArtifactMaturity -Maturity $Maturity) -eq 'deprecated')
-}
-
 Export-ModuleMember -Function @(
     'Get-ArtifactDescription',
     'Get-ArtifactFiles',
@@ -555,8 +532,6 @@ Export-ModuleMember -Function @(
     'Resolve-StrictSafeMaturity',
     'Set-ContentIfChanged',
     'Split-PackageDocByMarkers',
-    'Test-ArtifactDeprecated',
-    'Test-BuildArtifactPath',
     'Test-DeprecatedPath',
     'Test-HveCoreRepoRelativePath',
     'Test-HveCoreRepoSpecificPath'

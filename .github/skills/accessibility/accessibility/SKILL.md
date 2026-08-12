@@ -7,7 +7,7 @@ user-invocable: false
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-07-14"
+  last_updated: "2026-08-11"
 ---
 
 # Accessibility — Skill Entry
@@ -163,7 +163,7 @@ WCAG success criteria are normative; the axe techniques that surface them are in
 
 ### Runtime probe harness
 
-The runtime probe harness ([scripts/runtime_a11y](scripts/runtime_a11y)) runs Playwright-based accessibility probes against a project-specific surface inventory and aggregates the results into a coverage matrix. Use the [accessibility-coverage-matrix prompt](../../../prompts/accessibility/accessibility-coverage-matrix.prompt.md) for workflow orchestration, the [accessibility-surface-inventory subagent](../../../agents/accessibility/subagents/accessibility-surface-inventory.agent.md) as the canonical producer of the runtime config, and the shared [real screen reader testing runbook](../../../../docs/planning/runbooks/accessibility/real-screen-reader-testing.md) when human-led assistive-technology evidence is required.
+The runtime probe harness ([scripts/runtime_a11y](scripts/runtime_a11y)) runs Playwright-based accessibility probes against a project-specific surface inventory and aggregates the results into a coverage matrix. Use the `accessibility-coverage-matrix.prompt.md` prompt for workflow orchestration and the `Accessibility Surface Inventory` subagent as the canonical producer of the runtime config. Activate each by name; when one does not resolve, warn the user that the capability is unavailable and stop the dependent step.
 
 #### Harness prerequisites
 
