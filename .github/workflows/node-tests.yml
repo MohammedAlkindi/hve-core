@@ -57,9 +57,9 @@ jobs:
         shell: bash
         env:
           INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before }}"
           if git diff --name-only "$BASE_SHA" HEAD | grep -qE "^${INPUT_WORKING_DIRECTORY}/.*\.(mjs|cjs|js)$"; then
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           else

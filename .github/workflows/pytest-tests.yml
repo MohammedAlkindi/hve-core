@@ -52,9 +52,9 @@ jobs:
         shell: bash
         env:
           INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before }}"
           # Check if any Python files changed in the working directory
           if git diff --name-only "$BASE_SHA" HEAD | grep -q "^${INPUT_WORKING_DIRECTORY}/.*\.py$"; then
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
