@@ -3,7 +3,7 @@ title: Copilot CLI Plugin
 description: Register an HVE Core catalog ref and install the complete hve-core plugin
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-08
+ms.date: 2026-08-11
 ms.topic: how-to
 ---
 
@@ -74,7 +74,10 @@ Switching registrations can require removing and re-adding the marketplace.
 Do not assume how the client handles duplicate same-name registrations; use
 the behavior supported by your Copilot CLI version.
 
-Use the [migration guide](../package-migration) if you previously registered or installed a retired package identity.
+If you previously registered or installed a retired package identity, the
+[retired package identities](../package-migration#retired-package-identities)
+section of the migration guide maps each retired extension, command, skill, and
+agent to its replacement.
 
 ## Plugin Contents
 
