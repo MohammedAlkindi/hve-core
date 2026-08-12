@@ -29,6 +29,15 @@ Activate the `proposal-response` skill only when the user explicitly asks for pr
 
 After the skill content is available, append `proposal-response#contribute:business` to `state.extensionsLoaded` once. Record an artifact path only when the skill returns `RESPONSE_EVIDENCE_POINTER_V1`: create `state.proposalResponseArtifacts` if it is absent, append that pointer's `artifact_path` once, and pass that path to later operations instead of copying `RESPONSE_EVIDENCE_V1` into chat or state. When the skill returns `RESPONSE_EVIDENCE_ERROR_V1`, the operation was rejected and no artifact was written: leave `state.proposalResponseArtifacts` unchanged, do not create it, never append that payload's `artifact_path`, and report its `validation_error` and `clearing_action` to the user. Treat missing extension arrays as empty, preserve unknown state fields, and do not use this extension record for `phaseSkillsLoaded` deduplication. Ordinary BRD creation, refinement, resume, quality review, and handoff requests do not activate this extension. The extension does not change the canonical BRD, lifecycle gates, quality-report authority, approval process, or release authority.
 
+For every proposal-response operation, return a compact YAML result that names `proposal-response#contribute:business`, `RESPONSE_EVIDENCE_POINTER_V1` or `RESPONSE_EVIDENCE_ERROR_V1`, `artifact_path`, `artifact_written`, and the fixed authority markers. For a successful continuation, include `retained_record_ids`, `changed_record_ids`, and `coverage` from the skill result, then show the resulting state arrays in this order:
+
+```yaml
+extensionsLoaded: [proposal-response#contribute:business]
+proposalResponseArtifacts: [.copilot-tracking/proposal-responses/<response-slug>/response-evidence.yml]
+```
+
+Do not inline the full evidence payload. When approved evidence clears an unresolved item, name its `UNR` ID and the supporting BRD identifier in the compact result.
+
 ### Discover
 
 Load `brd-author#discover` first. Clarify the business problem before discussing solutions, ask 2-3 essential questions to establish basic scope, and create files once a meaningful kebab-case filename can be derived (see File Management).

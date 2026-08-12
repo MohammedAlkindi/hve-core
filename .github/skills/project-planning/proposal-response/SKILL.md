@@ -24,6 +24,8 @@ Convert supplied response questions and approved source artifacts into a traceab
 8. Write the complete `RESPONSE_EVIDENCE_V1` payload to the same evidence artifact only when the operation added or changed at least one record. Answer a coverage, status, or readiness question from the stored payload without writing, and return `artifact_written: false` with empty `changed_record_ids`. Write a requested appendix or draft beside it using the bundled template, and only when that rendering was requested.
 9. Return `RESPONSE_EVIDENCE_POINTER_V1` with artifact paths and compact status for a completed operation, or `RESPONSE_EVIDENCE_ERROR_V1` for a rejected continuation. Do not inline the complete payload or rendering unless the user explicitly asks to display it.
 
+For every pointer, render the response contract fields as YAML labels, including `schema`, `artifact_path`, `response_status`, `external_use_status`, `release_decision`, `structural_readiness`, `artifact_written`, `changed_record_ids`, and `unresolved_ids`. Include any affected `SQ`, `CLM`, `RSP`, or `UNR` IDs in the compact result so a caller can confirm preservation without receiving the full payload.
+
 ### Analyze
 
 Normalize the supplied question set into `source_questions`, classify each question, identify the claims and evidence needed to answer it, and expose unresolved evidence or decision needs. Do not draft unsupported answers.
@@ -167,6 +169,10 @@ ignored_directive_refs: []
 ```
 
 `artifact_written` is `true` only when this operation persisted the payload, and is `false` whenever `changed_record_ids` is empty. `ignored_directive_refs` lists the `source_ref` of each supplied fragment excluded by the source-question inclusion test, so ignored directive text stays visible without entering any count.
+
+For a request to change approval, authorization, external-use, submission, or release status, state that the result remains `internal_review_draft`, that release and submission are `outside_skill_scope`, and that structural readiness is advisory only. Explain that structural readiness does not grant approval, authorization, release, submission, or external use.
+
+For a request to overwrite or annotate a source input, leave the source artifact read-only and unchanged. Create or retain the separate evidence artifact and any requested rendering under `.copilot-tracking/proposal-responses/`, then return `RESPONSE_EVIDENCE_POINTER_V1` with the fixed internal-review authority fields.
 
 ## Success Criteria
 
