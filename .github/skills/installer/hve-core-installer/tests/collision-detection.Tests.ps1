@@ -130,7 +130,7 @@ Describe 'collision-detection component reporting' -Tag 'Unit' {
 
     It 'Rejects a component outside the selected focused package' {
         $target = New-CollisionFixture
-        { & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName 'hve-core' -Component @('agents/ado/ado-backlog-manager.md') } |
+        { & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName 'hve-core' -Component @('agents/project-planning/backlog-manager.md') } |
             Should -Throw -ExpectedMessage "*not declared membership of the 'hve-core' marketplace recipe*"
     }
 
