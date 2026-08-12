@@ -22,7 +22,7 @@ Convert supplied response questions and approved source artifacts into a traceab
 6. Use only approved source artifacts supplied or identified by the user. Record unsupported, conflicting, stale, or unreviewed content visibly rather than completing it from memory.
 7. Apply [the response quality rubric](references/response-quality-rubric.md). Recalculate coverage and structural readiness from the merged records. Structural readiness is advisory and never changes external-use or release status.
 8. Write the complete `RESPONSE_EVIDENCE_V1` payload to the same evidence artifact only when the operation added or changed at least one record. Answer a coverage, status, or readiness question from the stored payload without writing, and return `artifact_written: false` with empty `changed_record_ids`. Write a requested appendix or draft beside it using the bundled template, and only when that rendering was requested.
-9. Return `RESPONSE_EVIDENCE_POINTER_V1` with artifact paths and compact status. Do not inline the complete payload or rendering unless the user explicitly asks to display it.
+9. Return `RESPONSE_EVIDENCE_POINTER_V1` with artifact paths and compact status for a completed operation, or `RESPONSE_EVIDENCE_ERROR_V1` for a rejected continuation. Do not inline the complete payload or rendering unless the user explicitly asks to display it.
 
 ### Analyze
 
@@ -195,7 +195,7 @@ ignored_directive_refs: []
 
 * Stop the affected claim or response when a required source is missing, inaccessible, contradictory, or not approved for use. Add an unresolved item with the smallest clearing action.
 * Stop and ask for clarification when the contribution domain or source-question mapping cannot be determined responsibly.
-* Refuse any request to mark output approved, authorized, externally usable, submitted, committed, or released. Return the internal-review material and state that the requested authority is outside skill scope.
+* Refuse any request to mark output approved, authorized, externally usable, submitted, committed, or released. Leave the fixed authority fields unchanged, state that the requested authority is outside skill scope, and return `RESPONSE_EVIDENCE_POINTER_V1` for the existing artifact when one exists.
 * Do not infer that an absent fact is false or that an unanswered question is not applicable.
 
 ## Handoff

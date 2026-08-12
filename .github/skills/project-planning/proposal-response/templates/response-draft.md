@@ -2,6 +2,7 @@
 title: Proposal Response Draft Template
 description: Optional traceable internal-review response draft with qualifications and unresolved items.
 ---
+<!-- markdownlint-disable-file -->
 
 ## Proposal Response Draft
 

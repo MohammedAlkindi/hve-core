@@ -2,6 +2,7 @@
 title: Business Evidence Appendix Template
 description: Optional internal-review appendix for business-owned proposal response evidence.
 ---
+<!-- markdownlint-disable-file -->
 
 ## Proposal Response Business Evidence Appendix
 

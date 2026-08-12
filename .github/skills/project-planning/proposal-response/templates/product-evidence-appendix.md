@@ -2,6 +2,7 @@
 title: Product Evidence Appendix Template
 description: Optional internal-review appendix for product-owned proposal response evidence.
 ---
+<!-- markdownlint-disable-file -->
 
 ## Proposal Response Product Evidence Appendix
 
