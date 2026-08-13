@@ -3,7 +3,7 @@ title: Experimental/Mural/Mural Log Hygiene
 description: "Operator log-hygiene contract for Mural customizations: never echo raw URLs, Azure SAS query strings, OAuth tokens, or Authorization headers; the skill _redact() is a defense-in-depth backstop, not a license to log."
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

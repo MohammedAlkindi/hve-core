@@ -3,7 +3,7 @@ title: Security Capture
 description: Start security planning from existing notes using the Security Planner agent (capture mode)
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

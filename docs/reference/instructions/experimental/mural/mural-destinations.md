@@ -3,7 +3,7 @@ title: Experimental/Mural/Mural Destinations
 description: "Open destination registry for Mural extractor writeback: registered adapters, intent axis, and per-destination loop-closure metrics."
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

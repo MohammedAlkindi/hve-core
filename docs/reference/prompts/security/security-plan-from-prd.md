@@ -3,7 +3,7 @@ title: Security Plan From Prd
 description: Start security planning from PRD/BRD artifacts using the Security Planner agent (from-prd mode)
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

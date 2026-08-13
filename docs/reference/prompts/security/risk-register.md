@@ -3,7 +3,7 @@ title: risk-register
 description: Create a qualitative risk register using a Probability × Impact (P×I) matrix
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

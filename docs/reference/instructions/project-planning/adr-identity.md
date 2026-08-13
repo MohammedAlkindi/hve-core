@@ -3,7 +3,7 @@ title: Project Planning/Adr Identity
 description: "ADR Creator identity, three-phase state machine, six-step per-turn protocol, autonomy tiers, and canonical state.json schema for Architecture Decision Record authoring sessions"
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

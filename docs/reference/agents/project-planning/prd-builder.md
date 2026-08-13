@@ -1,9 +1,9 @@
 ---
 title: PRD Builder
 description: "Product Requirements Document builder with guided Q&A and references"
-sidebar_position: 6
+sidebar_position: 7
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent

@@ -3,7 +3,7 @@ title: Hve Core/Git Merge
 description: "Git merge, rebase, and rebase --onto workflows with conflict handling and stop controls"
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

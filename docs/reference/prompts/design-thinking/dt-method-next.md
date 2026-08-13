@@ -3,7 +3,7 @@ title: Dt Method Next
 description: Assess DT project state and recommend next method with sequencing validation
 sidebar_position: 13
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

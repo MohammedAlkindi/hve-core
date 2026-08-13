@@ -3,7 +3,7 @@ title: Coding Standards/Code Review/Diff Computation
 description: "Code review diff computation: branch detection, scope locking, large-diff handling, and non-source filtering"
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

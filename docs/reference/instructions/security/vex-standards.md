@@ -3,7 +3,7 @@ title: Security/Vex Standards
 description: "VEX document standards: canonical rule reference, licensing posture, author-of-record contract, and document mutation contract for OpenVEX management - Brought to you by microsoft/hve-core"
 sidebar_position: 5
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

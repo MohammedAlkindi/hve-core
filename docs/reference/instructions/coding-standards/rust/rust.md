@@ -3,7 +3,7 @@ title: Coding Standards/Rust/Rust
 description: Rust code authoring conventions
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

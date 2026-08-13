@@ -1,9 +1,9 @@
 ---
 title: Pull Request
 description: Generate pull request descriptions from branch diffs
-sidebar_position: 7
+sidebar_position: 9
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

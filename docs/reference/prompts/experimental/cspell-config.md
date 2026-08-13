@@ -3,7 +3,7 @@ title: Cspell Config
 description: Create or update the project cspell configuration with project words and ignores
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

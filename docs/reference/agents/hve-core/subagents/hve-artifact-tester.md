@@ -3,7 +3,7 @@ title: HVE Artifact Tester
 description: "Performs contained literal conformance simulation of an HVE artifact and records simulated, emulated, and observed behavior. Dispatched by hve-builder-tester."
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent

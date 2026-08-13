@@ -1,9 +1,9 @@
 ---
 title: security-planning
 description: "Security planning reference set for operational buckets, STRIDE analysis, standards mapping, NIST control families, and backlog scaffolding."
-sidebar_position: 6
+sidebar_position: 12
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - skill

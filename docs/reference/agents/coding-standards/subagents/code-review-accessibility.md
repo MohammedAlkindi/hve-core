@@ -3,7 +3,7 @@ title: Code Review Accessibility
 description: Thin skill-backed perspective subagent that reviews a precomputed diff for accessibility conformance and writes structured findings
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent

@@ -3,7 +3,7 @@ title: Coding Standards/Code Review/Review Artifacts
 description: "Code review artifact persistence: folder structure, metadata schema, verdict normalization, and writing rules"
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

@@ -1,9 +1,9 @@
 ---
 title: secure-by-design
 description: "Secure by Design principles knowledge base for assessing security-first design, development, and deployment across the software lifecycle."
-sidebar_position: 9
+sidebar_position: 10
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - skill

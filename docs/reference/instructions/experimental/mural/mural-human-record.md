@@ -3,7 +3,7 @@ title: Experimental/Mural/Mural Human Record
 description: Mural is the durable record of human conversation; AI never silently authors decisions and AI contribution must remain visible somewhere durable.
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

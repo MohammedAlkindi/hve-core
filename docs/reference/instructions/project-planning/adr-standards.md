@@ -3,7 +3,7 @@ title: Project Planning/Adr Standards
 description: "Embedded ADR standards: MADR v4.0.0 template (CC0), Y-Statement formula, status taxonomy, naming rules, ASR trigger schema, and Microsoft-attributed paraphrases for ADR Creator sessions"
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

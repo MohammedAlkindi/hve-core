@@ -3,7 +3,7 @@ title: Dt Method 06 Testing
 description: Hypothesis-driven testing and constraint validation for Design Thinking Method 6c
 sidebar_position: 12
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

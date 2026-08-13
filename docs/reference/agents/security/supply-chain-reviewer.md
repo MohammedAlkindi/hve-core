@@ -3,7 +3,7 @@ title: Supply Chain Reviewer
 description: Supply-chain posture assessment orchestrator for codebase profiling and reporting
 sidebar_position: 5
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent

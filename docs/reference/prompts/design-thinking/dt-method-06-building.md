@@ -3,7 +3,7 @@ title: Dt Method 06 Building
 description: Scrappy prototype building with fidelity enforcement for Design Thinking Method 6b
 sidebar_position: 10
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

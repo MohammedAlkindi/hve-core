@@ -3,7 +3,7 @@ title: Synth Data Generate
 description: Generate synthetic data for any subject with realistic patterns and relationships
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

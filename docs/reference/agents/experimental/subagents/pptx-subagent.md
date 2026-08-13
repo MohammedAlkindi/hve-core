@@ -3,7 +3,7 @@ title: PowerPoint Subagent
 description: "Executes PowerPoint skill operations including content extraction, YAML creation, deck building, and visual validation"
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent

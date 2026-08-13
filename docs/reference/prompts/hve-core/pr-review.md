@@ -1,9 +1,9 @@
 ---
 title: Pr Review
 description: Review a pull request or local change set by routing to the consolidated Code Review agent
-sidebar_position: 6
+sidebar_position: 8
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

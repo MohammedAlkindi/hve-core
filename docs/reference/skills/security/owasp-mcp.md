@@ -1,9 +1,9 @@
 ---
 title: owasp-mcp
 description: "OWASP MCP Top 10 knowledge base for identifying, assessing, and remediating Model Context Protocol security risks."
-sidebar_position: 7
+sidebar_position: 8
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - skill

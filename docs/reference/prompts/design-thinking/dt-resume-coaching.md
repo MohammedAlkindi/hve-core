@@ -3,7 +3,7 @@ title: Dt Resume Coaching
 description: Resume a Design Thinking coaching session - reads coaching state and re-establishes context
 sidebar_position: 14
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

@@ -3,7 +3,7 @@ title: Security/Identity
 description: "Security Planner identity, six-phase orchestration, state management, and session recovery protocols"
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

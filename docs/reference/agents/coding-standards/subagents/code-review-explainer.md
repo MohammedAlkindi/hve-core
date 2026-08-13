@@ -3,7 +3,7 @@ title: Code Review Explainer
 description: Thin skill-backed Register 1 explainer subagent that answers factual symbol or function questions and persists an explanation artifact
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent

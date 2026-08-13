@@ -3,7 +3,7 @@ title: Accessibility/Accessibility License Posture
 description: Accessibility-specific overlay mapping accessibility standards onto the repository licensing posture
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

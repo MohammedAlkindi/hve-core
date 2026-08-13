@@ -1,9 +1,9 @@
 ---
 title: Git Merge
 description: "Coordinate Git merge, rebase, and rebase --onto workflows with conflict handling"
-sidebar_position: 4
+sidebar_position: 6
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

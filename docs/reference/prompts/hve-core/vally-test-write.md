@@ -1,9 +1,9 @@
 ---
 title: Vally Test Write
 description: "Authors Vally conformance test stimuli for an existing prompt, instructions, agent, or skill artifact"
-sidebar_position: 9
+sidebar_position: 11
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

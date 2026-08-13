@@ -3,7 +3,7 @@ title: documentation
 description: "Canonical documentation capability for audit, drift, validate, and author modes in hve-core."
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - skill

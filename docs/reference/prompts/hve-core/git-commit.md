@@ -1,9 +1,9 @@
 ---
 title: Git Commit
 description: "Stage all changes, generate a conventional commit message, and commit"
-sidebar_position: 3
+sidebar_position: 5
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

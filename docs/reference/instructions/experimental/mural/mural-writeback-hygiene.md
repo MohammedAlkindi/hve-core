@@ -3,7 +3,7 @@ title: Experimental/Mural/Mural Writeback Hygiene
 description: "Writeback hygiene rules for Mural: tags, hyperlinks, and parentId are the only stable channels; reserved tags are protected; tag manifests are re-applied defensively."
 sidebar_position: 6
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

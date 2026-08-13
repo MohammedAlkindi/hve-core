@@ -3,7 +3,7 @@ title: DS Gen Streamlit Dashboard
 description: Develop a multi-page Streamlit dashboard
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent

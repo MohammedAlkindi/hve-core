@@ -12,9 +12,10 @@
     version consistency with the root package.json, and the plugin source
     locator of every entry.
 
-    Every source is an immutable GitHub object locator containing a repository,
-    package path, and plugins-v<version> tag. Bare package names and commit SHA
-    locators are rejected.
+    Every source is a GitHub object locator rooted at .github. Entries either
+    omit ref uniformly, as the Main channel does, or pin one uniform exact
+    channel tag: prerelease-v<version> for PreRelease and v<version> for
+    Stable. Bare package names and commit SHA locators are rejected.
 
 .EXAMPLE
     ./Validate-Marketplace.ps1 -OutputPath 'logs/marketplace-validation-results.json'
@@ -154,8 +155,8 @@ function Test-PluginObjectSource {
         Validates an object-form plugin source locator.
 
     .DESCRIPTION
-        Checks the GitHub source type, repository locator, package path, and
-        required immutable plugins-v<version> tag. Commit SHA locators are
+        Checks the GitHub source type, repository locator, canonical source
+        path, and optional immutable channel tag. Commit SHA locators are
         rejected.
 
     .PARAMETER Source
@@ -200,16 +201,18 @@ function Test-PluginObjectSource {
         }
     }
 
-    $ref = $Source['ref']
-    if ($ref -isnot [string] -or [string]::IsNullOrWhiteSpace($ref)) {
-        $sourceErrors += "object source 'ref' must be a non-empty string"
-    }
-    elseif ($ref -notmatch '^plugins-v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-        $sourceErrors += "object source 'ref' must use the immutable 'plugins-v<version>' tag form"
+    if ($Source.Contains('ref')) {
+        $ref = $Source['ref']
+        if ($ref -isnot [string] -or [string]::IsNullOrWhiteSpace($ref)) {
+            $sourceErrors += "object source 'ref' must be a non-empty string when provided"
+        }
+        elseif ($ref -cnotmatch '^(?:prerelease-)?v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            $sourceErrors += "object source 'ref' must use the immutable 'prerelease-v<version>' or 'v<version>' tag form"
+        }
     }
 
     if ($Source.Contains('sha')) {
-        $sourceErrors += "object source 'sha' is not supported; use an immutable 'plugins-v<version>' ref"
+        $sourceErrors += "object source 'sha' is not supported; omit ref or use an immutable 'prerelease-v<version>' or 'v<version>' ref"
     }
 
     return [string[]]$sourceErrors
@@ -246,6 +249,16 @@ function Test-MarketplaceRepositoryContract {
     }
     if (-not (Test-Path -LiteralPath $documentationRoot -PathType Container)) {
         $contractErrors += "package documentation root 'docs/plugins' is missing under $RepoRoot"
+    }
+
+    # Every entry installs from the shared '.github' source root, so this single
+    # manifest is what GitHub-object installation resolves for the whole catalog.
+    $sharedManifestPath = Join-Path $RepoRoot '.github/plugin.json'
+    $sharedManifest = if (Test-Path -LiteralPath $sharedManifestPath -PathType Leaf) {
+        Get-Content -LiteralPath $sharedManifestPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+    }
+    if ($sharedManifest -isnot [System.Collections.IDictionary]) {
+        $contractErrors += "shared plugin manifest '.github/plugin.json' must exist under $RepoRoot and contain a JSON object"
     }
 
     $entries = @($Manifest['plugins'])
@@ -317,17 +330,6 @@ function Test-MarketplaceRepositoryContract {
         }
         if ($channelProjections['Stable'] -ne $channelProjections['PreRelease']) {
             $contractErrors += "package '$name' must resolve identical components and maturity on Stable and PreRelease"
-        }
-
-        $pluginRoot = Join-Path $RepoRoot "plugins/$name/plugin.json"
-        if (Test-Path -LiteralPath $pluginRoot -PathType Leaf) {
-            $pluginManifest = Get-Content -LiteralPath $pluginRoot -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-            if ([string]$pluginManifest['name'] -ne $name -or [string]$pluginManifest['version'] -ne [string]$entry['version']) {
-                $contractErrors += "package '$name' root plugin.json identity does not mirror the catalog"
-            }
-            if ($pluginManifest.Contains('x-hve')) {
-                $contractErrors += "package '$name' root plugin.json must not contain x-hve"
-            }
         }
     }
     if ($tombstoneCount -eq 0) {
@@ -447,7 +449,7 @@ function Invoke-MarketplaceValidation {
     $catalogErrors = @()
 
     # Metadata validation
-    $metadataRequired = @('description', 'version', 'pluginRoot')
+    $metadataRequired = @('description', 'version')
     foreach ($field in $metadataRequired) {
         if (-not $manifest.metadata.ContainsKey($field) -or [string]::IsNullOrWhiteSpace([string]$manifest.metadata[$field])) {
             $catalogErrors += "missing required metadata field '$field'"
@@ -476,6 +478,8 @@ function Invoke-MarketplaceValidation {
     }
     else {
         $seenNames = @{}
+        $sourceRefPresence = @()
+        $sourceRefChannels = @()
 
         foreach ($plugin in $manifest.plugins) {
             $pluginName = $plugin.name
@@ -501,17 +505,25 @@ function Invoke-MarketplaceValidation {
             # Source validation, dispatched on the source form
             $sourceValue = $plugin['source']
             if ($sourceValue -is [System.Collections.IDictionary]) {
+                $sourceRefPresence += $sourceValue.Contains('ref')
                 foreach ($sourceError in @(Test-PluginObjectSource -Source $sourceValue)) {
                     $pluginErrors += $sourceError
                 }
-                $expectedPath = "plugins/$pluginName"
+                $expectedPath = '.github'
                 if ([string]$sourceValue['path'] -cne $expectedPath) {
-                    $pluginErrors += "object source path must match package name '$expectedPath'"
+                    $pluginErrors += "object source path must be '$expectedPath'"
                 }
-                if (-not [string]::IsNullOrWhiteSpace([string]$plugin['version'])) {
-                    $expectedRef = "plugins-v$($plugin['version'])"
-                    if ([string]$sourceValue['ref'] -cne $expectedRef) {
-                        $pluginErrors += "object source ref must match package version '$expectedRef'"
+                if ($sourceValue.Contains('ref') -and -not [string]::IsNullOrWhiteSpace([string]$plugin['version'])) {
+                    $channelRefs = [ordered]@{
+                        PreRelease = "prerelease-v$($plugin['version'])"
+                        Stable     = "v$($plugin['version'])"
+                    }
+                    $refChannel = @($channelRefs.Keys | Where-Object { $channelRefs[$_] -ceq [string]$sourceValue['ref'] })
+                    if ($refChannel.Count -eq 0) {
+                        $pluginErrors += "object source ref must match package version '$($channelRefs['PreRelease'])' or '$($channelRefs['Stable'])'"
+                    }
+                    else {
+                        $sourceRefChannels += $refChannel[0]
                     }
                 }
             }
@@ -528,7 +540,7 @@ function Invoke-MarketplaceValidation {
             }
 
             # Standard component membership and metadata-only x-hve overlay
-            foreach ($contractError in @(Test-MarketplaceEntryContract -Entry $plugin)) {
+            foreach ($contractError in @(Test-MarketplaceEntryContract -Entry $plugin -CanonicalMembership)) {
                 $pluginErrors += $contractError
             }
 
@@ -542,6 +554,14 @@ function Invoke-MarketplaceValidation {
             foreach ($pluginError in $pluginErrors) {
                 $errors += "plugin '$pluginName': $pluginError"
             }
+        }
+
+        if (@($sourceRefPresence | Sort-Object -Unique).Count -gt 1) {
+            $catalogErrors += 'object source ref must be either omitted from every entry or present on every entry'
+        }
+
+        if (@($sourceRefChannels | Sort-Object -Unique).Count -gt 1) {
+            $catalogErrors += 'object source ref must use one uniform release channel namespace across every entry'
         }
     }
 

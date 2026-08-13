@@ -3,7 +3,7 @@ title: Experimental/Experiment Designer
 description: MVE domain knowledge and coaching conventions for the Experiment Designer agent
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

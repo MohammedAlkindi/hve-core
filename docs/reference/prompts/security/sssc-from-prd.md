@@ -3,7 +3,7 @@ title: Sssc From Prd
 description: Start supply chain security planning from PRD artifacts using the SSSC Planner agent in from-prd mode
 sidebar_position: 11
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

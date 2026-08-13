@@ -3,7 +3,7 @@ title: Dt Start Project
 description: Start a new Design Thinking coaching project with state initialization and first coaching interaction
 sidebar_position: 15
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

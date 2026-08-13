@@ -3,7 +3,7 @@ title: Project Planning/Adr Byo Template
 description: "BYO ADR template contract: 2-layer config resolution, .adr-config.yml schema, template frontmatter contract, and adopt-template lifecycle for the ADR Creator"
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - instruction

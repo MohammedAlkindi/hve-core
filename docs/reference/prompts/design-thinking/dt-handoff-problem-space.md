@@ -3,7 +3,7 @@ title: Dt Handoff Problem Space
 description: Compiles DT Methods 1-3 into research-ready input for rpi-research at the Problem Space exit
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

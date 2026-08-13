@@ -1,9 +1,9 @@
 ---
 title: Git Commit Message
 description: Generate a conventional commit message from all branch changes
-sidebar_position: 2
+sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - prompt

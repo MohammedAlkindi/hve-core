@@ -3,7 +3,7 @@ title: rpi-plan
 description: "Create evidence-based RPI plans and phase details from supplied context, research, drafts, and decisions. Use when implementation planning is needed."
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - skill

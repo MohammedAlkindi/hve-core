@@ -3,7 +3,7 @@ title: Security Reviewer
 description: Security skill assessment orchestrator for codebase profiling and vulnerability reporting
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-01
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - agent
