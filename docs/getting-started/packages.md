@@ -3,7 +3,7 @@ title: HVE Core Identity and Channels
 description: Choose HVE Core package identities and understand their lifecycle and release channels
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-09
+ms.date: 2026-08-12
 ms.topic: overview
 ---
 
@@ -40,24 +40,29 @@ Source moves in one direction through reviewed target-based promotion PRs:
 no tag. Release-please opens a separate managed PR on the target branch, and
 merging that PR creates the channel's exact tag and draft release.
 
-`main` is not a release-please target. It is a ref-less development-tip channel:
-every main entry sources canonical content from `.github` and omits `source.ref`,
-so a marketplace refresh followed by a plugin update resolves current `main`
+`main` is not a release-please target. It is a development-tip channel: every
+main entry uses a relative `plugins/<name>` source string, and the selected
+manifest references canonical `.github` content in the same checkout. A
+marketplace refresh followed by a plugin update resolves current `main`
 content. Release branches, tags, and published releases own release state and
 history; PreRelease publication does not synchronize versions or `CHANGELOG.md`
 state back into `main`.
 
 Each catalog entry has a deterministic plugin root and extension identity. `hve-core` remains the unsuffixed HVE Core extension, `ise-hve-essentials.hve-core`. Other active entries use package-specific generated identities.
 
-Release branches are reviewed moving channels. Their catalogs pin every plugin
-entry to the corresponding exact tag, so registering a branch resolves a
-tag-pinned catalog while allowing the branch to advance in a later release. An
-exact tag fixes both catalog selection and source content.
+Development entries have no `source.ref`, `repo`, or object `path`, because
+their sources are strings. This includes a feature branch registered as
+`microsoft/hve-core#<branch>`, whose catalog and plugin manifests resolve from
+the same branch checkout. Release branches are reviewed moving channels. Their
+catalogs use immutable GitHub object sources with repo `microsoft/hve-core`,
+path `plugins/<name>`, and the corresponding exact tag, so registering a
+branch resolves a tag-pinned catalog while allowing the branch to advance in a
+later release. An exact tag fixes both catalog selection and source object.
 
 A published channel release is the assurance boundary for its exact tag. The
 release workflow applies review and release gates, produces package assets and
 SBOMs, attaches attestations, verifies provenance, and uses the configured
-publication path. Ref-less main content intentionally has no published-release
+publication path. Development-tip content intentionally has no published-release
 assurance.
 
 ## Lifecycle Disclosure

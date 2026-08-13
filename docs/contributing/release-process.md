@@ -16,12 +16,22 @@ branch and creates no tag. Its merge runs release-please in PR-only mode. The
 later release-please managed PR owns version and changelog metadata. Its merge
 creates `prerelease-v<version>` for PreRelease or `v<version>` for Stable.
 
-`main` is not a release-please target. It is a ref-less development-tip channel and does not receive release metadata or changelog updates when a channel is published. An explicit marketplace refresh and plugin update are required for the ref-less main catalog, whose bytes have no release gate, SBOM, or attestation. Release branches, tags, and published GitHub releases own release state and history.
+`main` is not a release-please target. It is a development-tip channel and does
+not receive release metadata or changelog updates when a channel is published.
+Its catalog uses `plugins/<name>` string sources, and the selected manifests
+reference canonical `.github` content in the same checkout. An explicit
+marketplace refresh and plugin update are required for development content,
+which has no release gate, SBOM, or attestation. Release branches, tags, and
+published GitHub releases own release state and history.
 
-The ref-less `microsoft/hve-core` registration follows `main`. Main bytes have
-no release gate, SBOM, or attestation. Release channels remain the reviewed
-path through moving branch registrations and exact `prerelease-v<version>` or
-`v<version>` refs: they are release-gated, SBOM-covered, and attested.
+The `microsoft/hve-core` registration follows `main`; a feature branch
+registration such as `microsoft/hve-core#<branch>` follows its selected branch.
+Development entries have no `source.ref`, `repo`, or object `path`, because
+their source is a relative `plugins/<name>` string. Release transforms use
+immutable GitHub object sources with repo `microsoft/hve-core`, path
+`plugins/<name>`, and exact `prerelease-v<version>` or `v<version>` refs. The
+release channels remain the reviewed path: they are release-gated,
+SBOM-covered, and attested.
 
 Workflow ownership is explicit:
 

@@ -3,7 +3,7 @@ title: Installing HVE Core
 description: Install a catalog-selected HVE Core extension or plugin, or adopt selected components from a clone
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-09
+ms.date: 2026-08-12
 ms.topic: how-to
 keywords: [installation, setup, github copilot, marketplace, selective clone]
 estimated_reading_time: 4
@@ -85,23 +85,29 @@ graph LR
 
 ## Distribution Identity and Channels
 
-`main` is the ref-less development tip. PreRelease and Stable are reviewed
-release branches that advance through `main` to `release/prerelease` to
-`release/stable`. An exact channel tag freezes one release catalog and its
-source payloads.
+`main` is the development tip. Its catalog uses relative `plugins/<name>`
+source strings, which resolve within the registered marketplace checkout.
+PreRelease and Stable are reviewed release branches that advance through `main`
+to `release/prerelease` to `release/stable`. An exact channel tag freezes one
+release catalog and its immutable plugin source objects.
 
 | Use case             | Marketplace registration                   | Catalog resolution                                          |
 |----------------------|--------------------------------------------|-------------------------------------------------------------|
-| Development tip      | `microsoft/hve-core`                       | Current `main` catalog; entries omit `source.ref`           |
+| Development tip      | `microsoft/hve-core`                       | Current `main` catalog; relative `plugins/<name>` sources   |
+| Feature development  | `microsoft/hve-core#<branch>`              | Selected branch catalog and manifests in the same checkout   |
 | Moving PreRelease    | `microsoft/hve-core#release/prerelease`    | Current branch catalog; entries pin `prerelease-v<version>` |
 | Moving Stable        | `microsoft/hve-core#release/stable`        | Current branch catalog; entries pin `v<version>`            |
 | Immutable PreRelease | `microsoft/hve-core#prerelease-v<version>` | One exact PreRelease catalog and tag                        |
 | Immutable Stable     | `microsoft/hve-core#v<version>`            | One exact Stable catalog and tag                            |
 
-A moving release registration selects the catalog currently committed to its
-reviewed branch. Every entry in that catalog points to the corresponding exact
-channel tag. The branch can advance to a newer catalog, while an exact-tag
-registration remains fixed.
+A development entry is a `plugins/<name>` string, not a source object, so it
+has no `source.ref`, `repo`, or object `path`. Its selected manifest references
+canonical `.github` content from the same checkout. A moving release
+registration selects the catalog currently committed to its reviewed branch.
+Release transforms replace development strings with immutable GitHub object
+sources using repo `microsoft/hve-core`, path `plugins/<name>`, and the
+corresponding exact channel tag. The branch can advance to a newer catalog,
+while an exact-tag registration remains fixed.
 
 A published channel release is the assurance boundary for its immutable tag.
 The release workflow applies review and release gates, produces package assets

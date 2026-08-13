@@ -292,7 +292,7 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
 
     # A tracked root is addressed by path and dated by ref. The channel
     # transform owns the ref alone, so the delivered root path survives every
-    # transform of a main catalog that names no ref at all.
+    # transform of an object catalog that names no ref at all.
     It 'Preserves every tracked package root path while applying the <Channel> ref' -ForEach @(
         @{ Channel = 'PreRelease'; Ref = 'prerelease-v2.3.4' }
         @{ Channel = 'Stable'; Ref = 'v2.3.4' }
@@ -313,7 +313,7 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
                 )
             } | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
 
-        # The main catalog is the ref-less input every channel transform starts from.
+        # A ref-less object catalog is one supported transform input.
         foreach ($plugin in $catalog.plugins) {
             $plugin.source.PSObject.Properties.Name | Should -Not -Contain 'ref'
         }
@@ -321,6 +321,37 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
         $updated = Update-MarketplaceCatalogVersion -Catalog $catalog -Version '2.3.4' -Channel $Channel
         @($updated.plugins | ForEach-Object { $_.source.path }) | Should -Be @('plugins/alpha', 'plugins/beta')
         @($updated.plugins | ForEach-Object { $_.source.ref }) | Should -Be @($Ref, $Ref)
+    }
+
+    # A development catalog binds every package to the marketplace checkout ref
+    # with a relative source, so the release transform is what restates that
+    # root as the immutable locator a published release resolves.
+    It 'Converts a relative package source into the immutable <Channel> locator' -ForEach @(
+        @{ Channel = 'PreRelease'; Ref = 'prerelease-v2.3.4' }
+        @{ Channel = 'Stable'; Ref = 'v2.3.4' }
+    ) {
+        $catalog = ([ordered]@{
+                metadata = [ordered]@{ version = '1.0.0' }
+                plugins  = @(
+                    [ordered]@{ name = 'alpha'; version = '1.0.0'; source = 'plugins/alpha' }
+                    [ordered]@{ name = 'beta'; version = '1.0.0'; source = 'plugins/beta' }
+                )
+            } | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
+
+        $updated = Update-MarketplaceCatalogVersion -Catalog $catalog -Version '2.3.4' -Channel $Channel
+
+        foreach ($plugin in $updated.plugins) {
+            @($plugin.source.PSObject.Properties.Name) | Should -Be @('source', 'repo', 'path', 'ref')
+            $plugin.source.source | Should -BeExactly 'github'
+            $plugin.source.repo | Should -BeExactly 'microsoft/hve-core'
+            $plugin.source.ref | Should -BeExactly $Ref
+        }
+        @($updated.plugins | ForEach-Object { $_.source.path }) | Should -Be @('plugins/alpha', 'plugins/beta')
+
+        # Replaying the transform over its own object-form output changes nothing.
+        $firstJson = $updated | ConvertTo-Json -Depth 10
+        $replayed = Update-MarketplaceCatalogVersion -Catalog $updated -Version '2.3.4' -Channel $Channel
+        ($replayed | ConvertTo-Json -Depth 10) | Should -BeExactly $firstJson
     }
 }
 
@@ -1236,8 +1267,8 @@ Describe 'Release preparation repair' -Tag 'Unit' {
         # The baseline locator is the one uniform locator the target branch
         # catalog already publishes across a complete catalog at its own
         # metadata version: the reserved OMITTED locator when no entry names a
-        # ref, otherwise the one non-empty ref they all share. A historical
-        # string-form source names no ref, so it reads as omitted instead of
+        # ref, otherwise the one non-empty ref they all share. A relative
+        # development source names no ref, so it reads as omitted instead of
         # failing while indexing a string. A drifted target therefore fails the
         # record instead of reissuing a locator rebuilt from a version.
         foreach ($clause in @(

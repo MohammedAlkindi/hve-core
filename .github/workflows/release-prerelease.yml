@@ -411,8 +411,8 @@ jobs:
           # baseline is a complete catalog at its own metadata version carrying
           # one uniform locator: the reserved OMITTED locator when no entry
           # names a ref, otherwise the one non-empty ref they all share.
-          # Historical entries carry a string-form source, which names no ref
-          # and therefore reads as omitted.
+          # Development entries carry a relative string source, which names no
+          # ref and therefore reads as omitted.
           BASELINE_TAG=$(git -C "$RELEASE_REPO" show \
             'refs/remotes/origin/release/prerelease:.github/plugin/marketplace.json' |
             jq -r '

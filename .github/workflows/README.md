@@ -90,13 +90,23 @@ Release-please creates the draft channel release at the reviewed managed merge, 
 
 | Registration                               | Repository contract                                                   |
 |--------------------------------------------|-----------------------------------------------------------------------|
-| `microsoft/hve-core`                       | Ref-less development-tip registration for `main`                      |
+| `microsoft/hve-core`                       | `main` development catalog with relative `plugins/<name>` sources    |
+| `microsoft/hve-core#<branch>`              | Feature-branch catalog and manifests from the selected checkout       |
 | `microsoft/hve-core#release/prerelease`    | Moving branch registration whose catalog pins `prerelease-v<version>` |
 | `microsoft/hve-core#release/stable`        | Moving branch registration whose catalog pins `v<version>`            |
 | `microsoft/hve-core#prerelease-v<version>` | Immutable exact PreRelease registration                               |
 | `microsoft/hve-core#v<version>`            | Immutable exact Stable registration                                   |
 
-Publication does not synchronize release metadata, changelog history, or catalog locators back to `main`. The ref-less main catalog omits `source.ref`; release-branch and exact-tag catalogs use their channel's exact immutable tag. An explicit marketplace refresh and plugin update are required for the ref-less main catalog, which has no release gate, SBOM, or attestation. Release-channel assets remain release-gated, SBOM-covered, and attested.
+Publication does not synchronize release metadata, changelog history, or catalog
+locators back to `main`. Development catalog entries use `plugins/<name>` strings
+with no `source.ref`, `repo`, or object `path`. A relative source resolves in the
+marketplace checkout selected by registration, so `main` and
+`microsoft/hve-core#<branch>` use catalog and manifest files from the same branch.
+An explicit marketplace refresh and plugin update are required for development
+content, which has no release gate, SBOM, or attestation. Release-channel assets
+remain release-gated, SBOM-covered, and attested.
+
+PreRelease and Stable release transforms replace development strings with immutable GitHub object sources: `repo` is `microsoft/hve-core`, `path` is `plugins/<name>`, and `ref` is the exact `prerelease-v<version>` or `v<version>` tag. Moving release registrations read branch catalogs that already pin those exact tags.
 
 Both release channels preserve the VSIX package, `plugin-release-evidence.json`, dependency SBOM, Sigstore, in-toto provenance, evidence attestation, verification, and Azure OIDC publication chain. The evidence attests catalog-resolved canonical Git-tracked sources at the exact channel ref. Each Marketplace workflow passes its validated exact tag and the workflow that attested its VSIX to the generic publisher.
 
@@ -151,19 +161,21 @@ release-state decision. Odd/even minor parity remains repository policy
 aligned with VS Code Marketplace guidance and behavior, rather than a
 requirement of `MAJOR.MINOR.PATCH` syntax.
 
-Release catalogs set every plugin entry to their exact `prerelease-v<version>`
-or `v<version>` ref. Their reviewed, release-gated VSIX, dependency SBOM, and
-canonical-source evidence remain attested and immutable. The ref-less main
-catalog instead sources canonical `.github` content and has no
-published-release assurance.
+Release catalogs set every plugin source object to `microsoft/hve-core`,
+`plugins/<name>`, and its exact `prerelease-v<version>` or `v<version>` ref.
+Their reviewed, release-gated VSIX, dependency SBOM, and canonical-source
+evidence remain attested and immutable. Development catalog sources remain
+`plugins/<name>` strings, and the selected manifests reference canonical
+`.github` content in the same checkout without published-release assurance.
 
 Because snapshot publication has stopped, tags and catalogs remain immutable and supported only as historical records. They are not current release or registration namespaces.
 
 Final publication mints a release GitHub App token and atomically runs
 `gh release edit --prerelease --draft=false`; the resulting published event
-triggers `Pre-Release Marketplace Publish`. Main remains a ref-less
-development-tip channel and is not updated by release completion. Release
-branches, immutable tags, and published releases own release state and history.
+triggers `Pre-Release Marketplace Publish`. Main remains a development-tip
+channel with relative plugin sources and is not updated by release completion.
+Release branches, immutable tags, and published releases own release state and
+history.
 
 Hosted branch, tag, release, asset, workflow, and installed-client checks are
 authorized manual actions. Local validation does not execute or verify them.

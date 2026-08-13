@@ -138,6 +138,7 @@ $script:ReleaseCandidateSchema = 'hve-core/release-candidate/v1'
 $script:OmittedBaselineLocator = 'OMITTED'
 $script:MarketplaceCatalogFile = '.github/plugin/marketplace.json'
 $script:ReleaseCandidateFile = '.github/plugin/release-candidate.json'
+$script:MarketplaceSourceRepo = 'microsoft/hve-core'
 
 #region Helpers
 
@@ -279,9 +280,12 @@ function Update-MarketplaceCatalogVersion {
         Advances marketplace versions and applies an explicit channel policy.
 
     .DESCRIPTION
-        Deletes source.sha from every entry on every channel, then applies the
-        channel ref policy, so no entry pins a commit id and channel identity
-        rests entirely on the ref.
+        Converts every repository-relative package source into the immutable
+        GitHub object locator the channel publishes, deletes source.sha from
+        every entry on every channel, then applies the channel ref policy, so
+        no entry pins a commit id and channel identity rests entirely on the
+        ref. An entry already in object form is updated in place, so replaying
+        the transform over its own output changes nothing.
 
     .PARAMETER Catalog
         Parsed marketplace catalog.
@@ -314,6 +318,19 @@ function Update-MarketplaceCatalogVersion {
     $Catalog.metadata.version = $Version
     foreach ($plugin in $Catalog.plugins) {
         $plugin.version = $Version
+        if ($plugin.source -is [string]) {
+            # A relative source resolves within the marketplace checkout ref,
+            # which a published release does not have. The release identity is
+            # the exact channel tag, so the same package root is restated as an
+            # immutable locator rather than left to a default branch lookup.
+            $plugin.source = [pscustomobject][ordered]@{
+                source = 'github'
+                repo   = $script:MarketplaceSourceRepo
+                path   = $plugin.source
+                ref    = $ref
+            }
+            continue
+        }
         $plugin.source.PSObject.Properties.Remove('sha')
         $plugin.source | Add-Member -NotePropertyName ref -NotePropertyValue $ref -Force
     }

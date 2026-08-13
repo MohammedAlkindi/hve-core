@@ -2,7 +2,7 @@
 title: Extension Packaging Guide
 description: Developer guide for packaging and publishing the HVE Core VS Code extension
 author: Microsoft
-ms.date: 2026-08-10
+ms.date: 2026-08-12
 ms.topic: reference
 ---
 
@@ -92,7 +92,7 @@ packages from the release tag, attaches and attests the same canonical evidence
 and signed package assets, and publishes the release with an App token. The
 resulting event triggers Stable Marketplace publication.
 
-Release catalogs set every plugin entry to `prerelease-v<version>` or `v<version>` for its channel. Their reviewed, immutable assets remain release-gated, SBOM-covered, and attested. The ref-less main catalog represents `main`, omits `source.ref`, receives no post-release synchronization, and requires an explicit marketplace refresh and plugin update; its bytes have no release gate, SBOM, or attestation.
+The main development catalog uses relative `plugins/<name>` source strings that resolve inside the selected marketplace checkout. It requires an explicit marketplace refresh and plugin update; its bytes have no release gate, SBOM, or attestation. Release catalogs use exact immutable channel object sources and remain release-gated, SBOM-covered, and attested.
 
 The moving registrations are `microsoft/hve-core#release/prerelease` and
 `microsoft/hve-core#release/stable`; immutable registrations use

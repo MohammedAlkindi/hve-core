@@ -2539,7 +2539,7 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
         # The recorded baseline identity is the one uniform locator the restored
         # target catalog already carries, so no channel prefix and baseline
         # version can assert a namespace the branch never held. Derivation is
-        # shape-tolerant: a historical string-form source names no ref, so a
+        # shape-tolerant: a relative development source names no ref, so a
         # wholly ref-less bootstrap catalog derives the reserved OMITTED locator
         # instead of failing while indexing a string.
         $run | Should -Match ([regex]::Escape('BASELINE_TAG=$(jq -r '''))
@@ -2556,7 +2556,7 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
         $run | Should -Match ([regex]::Escape('(($refs | unique) | length) == 1'))
         $run | Should -Match ([regex]::Escape('[ -z "$BASELINE_TAG" ]'))
         $run | Should -Match ([regex]::Escape('does not carry one uniform baseline locator across a complete catalog at its own metadata version'))
-        # A string-form source is never indexed, and the channel manifest version
+        # A relative source is never indexed, and the channel manifest version
         # no longer filters the catalog the target branch already publishes.
         $run | Should -Not -Match ([regex]::Escape('select((.version // "") == $version)'))
         $run | Should -Not -Match ([regex]::Escape('| (.source.ref // null)] as $refs'))
@@ -2718,7 +2718,7 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
 
         $run | Should -Match ([regex]::Escape("'+refs/heads/${Base}:refs/remotes/origin/${Base}'"))
         $run | Should -Match ([regex]::Escape("'refs/remotes/origin/${Base}:.github/plugin/marketplace.json'"))
-        # Derivation is shape-tolerant: a historical string-form source names no
+        # Derivation is shape-tolerant: a relative development source names no
         # ref, so a ref-less catalog derives OMITTED instead of failing while
         # indexing a string. Completeness is proved against the catalog's own
         # metadata version, not the channel manifest baseline.
@@ -3254,7 +3254,7 @@ Describe 'Promotion and publication contracts' -Tag 'Unit' {
                 'CANDIDATE_SOURCE_CATALOG="$RUNNER_TEMP/managed-head-candidate-source-marketplace.json"'
                 'git show "$SOURCE_COMMIT:.github/plugin/marketplace.json" > "$CANDIDATE_SOURCE_CATALOG"'
                 # The baseline comes from the fetched base branch alone, and its
-                # locator derivation tolerates a historical string-form source
+                # locator derivation tolerates a relative development source
                 # by treating it as naming no ref.
                 'BASELINE=$(git show "refs/remotes/origin/$BASE_REF:$MANIFEST" | jq -r ''.["."] // ""'')'
                 'git show "refs/remotes/origin/$BASE_REF:.github/plugin/marketplace.json"'
@@ -3493,10 +3493,11 @@ Describe 'Release and installation documentation contracts' -Tag 'Unit' {
         }
     }
 
-    It 'States ref-less main refresh behavior and the main versus release attestation posture' {
+    It 'States relative development source refresh behavior and the main versus release attestation posture' {
         foreach ($relativePath in $script:ReleaseDocumentationPaths) {
             $text = $script:ReleaseDocumentation[$relativePath]
-            $text | Should -Match '(?is)ref-less main catalog' -Because "$relativePath must name the ref-less main catalog"
+            $text | Should -Match '(?is)relative\s+`?plugins/<name>`?\s+source' -Because "$relativePath must describe relative development package sources"
+            $text | Should -Match '(?is)marketplace checkout' -Because "$relativePath must bind relative package resolution to the selected marketplace checkout"
             $text | Should -Match '(?is)(?:marketplace refresh|refreshes the marketplace)' -Because "$relativePath must require an explicit marketplace refresh instead of automatic main updates"
             $text | Should -Match '(?is)(?:plugin update|updates the plugin)' -Because "$relativePath must require an explicit plugin update instead of automatic main updates"
             $text | Should -Match '(?is)(?:without a|no)\s+release gate,\s+SBOM,\s+or\s+attestation' -Because "$relativePath must state that main bytes carry no release gate, SBOM, or attestation"
@@ -3614,16 +3615,18 @@ Describe 'Catalog release ref and plugin locator consistency' -Tag 'Unit' {
         }
     }
 
-    # The committed catalog is the main channel. Release workflows add exact
-    # refs to branch-owned catalog state before packaging or publication.
-    It 'Keeps the committed main catalog canonical and ref-less' {
+    # The committed catalog is the development channel: every source is the
+    # relative package root, so a marketplace registered from a branch, tag, or
+    # clone installs the roots that same ref tracks. Release workflows restate
+    # those roots as immutable locators in branch-owned catalog state before
+    # packaging or publication.
+    It 'Binds every committed main catalog package to its relative root' {
         $version = [string]$script:RootManifest.version
         @($script:Catalog['plugins']).Count | Should -BeGreaterThan 0
         foreach ($entry in @($script:Catalog['plugins'])) {
             [string]$entry['version'] | Should -BeExactly $version
-            [string]$entry['source']['path'] | Should -BeExactly "plugins/$([string]$entry['name'])"
-            $entry['source'].Contains('ref') | Should -BeFalse
-            $entry['source'].Contains('sha') | Should -BeFalse
+            $entry['source'] | Should -BeOfType [string]
+            [string]$entry['source'] | Should -BeExactly "plugins/$([string]$entry['name'])"
         }
     }
 

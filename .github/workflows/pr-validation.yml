@@ -221,7 +221,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: Install accessibility skill Node dependencies
         shell: bash
@@ -740,10 +740,11 @@ jobs:
           # The baseline locator is the one uniform locator the target branch
           # catalog already publishes across a complete catalog at its own
           # metadata version: the reserved OMITTED locator when no entry names
-          # a ref, otherwise the one non-empty ref they all share. Historical
-          # entries carry a string-form source, which names no ref and therefore
-          # reads as omitted. A drifted target therefore fails the record
-          # instead of being compared against a locator rebuilt from a version.
+          # a ref, otherwise the one non-empty ref they all share. Development
+          # entries carry a relative string source, which names no ref and
+          # therefore reads as omitted. A drifted target therefore fails the
+          # record instead of being compared against a locator rebuilt from a
+          # version.
           BASELINE_TAG=$(git show "refs/remotes/origin/$BASE_REF:.github/plugin/marketplace.json" |
             jq -r '
               (.metadata.version // "") as $version

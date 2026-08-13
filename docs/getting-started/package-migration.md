@@ -3,7 +3,7 @@ title: Adapt HVE Core Package Selections
 description: Choose or switch HVE Core catalog packages while preserving the release architecture
 sidebar_position: 4
 author: Microsoft
-ms.date: 2026-08-08
+ms.date: 2026-08-12
 ms.topic: how-to
 keywords:
   - migration
@@ -32,10 +32,16 @@ Do not install `hve-core` and `hve-core-all` together because their content over
 
 Changing a Copilot marketplace registration is a configuration operation. It does not delete files from your repository or modify a cloned HVE Core installation.
 
-Use the ref-less development tip:
+Use the development tip:
 
 ```bash
 copilot plugin marketplace add microsoft/hve-core
+```
+
+Use a feature-branch development catalog:
+
+```bash
+copilot plugin marketplace add microsoft/hve-core#<branch>
 ```
 
 Use a moving reviewed channel:
@@ -52,10 +58,14 @@ copilot plugin marketplace add microsoft/hve-core#prerelease-v<version>
 copilot plugin marketplace add microsoft/hve-core#v<version>
 ```
 
-The development catalog omits `source.ref`. A release-branch registration
-resolves the current catalog on that branch, whose entries pin the
+Development catalog entries use relative `plugins/<name>` source strings with
+no `source.ref`, `repo`, or object `path`. A relative source resolves in the
+same checkout selected by the registration, including
+`microsoft/hve-core#<branch>`. A release-branch registration resolves the
+current catalog on that branch, whose release transforms use immutable GitHub
+object sources with repo `microsoft/hve-core`, path `plugins/<name>`, and the
 corresponding exact channel tag. An exact-tag registration fixes both the
-catalog and its source payloads.
+catalog and its source object.
 
 Refresh the marketplace before requesting an installed-plugin update:
 

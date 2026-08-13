@@ -10,11 +10,7 @@
   "plugins": [
     {
       "name": "coding-standards",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/coding-standards"
-      },
+      "source": "plugins/coding-standards",
       "description": "Language-specific coding instructions and pre-PR code review agents for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform projects",
       "version": "3.2.2",
       "author": {
@@ -103,11 +99,7 @@
     },
     {
       "name": "data-science",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/data-science"
-      },
+      "source": "plugins/data-science",
       "description": "Evaluation dataset creation, data specification generation, Jupyter notebooks, and Streamlit dashboards",
       "version": "3.2.2",
       "author": {
@@ -177,11 +169,7 @@
     },
     {
       "name": "design-thinking",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/design-thinking"
-      },
+      "source": "plugins/design-thinking",
       "description": "Design Thinking coaching identity, quality constraints, and methodology skills for AI-enhanced design thinking across nine methods",
       "version": "3.2.2",
       "author": {
@@ -269,11 +257,7 @@
     },
     {
       "name": "experimental",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/experimental"
-      },
+      "source": "plugins/experimental",
       "description": "Experimental and preview artifacts not yet promoted to stable packages",
       "version": "3.2.2",
       "author": {
@@ -356,11 +340,7 @@
     },
     {
       "name": "hve-core",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/hve-core"
-      },
+      "source": "plugins/hve-core",
       "description": "Opinionated, rapidly evolving agentic SDLC patterns for RPI workflows, HVE Builder, and Git operations",
       "version": "3.2.2",
       "author": {
@@ -493,11 +473,7 @@
     },
     {
       "name": "hve-core-all",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/hve-core-all"
-      },
+      "source": "plugins/hve-core-all",
       "description": "Full bundle of opinionated, rapidly evolving HVE Core agentic SDLC patterns and tools",
       "version": "3.2.2",
       "author": {
@@ -924,11 +900,7 @@
     },
     {
       "name": "installer",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/installer"
-      },
+      "source": "plugins/installer",
       "description": "Decision-driven installer skill for deploying HVE Core artifacts across workspace configurations",
       "version": "3.2.2",
       "author": {
@@ -956,11 +928,7 @@
     },
     {
       "name": "project-planning",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/project-planning"
-      },
+      "source": "plugins/project-planning",
       "description": "PRDs, BRDs, ADRs, architecture diagrams, and cross-tracker backlog management for Azure DevOps, GitHub, and Jira",
       "version": "3.2.2",
       "author": {
@@ -1145,11 +1113,7 @@
     },
     {
       "name": "rpi",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/rpi"
-      },
+      "source": "plugins/rpi",
       "description": "Skill-forward Research, Plan, Implement, Review, and Follow-up entry points with bounded planning and critique support.",
       "version": "3.2.2",
       "author": {
@@ -1191,11 +1155,7 @@
     },
     {
       "name": "security",
-      "source": {
-        "source": "github",
-        "repo": "microsoft/hve-core",
-        "path": "plugins/security"
-      },
+      "source": "plugins/security",
       "description": "Security review, planning, incident response, risk assessment, and vulnerability analysis",
       "version": "3.2.2",
       "author": {

@@ -17,10 +17,16 @@ Install the complete HVE Core component set as a Copilot CLI plugin for terminal
 
 Choose a registration that matches the content you need.
 
-Register the ref-less development tip:
+Register the development tip:
 
 ```bash
 copilot plugin marketplace add microsoft/hve-core
+```
+
+Register a feature-branch development catalog:
+
+```bash
+copilot plugin marketplace add microsoft/hve-core#<branch>
 ```
 
 Register a moving reviewed release channel:
@@ -37,11 +43,15 @@ copilot plugin marketplace add microsoft/hve-core#prerelease-v<version>
 copilot plugin marketplace add microsoft/hve-core#v<version>
 ```
 
-`main` is the development tip and its catalog entries omit `source.ref`.
-`release/prerelease` and `release/stable` are moving registrations that resolve
-their current reviewed branch catalog. Each branch catalog pins every entry to
-its corresponding exact channel tag. Exact-tag registrations freeze both the
-catalog selection and plugin source tag.
+`main` is the development tip, and its catalog entries use relative
+`plugins/<name>` source strings. The same syntax applies to a feature branch:
+the selected catalog and plugin manifests resolve from the same checkout. A
+development entry has no `source.ref`, `repo`, or object `path`. The
+`release/prerelease` and `release/stable` registrations resolve their current
+reviewed branch catalogs, whose release transforms use immutable GitHub object
+sources with repo `microsoft/hve-core`, path `plugins/<name>`, and the exact
+channel tag. Exact-tag registrations freeze both the catalog selection and
+plugin source object.
 
 A published channel release provides release assurance for its exact tag,
 including release gates, SBOMs, attestations, provenance verification, and the
@@ -87,12 +97,13 @@ Each plugin includes:
 | Skills       | Yes           | Self-contained skill packages                      |
 | Instructions | No            | Included for `#file:` references, not auto-applied |
 
-the selected marketplace entry determine which recognized agents, commands,
-Every marketplace entry points to a manifest-only
-`plugins/<package>/plugin.json` root. The manifest selects canonical `.github`
-agents, commands, skills, instructions, and hooks. Git-source installation
-clones the repository, so those references resolve within the clone without a
-copied package tree or generated package README.
+The selected marketplace entry determines which recognized agents, commands,
+skills, instructions, and hooks are available. Development entries use a
+manifest-only `plugins/<package>/plugin.json` source string. The selected
+manifest references canonical `.github` agents, commands, skills,
+instructions, and hooks. Git-source installation clones the repository, so
+those references resolve within the clone without a copied package tree or
+generated package README.
 
 ## Limitations
 

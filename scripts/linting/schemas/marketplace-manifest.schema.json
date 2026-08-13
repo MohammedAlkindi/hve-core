@@ -69,6 +69,11 @@
       },
       "additionalProperties": false
     },
+    "relativeSource": {
+      "type": "string",
+      "pattern": "^plugins/[a-z0-9-]+$",
+      "description": "Repository-relative package root, plugins/<name>, resolved inside the marketplace checkout ref. Development and feature catalogs use this form so a package resolves from the same branch, tag, or clone the marketplace was registered from. The pattern admits no absolute path, backslash, dot segment, or empty segment."
+    },
     "objectSource": {
       "type": "object",
       "required": [
@@ -177,8 +182,15 @@
             "description": "Plugin identifier. Lowercase letters, digits, and hyphens only."
           },
           "source": {
-            "$ref": "#/definitions/objectSource",
-            "description": "Immutable GitHub package locator."
+            "oneOf": [
+              {
+                "$ref": "#/definitions/relativeSource"
+              },
+              {
+                "$ref": "#/definitions/objectSource"
+              }
+            ],
+            "description": "Package locator. Development catalogs use the repository-relative plugins/<name> string that resolves within the marketplace checkout ref; release catalogs use the immutable GitHub object locator."
           },
           "description": {
             "type": "string",

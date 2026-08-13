@@ -375,9 +375,27 @@ Describe 'Invoke-MarketplaceValidation' -Tag 'Unit' {
         }
     }
 
-    Context 'when a package source is not an immutable object locator' {
+    Context 'when the source names a repository-relative package root' {
+        # A relative source resolves inside the marketplace checkout ref, so a
+        # branch or tag registration installs the roots that ref tracks.
+        It 'Accepts the exact relative package path on every entry' {
+            New-ValidatorFixture -Root $script:validatorRepo -AddSecondPackage | Out-Null
+            Set-CatalogEntry -Root $script:validatorRepo -Mutation {
+                param($catalog)
+                foreach ($entry in $catalog['plugins']) {
+                    $entry['source'] = "plugins/$([string]$entry['name'])"
+                }
+            }
+
+            $run = Get-ValidationReport -Root $script:validatorRepo
+            $run.Outcome.Success | Should -BeTrue
+            $run.Outcome.ErrorCount | Should -Be 0
+        }
+
         It 'Reports <Label>' -ForEach @(
-            @{ Label = 'a bare package name'; Value = 'rpi'; Pattern = 'source must be an immutable github locator object' }
+            @{ Label = 'a bare package name'; Value = 'rpi'; Pattern = "relative source must be 'plugins/rpi'" }
+            @{ Label = 'a case-mismatched relative path'; Value = 'Plugins/rpi'; Pattern = "relative source must be 'plugins/rpi'" }
+            @{ Label = 'another package root'; Value = 'plugins/ops'; Pattern = "relative source must be 'plugins/rpi'" }
             @{ Label = 'a blank source'; Value = ''; Pattern = "missing required field 'source'" }
         ) {
             New-ValidatorFixture -Root $script:validatorRepo | Out-Null
@@ -389,6 +407,18 @@ Describe 'Invoke-MarketplaceValidation' -Tag 'Unit' {
 
             $run = Get-ValidationReport -Root $script:validatorRepo
             (Get-ReportError -Report $run.Report) -join ' ' | Should -Match $Pattern
+        }
+
+        It 'Rejects a catalog that mixes the relative and object source forms' {
+            New-ValidatorFixture -Root $script:validatorRepo -AddSecondPackage | Out-Null
+            Set-CatalogEntry -Root $script:validatorRepo -Mutation {
+                param($catalog)
+                $catalog['plugins'][0]['source'] = "plugins/$([string]$catalog['plugins'][0]['name'])"
+            }
+
+            $run = Get-ValidationReport -Root $script:validatorRepo
+            (Get-ReportError -Report $run.Report) -join ' ' |
+                Should -Match 'source must use one uniform form across every entry'
         }
     }
 

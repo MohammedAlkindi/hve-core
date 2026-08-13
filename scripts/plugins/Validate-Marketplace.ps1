@@ -12,11 +12,14 @@
     version consistency with the root package.json, the plugin source locator
     of every entry, and the tracked runtime root each entry addresses.
 
-    Every source is a GitHub object locator rooted at the entry's tracked
-    package root, plugins/<name>. Entries either omit ref uniformly, as the
-    Main channel does, or pin one uniform exact channel tag:
-    prerelease-v<version> for PreRelease and v<version> for Stable. Bare
-    package names and commit SHA locators are rejected.
+    A source takes one of two forms, and one uniform form serves the whole
+    catalog. Development catalogs use the repository-relative package path
+    plugins/<name>, which resolves inside the marketplace checkout ref so a
+    package installs from the same branch, tag, or clone the marketplace was
+    registered from. Release catalogs use a GitHub object locator rooted at the
+    same tracked package root, pinning one uniform exact channel tag:
+    prerelease-v<version> for PreRelease and v<version> for Stable. Commit SHA
+    locators are rejected in both forms.
 
     Validation never writes tracked package content. Byte and path drift is
     reported by the generator's own non-mutating check, so generation stays the
@@ -638,6 +641,7 @@ function Invoke-MarketplaceValidation {
     }
     else {
         $seenNames = @{}
+        $sourceForms = @()
         $sourceRefPresence = @()
         $sourceRefChannels = @()
 
@@ -664,14 +668,15 @@ function Invoke-MarketplaceValidation {
 
             # Source validation, dispatched on the source form
             $sourceValue = $plugin['source']
+            $expectedSourcePath = "plugins/$pluginName"
             if ($sourceValue -is [System.Collections.IDictionary]) {
+                $sourceForms += 'object'
                 $sourceRefPresence += $sourceValue.Contains('ref')
                 foreach ($sourceError in @(Test-PluginObjectSource -Source $sourceValue)) {
                     $pluginErrors += $sourceError
                 }
-                $expectedPath = "plugins/$pluginName"
-                if ([string]$sourceValue['path'] -cne $expectedPath) {
-                    $pluginErrors += "object source path must be '$expectedPath'"
+                if ([string]$sourceValue['path'] -cne $expectedSourcePath) {
+                    $pluginErrors += "object source path must be '$expectedSourcePath'"
                 }
                 if ($sourceValue.Contains('ref') -and -not [string]::IsNullOrWhiteSpace([string]$plugin['version'])) {
                     $channelRefs = [ordered]@{
@@ -687,11 +692,20 @@ function Invoke-MarketplaceValidation {
                     }
                 }
             }
-            elseif ($null -eq $sourceValue -or ($sourceValue -is [string] -and [string]::IsNullOrWhiteSpace($sourceValue))) {
+            elseif ($sourceValue -is [string] -and -not [string]::IsNullOrWhiteSpace($sourceValue)) {
+                # A relative source names no ref because it resolves inside the
+                # marketplace checkout ref, so the package comes from the same
+                # branch, tag, or clone the catalog was read from.
+                $sourceForms += 'relative'
+                if ($sourceValue -cne $expectedSourcePath) {
+                    $pluginErrors += "relative source must be '$expectedSourcePath'"
+                }
+            }
+            elseif ($null -eq $sourceValue -or $sourceValue -is [string]) {
                 $pluginErrors += "missing required field 'source'"
             }
             else {
-                $pluginErrors += 'source must be an immutable github locator object; bare package names are not supported'
+                $pluginErrors += "source must be the relative package path '$expectedSourcePath' or an immutable github locator object"
             }
 
             # Plugin version consistency
@@ -719,6 +733,10 @@ function Invoke-MarketplaceValidation {
             foreach ($pluginError in $pluginErrors) {
                 $errors += "plugin '$pluginName': $pluginError"
             }
+        }
+
+        if (@($sourceForms | Sort-Object -Unique).Count -gt 1) {
+            $catalogErrors += 'source must use one uniform form across every entry: the relative package path or the immutable github locator object'
         }
 
         if (@($sourceRefPresence | Sort-Object -Unique).Count -gt 1) {

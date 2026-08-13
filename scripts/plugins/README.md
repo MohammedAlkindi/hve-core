@@ -73,27 +73,26 @@ Every entry uses its manifest-only package root:
 ```json
 {
   "name": "rpi",
-  "source": {
-    "source": "github",
-    "repo": "microsoft/hve-core",
-    "path": "plugins/rpi"
-  }
+  "source": "plugins/rpi"
 }
 ```
 
-the CLI copies from the source root. `Validate-Marketplace.ps1` owns validation
-Each `plugins/<package>/plugin.json` manifest declares the package membership
-through paths to canonical `.github` artifacts. Git-source installation clones
-the repository, so those references resolve within the clone without copied
+A development source is a relative string, so it resolves within the same
+marketplace checkout selected by registration. Each
+`plugins/<package>/plugin.json` manifest declares package membership through
+paths to canonical `.github` artifacts. Git-source installation clones the
+repository, so those references resolve within the clone without copied
 payloads. `Validate-Marketplace.ps1` checks the manifest-only root, canonical
 source existence, and catalog membership contract.
 
-The `repo` and `path` fields are required, and `path` must identify one of the
-ten `plugins/<package>` roots. Main catalog entries omit `ref`. Prerelease
-catalog entries use the exact `prerelease-v<version>` ref, and release catalog
-entries use the exact `v<version>` ref, each matching the package version.
-Branch refs, commit SHA locators, URL locators, and version-mismatched channel
-refs are rejected.
+Development entries have no `source.ref`, `repo`, or object `path`. This
+applies to `microsoft/hve-core` and a feature branch registration such as
+`microsoft/hve-core#<branch>`; each uses the catalog and manifests from its
+selected checkout. PreRelease and Stable release transforms convert relative
+sources to immutable GitHub object sources with repo `microsoft/hve-core`, path
+`plugins/<name>`, and exact `prerelease-v<version>` or `v<version>` refs.
+Moving `#release/prerelease` and `#release/stable` registrations read branch
+catalogs whose entries already pin those exact immutable tags.
 
 Moving registrations and immutable catalog locators serve different purposes.
 Use `microsoft/hve-core#release/prerelease` or

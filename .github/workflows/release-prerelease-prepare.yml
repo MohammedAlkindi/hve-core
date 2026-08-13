@@ -350,8 +350,8 @@ jobs:
           # version. A coherent baseline is a complete catalog at its own
           # metadata version carrying one uniform locator: the reserved OMITTED
           # locator when no entry names a ref, otherwise the one non-empty ref
-          # they all share. Historical entries carry a string-form source, which
-          # names no ref and therefore reads as omitted.
+          # they all share. Development entries carry a relative string source,
+          # which names no ref and therefore reads as omitted.
           BASELINE_TAG=$(jq -r '
             (.metadata.version // "") as $version
             | [.plugins[] | (.version // "")] as $versions

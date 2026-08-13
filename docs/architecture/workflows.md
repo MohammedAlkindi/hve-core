@@ -255,20 +255,30 @@ signing scopes and never installs dependencies. No job does both.
 Both release workflows verify event, merge, release-please, and release-tag
 SHA equality plus target-branch ancestry. Extension and plugin packages use
 the validated release SHA bound to the immutable channel tag. Every release
-catalog entry uses `prerelease-v<version>` or `v<version>` for its channel. The
-workflows attach and attest `plugin-release-evidence.json`, derived from
-declared canonical tracked sources at the exact release ref. The VSIX,
-dependency SBOM, Sigstore, and in-toto assets retain their applicable release
-roles without publishing a plugin archive.
+catalog entry uses an immutable GitHub object source with repo
+`microsoft/hve-core`, path `plugins/<name>`, and `prerelease-v<version>` or
+`v<version>` for its channel. The workflows attach and attest
+`plugin-release-evidence.json`, derived from declared canonical tracked sources
+at the exact release ref. The VSIX, dependency SBOM, Sigstore, and in-toto
+assets retain their applicable release roles without publishing a plugin archive.
 
 Both channels publish their draft with a release GitHub App token. The
 resulting `published` event triggers the matching Marketplace workflow.
-Main is not part of either release completion graph. It remains a ref-less
-development-tip channel sourced from canonical `.github` content and is not
-updated by release completion. Release branches, immutable tags, and published
-releases own release state and history.
+Main is not part of either release completion graph. It remains a
+development-tip channel: its catalog uses relative `plugins/<name>` source
+strings that resolve inside the selected marketplace checkout, and each
+selected manifest references canonical `.github` content in the same checkout.
+It is not updated by release completion. Release branches,
+immutable tags, and published releases own release state and history.
 
-The ref-less `microsoft/hve-core` registration sources canonical content from `.github` through the ref-less main catalog. An explicit marketplace refresh and plugin update are required for that catalog, which has no release gate, SBOM, or attestation. PreRelease and Stable retain reviewed, release-gated, SBOM-covered, and attested immutable delivery through moving branch registrations and exact tags.
+The `microsoft/hve-core` development registration uses string sources with no
+`source.ref`, `repo`, or object `path`. The same behavior applies to a feature
+branch registered as `microsoft/hve-core#<branch>`: the catalog and manifests
+both resolve from that checkout. An explicit marketplace refresh and plugin
+update are required for development content, which has no release gate, SBOM,
+or attestation. PreRelease and Stable retain reviewed, release-gated,
+SBOM-covered, and attested immutable delivery through moving branch
+registrations and exact tags.
 
 Because snapshot publication has stopped, tags and catalogs remain immutable and supported only as historical records. They are not current release or registration namespaces.
 
