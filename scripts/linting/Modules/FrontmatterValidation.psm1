@@ -376,7 +376,10 @@ function Test-TopicValue {
         return $null
     }
 
-    $validTopics = @('overview', 'concept', 'tutorial', 'reference', 'how-to', 'troubleshooting')
+    # These mirror the ms.topic enum in
+    # scripts/linting/schemas/docs-frontmatter.schema.json so docs/** is governed
+    # identically whether or not schema validation is enabled.
+    $validTopics = @('overview', 'concept', 'tutorial', 'reference', 'how-to', 'troubleshooting', 'architecture')
     $topicValue = $Frontmatter['ms.topic']
 
     if ($topicValue -notin $validTopics) {

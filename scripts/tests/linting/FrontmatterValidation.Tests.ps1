@@ -929,7 +929,7 @@ Describe 'Test-DocsFileFields' -Tag 'Unit' {
         }
 
         It 'Returns no warning for valid topic types' {
-            $validTopics = @('overview', 'concept', 'tutorial', 'reference', 'how-to', 'troubleshooting')
+            $validTopics = @('overview', 'concept', 'tutorial', 'reference', 'how-to', 'troubleshooting', 'architecture')
 
             foreach ($topic in $validTopics) {
                 $frontmatter = @{
