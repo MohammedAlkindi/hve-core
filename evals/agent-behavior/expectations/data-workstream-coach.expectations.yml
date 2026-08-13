@@ -29,7 +29,7 @@ expectations:
       alternative session root is proposed.
     failure_modes:
       - Uses `state.json`.
-      - Uses `.copilot-tracking/design-thinking-sessions/` or a slug-less path.
+      - Uses a session root outside `.copilot-tracking/ds/` or a slug-less path.
     priority: high
     contract_ref: "foundation references/session-state.md §Authoritative location"
 
