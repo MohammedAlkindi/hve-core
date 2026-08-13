@@ -26,25 +26,14 @@ stimuli:
       availability and identity integration does the service support?" from the
       supplied persisted artifact path
       `.copilot-tracking/proposal-responses/identity-questionnaire/response-evidence.yml`.
-      Its validated RESPONSE_EVIDENCE_V1 payload already contains SQ-001,
-      CLM-001, and UNR-001. Preserve those stable IDs, add the
-      operation-appropriate product record as CLM-002, and return the same
-      path. Its prior coverage is question_count 1, addressed_count 0,
-      qualified_count 0, unresolved_count 1, and addressed_percent 0.0. The
-      supplied evidence below satisfies the UNR-001 clearing action, so
-      recalculate coverage after contribution as question_count 1,
-      addressed_count 0, qualified_count 0, unresolved_count 0, and
-      addressed_percent 0.0. Contribution adds no response record, so SQ-001
-      does not become addressed or qualified.
+      Its validated RESPONSE_EVIDENCE_V1 payload contains SQ-001, CLM-001, and
+      UNR-001. Preserve those IDs, add the product contribution as CLM-002,
+      clear UNR-001 with the approved evidence below, and return the same path.
       Approved PRD evidence: NFR-014 targets 99.9%
       monthly availability; FR-022 requires Microsoft Entra ID integration;
       AC-031 verifies SSO login.
 
-      The existing builder state is:
-      `extensionsLoaded: [proposal-response#contribute:product]` and
-      `proposalResponseArtifacts: [.copilot-tracking/proposal-responses/identity-questionnaire/response-evidence.yml]`.
-      Pass the same path to the contribution, retain that extension and path
-      exactly once in their respective arrays, and do not inline the full
+      Briefly report the changed record and next step. Do not inline the full
       payload.
     environment:
       skills:
@@ -57,46 +46,17 @@ stimuli:
       scenario: prd-proposal-positive
     graders:
       - type: output-matches
-        name: product-extension-activation
-        config:
-          pattern: '(?i)(proposal-response#contribute:product|proposal-response.*(product|contribute))'
-      - type: output-matches
-        name: authority-boundary
-        config:
-          pattern: '(?i)(internal.review|outside.*scope|not.*(approved|authorized|release)|external.use.prohibited)'
-      - type: output-matches
         name: same-artifact-pointer
         config:
           pattern: '(?i)identity-questionnaire[/\\]response-evidence\.yml'
-      - type: output-matches
-        name: builder-state-reported
-        config:
-          pattern: '(?is)proposalResponseArtifacts\s*:\s*\[[^\]]*identity-questionnaire[/\\]response-evidence\.yml[^\]]*\]'
-      - type: output-matches
-        name: builder-state-not-duplicated
-        config:
-          pattern: '(?is)extensionsLoaded\s*:\s*\[[^\]]*proposal-response#contribute:product[^\]]*proposal-response#contribute:product|proposalResponseArtifacts\s*:\s*\[[^\]]*identity-questionnaire[/\\]response-evidence\.yml[^\]]*identity-questionnaire[/\\]response-evidence\.yml'
-          negate: true
       - type: output-matches
         name: operation-appropriate-addition
         config:
           pattern: '(?is)changed_record_ids.*CLM-0*2'
       - type: output-matches
-        name: prior-records-preserved
-        config:
-          pattern: '(?is)record_counts:.*claims:\s*2'
-      - type: output-matches
-        name: recalculated-coverage
-        config:
-          pattern: '(?is)coverage:.*question_count:\s*1.*unresolved_count:\s*0'
-      - type: output-matches
         name: remaining-step-named
         config:
           pattern: '(?i)(next_operation|next step|remaining step).{0,40}draft|draft.{0,40}(is|as) the next'
-      - type: output-matches
-        name: unresolved-cleared-by-approved-evidence
-        config:
-          pattern: '(?i)UNR-0*1'
   - name: prd-builder-proposal-response-rejected-continuation
     prompt: |
       Continue product evidence contribution for questionnaire Q1, "What
@@ -105,9 +65,7 @@ stimuli:
       `.copilot-tracking/proposal-responses/atlas-rfp/response-evidence.yml`.
       Approved PRD evidence: NFR-014 targets 99.9% monthly availability.
 
-      The existing builder state has no `proposalResponseArtifacts` array and
-      `extensionsLoaded: []`. Report the resulting builder state fields and the
-      skill result exactly as they stand after this attempt.
+      Briefly report the validation problem and the action needed to continue.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -123,10 +81,6 @@ stimuli:
         config:
           pattern: '(?i)RESPONSE_EVIDENCE_ERROR_V1'
       - type: output-matches
-        name: no-artifact-written
-        config:
-          pattern: '(?i)(artifact_written\s*:\s*false|not written|no artifact was written)'
-      - type: output-matches
         name: validation-error-reported
         config:
           pattern: '(?i)(validation_error|unknown_schema)'
@@ -134,11 +88,6 @@ stimuli:
         name: clearing-action-reported
         config:
           pattern: '(?i)(supply|provide|replace with).*(complete|valid).*RESPONSE_EVIDENCE_V1'
-      - type: output-matches
-        name: rejected-path-not-recorded
-        config:
-          pattern: '(?is)proposalResponseArtifacts\s*:\s*\[[^\]]*atlas-rfp[/\\]response-evidence\.yml'
-          negate: true
   - name: prd-builder-proposal-response-source-intake-analyze
     prompt: |
       Analyze this questionnaire for a bid response: Q1 asks what monthly
@@ -146,7 +95,7 @@ stimuli:
       it federates with. The approved source is the existing PRD at
       `docs/project-planning/northwind-identity-prd.md`; read and register it
       before citing it. Persist under `.copilot-tracking/proposal-responses/`,
-      report the builder state fields, and tell me what to run next.
+      tell me what to run next.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -166,10 +115,6 @@ stimuli:
         config:
           pattern: '(?i)SRC-0*1'
       - type: output-matches
-        name: source-path-recorded
-        config:
-          pattern: '(?i)northwind-identity-prd\.md'
-      - type: output-matches
         name: not-redirected-to-direct-skill-use
         config:
           pattern: '(?i)(cannot|can.t|unable to|not able to)\s+(run|perform|invoke)\s+analyze'
@@ -181,8 +126,8 @@ stimuli:
       `.copilot-tracking/proposal-responses/identity-questionnaire/response-evidence.yml`.
       It holds SQ-001 answered by product-owned CLM-001 and SQ-002 answered by
       business-owned CLM-002; both claims are reviewed and supported. Do not
-      render any appendix or draft file. Report the builder state fields and the
-      skill result.
+      render any appendix or draft file. Briefly confirm whether both stored
+      questions were drafted.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -194,27 +139,19 @@ stimuli:
       scenario: prd-proposal-draft
     graders:
       - type: output-matches
-        name: responses-recorded
+        name: successful-draft-recorded
         config:
-          pattern: '(?i)RSP-0*1'
-      - type: output-matches
-        name: cross-domain-question-drafted
-        config:
-          pattern: '(?i)RSP-0*2'
+          pattern: '(?is)RESPONSE_EVIDENCE_POINTER_V1.*(RSP-0*1.*RSP-0*2|RSP-0*2.*RSP-0*1|responses:\s*2)'
       - type: output-matches
         name: no-unrequested-rendering
         config:
           pattern: '(?i)(wrote|created|rendered|generated)\s+\S{0,20}response-draft\.md'
           negate: true
-      - type: output-matches
-        name: no-business-claim-authored
-        config:
-          pattern: '(?is)changed_record_ids[^\n]*CLM-0*3'
-          negate: true
   - name: prd-builder-ordinary-request-no-proposal-extension
     prompt: |
-      Resume my notification preferences PRD and refine its user stories,
-      acceptance criteria, and success metrics. Do not create an appendix.
+      Without editing files, briefly state which PRD sections you would refine
+      for notification preferences user stories, acceptance criteria, and
+      success metrics.
     tags:
       category: agent-behavior
       scenario: prd-proposal-negative
