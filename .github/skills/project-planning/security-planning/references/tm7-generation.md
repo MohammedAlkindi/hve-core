@@ -1,7 +1,7 @@
 ---
 title: TM7 Generation Format Contract
 description: OTM-aligned input schema, mapping reference, template profile contract, and current native feedback workflow for TM7 generation.
-ms.date: 2026-08-09
+ms.date: 2026-08-11
 ms.topic: reference
 ---
 
@@ -37,7 +37,7 @@ The skill also supports an opt-in, Windows-local feedback loop that replays a va
 
 The remaining flags group as follows:
 
-* Feedback loop: `--feedback-loop`, `--spec`, `--overlay-input`, `--overlay-output`, `--max-iterations` (`1` through `3`, default `3`), and `--require-feedback-evidence` to require per-surface screenshot, UIA, metrics, and findings evidence before the run is accepted
+* Feedback loop: `--feedback-loop`, `--spec`, `--overlay-input`, `--overlay-output`, `--max-iterations` (`1` through `3`, default `1`), and `--require-feedback-evidence` to require per-surface screenshot, UIA, metrics, and findings evidence before the run is accepted
 * Template upgrade: `--template-upgrade-policy` with `fail` (default), `decline`, or `apply`, plus `--delete-stale-threats` to drop stale threats while applying a newer template
 * Environment: `--require-tmt` to fail rather than skip when TMT is absent, `--pinned-version` (default `7.3.51110.1`), `--workspace-root` to relocate the runtime workspace, `--timeout-seconds` (default `60`), and `--diagnostic-override`
 * Expectations: `--expected-threat-count` and `--expected-custom-type-count`, both optional assertions that are unset by default so a model of any size is accepted
@@ -47,9 +47,11 @@ The native harness requires the pinned Microsoft Threat Modeling Tool version an
 
 The feedback loop requires operator-safety confirmation from the agent before launch; `tm7-generation-workflow.instructions.md` owns that contract. The harness itself does not block on the operator: it announces the start of automation, surfaces baseline/refinement candidate progress, and emits a release notice once the loop completes or aborts so the operator knows the computer can be used again. The workflow may open, close, and reopen TMT more than once to complete save/reopen validation.
 
+The default is a baseline plus one refinement. A single run holds the mouse and keyboard continuously from the start notice through the baseline and every refinement iteration, and returns control only at the release notice; the operator does not regain control between iterations. Replaying a corrected overlay with `--overlay-input` is a new run and a new takeover, so a review cycle that produces corrections costs more than one takeover. The agent asks the operator how many rounds to run before launching.
+
 ### Evidence layout
 
-Each run writes a redacted evidence bundle rooted at the requested evidence directory. The root contains `manifest.json`, `status.json`, `action.log`, and the `screenshots/`, `uia/`, `exports/`, `summaries/`, and `logs/` folders. The run also writes `iterations/00-baseline` plus `iterations/01` through `iterations/03` as needed. Each iteration bundle contains per-surface screenshots, UIA snapshots, summaries, and the generated candidate model, and the loop writes an iteration-scoped `overlay.yaml` into the iteration bundle plus a final pending overlay to the explicit `--overlay-output` path; the payload carries `approval_state: pending` and the runtime never auto-promotes it to `approved`.
+Each run writes a redacted evidence bundle rooted at the requested evidence directory. The root contains `manifest.json`, `status.json`, `action.log`, and the `screenshots/`, `uia/`, `exports/`, `summaries/`, and `logs/` folders. A run that captured at least one surface and either passed the automated gates or stopped for layout exhaustion also writes `agent-review-request.json` at the root; see Agent-assisted visual review. The run also writes `iterations/00-baseline` plus `iterations/01` through `iterations/03` as needed. Each iteration bundle contains per-surface screenshots, UIA snapshots, summaries, and the generated candidate model, and the loop writes an iteration-scoped `overlay.yaml` into the iteration bundle plus a final pending overlay to the explicit `--overlay-output` path; the payload carries `approval_state: pending` and the runtime never auto-promotes it to `approved`.
 
 ### Deterministic metrics, thresholds, and stop reasons
 
@@ -66,6 +68,18 @@ Screenshot heuristics are advisory. They can raise a review finding when the ima
 The loop uses the stable stop reasons `automated-ready-pending-human`, `repeated-defect-no-improvement`, `max-iterations`, `evidence-incomplete`, `semantic-regression`, `candidate-generation-failed`, `overlay-validation-failed`, `tmt-unavailable`, `skipped`, `version-mismatch`, `automation-timeout`, `unexpected-modal`, and `harness-error`. Every outcome the loop assigns is one of these reasons, and an outcome that is not is reported as `harness-error` rather than collapsed into `unexpected-modal`; a generator, overlay, or harness failure is never described as a blocking dialog. `automated-ready-pending-human` is the success reason and states exactly what it means: the automated gates are satisfied and the result is waiting for human review. It is not an approval. A baseline run plus three refinement iterations is the maximum bounded execution. Semantic regression is evaluated against the baseline model identity and blocks promotion even when the geometry score improves.
 
 When TMT is not discovered, `--require-tmt` decides the outcome: with the flag the run stops as `tmt-unavailable` with exit `3`, and without it the run stops as `skipped` with exit `0`. A run that publishes no overlay removes any file already at `--overlay-output`, so an earlier run's overlay is never mistaken for the current result. The only exception is a caller that points `--overlay-input` and `--overlay-output` at the same file.
+
+### Whole-surface refinement
+
+Before spending a native launch on another iteration, the loop asks whether any whole-surface alternative is measurably better than what was drawn. An alternative is a pairing of an orientation with a zone order, because those are the only two whole-surface choices an overlay can carry into layout. The search enumerates the distinct pairs, at most 32 per failing surface per iteration.
+
+Each alternative is laid out in process, on a copy of the model, and scored on geometry measured from the result: canvas clipping, nodes outside their zone, boundary overlap, edges crossing nodes, label collisions, edge crossings, node overlap, and scroll extent, in that order of severity. That is information generation could not have had, because it comes from the shape the layout actually takes. Scoring an alternative on graph topology alone cannot work here: generation already minimized that same score when it chose the shipped layout, so the incumbent wins by construction and no alternative is ever selected.
+
+An alternative the generator refuses to lay out, such as one that overruns the bounded canvas, is rejected as a candidate and the remaining alternatives still run. Rejection is ordinary and can account for a large share of the space on a surface with several zones. A rejected alternative never ends the run.
+
+An alternative is selected only when it strictly improves on the incumbent and preserves every element, flow, and zone identity. A selected alternative becomes a `surface_rules` entry on the overlay replayed into the next iteration, so the iteration regenerates against the chosen layout rather than the unchanged model. When nothing improves, the loop stops as `repeated-defect-no-improvement` without launching.
+
+`action.log` records one line per iteration reporting the surface, how many alternatives were evaluated, how many were pruned as dominated, how many were rejected for identity or for being unrealizable, and whether a launch was earned. Read that line before trusting a `repeated-defect-no-improvement` stop: it distinguishes a genuine "nothing was better" from a search that evaluated nothing.
 
 ### Overlay schema and invalidation
 
@@ -111,17 +125,29 @@ The automation writes pending overlays only and keeps the canonical baseline unc
 
 Deterministic metrics cannot see every layout defect. TM7 persists no connector label geometry, and UI Automation exposes no label element for a connector: the tree carries only a `FocusBorder` spanning the whole route. An agent that reads the rendered screenshots can see defects that no metric will ever score, and this section defines how that observation becomes a layout correction.
 
-Treat the protocol as a documented capability rather than a validated remedy. Its end-to-end effectiveness has not yet been demonstrated on a real defect.
+The review is a default step, not an opt-in one. Every run that captured at least one surface and either passed the automated gates or stopped for layout exhaustion emits `agent-review-request.json` at the evidence root, and the run is not finished until that review happens. `automated-ready-pending-human` means the automated gates passed and the result is waiting for review; it is not an approval.
+
+Treat the protocol's remedy as documented rather than proven. Its end-to-end effectiveness has not yet been demonstrated on a real defect.
 
 #### Protocol
 
 1. Run the harness with `--feedback-loop` and let it write the evidence bundle.
-2. Read `iterations/*/screenshots/*.png` alongside `feedback-manifest.json` at the evidence root and the UI Automation tree at each surface's `uia_path`.
-3. Judge the render against the defect classes no metric covers: label-on-node collision, label-on-label overlap, unreadable or truncated label text, connector routing through empty space, and visual crowding that leaves individually legible elements unreadable as a whole.
-4. Translate the observation into model coordinates using the procedure below. This is the step where the procedure succeeds or fails.
-5. Author rules into the published overlay seed, using any of `zone_rules`, `node_rules`, `connector_rules`, and `surface_rules`. Leave the `invalidation` block untouched; editing a fingerprint invalidates the overlay.
+2. Read `agent-review-request.json` at the evidence root. It carries, per surface, the screenshot and UIA paths, the node and zone rectangles, the connector handle points, and the predicted label rectangles, all in model coordinates, plus the coordinate-translation constants and the port convention. Fall back to the raw UIA tree at each surface's `uia_path` only when the request is absent or a value it does not carry is needed.
+3. Read the screenshots the request points at. Judge the render against the defect classes no metric covers, which the request lists: label-on-node collision, label-on-label overlap, unreadable or truncated label text, connector routing through empty space, and visual crowding that leaves individually legible elements unreadable as a whole.
+4. Translate the observation into model coordinates. The request supplies current values, so a displacement can usually be computed without the procedure below; use it when a value must be recovered from a screenshot.
+5. Author rules into the published overlay at `--overlay-output`, using any of `zone_rules`, `node_rules`, `connector_rules`, and `surface_rules`. On the success path that overlay addresses every captured surface, so a rule can be authored for any of them; when the run found no automated correction it is the seed shape, carrying an `overlay-seed-` identifier and empty rule collections. Leave the `invalidation` block untouched; editing a fingerprint invalidates the overlay.
 6. Replay the edited overlay with `--overlay-input` and compare the new screenshots against the previous iteration.
-7. Stop after at most three attempts for a given surface, or earlier once the defect is resolved. This bound governs agent attempts and is counted separately from the harness's own iteration budget.
+7. Stop after at most three attempts for a given surface, or earlier once the defect is resolved. This bound governs agent attempts and is counted separately from the harness's own iteration budget. Attempts accumulate per surface across the whole review cycle, including replays and separate agent sessions, and reset only when a spec or profile change produces a new baseline. A `surface_rules` canvas enlargement is an attempt like any other.
+
+#### Request payload
+
+`agent-review-request.json` is validated by [assets/schemas/tm7-agent-review-request.schema.json](../assets/schemas/tm7-agent-review-request.schema.json), which rejects unknown keys.
+
+Per surface it carries `surface_id`, `surface_name`, `surface_guid`, `screenshot_path`, `uia_path`, `metrics_path`, `node_rects`, `predicted_connector_label_rects`, `connector_handles`, `zone_content_rects`, `boundary_rects`, `viewport_target`, `diagram_bounds`, `existing_findings`, and `review_status`.
+
+At run level it carries `defect_classes`, `coordinate_translation`, `port_convention`, `overlay_seed_path`, `replay_command`, and `agent_round`. `overlay_seed_path` is `null` unless this run published an overlay. `replay_command` is reserved and is always `null` today, because the harness does not reconstruct its own invocation. `agent_round` is replay depth, `0` on an initial run and `1` when `--overlay-input` was supplied; it is not a claim about how many agent rounds have run, because the harness cannot see across invocations.
+
+`predicted_connector_label_rects` are predictions from the generator's own placement search, not measurements of what the tool drew. Treat them as a hint about where a label will land, never as evidence of where it is.
 
 #### Rule fields
 
@@ -134,9 +160,13 @@ Each collection accepts a fixed key set, and an unknown key is rejected rather t
 | `connector_rules` | `surface_id`, `flow_id`, `source_port`, `target_port`, `handle_point`, `label_offset` |
 | `surface_rules`   | `surface_id`, `zone_order`, `orientation`, `viewport_target`, `outer_margin`          |
 
-Rule values are absolute model coordinates, not displacements. A translation step yields how far an element must move; the rule requires where it must end up. Read the current value from the candidate model in the iteration bundle, such as `iterations/00-baseline/candidate-00-baseline.tm7`, and add the displacement to it. For a connector, the current handle is the `HandleX` and `HandleY` pair on that flow.
+Rule values are absolute model coordinates, not displacements. A translation step yields how far an element must move; the rule requires where it must end up. Read the current value from the candidate model in the iteration bundle, such as `iterations/00-baseline/candidate-00-baseline.tm7`, and add the displacement to it. For a connector, the current handle is the `HandleX` and `HandleY` pair on that flow, and `agent-review-request.json` reports it directly as `connector_handles`.
+
+An authored `connector_rules` entry additionally requires non-empty `source_port` and `target_port`; validation rejects the rule before it looks at `handle_point`. Use `"auto"` for both. `handle_point` is an object with `x` and `y` keys, which is the same shape `connector_handles` emits, so a displaced handle can be authored without reshaping it.
 
 #### Coordinate translation
+
+The request payload supplies current node rectangles, zone rectangles, and connector handle points in model coordinates, so most corrections need no recovery step at all. Use this procedure when a value must be measured from a screenshot instead.
 
 `feedback-manifest.json` carries no node rectangles. Its per-surface keys are `capture_path`, `findings`, `human_review_required`, `human_review_status`, `metrics`, `surface_guid`, `surface_id`, `surface_name`, and `uia_path`; there is no `surface_geometry` key at all.
 
@@ -157,7 +187,7 @@ Worked example: a label whose right edge sits 60 screen pixels inside a node's l
 Three measured facts govern any rule that moves a connector label:
 
 * `handle_point` is the only lever that reaches the renderer. It is serialized as `HandleX` and `HandleY` on the connector.
-* `label_offset` does not reach the renderer. It feeds the generator's own placement search and shapes the predicted `label_rect`, which is never written to the model. Authoring `label_offset` alone to move a drawn label produces no visible change.
+* `label_offset` has no effect and is ignored. It formerly displaced the predicted `label_rect` without moving the drawn label, so the placement search preferred offsets that appeared to clear obstacles while the render did not change. Measured over the comprehensive spec, 53 of 55 labels had a prediction that disagreed with the render, and the generator scored 2 collisions where TMT drew 46. The generator now searches handles alone, so the predicted rect always equals the rendered rect. The key is still accepted for schema compatibility.
 * TMT draws each connector label centred on its handle point. It does not place the label's top-left corner there. Four labels on the `ctx-01` surface were extracted from a render screenshot and all four fit `label_centre_screen = 1.5 * handle_model + (-4.5, -3)` exactly on both axes. A competing hypothesis that labels anchor to the route midpoint was ruled out by the same measurement.
 
 To move a label, move `handle_point` by the required model displacement and predict the resulting position by assuming centring.

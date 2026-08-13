@@ -1398,6 +1398,351 @@ def test_given_no_captured_surface_when_seed_built_then_raises() -> None:
         )
 
 
+def _review_overlay_context() -> Any:
+    """Build a two-surface overlay context for review-request tests."""
+    return validate_tm7_with_tmt.tm7_visual_feedback.OverlayContext(
+        model_id="demo-model",
+        spec_path=Path("spec.yaml"),
+        spec_sha256="abc",
+        generator_profile="default",
+        generator_profile_sha256="def",
+        surface_ids={"context", "operational"},
+        surface_node_ids={
+            "context": {"portal"},
+            "operational": {"ops"},
+        },
+        surface_flow_ids={"context": {"flow-01"}, "operational": set()},
+    )
+
+
+def _review_metric(surface_id: str) -> dict[str, Any]:
+    """Build one surface metric carrying the geometry the request lifts."""
+    return {
+        "surface_id": surface_id,
+        "surface_name": f"{surface_id} surface",
+        "evidence_path": f"screenshots/{surface_id}.png",
+        "findings": [],
+        "surface_geometry": {
+            "node_rects": {"portal": [10.0, 20.0, 110.0, 120.0]},
+            "connector_label_rects": {"flow-01": [5.0, 6.0, 7.0, 8.0]},
+            "connector_routes": {"flow-01": {"handle_point": [200.0, 300.0]}},
+            "selected_flow_ids": ["flow-01"],
+            "zone_content_rects": {"zone-01": [0.0, 0.0, 400.0, 400.0]},
+            "boundary_rects": {"zone-01": [0.0, 0.0, 400.0, 400.0]},
+            "viewport_target": [0.0, 0.0, 1200.0, 800.0],
+            "diagram_bounds": [0.0, 0.0, 600.0, 600.0],
+        },
+    }
+
+
+def test_given_captured_surfaces_when_request_built_then_payload_is_sufficient(
+    tmp_path: Path,
+) -> None:
+    """The payload alone must support authoring a connector rule.
+
+    Key presence is not sufficiency: a request can carry every named key with
+    no usable handle and still look complete, so this asserts the round trip
+    an agent actually performs.
+    """
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+    overlay_context = _review_overlay_context()
+
+    # Act
+    request = validate_tm7_with_tmt._build_agent_review_request(
+        final_surface_metrics=[_review_metric("context")],
+        final_surface_payloads=[
+            {
+                "surface_id": "context",
+                "surface_guid": "guid-context",
+                "uia_path": "uia/context.txt",
+            }
+        ],
+        semantic_surfaces={},
+        published_overlay_path=None,
+        overlay_input=None,
+        bundle=bundle,
+    )
+
+    # Assert
+    assert request is not None
+    surface = request["surfaces"][0]
+    for key in (
+        "surface_id",
+        "surface_name",
+        "surface_guid",
+        "screenshot_path",
+        "uia_path",
+        "metrics_path",
+        "node_rects",
+        "predicted_connector_label_rects",
+        "connector_handles",
+        "zone_content_rects",
+        "boundary_rects",
+        "viewport_target",
+        "diagram_bounds",
+        "existing_findings",
+        "review_status",
+    ):
+        assert key in surface
+    for key in (
+        "defect_classes",
+        "coordinate_translation",
+        "port_convention",
+        "overlay_seed_path",
+        "replay_command",
+        "agent_round",
+    ):
+        assert key in request
+    # The sentinel means the manifest could not resolve a real capture; the
+    # request must never propagate it as though it were a path.
+    assert surface["uia_path"] != "missing"
+    assert surface["connector_handles"]["flow-01"] == {"x": 200.0, "y": 300.0}
+    assert request["overlay_seed_path"] is None
+    assert request["replay_command"] is None
+    assert request["agent_round"] == 0
+
+    # A rule built only from payload values must survive real validation.
+    # handle_point is an object, and connector_handles already emits that
+    # shape, so a displaced handle is authored without reshaping anything.
+    handle = surface["connector_handles"]["flow-01"]
+    overlay = validate_tm7_with_tmt._build_overlay_seed(
+        spec_path=Path("spec.yaml"),
+        overlay_context=overlay_context,
+        iteration_id=0,
+        spec_sha256="abc",
+        generator_profile="default",
+        generator_profile_sha256="def",
+        evidence_dir=tmp_path / "evidence",
+    )
+    overlay["connector_rules"] = [
+        {
+            "surface_id": surface["surface_id"],
+            "flow_id": "flow-01",
+            "source_port": "auto",
+            "target_port": "auto",
+            "handle_point": {"x": handle["x"] + 50.0, "y": handle["y"]},
+        }
+    ]
+    validate_tm7_with_tmt.tm7_visual_feedback.validate_layout_overlay(
+        overlay,
+        overlay_context,
+    )
+
+
+def test_given_no_surface_metrics_when_request_built_then_returns_none(
+    tmp_path: Path,
+) -> None:
+    """A request addressing nothing would invite review of nothing."""
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act
+    request = validate_tm7_with_tmt._build_agent_review_request(
+        final_surface_metrics=[],
+        final_surface_payloads=[],
+        semantic_surfaces={},
+        published_overlay_path=None,
+        overlay_input=None,
+        bundle=bundle,
+    )
+
+    # Assert
+    assert request is None
+
+
+def test_given_replay_input_when_request_built_then_round_is_replay_depth(
+    tmp_path: Path,
+) -> None:
+    """agent_round reports replay depth, not a budget the harness cannot see."""
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act
+    request = validate_tm7_with_tmt._build_agent_review_request(
+        final_surface_metrics=[_review_metric("context")],
+        final_surface_payloads=[
+            {"surface_id": "context", "uia_path": "uia/context.txt"}
+        ],
+        semantic_surfaces={},
+        published_overlay_path=None,
+        overlay_input=Path("prior-overlay.json"),
+        bundle=bundle,
+    )
+
+    # Assert
+    assert request is not None
+    assert request["agent_round"] == 1
+
+
+def test_given_request_payload_when_validated_then_schema_stays_strict(
+    tmp_path: Path,
+) -> None:
+    """The request schema must reject an unknown key rather than ignore it."""
+    # Arrange
+    schema_path = (
+        Path(validate_tm7_with_tmt.__file__).resolve().parent.parent
+        / "assets"
+        / "schemas"
+        / "tm7-agent-review-request.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+    request = validate_tm7_with_tmt._build_agent_review_request(
+        final_surface_metrics=[_review_metric("context")],
+        final_surface_payloads=[
+            {"surface_id": "context", "uia_path": "uia/context.txt"}
+        ],
+        semantic_surfaces={},
+        published_overlay_path=None,
+        overlay_input=None,
+        bundle=bundle,
+    )
+
+    # Assert
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["surfaces"]["items"]["additionalProperties"] is False
+    assert request is not None
+    assert set(request) == set(schema["required"])
+    assert set(request["surfaces"][0]) == set(
+        schema["properties"]["surfaces"]["items"]["required"]
+    )
+
+
+def test_given_exit_codes_when_inspected_then_table_is_unchanged() -> None:
+    """The published exit-code table is a contract this task preserves."""
+    # Assert
+    assert {
+        "EXIT_SUCCESS": validate_tm7_with_tmt.EXIT_SUCCESS,
+        "EXIT_VALIDATION_FAILURE": validate_tm7_with_tmt.EXIT_VALIDATION_FAILURE,
+        "EXIT_ERROR": validate_tm7_with_tmt.EXIT_ERROR,
+        "EXIT_MISSING_TMT": validate_tm7_with_tmt.EXIT_MISSING_TMT,
+        "EXIT_VERSION_MISMATCH": validate_tm7_with_tmt.EXIT_VERSION_MISMATCH,
+        "EXIT_AUTOMATION_TIMEOUT": validate_tm7_with_tmt.EXIT_AUTOMATION_TIMEOUT,
+        "EXIT_UNEXPECTED_MODAL": validate_tm7_with_tmt.EXIT_UNEXPECTED_MODAL,
+        "EXIT_MISSING_FEEDBACK_EVIDENCE": (
+            validate_tm7_with_tmt.EXIT_MISSING_FEEDBACK_EVIDENCE
+        ),
+        "EXIT_FEEDBACK_NON_CONVERGENCE": (
+            validate_tm7_with_tmt.EXIT_FEEDBACK_NON_CONVERGENCE
+        ),
+        "EXIT_INTERRUPTED": validate_tm7_with_tmt.EXIT_INTERRUPTED,
+    } == {
+        "EXIT_SUCCESS": 0,
+        "EXIT_VALIDATION_FAILURE": 1,
+        "EXIT_ERROR": 2,
+        "EXIT_MISSING_TMT": 3,
+        "EXIT_VERSION_MISMATCH": 4,
+        "EXIT_AUTOMATION_TIMEOUT": 5,
+        "EXIT_UNEXPECTED_MODAL": 6,
+        "EXIT_MISSING_FEEDBACK_EVIDENCE": 7,
+        "EXIT_FEEDBACK_NON_CONVERGENCE": 8,
+        "EXIT_INTERRUPTED": 130,
+    }
+
+
+def test_given_stop_reason_set_when_inspected_then_membership_is_unchanged() -> None:
+    """The published stop-reason vocabulary is a contract this task preserves."""
+    # Assert
+    assert validate_tm7_with_tmt.FEEDBACK_STOP_REASONS == frozenset(
+        {
+            "automated-ready-pending-human",
+            "repeated-defect-no-improvement",
+            "max-iterations",
+            "evidence-incomplete",
+            "semantic-regression",
+            "candidate-generation-failed",
+            "overlay-validation-failed",
+            "tmt-unavailable",
+            "skipped",
+            "version-mismatch",
+            "automation-timeout",
+            "unexpected-modal",
+            "harness-error",
+        }
+    )
+    assert validate_tm7_with_tmt.OVERLAY_SEED_STOP_REASONS == frozenset(
+        {"repeated-defect-no-improvement", "max-iterations"}
+    )
+
+
+def test_given_manifest_schema_when_inspected_then_key_sets_are_unchanged() -> None:
+    """A version constant can stay fixed while properties drift, so pin keys."""
+    # Arrange
+    schema_path = (
+        Path(validate_tm7_with_tmt.__file__).resolve().parent.parent
+        / "assets"
+        / "schemas"
+        / "tm7-visual-feedback-manifest.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    # Assert
+    assert set(schema["properties"]["convergence"]["properties"]) == {
+        "status",
+        "selected_candidate",
+        "stop_reason",
+        "semantic_regression",
+        "evidence_complete",
+    }
+    assert schema["properties"]["convergence"]["additionalProperties"] is False
+
+
+def test_given_default_iteration_budget_when_read_then_it_is_one_refinement() -> None:
+    """The default is baseline plus one refinement; the range is unchanged."""
+    # Assert
+    assert validate_tm7_with_tmt.DEFAULT_MAX_ITERATIONS == 1
+    for accepted in (1, 2, 3):
+        validate_tm7_with_tmt._validate_feedback_loop_args(
+            feedback_loop=True,
+            spec_path=Path("spec.yaml"),
+            overlay_output=Path("overlay.json"),
+            max_iterations=accepted,
+        )
+    for rejected in (0, 4):
+        with pytest.raises(validate_tm7_with_tmt.HarnessFailure):
+            validate_tm7_with_tmt._validate_feedback_loop_args(
+                feedback_loop=True,
+                spec_path=Path("spec.yaml"),
+                overlay_output=Path("overlay.json"),
+                max_iterations=rejected,
+            )
+
+
+def test_given_status_payload_when_review_omitted_then_no_agent_review_key(
+    tmp_path: Path,
+) -> None:
+    """_status_payload is shared, so non-feedback runs gain no new key."""
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+    bundle.evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    # Act
+    without = validate_tm7_with_tmt._status_payload(
+        result="skipped",
+        exit_code=0,
+        message="no tmt",
+        bundle=bundle,
+        manifest={"required_tmt_version": "7.3.51110.1"},
+    )
+    with_review = validate_tm7_with_tmt._status_payload(
+        result="automated-ready-pending-human",
+        exit_code=0,
+        message="ready",
+        bundle=bundle,
+        manifest={"required_tmt_version": "7.3.51110.1"},
+        agent_review={
+            "status": "pending",
+            "request_path": "agent-review-request.json",
+            "round": 0,
+        },
+    )
+
+    # Assert
+    assert "agent_review" not in without
+    assert with_review["agent_review"]["status"] == "pending"
+
+
 def test_given_feedback_success_when_run_then_emits_start_progress_and_release(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2739,21 +3084,31 @@ def test_given_no_improving_alternative_when_refining_then_launch_is_refused() -
             "surface_id": "context",
             "surface_geometry": {
                 "surface_id": "context",
-                "orientation": "horizontal",
                 "node_rects": {"node-a": [0.0, 0.0, 100.0, 100.0]},
                 "zone_content_rects": {"zone-a": [0.0, 0.0, 400.0, 400.0]},
-                "node_ranks": {"node-a": 0},
-                "branch_groups": {"node-a": 0},
                 "viewport_target": [0.0, 0.0, 1920.0, 1080.0],
             },
         }
     ]
+    # Orientation, ranks, and branches describe what the generator decided, so
+    # they are sourced from the layout metadata it publishes. The capture
+    # payload never carried them.
+    semantic_surfaces = {
+        "context": {
+            "layout_metadata": {
+                "orientation": "horizontal",
+                "zone_order": ["zone-a"],
+                "node_ranks": {"node-a": 0},
+                "branch_groups": {"node-a": 0},
+            }
+        }
+    }
 
     # Act
     decision = validate_tm7_with_tmt._evaluate_surface_refinement(
         surface_metrics=surface_metrics,
         failing_candidates=[{"surface_id": "context"}],
-        semantic_surfaces={},
+        semantic_surfaces=semantic_surfaces,
     )
 
     # Assert
@@ -2769,15 +3124,640 @@ def test_given_improvable_surface_when_refining_then_launch_is_allowed() -> None
             "surface_id": "context",
             "surface_geometry": {
                 "surface_id": "context",
-                "orientation": "vertical",
                 "node_rects": {"node-a": [0.0, 0.0, 100.0, 100.0]},
                 "zone_content_rects": {
                     "zone-a": [0.0, 0.0, 400.0, 400.0],
                     "zone-b": [410.0, 0.0, 800.0, 400.0],
                 },
+                "viewport_target": [0.0, 0.0, 1920.0, 1080.0],
+            },
+        }
+    ]
+    # A vertical incumbent is reachable in production: the generator selects an
+    # orientation from its own candidate set and publishes the one it used.
+    # Sourcing it from the capture payload, as this fixture previously did, was
+    # not reachable, because capture never wrote that key.
+    semantic_surfaces = {
+        "context": {
+            "layout_metadata": {
+                "orientation": "vertical",
+                "zone_order": ["zone-a", "zone-b"],
                 "node_ranks": {"node-a": 0},
                 "branch_groups": {"node-a": 0},
-                "viewport_target": [0.0, 0.0, 1920.0, 1080.0],
+            }
+        }
+    }
+
+    # Act
+    decision = validate_tm7_with_tmt._evaluate_surface_refinement(
+        surface_metrics=surface_metrics,
+        failing_candidates=[{"surface_id": "context"}],
+        semantic_surfaces=semantic_surfaces,
+    )
+
+    # Assert
+    assert decision is not None
+    assert decision["requires_native_launch"] is True
+    assert decision["selected"]["orientation"] == "horizontal"
+
+
+def test_given_identifier_keys_when_redacting_then_geometry_survives(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+    payload = {
+        "surface_geometry": {
+            "node_rects": {
+                # Every one of these node ids contains a substring the
+                # credential pattern matches: token, secret, sig, sas.
+                "comp-tokencache": [1.0, 2.0, 3.0, 4.0],
+                "svc-secretstore": [5.0, 6.0, 7.0, 8.0],
+                "api-signals": [9.0, 10.0, 11.0, 12.0],
+                "db-saservice": [13.0, 14.0, 15.0, 16.0],
+            },
+            "node_ranks": {"comp-tokencache": 0},
+            "zone_membership": {"comp-tokencache": "zone-a"},
+            "connector_routes": {
+                "flow-token-refresh": {
+                    "source_id": "comp-tokencache",
+                    "target_id": "api-signals",
+                    "source_point": [1.0, 2.0],
+                }
+            },
+        }
+    }
+
+    # Act
+    written = bundle.write_status(payload)
+
+    # Assert
+    geometry = written["surface_geometry"]
+    # A node rectangle is four numbers. It is never a credential, and losing it
+    # removes geometry the agent review protocol requires.
+    assert geometry["node_rects"]["comp-tokencache"] == [1.0, 2.0, 3.0, 4.0]
+    assert geometry["node_rects"]["svc-secretstore"] == [5.0, 6.0, 7.0, 8.0]
+    assert geometry["node_rects"]["api-signals"] == [9.0, 10.0, 11.0, 12.0]
+    assert geometry["node_rects"]["db-saservice"] == [13.0, 14.0, 15.0, 16.0]
+    assert geometry["node_ranks"]["comp-tokencache"] == 0
+    assert geometry["zone_membership"]["comp-tokencache"] == "zone-a"
+    # Nesting still resolves correctly: the flow id is an identifier, but the
+    # field names inside its route are field names again.
+    assert geometry["connector_routes"]["flow-token-refresh"]["source_point"] == [
+        1.0,
+        2.0,
+    ]
+
+
+def test_given_credential_field_when_redacting_then_it_is_still_removed(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+    payload = {
+        "authorization": "Bearer abcdefghijklmnop",
+        "client_secret": "hunter2",
+        "api_key": "AKIAIOSFODNN7EXAMPLE",
+        "nested": {"password": "hunter2"},
+        "surface_geometry": {
+            # An identifier-keyed container must not become a hiding place: a
+            # string value under an identifier key is still text-redacted.
+            "layout_roles": {"comp-tokencache": "password=hunter2"},
+        },
+    }
+
+    # Act
+    written = bundle.write_status(payload)
+
+    # Assert
+    assert written["authorization"] == "[REDACTED]"
+    assert written["client_secret"] == "[REDACTED]"
+    assert written["api_key"] == "[REDACTED]"
+    assert written["nested"]["password"] == "[REDACTED]"
+    assert "hunter2" not in json.dumps(written)
+
+
+def test_given_refinement_decision_when_evaluated_then_counts_are_logged(
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    bundle = validate_tm7_with_tmt.EvidenceBundle(tmp_path / "evidence")
+
+    # Act
+    bundle.write_action_log(
+        "Refinement evaluated surface=context evaluated=12 pruned=3 "
+        "semantic_rejected=0 unrealizable_rejected=20 launch=False"
+    )
+    logged = bundle.action_log_path.read_text(encoding="utf-8")
+
+    # Assert
+    # The action log is the operator-facing record, so the counts have to
+    # survive redaction intact to be worth writing.
+    assert "evaluated=12" in logged
+    assert "unrealizable_rejected=20" in logged
+    assert "launch=False" in logged
+
+
+def _overlay_context_for(surface_id: str) -> Any:
+    import tm7_visual_feedback as feedback
+
+    return feedback.OverlayContext(
+        model_id="demo-model",
+        spec_path=Path("threat-model-spec.yaml"),
+        spec_sha256="abc",
+        generator_profile="default",
+        generator_profile_sha256="def",
+        surface_ids={surface_id},
+        surface_node_ids={surface_id: {"node-a", "node-b"}},
+        surface_zone_ids={surface_id: {"zone-a", "zone-b"}},
+        surface_flow_ids={surface_id: {"flow-1"}},
+    )
+
+
+def _starving_metric_payload() -> dict[str, Any]:
+    """A metric carrying the geometry P02 restored, plus a zone gate failure."""
+    return {
+        "surface_id": "context",
+        "node_id": "node-a",
+        "boundary_overlap_count": 1,
+        "connector_label_intersections": 2,
+        "surface_geometry": {
+            "surface_id": "context",
+            "nominal_node_size": 100.0,
+            "node_rects": {
+                "node-a": [0.0, 0.0, 100.0, 100.0],
+                "node-b": [400.0, 0.0, 500.0, 100.0],
+            },
+            "connector_segments": [["node-a", "node-b", [100.0, 50.0], [400.0, 50.0]]],
+            "boundary_rects": {
+                "zone-a": [0.0, 0.0, 300.0, 300.0],
+                "zone-b": [280.0, 0.0, 600.0, 300.0],
+            },
+            "connector_label_rects": {"flow-1": [200.0, 40.0, 280.0, 70.0]},
+            "zone_content_rects": {"zone-a": [0.0, 0.0, 300.0, 300.0]},
+            "viewport_target": [0.0, 0.0, 1920.0, 1080.0],
+        },
+    }
+
+
+def test_given_boundary_rects_when_deriving_then_a_zone_rule_is_reachable() -> None:
+    # Arrange
+    import tm7_visual_feedback as feedback
+
+    metric = _starving_metric_payload()
+    geometry = validate_tm7_with_tmt._surface_geometry_from_payload(
+        surface_id="context",
+        geometry_payload=metric["surface_geometry"],
+    )
+
+    # Act
+    candidates = feedback.derive_overlay_candidates(
+        surface_geometry=geometry,
+        overlay_context=_overlay_context_for("context"),
+        metrics=metric,
+        density="simple",
+    )
+
+    # Assert
+    # The zone branch reads boundary_rects, which the four-field construction
+    # never populated, so before P02 this branch could not execute at all.
+    assert geometry.boundary_rects, "P02 must restore boundary_rects"
+    zone_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.get("rule_collection") == "zone_rules"
+    ]
+    assert zone_candidates, "a boundary_overlap gate failure must reach the zone branch"
+    overlay_rule = zone_candidates[0]["overlay_rule"]
+    assert overlay_rule["zone_id"] in {"zone-a", "zone-b"}
+    assert overlay_rule["region"]["width"] > 0
+
+
+def test_given_label_collisions_when_deriving_then_connector_branch_stays_shut() -> (
+    None
+):
+    # Arrange
+    import tm7_visual_feedback as feedback
+
+    metric = _starving_metric_payload()
+    geometry = validate_tm7_with_tmt._surface_geometry_from_payload(
+        surface_id="context",
+        geometry_payload=metric["surface_geometry"],
+    )
+
+    # Act
+    findings = feedback.derive_findings(metric, density="simple")
+    candidates = feedback.derive_overlay_candidates(
+        surface_geometry=geometry,
+        overlay_context=_overlay_context_for("context"),
+        metrics=metric,
+        density="simple",
+    )
+
+    # Assert
+    # P02 restored connector_label_rects, so the geometry precondition is met.
+    assert geometry.connector_label_rects, "P02 must restore connector_label_rects"
+    # The branch is still unreachable, and this pins why rather than leaving it
+    # to be rediscovered. It requires a review-severity finding in category
+    # connector_label_clearance. No producer emits that category at all, and
+    # the closest metric, connector_label_intersections, is deliberately
+    # reported at warn severity under predicted_label_advisory because
+    # predicted label geometry is reported and not enforced. Restoring the
+    # geometry was necessary but not sufficient.
+    emitted_categories = {str(finding.get("category", "")) for finding in findings}
+    assert "connector_label_clearance" not in emitted_categories
+    label_findings = [
+        finding
+        for finding in findings
+        if finding.get("metric_name") == "connector_label_intersections"
+    ]
+    assert label_findings, "the label metric must still be reported"
+    assert label_findings[0]["severity"] == "warn"
+    assert label_findings[0]["category"] == "predicted_label_advisory"
+    assert not [
+        candidate
+        for candidate in candidates
+        if candidate.get("rule_collection") == "connector_rules"
+    ]
+
+
+def test_given_invalid_derived_rule_when_merging_then_it_is_dropped() -> None:
+    # Arrange
+    import tm7_visual_feedback as feedback
+
+    fixtures_dir = ROOT / "tests" / "fixtures" / "visual-feedback"
+    overlay_payload = feedback.load_layout_overlay(fixtures_dir / "valid-overlay.yaml")
+    context = feedback.OverlayContext(
+        model_id="demo-model",
+        spec_path=Path("threat-model-spec.yaml"),
+        spec_sha256="abc",
+        generator_profile="default",
+        generator_profile_sha256="def",
+        surface_ids={"context"},
+        surface_node_ids={"context": {"trust-zone-portal", "trust-zone-identity"}},
+        surface_zone_ids={"context": {"trust-zone-portal"}},
+        surface_flow_ids={"context": {"flow-001"}},
+    )
+    valid_candidate = {
+        "surface_id": "context",
+        "target_type": "node",
+        "target_id": "trust-zone-portal",
+        "constraint_type": "position",
+        "rule_collection": "node_rules",
+        "overlay_rule": {
+            "surface_id": "context",
+            "node_id": "trust-zone-portal",
+            "layout_role": "connected",
+            "absolute_position": {
+                "left": 10.0,
+                "top": 10.0,
+                "width": 100.0,
+                "height": 100.0,
+            },
+        },
+    }
+    # A zone rule naming a zone the context does not know is exactly the shape
+    # that newly became derivable once the zone branch opened.
+    invalid_candidate = {
+        "surface_id": "context",
+        "target_type": "zone",
+        "target_id": "zone-unknown",
+        "constraint_type": "region",
+        "rule_collection": "zone_rules",
+        "overlay_rule": {
+            "surface_id": "context",
+            "zone_id": "zone-unknown",
+            "region": {"left": 1.0, "top": 1.0, "width": 120.0, "height": 120.0},
+            "label_band_height": 36.0,
+            "lane_order": ["connected", "contextual"],
+        },
+    }
+
+    # Act
+    rules, surface_id, first_rejection = validate_tm7_with_tmt._merge_validated_rule(
+        [],
+        None,
+        valid_candidate,
+        overlay_payload=overlay_payload,
+        overlay_context=context,
+        generator_profile="default",
+    )
+    rules_after, _, rejection = validate_tm7_with_tmt._merge_validated_rule(
+        rules,
+        surface_id,
+        invalid_candidate,
+        overlay_payload=overlay_payload,
+        overlay_context=context,
+        generator_profile="default",
+    )
+
+    # Assert
+    assert first_rejection is None
+    assert len(rules) == 1
+    # The rejected rule is dropped and the previously accepted node rule
+    # survives. Both existing validation sites instead set EXIT_ERROR and
+    # break, which would suppress the agent review request and leave the
+    # operator with neither an automated correction nor a review to perform.
+    assert rejection is not None
+    assert "zone_rules" in rejection
+    assert rules_after == rules
+
+
+def _refinement_model() -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Build a real generator model whose surface has several trust zones.
+
+    Refinement can only choose an orientation and a zone order, so a surface
+    needs more than one zone to expose any degree of freedom at all.
+    """
+    import generate_tm7
+
+    surface_id = "refine-context"
+    nodes = [
+        ("n-edge", "Edge", "tz-edge"),
+        ("n-app", "Application", "tz-app"),
+        ("n-data", "Data", "tz-data"),
+        ("n-audit", "Audit", "tz-audit"),
+    ]
+    edges = [
+        ("f-1", "n-edge", "n-app"),
+        ("f-2", "n-app", "n-data"),
+        ("f-3", "n-app", "n-audit"),
+    ]
+    zones = [
+        ("tz-edge", "Edge zone"),
+        ("tz-app", "Application zone"),
+        ("tz-data", "Data zone"),
+        ("tz-audit", "Audit zone"),
+    ]
+    flows = [
+        {
+            "id": flow_id,
+            "source_ref": source_id,
+            "target_ref": target_id,
+            "ordinal": index + 1,
+            "label": f"step {index + 1}",
+        }
+        for index, (flow_id, source_id, target_id) in enumerate(edges)
+    ]
+    spec = {
+        "project_metadata": {"name": surface_id},
+        "representations": {
+            "context_diagrams": [
+                {
+                    "id": surface_id,
+                    "name": "Refinement context",
+                    "trust_zone_ids": [zone_id for zone_id, _ in zones],
+                    "elements": [
+                        {
+                            "id": node_id,
+                            "kind": "process",
+                            "name": name,
+                            "trust_zone_id": zone_id,
+                        }
+                        for node_id, name, zone_id in nodes
+                    ],
+                    "flows": [dict(flow) for flow in flows],
+                }
+            ],
+            "functional_scenarios": [],
+            "operational_views": [],
+        },
+        "data_flows": [dict(flow) for flow in flows],
+        "trust_zones": [
+            {"id": zone_id, "name": zone_name, "description": zone_name}
+            for zone_id, zone_name in zones
+        ],
+        "components": [],
+        "threats": [],
+    }
+    profile = generate_tm7.resolve_profile(spec, None, ROOT)
+    model = generate_tm7.build_model_from_spec(
+        spec,
+        profile,
+        str(spec.get("mode") or "pre-populated-comprehensive"),
+    )
+    return model, profile, surface_id
+
+
+def test_given_laid_out_surface_when_building_geometry_then_shapes_are_measured() -> (
+    None
+):
+    # Arrange
+    import copy as copy_module
+
+    import generate_tm7
+
+    model, profile, surface_id = _refinement_model()
+    laid_out = generate_tm7.apply_layout(copy_module.deepcopy(model), profile)
+    surface = next(
+        item for item in laid_out["surfaces"] if str(item.get("id")) == surface_id
+    )
+
+    # Act
+    geometry = validate_tm7_with_tmt._semantic_surface_geometry(surface)
+
+    # Assert
+    assert geometry.surface_id == surface_id
+    assert set(geometry.node_rects) == {"n-edge", "n-app", "n-data", "n-audit"}
+    assert geometry.boundary_rects, "laid-out zones must produce boundary rects"
+    assert geometry.connector_routes, "laid-out flows must produce routes"
+    assert geometry.node_ranks, "P01 publishes ranks into layout metadata"
+    assert geometry.orientation in {"horizontal", "vertical"}
+    # The builder must work with no capture evidence at all, which is what
+    # makes candidate scoring possible without opening the tool.
+    assert validate_tm7_with_tmt._measured_layout_score(geometry) is not None
+
+
+def test_given_candidate_when_laying_out_then_zone_order_changes_geometry() -> None:
+    # Arrange
+    model, profile, surface_id = _refinement_model()
+    zone_order = ["tz-edge", "tz-app", "tz-data", "tz-audit"]
+
+    # Act
+    first = validate_tm7_with_tmt._lay_out_candidate_surface(
+        generator_model=model,
+        generator_profile=profile,
+        surface_id=surface_id,
+        orientation="horizontal",
+        zone_order=zone_order,
+    )
+    reversed_order = validate_tm7_with_tmt._lay_out_candidate_surface(
+        generator_model=model,
+        generator_profile=profile,
+        surface_id=surface_id,
+        orientation="horizontal",
+        zone_order=list(reversed(zone_order)),
+    )
+
+    # Assert
+    assert first is not None
+    assert reversed_order is not None
+    # A different zone order must actually move geometry, or the candidate
+    # space is a set of identical layouts and no candidate can ever win.
+    assert first.node_rects != reversed_order.node_rects
+    # Laying a candidate out must not mutate the caller's model.
+    assert all(
+        "position" not in element
+        for surface in model.get("surfaces", [])
+        for element in surface.get("elements", [])
+    )
+
+
+def test_given_unrealizable_candidate_when_scoring_then_it_is_rejected() -> None:
+    # Arrange
+    import generate_tm7
+
+    model, profile, surface_id = _refinement_model()
+    original_apply_layout = generate_tm7.apply_layout
+
+    def failing_apply_layout(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise generate_tm7.GenerationError("candidate cannot be realized")
+
+    # Act
+    generate_tm7.apply_layout = failing_apply_layout
+    try:
+        geometry = validate_tm7_with_tmt._lay_out_candidate_surface(
+            generator_model=model,
+            generator_profile=profile,
+            surface_id=surface_id,
+            orientation="vertical",
+            zone_order=["tz-edge"],
+        )
+    finally:
+        generate_tm7.apply_layout = original_apply_layout
+
+    # Assert
+    # A layout the generator refuses is a rejected candidate, not a harness
+    # failure. Letting it propagate would abort the whole run.
+    assert geometry is None
+
+
+def test_given_measured_scoring_when_refining_then_alternatives_are_evaluated() -> None:
+    # Arrange
+    import copy as copy_module
+
+    import generate_tm7
+
+    model, profile, surface_id = _refinement_model()
+    laid_out = generate_tm7.apply_layout(copy_module.deepcopy(model), profile)
+    surface = next(
+        item for item in laid_out["surfaces"] if str(item.get("id")) == surface_id
+    )
+    geometry = validate_tm7_with_tmt._semantic_surface_geometry(surface)
+    surface_metrics = [
+        {
+            "surface_id": surface_id,
+            "surface_geometry": {
+                "surface_id": surface_id,
+                "node_rects": {
+                    node_id: list(rect) for node_id, rect in geometry.node_rects.items()
+                },
+                "zone_content_rects": {
+                    zone_id: list(rect)
+                    for zone_id, rect in geometry.zone_content_rects.items()
+                },
+                "connector_routes": {
+                    flow_id: {"source_id": "", "target_id": ""}
+                    for flow_id in geometry.connector_routes
+                },
+                "viewport_target": list(geometry.viewport_target or (0, 0, 1920, 1080)),
+            },
+        }
+    ]
+    semantic_surfaces = {surface_id: surface}
+
+    # Act
+    decision = validate_tm7_with_tmt._evaluate_surface_refinement(
+        surface_metrics=surface_metrics,
+        failing_candidates=[{"surface_id": surface_id}],
+        semantic_surfaces=semantic_surfaces,
+        generator_model=model,
+        generator_profile=profile,
+    )
+
+    # Assert
+    assert decision is not None
+    # The honesty requirement: a no-improvement verdict may only be reported
+    # after alternatives were genuinely laid out and scored. Reporting it with
+    # an evaluated count of zero is what the loop did before this repair.
+    assert decision["evaluated_count"] > 0
+    if not decision["requires_native_launch"]:
+        assert decision["stop_reason"] == "repeated-defect-no-improvement"
+
+
+def test_given_measured_scoring_when_layout_differs_then_scores_differ() -> None:
+    # Arrange
+    model, profile, surface_id = _refinement_model()
+
+    def score(order: list[str]) -> Any:
+        geometry = validate_tm7_with_tmt._lay_out_candidate_surface(
+            generator_model=model,
+            generator_profile=profile,
+            surface_id=surface_id,
+            orientation="horizontal",
+            zone_order=order,
+        )
+        assert geometry is not None
+        return validate_tm7_with_tmt._measured_layout_score(geometry)
+
+    # Act
+    flow_order = score(["tz-edge", "tz-app", "tz-data", "tz-audit"])
+    scrambled = score(["tz-app", "tz-edge", "tz-data", "tz-audit"])
+
+    # Assert
+    # Measured scoring must tell two real layouts apart. The topology scorer
+    # could not: it saw the same graph either way, which is why the incumbent
+    # was its argmin by construction and no candidate could ever win.
+    assert flow_order != scrambled
+    # Placing the application zone ahead of the edge zone forces the first
+    # flow to double back, so the scrambled order measures worse.
+    assert flow_order < scrambled
+    # Determinism: the same candidate scores the same twice.
+    assert flow_order == score(["tz-edge", "tz-app", "tz-data", "tz-audit"])
+
+
+def test_given_worse_incumbent_when_refining_then_gate_opens() -> None:
+    # Arrange
+    import copy as copy_module
+
+    import generate_tm7
+
+    model, profile, surface_id = _refinement_model()
+    poor_order = ["tz-app", "tz-edge", "tz-data", "tz-audit"]
+    laid_out = generate_tm7.apply_layout(
+        copy_module.deepcopy(model),
+        profile,
+        layout_overlay={
+            "surface_rules": [
+                {
+                    "surface_id": surface_id,
+                    "orientation": "horizontal",
+                    "zone_order": poor_order,
+                }
+            ]
+        },
+    )
+    surface = next(
+        item for item in laid_out["surfaces"] if str(item.get("id")) == surface_id
+    )
+    geometry = validate_tm7_with_tmt._semantic_surface_geometry(surface)
+    surface_metrics = [
+        {
+            "surface_id": surface_id,
+            "surface_geometry": {
+                "surface_id": surface_id,
+                "node_rects": {
+                    node_id: list(rect) for node_id, rect in geometry.node_rects.items()
+                },
+                "zone_content_rects": {
+                    zone_id: list(rect)
+                    for zone_id, rect in geometry.zone_content_rects.items()
+                },
+                "connector_routes": {
+                    flow_id: {"source_id": "", "target_id": ""}
+                    for flow_id in geometry.connector_routes
+                },
+                "viewport_target": list(geometry.viewport_target or (0, 0, 1920, 1080)),
             },
         }
     ]
@@ -2785,14 +3765,153 @@ def test_given_improvable_surface_when_refining_then_launch_is_allowed() -> None
     # Act
     decision = validate_tm7_with_tmt._evaluate_surface_refinement(
         surface_metrics=surface_metrics,
-        failing_candidates=[{"surface_id": "context"}],
-        semantic_surfaces={},
+        failing_candidates=[{"surface_id": surface_id}],
+        semantic_surfaces={surface_id: surface},
+        generator_model=model,
+        generator_profile=profile,
     )
 
     # Assert
     assert decision is not None
+    # This is the behavior the whole repair exists for: a surface laid out in a
+    # measurably worse arrangement finds a better one and earns its iteration.
+    # Every fixture value here is reachable in production.
     assert decision["requires_native_launch"] is True
-    assert decision["selected"]["orientation"] == "horizontal"
+    assert decision["selected"] is not None
+    assert decision["evaluated_count"] > 0
+    selected_score = validate_tm7_with_tmt._measured_layout_score(
+        validate_tm7_with_tmt._lay_out_candidate_surface(
+            generator_model=model,
+            generator_profile=profile,
+            surface_id=surface_id,
+            orientation=str(decision["selected"]["orientation"]),
+            zone_order=list(decision["selected"]["zone_order"]),
+        )
+    )
+    incumbent_score = validate_tm7_with_tmt._measured_layout_score(geometry)
+    assert selected_score < incumbent_score
+
+
+def test_given_overflowing_orientation_when_laying_out_then_candidate_is_rejected() -> (
+    None
+):
+    # Arrange
+    model, profile, surface_id = _refinement_model()
+
+    # Act
+    vertical = validate_tm7_with_tmt._lay_out_candidate_surface(
+        generator_model=model,
+        generator_profile=profile,
+        surface_id=surface_id,
+        orientation="vertical",
+        zone_order=["tz-edge", "tz-app", "tz-data", "tz-audit"],
+    )
+
+    # Assert
+    # Stacking four zones vertically overruns the bounded canvas, so the
+    # generator refuses the layout. Roughly half this surface's candidate
+    # space is unrealizable, which is why rejection has to be ordinary
+    # control flow rather than an error that ends the run.
+    assert vertical is None
+
+
+def test_given_viewport_when_scoring_candidate_then_it_reaches_layout() -> None:
+    # Arrange
+    import generate_tm7
+
+    model, profile, surface_id = _refinement_model()
+    zone_order = ["tz-edge", "tz-app", "tz-data", "tz-audit"]
+    # Deliberately not the default canvas. The default is derived as
+    # 1920 / TMT_RENDER_ZOOM, so a literal 1280x720 would silently equal it and
+    # the test would prove nothing.
+    narrow = (0.0, 0.0, 900.0, 900.0)
+    assert narrow[2] != generate_tm7.DEFAULT_VIEWPORT_WIDTH
+
+    # Act
+    default_canvas = validate_tm7_with_tmt._lay_out_candidate_surface(
+        generator_model=model,
+        generator_profile=profile,
+        surface_id=surface_id,
+        orientation="horizontal",
+        zone_order=zone_order,
+    )
+    narrow_canvas = validate_tm7_with_tmt._lay_out_candidate_surface(
+        generator_model=model,
+        generator_profile=profile,
+        surface_id=surface_id,
+        orientation="horizontal",
+        zone_order=zone_order,
+        viewport_target=narrow,
+    )
+
+    # Assert
+    assert default_canvas is not None
+    assert narrow_canvas is not None
+    # The candidate must be laid out against the canvas it will be replayed
+    # against. Scoring on the default canvas while the emitted rule carries the
+    # measured one compares a layout the next iteration will never build.
+    assert narrow_canvas.viewport_target == narrow
+    assert default_canvas.viewport_target == (
+        0.0,
+        0.0,
+        generate_tm7.DEFAULT_VIEWPORT_WIDTH,
+        generate_tm7.DEFAULT_VIEWPORT_HEIGHT,
+    )
+    assert validate_tm7_with_tmt._measured_layout_score(
+        default_canvas
+    ) != validate_tm7_with_tmt._measured_layout_score(narrow_canvas)
+
+
+def test_given_selection_when_building_rule_then_surface_settings_are_carried() -> None:
+    # Arrange
+    decision = {
+        "surface_id": "context",
+        "requires_native_launch": True,
+        "selected": {
+            "orientation": "vertical",
+            "zone_order": ["zone-b", "zone-a"],
+        },
+    }
+    surface_metrics = [
+        {
+            "surface_id": "context",
+            "surface_geometry": {"viewport_target": [0.0, 0.0, 1600.0, 900.0]},
+        }
+    ]
+
+    # Act
+    rule = validate_tm7_with_tmt._refinement_surface_rule_candidate(
+        refinement_decision=decision,
+        surface_metrics=surface_metrics,
+    )
+
+    # Assert
+    # Before this, selected, selected_candidate_id, and selected_score had no
+    # reader anywhere, so a launched iteration regenerated the unchanged model.
+    assert rule is not None
+    assert rule["rule_collection"] == "surface_rules"
+    overlay_rule = rule["overlay_rule"]
+    assert overlay_rule["orientation"] == "vertical"
+    assert overlay_rule["zone_order"] == ["zone-b", "zone-a"]
+    assert overlay_rule["viewport_target"]["width"] == 1600.0
+
+
+def test_given_no_launch_when_building_rule_then_nothing_is_carried() -> None:
+    # Arrange
+    decision = {
+        "surface_id": "context",
+        "requires_native_launch": False,
+        "selected": None,
+    }
+
+    # Act
+    rule = validate_tm7_with_tmt._refinement_surface_rule_candidate(
+        refinement_decision=decision,
+        surface_metrics=[],
+    )
+
+    # Assert
+    assert rule is None
 
 
 def test_given_refinement_search_when_building_then_count_is_bounded() -> None:
@@ -3020,6 +4139,172 @@ def test_given_feedback_loop_when_candidate_is_clean_then_writes_pending_overlay
         and surface["human_review_required"] is True
         for surface in feedback_manifest["surfaces"]
     )
+
+
+def _feedback_candidate_result(
+    baseline_model: Path,
+    *,
+    semantic_regression: bool = False,
+) -> dict[str, Any]:
+    """Build a one-surface candidate result for feedback-loop tests."""
+    summary = {
+        "instance_count": 1,
+        "instances": [{"id": "1", "type_id": "TH-test"}],
+        "drawing_surface_hash": "surface",
+        "knowledge_base_hash": "kb",
+    }
+    return {
+        "working_model": str(baseline_model),
+        "saved_model": str(baseline_model),
+        "before_summary": summary,
+        "after_summary": summary,
+        "surface_metrics": [
+            {
+                "surface_id": "context",
+                "node_id": "trust-zone-portal",
+                "gate_failure_count": 0,
+                "review_count": 0,
+                "warn_count": 0,
+                "max_severity_score": 0.0,
+                "constraint_type": "relative_to",
+            }
+        ],
+        "evidence_complete": True,
+        "semantic_regression": semantic_regression,
+        "semantic_summary": {"instance_count": 1},
+        "candidate_path": str(baseline_model),
+    }
+
+
+def _run_feedback_loop_for_test(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    semantic_regression: bool = False,
+) -> tuple[Any, Path, Path]:
+    """Drive one feedback-loop run with the standard automation fakes."""
+    spec_path = tmp_path / "spec.yaml"
+    _write_feedback_spec(spec_path)
+    evidence_dir = tmp_path / "evidence"
+    overlay_output = tmp_path / "overlay-output.yaml"
+    baseline_model = tmp_path / "baseline.tm7"
+    baseline_model.write_text("baseline", encoding="utf-8")
+
+    def fake_generate_candidate(
+        *,
+        spec_path: Path,
+        output_path: Path,
+        **_: Any,
+    ) -> Path:
+        output_path.write_text("candidate", encoding="utf-8")
+        return output_path
+
+    def fake_validate_candidate(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return _feedback_candidate_result(
+            baseline_model,
+            semantic_regression=semantic_regression,
+        )
+
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "discover_tmt_application",
+        lambda: validate_tm7_with_tmt.TmtDiscovery(
+            path=tmp_path / "ThreatModeling.exe",
+            version="7.3.51110.1",
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        validate_tm7_with_tmt.generate_tm7,
+        "generate_tm7_candidate",
+        fake_generate_candidate,
+    )
+    monkeypatch.setattr(
+        validate_tm7_with_tmt,
+        "_validate_feedback_candidate",
+        fake_validate_candidate,
+    )
+
+    result = validate_tm7_with_tmt.run_harness(
+        input_model=baseline_model,
+        evidence_dir=evidence_dir,
+        feedback_loop=True,
+        spec_path=spec_path,
+        overlay_output=overlay_output,
+        max_iterations=1,
+        require_feedback_evidence=False,
+    )
+    return result, evidence_dir, overlay_output
+
+
+def test_given_success_run_when_overlay_published_then_every_surface_is_addressable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reviewer must be able to author a rule for any captured surface.
+
+    The spec declares two surfaces while only one produces metrics. A
+    single-surface applies_to would leave the second unaddressable, and an
+    agent cannot widen it by hand because the five invalidation fingerprints
+    are not authorable.
+    """
+    # Act
+    result, _, overlay_output = _run_feedback_loop_for_test(tmp_path, monkeypatch)
+
+    # Assert
+    assert result.status == "automated-ready-pending-human"
+    payload = json.loads(overlay_output.read_text(encoding="utf-8"))
+    assert sorted(entry["surface_id"] for entry in payload["applies_to"]) == [
+        "context",
+        "other",
+    ]
+
+
+def test_given_clean_success_when_no_correction_found_then_seed_shape_is_published(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A success with nothing to correct publishes the seed shape."""
+    # Act
+    _, _, overlay_output = _run_feedback_loop_for_test(tmp_path, monkeypatch)
+
+    # Assert
+    payload = json.loads(overlay_output.read_text(encoding="utf-8"))
+    assert payload["overlay_id"].startswith("overlay-seed-")
+    assert payload["zone_rules"] == []
+    assert payload["node_rules"] == []
+    assert payload["connector_rules"] == []
+    assert payload["surface_rules"] == []
+
+
+@pytest.mark.parametrize(
+    ("semantic_regression", "expect_request"),
+    [(False, True), (True, False)],
+)
+def test_given_feedback_run_when_resolved_then_request_follows_the_emission_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_regression: bool,
+    expect_request: bool,
+) -> None:
+    """A correctness stop must not invite review of a model under suspicion."""
+    # Act
+    result, evidence_dir, _ = _run_feedback_loop_for_test(
+        tmp_path,
+        monkeypatch,
+        semantic_regression=semantic_regression,
+    )
+
+    # Assert
+    request_path = evidence_dir / "agent-review-request.json"
+    assert request_path.exists() is expect_request
+    status = json.loads((evidence_dir / "status.json").read_text(encoding="utf-8"))
+    if expect_request:
+        assert status["agent_review"]["status"] == "pending"
+        assert status["agent_review"]["request_path"] == "agent-review-request.json"
+    else:
+        assert result.status == "semantic-regression"
+        assert "agent_review" not in status
 
 
 def test_given_feedback_loop_when_tmt_is_unavailable_then_reports_feedback_status(

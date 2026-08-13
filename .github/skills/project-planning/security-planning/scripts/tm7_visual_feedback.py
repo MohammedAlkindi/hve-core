@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -28,6 +29,10 @@ MIN_VISIBLE_COVERAGE_RATIO = 0.999
 # cluster of two is therefore already a defect.
 MAX_HANDLE_CLUSTER_SIZE = 1
 MAX_LABEL_OWNERSHIP_DISTANCE = 120.0
+# The widest a connector label is allowed to render. TMT draws each label
+# centred on its handle point, so layout must reserve half this width beyond the
+# content it annotates or an edge label is truncated by the canvas.
+MAX_CONNECTOR_LABEL_WIDTH = 260.0
 MIN_LABEL_ARROWHEAD_CLEARANCE = 24.0
 MAX_BRANCH_ALIGNMENT_VARIANCE = 4096.0
 MIN_RANK_MONOTONICITY_RATIO = 0.85
@@ -46,9 +51,21 @@ MAX_VIEWPORT_FILL_WIDTH_RATIO = 0.92
 MAX_ENDPOINT_ATTACHMENT_GAP = 1.0
 
 # Whole-surface refinement search bounds. Each refinement evaluates complete
-# alternatives rather than single-rule symptom corrections.
-MIN_SURFACE_REFINEMENT_CANDIDATES = 96
-MAX_SURFACE_REFINEMENT_CANDIDATES = 192
+# alternatives rather than single-rule symptom corrections. Only an orientation
+# and a zone order can reach layout, so the space is the distinct pairs of
+# those two: two orientations times a zone-order set capped at eight rotations
+# and their reversals, giving a structural ceiling of 32. Earlier revisions also
+# varied a rank spacing and a branch offset, inflating the ceiling to 192; those
+# two had no overlay channel, so their variants produced byte-identical layouts
+# and, once candidates were scored on measured geometry, exact ties. Ties are
+# not free: dominated-candidate pruning discards equal scores and selection
+# demands a strict improvement, so the duplicates made the gate harder to open.
+SURFACE_REFINEMENT_ZONE_ROTATION_CAP = 8
+MAX_SURFACE_REFINEMENT_CANDIDATES = 32
+# A surface carrying at least the rotation cap of zones enumerates the whole
+# space, so a smaller count means the enumeration collapsed rather than that the
+# surface was small.
+MIN_SURFACE_REFINEMENT_CANDIDATES = 32
 ALLOWED_TOP_LEVEL_OVERLAY_KEYS = {
     "schema_version",
     "overlay_type",
@@ -355,7 +372,7 @@ def build_connector_label_layout(
     display_label = " over ".join(part for part in [label_text, transport_text] if part)
     label_lines = _wrap_label_lines(display_label)
     max_line_length = max(len(line) for line in label_lines)
-    width = max(120.0, min(260.0, float(max_line_length * 8 + 16)))
+    width = max(120.0, min(MAX_CONNECTOR_LABEL_WIDTH, float(max_line_length * 8 + 16)))
     height = max(28.0, float(len(label_lines) * 24 + 8))
     # TMT draws the label centred on the handle point, so the predicted rect
     # is derived from the centre outwards. Anchoring the rect's top-left at
@@ -2864,6 +2881,7 @@ def select_surface_refinement(
     incumbent_semantic_fingerprint: str,
     candidates: list[dict[str, Any]],
     viewport_target: tuple[float, float, float, float] | None = None,
+    score_candidate: Callable[[dict[str, Any]], tuple[float, ...] | None] | None = None,
 ) -> dict[str, Any]:
     """Select one whole-surface alternative that strictly improves portable gates.
 
@@ -2871,24 +2889,42 @@ def select_surface_refinement(
     a readability refinement can never silently alter the modeled system. When no
     surviving candidate improves the incumbent score tuple the result reports
     ``repeated-defect-no-improvement`` so the caller skips the native launch.
+
+    ``score_candidate`` lets a caller that can lay a candidate out score it on
+    measured geometry instead. The default scorer sees graph topology only, and
+    generation already minimized that same function when it chose the shipped
+    layout, so the incumbent is its argmin by construction and no alternative
+    can strictly improve on it. A caller supplying measured geometry is scoring
+    something generation could not have known: what the tool actually drew.
+    Returning ``None`` rejects a candidate, which is how a layout that cannot be
+    realized is dropped without failing the run. The incumbent score must come
+    from the same scorer, or the comparison is meaningless.
     """
 
     bounded_candidates = candidates[:MAX_SURFACE_REFINEMENT_CANDIDATES]
     scored: list[dict[str, Any]] = []
     semantic_rejected: list[str] = []
+    unrealizable_rejected: list[str] = []
     for index, candidate in enumerate(bounded_candidates):
         candidate_id = str(candidate.get("candidate_id") or f"candidate-{index:04d}")
         if surface_semantic_fingerprint(candidate) != incumbent_semantic_fingerprint:
             semantic_rejected.append(candidate_id)
             continue
+        if score_candidate is None:
+            candidate_score: tuple[float, ...] | None = score_surface_layout_candidate(
+                candidate,
+                viewport_target=viewport_target,
+            )
+        else:
+            candidate_score = score_candidate(candidate)
+        if candidate_score is None:
+            unrealizable_rejected.append(candidate_id)
+            continue
         scored.append(
             {
                 "candidate_id": candidate_id,
                 "candidate": candidate,
-                "score": score_surface_layout_candidate(
-                    candidate,
-                    viewport_target=viewport_target,
-                ),
+                "score": candidate_score,
             }
         )
 
@@ -2905,6 +2941,7 @@ def select_surface_refinement(
             "evaluated_count": len(scored),
             "pruned_count": len(scored) - len(pruned),
             "semantic_rejected_ids": semantic_rejected,
+            "unrealizable_rejected_ids": unrealizable_rejected,
         }
 
     best = min(
@@ -2920,6 +2957,7 @@ def select_surface_refinement(
         "evaluated_count": len(scored),
         "pruned_count": len(scored) - len(pruned),
         "semantic_rejected_ids": semantic_rejected,
+        "unrealizable_rejected_ids": unrealizable_rejected,
     }
 
 

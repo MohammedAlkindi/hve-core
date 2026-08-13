@@ -21,11 +21,15 @@ The agent keeps the human in the loop for the spec, the generated model, and any
 
 The native feedback loop drives real TMT UI controls and takes over the mouse and keyboard, so an operator who is unaware of it can corrupt the run or lose work in another window.
 
-Before invoking the native Windows-local TMT feedback loop, the agent must tell the user that the harness will drive TMT UI controls and that the operator must not use the mouse, keyboard, switch windows, or interact with TMT until the completion notice appears.
+Before invoking the native Windows-local TMT feedback loop, the agent must ask the user how many refinement rounds to run. The agent must then tell the user that one run holds the mouse and keyboard continuously, from the start notice through the baseline and every refinement iteration until the release notice; control does not return between iterations. The agent must also tell the user that if the visual review produces corrections, replaying them is a new run and a new takeover that requires fresh confirmation, so more than one takeover is expected.
+
+The agent must also tell the user that the harness will drive TMT UI controls and that the operator must not use the mouse, keyboard, switch windows, or interact with TMT until the completion notice appears.
 
 The agent must then wait for the user to confirm that the desktop is clear and the takeover may begin. Notifying and launching in the same turn does not satisfy this rule, because it gives the operator no opportunity to save work or clear the screen. The harness emits a start notice but does not itself block on the operator, so this gate exists only in agent behavior. Without explicit confirmation the agent does not invoke the native loop, and it never launches native UI automation silently.
 
 After the command returns or aborts, the agent must explicitly tell the user that automation has stopped and control of the computer is returned.
+
+After each run completes, the agent must perform the agent-assisted visual review described in the security-planning skill. Performing that review is required, not advisory, and a passing automated gate does not substitute for it.
 
 ## Layout overlay promotion
 

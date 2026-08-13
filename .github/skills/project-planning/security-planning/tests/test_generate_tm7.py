@@ -2015,7 +2015,6 @@ def test_given_existing_segment_when_placing_label_then_crossing_is_avoided() ->
         routing_obstacles=[],
         source_point=source_point,
         target_point=target_point,
-        explicit_offset=None,
         existing_segments=existing_segments,
     )
     placed_handle = tuple(layout["handle_point"])
@@ -2762,7 +2761,6 @@ def test_given_label_candidates_when_placing_then_arrowhead_clearance_is_kept() 
         routing_obstacles=[],
         source_point=source_point,
         target_point=target_point,
-        explicit_offset=None,
     )
 
     # Assert
@@ -2789,7 +2787,6 @@ def test_given_label_candidates_when_placing_then_ownership_distance_is_bounded(
         routing_obstacles=[],
         source_point=source_point,
         target_point=target_point,
-        explicit_offset=None,
     )
 
     # Assert
@@ -2809,6 +2806,9 @@ def test_given_reverse_pair_labels_when_placing_then_lanes_are_separated() -> No
     handle = (350.0, 300.0)
 
     # Act
+    # Lane separation is only reachable by moving the handle, because the
+    # handle is the only label geometry the model serializes and TMT centres
+    # each label on it. A fixed handle therefore cannot separate a pair.
     forward = generate_tm7._place_connector_label(
         "Send request",
         "HTTPS",
@@ -2817,8 +2817,8 @@ def test_given_reverse_pair_labels_when_placing_then_lanes_are_separated() -> No
         routing_obstacles=[],
         source_point=source_point,
         target_point=target_point,
-        explicit_offset=None,
         reverse_lane_sign=1.0,
+        preserve_handle=True,
     )
     reverse = generate_tm7._place_connector_label(
         "Return result",
@@ -2828,11 +2828,16 @@ def test_given_reverse_pair_labels_when_placing_then_lanes_are_separated() -> No
         routing_obstacles=[],
         source_point=source_point,
         target_point=target_point,
-        explicit_offset=None,
         reverse_lane_sign=-1.0,
+        preserve_handle=True,
     )
 
     # Assert
+    forward_handle = forward["handle_point"]
+    reverse_handle = reverse["handle_point"]
+    assert forward_handle[1] > handle[1]
+    assert reverse_handle[1] < handle[1]
+    # The drawn label follows the handle, so separated handles separate labels.
     forward_center_y = forward["label_rect"][1] + forward["label_rect"][3] / 2.0
     reverse_center_y = reverse["label_rect"][1] + reverse["label_rect"][3] / 2.0
     assert forward_center_y > handle[1]
@@ -4805,7 +4810,21 @@ class TestGenerateTm7:
             # relaxing the limit for every surface. The native feedback loop
             # treats the third crossing as a review finding and attempts to
             # resolve it, so this drops back to two once refinement lands.
-            crossing_budget = 3 if str(surface.get("id", "")) == "ctx-01" else 2
+            #
+            # dom-docproc carries the same allowance for a different reason.
+            # Placing labels where TMT actually draws them, centred on the
+            # serialized handle, means the handle must clear obstacles on its
+            # own instead of delegating to an offset the renderer ignores.
+            # That constrains routing: across the nine surfaces the change
+            # moved total crossings from 18 to 16, trading one extra crossing
+            # here and on op-cicd for two fewer on dom-webscan, one on
+            # dom-planning, and one on dom-otel. A label drawn on top of a
+            # node is less readable than a line crossing, so the exchange is
+            # taken deliberately rather than tuned away.
+            relaxed_crossing_surfaces = {"ctx-01", "dom-docproc"}
+            crossing_budget = (
+                3 if str(surface.get("id", "")) in relaxed_crossing_surfaces else 2
+            )
             assert metrics["edge_crossing_count"] <= crossing_budget, surface.get("id")
             assert metrics["edge_node_intersections"] <= 1, surface.get("id")
             assert metrics["node_outside_zone_count"] == 0, surface.get("id")

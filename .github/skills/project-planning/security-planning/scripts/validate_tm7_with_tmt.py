@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import csv
 import ctypes
@@ -52,7 +53,7 @@ DEFAULT_PINNED_VERSION = "7.3.51110.1"
 # name is accepted as the native Threat Modeling Tool.
 ACCEPTED_PUBLISHER_CN = "CN=Microsoft Corporation"
 DEFAULT_TIMEOUT_SECONDS = 60.0
-DEFAULT_MAX_ITERATIONS = 3
+DEFAULT_MAX_ITERATIONS = 1
 EVIDENCE_SCHEMA_VERSION = 1
 # Stop reasons where the run captured trustworthy evidence and simply found no
 # automated layout improvement. Only these publish a rules-empty overlay seed
@@ -113,6 +114,26 @@ SENSITIVE_SCHEME_VALUE = re.compile(
 # Query strings routinely carry credentials, so any query is dropped wholesale
 # rather than matched name by name.
 SENSITIVE_QUERY_KEY = SENSITIVE_KEY
+# Containers whose child keys are model-supplied identifiers rather than field
+# names this code chose. A key-name credential match inside one of these says
+# nothing about the value, so the match is not applied to their child keys.
+# Adding a container here is only safe when its values are structural, because
+# any string value is still text-redacted wherever it appears.
+IDENTIFIER_KEYED_CONTAINERS = frozenset(
+    {
+        "boundary_label_rects",
+        "boundary_rects",
+        "branch_groups",
+        "connector_label_rects",
+        "connector_routes",
+        "layout_roles",
+        "node_ranks",
+        "node_rects",
+        "zone_content_rects",
+        "zone_membership",
+        "zone_parent_map",
+    }
+)
 # TMT sets a surface pane's automation id to that surface's own GUID, so no
 # constant identifies "the Diagram pane". The canvas child inside every
 # surface pane does carry a stable id, and that is what anchors discovery.
@@ -249,12 +270,32 @@ class EvidenceBundle:
             return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         return value
 
-    def _redact_value(self, value: Any, key: str = "") -> Any:
-        if SENSITIVE_KEY.search(key):
+    def _redact_value(
+        self,
+        value: Any,
+        key: str = "",
+        *,
+        key_is_identifier: bool = False,
+    ) -> Any:
+        if not key_is_identifier and SENSITIVE_KEY.search(key):
             return "[REDACTED]"
         if isinstance(value, dict):
+            # Inside a geometry container the child keys are data identifiers
+            # supplied by the model, not field names chosen by this code, so a
+            # key-name match there says nothing about the value. Treating them
+            # as field names destroyed real geometry: a node named
+            # comp-tokencache matched "token" and had its whole rectangle
+            # replaced, removing coordinates the agent review protocol
+            # requires. Credential redaction is unaffected, because the values
+            # under these keys are numbers, and any string reached anywhere is
+            # still text-redacted.
+            children_are_identifiers = key in IDENTIFIER_KEYED_CONTAINERS
             return {
-                str(child_key): self._redact_value(child_value, str(child_key))
+                str(child_key): self._redact_value(
+                    child_value,
+                    str(child_key),
+                    key_is_identifier=children_are_identifiers,
+                )
                 for child_key, child_value in value.items()
             }
         if isinstance(value, (list, tuple)):
@@ -3170,13 +3211,14 @@ def _status_payload(
     message: str,
     bundle: EvidenceBundle,
     manifest: dict[str, Any],
+    agent_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     files = sorted(
         str(path.relative_to(bundle.evidence_dir)).replace("\\", "/")
         for path in bundle.evidence_dir.rglob("*")
         if path.is_file()
     )
-    return {
+    payload: dict[str, Any] = {
         "result": result,
         "exit_code": exit_code,
         "message": message,
@@ -3186,6 +3228,12 @@ def _status_payload(
         "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
         "evidence_files": files,
     }
+    # The agent_review block is written only at the feedback-loop resolution
+    # site; early returns and run_harness paths never provide it, so they
+    # gain no new key.
+    if agent_review is not None:
+        payload["agent_review"] = agent_review
+    return payload
 
 
 def _validate_feedback_loop_args(
@@ -4302,6 +4350,144 @@ def _build_overlay_seed(
     }
 
 
+def _build_agent_review_request(
+    *,
+    final_surface_metrics: list[dict[str, Any]],
+    final_surface_payloads: list[dict[str, Any]],
+    semantic_surfaces: dict[str, dict[str, Any]],
+    published_overlay_path: Path | None,
+    overlay_input: Path | None,
+    bundle: EvidenceBundle,
+) -> dict[str, Any] | None:
+    """Build a self-sufficient per-surface review request for the agent.
+
+    Carries model-coordinate geometry, screenshot and UIA paths, and the
+    coordinate-translation constants an agent needs to author a correction
+    without hand-parsing UI Automation trees. Returns None when no surface
+    metrics are available.
+    """
+    payload_by_surface: dict[str, dict[str, Any]] = {
+        str(p.get("surface_id", "")): p for p in final_surface_payloads
+    }
+    surfaces: list[dict[str, Any]] = []
+    for metric in final_surface_metrics:
+        surface_id = str(metric.get("surface_id", ""))
+        if not surface_id:
+            continue
+        payload = payload_by_surface.get(surface_id, {})
+        surface_guid = str(payload.get("surface_guid", "")).strip()
+        if not surface_guid:
+            surface_guid = generate_tm7._make_guid(f"surface:{surface_id}")
+        surface_name = str(
+            metric.get("surface_name", "")
+            or (semantic_surfaces.get(surface_id) or {}).get("name", "")
+            or surface_id
+        )
+        # uia_path lives on the surface payload, not the metric. The metric
+        # carries no uia_path key and the manifest builder fills the gap with
+        # "missing"; that sentinel must never be emitted here.
+        uia_path = str(payload.get("uia_path") or "")
+        geometry = metric.get("surface_geometry") or {}
+        selected_flow_ids: list[str] = list(geometry.get("selected_flow_ids") or [])
+        connector_routes = geometry.get("connector_routes") or {}
+        connector_handles: dict[str, dict[str, float]] = {}
+        for flow_id in sorted(selected_flow_ids):
+            route = connector_routes.get(flow_id)
+            if not isinstance(route, dict):
+                continue
+            handle = route.get("handle_point")
+            if isinstance(handle, (list, tuple)) and len(handle) == 2:
+                try:
+                    connector_handles[flow_id] = {
+                        "x": float(handle[0]),
+                        "y": float(handle[1]),
+                    }
+                except (TypeError, ValueError):
+                    pass
+        viewport_raw = geometry.get("viewport_target")
+        viewport_target = (
+            [float(v) for v in viewport_raw]
+            if isinstance(viewport_raw, (list, tuple)) and len(viewport_raw) == 4
+            else None
+        )
+        bounds_raw = geometry.get("diagram_bounds")
+        diagram_bounds = (
+            [float(v) for v in bounds_raw]
+            if isinstance(bounds_raw, (list, tuple)) and len(bounds_raw) == 4
+            else None
+        )
+        surface_slug = _evidence_slug(surface_id)
+        surfaces.append(
+            {
+                "surface_id": surface_id,
+                "surface_name": surface_name,
+                "surface_guid": surface_guid,
+                # evidence_path in the metric is the screenshot; renamed here
+                # so callers never confuse it with the manifest capture_path.
+                "screenshot_path": str(metric.get("evidence_path") or ""),
+                "uia_path": uia_path,
+                "metrics_path": f"surfaces/{surface_slug}/metrics.json",
+                "node_rects": dict(geometry.get("node_rects") or {}),
+                # These rectangles come from the generator's placement search,
+                # not from what TMT renders. They predict where labels will
+                # land given the current handle_point but are not authoritative.
+                "predicted_connector_label_rects": dict(
+                    geometry.get("connector_label_rects") or {}
+                ),
+                "connector_handles": connector_handles,
+                "zone_content_rects": dict(geometry.get("zone_content_rects") or {}),
+                "boundary_rects": dict(geometry.get("boundary_rects") or {}),
+                "viewport_target": viewport_target,
+                "diagram_bounds": diagram_bounds,
+                "existing_findings": list(metric.get("findings") or []),
+                "review_status": "pending",
+            }
+        )
+    if not surfaces:
+        return None
+    # Relative path to the overlay file actually written, or null when no
+    # overlay was published so the request cannot point at a stale file.
+    seed_path_value: str | None = None
+    if published_overlay_path is not None and published_overlay_path.is_file():
+        try:
+            seed_path_value = str(
+                published_overlay_path.relative_to(bundle.evidence_dir)
+            ).replace("\\", "/")
+        except ValueError:
+            # Overlay lives outside the evidence root; record the full path.
+            seed_path_value = str(published_overlay_path).replace("\\", "/")
+    return {
+        "surfaces": surfaces,
+        # The five defect classes no deterministic metric scores.
+        "defect_classes": [
+            "label-on-node collision",
+            "label-on-label overlap",
+            "unreadable or truncated label text",
+            "connector routing through empty space",
+            "visual crowding",
+        ],
+        # Inline so the request is self-sufficient without the reference doc.
+        "coordinate_translation": (
+            "Model coordinates are recoverable as (screen - offset) / 1.5 "
+            "(uniform 1.5x zoom). TMT draws each connector label centred on "
+            "its handle_point, not with its top-left corner there. "
+            "handle_point is the only lever that reaches the renderer; "
+            "label_offset feeds only the generator's internal placement "
+            "search and produces no visible change when authored alone."
+        ),
+        "port_convention": (
+            "An authored connector_rules entry requires non-empty "
+            'source_port and target_port; the harness uses "auto" for both.'
+        ),
+        "overlay_seed_path": seed_path_value,
+        "replay_command": None,
+        # Replay depth: 0 on the initial run, 1 when --overlay-input was
+        # supplied. Not a budget claim; the harness cannot see how many agent
+        # rounds have run across separate invocations.
+        "agent_round": 0 if overlay_input is None else 1,
+    }
+
+
 def _merge_accumulated_rule(
     accumulated_rules: list[dict[str, Any]],
     accumulated_surface_id: str | None,
@@ -4514,17 +4700,501 @@ def _validate_feedback_candidate(
     }
 
 
+def _rect_map_from_payload(
+    raw: Any,
+) -> dict[str, tuple[float, float, float, float]]:
+    """Read a mapping of ids to four-number rectangles from a geometry payload."""
+    if not isinstance(raw, dict):
+        return {}
+    rects: dict[str, tuple[float, float, float, float]] = {}
+    for key, rect in raw.items():
+        if not isinstance(rect, (list, tuple)) or len(rect) != 4:
+            continue
+        try:
+            rects[str(key)] = tuple(float(item) for item in rect)
+        except (TypeError, ValueError):
+            # A rect that is not numeric carries no geometry. Redaction can
+            # replace one with a marker string, and a partly numeric rect is
+            # not safe to reconstruct, so the entry is dropped rather than
+            # guessed at.
+            continue
+    return rects
+
+
+def _point_tuple_from_payload(raw: Any) -> tuple[float, ...] | None:
+    """Read a fixed-length numeric tuple from a geometry payload."""
+    if not isinstance(raw, (list, tuple)):
+        return None
+    try:
+        return tuple(float(item) for item in raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _surface_geometry_from_payload(
+    *,
+    surface_id: str,
+    geometry_payload: dict[str, Any],
+) -> tm7_visual_feedback.SurfaceGeometry:
+    """Rebuild a full ``SurfaceGeometry`` from a published metric payload.
+
+    The payload is the serialized form of the geometry the metrics were derived
+    from, so every populated field is restored. Passing only the node rects and
+    connector segments left the zone and connector correction branches of
+    ``derive_overlay_candidates`` permanently unreachable, which meant no
+    automatic connector-label correction could ever be proposed.
+    """
+    connector_segments: list[
+        tuple[str, str, tuple[float, float], tuple[float, float]]
+    ] = []
+    for item in geometry_payload.get("connector_segments") or []:
+        if not isinstance(item, (list, tuple)) or len(item) != 4:
+            continue
+        source_id, target_id, start, end = item
+        start_point = _point_tuple_from_payload(start)
+        end_point = _point_tuple_from_payload(end)
+        if start_point is None or end_point is None:
+            continue
+        connector_segments.append(
+            (str(source_id), str(target_id), start_point, end_point)
+        )
+
+    connector_routes: dict[str, dict[str, Any]] = {}
+    for flow_id, route in (geometry_payload.get("connector_routes") or {}).items():
+        if not isinstance(route, dict):
+            continue
+        normalized_route: dict[str, Any] = {
+            "source_id": str(route.get("source_id", "")),
+            "target_id": str(route.get("target_id", "")),
+        }
+        for point_key in ("source_point", "handle_point", "target_point"):
+            point = _point_tuple_from_payload(route.get(point_key))
+            if point is not None and len(point) == 2:
+                normalized_route[point_key] = point
+        if {"source_point", "target_point"} <= set(normalized_route):
+            connector_routes[str(flow_id)] = normalized_route
+
+    viewport_target = _point_tuple_from_payload(geometry_payload.get("viewport_target"))
+    if viewport_target is not None and len(viewport_target) != 4:
+        viewport_target = None
+    diagram_bounds = _point_tuple_from_payload(geometry_payload.get("diagram_bounds"))
+    if diagram_bounds is not None and len(diagram_bounds) != 4:
+        diagram_bounds = None
+
+    return tm7_visual_feedback.SurfaceGeometry(
+        surface_id=surface_id,
+        nominal_node_size=float(
+            geometry_payload.get("nominal_node_size", 100.0) or 100.0
+        ),
+        node_rects=_rect_map_from_payload(geometry_payload.get("node_rects")),
+        connector_segments=connector_segments,
+        boundary_rects=_rect_map_from_payload(geometry_payload.get("boundary_rects")),
+        boundary_label_rects=_rect_map_from_payload(
+            geometry_payload.get("boundary_label_rects")
+        ),
+        connector_label_rects=_rect_map_from_payload(
+            geometry_payload.get("connector_label_rects")
+        ),
+        layout_roles={
+            str(node_id): str(role)
+            for node_id, role in (geometry_payload.get("layout_roles") or {}).items()
+        },
+        zone_membership={
+            str(node_id): str(zone_id)
+            for node_id, zone_id in (
+                geometry_payload.get("zone_membership") or {}
+            ).items()
+        },
+        zone_content_rects=_rect_map_from_payload(
+            geometry_payload.get("zone_content_rects")
+        ),
+        zone_parent_map={
+            str(zone_id): (str(parent_id) if parent_id is not None else None)
+            for zone_id, parent_id in (
+                geometry_payload.get("zone_parent_map") or {}
+            ).items()
+        },
+        viewport_target=viewport_target,
+        diagram_bounds=diagram_bounds,
+        outer_margin=float(geometry_payload.get("outer_margin", 0.0) or 0.0),
+        selected_flow_ids={
+            str(flow_id)
+            for flow_id in (geometry_payload.get("selected_flow_ids") or [])
+        },
+        expected_semantic_node_ids={
+            str(node_id)
+            for node_id in (geometry_payload.get("expected_semantic_node_ids") or [])
+        },
+        expected_semantic_flow_ids={
+            str(flow_id)
+            for flow_id in (geometry_payload.get("expected_semantic_flow_ids") or [])
+        },
+        connector_routes=connector_routes,
+        node_ranks={
+            str(node_id): int(rank)
+            for node_id, rank in (geometry_payload.get("node_ranks") or {}).items()
+        },
+        branch_groups={
+            str(node_id): int(group_id)
+            for node_id, group_id in (
+                geometry_payload.get("branch_groups") or {}
+            ).items()
+        },
+        orientation=str(geometry_payload.get("orientation") or "horizontal").lower(),
+    )
+
+
+def _semantic_surface_geometry(
+    surface: dict[str, Any],
+) -> tm7_visual_feedback.SurfaceGeometry:
+    """Build a ``SurfaceGeometry`` from one laid-out generator surface.
+
+    This is the portable path: it reads only what ``apply_layout`` produced, so
+    it works for a hypothetical candidate layout that was never opened in the
+    Threat Modeling Tool and has no capture evidence at all. The capture-time
+    caller uses it as its semantic base and then overlays parsed and measured
+    geometry on top, so both paths derive the same shapes from one place.
+    """
+    surface_id = str(surface.get("id", ""))
+    elements = [
+        element for element in surface.get("elements", []) if isinstance(element, dict)
+    ]
+    node_rects: dict[str, tuple[float, float, float, float]] = {}
+    boundary_rects: dict[str, tuple[float, float, float, float]] = {}
+    zone_membership: dict[str, str] = {}
+    layout_roles: dict[str, str] = {}
+    for element in elements:
+        element_id = str(element.get("id", ""))
+        if not element_id:
+            continue
+        position = element.get("position") or {}
+        left = float(position.get("left", 0.0) or 0.0)
+        top = float(position.get("top", 0.0) or 0.0)
+        rect = (
+            left,
+            top,
+            left + float(position.get("width", 0.0) or 0.0),
+            top + float(position.get("height", 0.0) or 0.0),
+        )
+        if str(element.get("kind", "")).lower() == "trust_boundary_box":
+            boundary_rects[str(element.get("trust_zone_id", "") or element_id)] = rect
+            continue
+        node_rects[element_id] = rect
+        zone_membership[element_id] = str(element.get("trust_zone_id", "") or "")
+        layout_roles[element_id] = str(element.get("layout_role", "") or "")
+
+    connector_segments: list[
+        tuple[str, str, tuple[float, float], tuple[float, float]]
+    ] = []
+    connector_label_rects: dict[str, tuple[float, float, float, float]] = {}
+    connector_routes: dict[str, dict[str, Any]] = {}
+    flow_ids: list[str] = []
+    for flow in surface.get("flows", []):
+        if not isinstance(flow, dict):
+            continue
+        flow_id = str(flow.get("id", ""))
+        if not flow_id:
+            continue
+        flow_ids.append(flow_id)
+        position = flow.get("position") or {}
+        source_point = (
+            float(position.get("source_x", 0.0) or 0.0),
+            float(position.get("source_y", 0.0) or 0.0),
+        )
+        handle_point = (
+            float(position.get("handle_x", 0.0) or 0.0),
+            float(position.get("handle_y", 0.0) or 0.0),
+        )
+        target_point = (
+            float(position.get("target_x", 0.0) or 0.0),
+            float(position.get("target_y", 0.0) or 0.0),
+        )
+        source_id = str(flow.get("source_ref", ""))
+        target_id = str(flow.get("target_ref", ""))
+        # A connector is drawn as two straight runs through its handle, so it
+        # is measured as two segments rather than one source-to-target line.
+        connector_segments.append((source_id, target_id, source_point, handle_point))
+        connector_segments.append((source_id, target_id, handle_point, target_point))
+        connector_routes[flow_id] = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "source_point": source_point,
+            "handle_point": handle_point,
+            "target_point": target_point,
+        }
+        label_rect = flow.get("label_rect")
+        if isinstance(label_rect, list) and len(label_rect) == 4:
+            label_left, label_top, label_width, label_height = (
+                float(value) for value in label_rect
+            )
+            connector_label_rects[flow_id] = (
+                label_left,
+                label_top,
+                label_left + label_width,
+                label_top + label_height,
+            )
+
+    layout_metadata = surface.get("layout_metadata") or {}
+    if not isinstance(layout_metadata, dict):
+        layout_metadata = {}
+    diagram_bounds = _point_tuple_from_payload(layout_metadata.get("diagram_bounds"))
+    if diagram_bounds is not None and len(diagram_bounds) != 4:
+        diagram_bounds = None
+    viewport_target = _point_tuple_from_payload(layout_metadata.get("viewport"))
+    if viewport_target is not None and len(viewport_target) != 4:
+        viewport_target = None
+
+    size_values = [
+        max(rect[2] - rect[0], rect[3] - rect[1]) for rect in node_rects.values()
+    ]
+    nominal_node_size = (
+        max(100.0, float(sum(size_values) / len(size_values))) if size_values else 100.0
+    )
+
+    return tm7_visual_feedback.SurfaceGeometry(
+        surface_id=surface_id,
+        nominal_node_size=nominal_node_size,
+        node_rects=node_rects,
+        connector_segments=connector_segments,
+        boundary_rects=boundary_rects,
+        boundary_label_rects={
+            zone_id: (left, top, right, min(bottom, top + 36.0))
+            for zone_id, (left, top, right, bottom) in boundary_rects.items()
+        },
+        connector_label_rects=connector_label_rects,
+        layout_roles=layout_roles,
+        zone_membership=zone_membership,
+        zone_content_rects=dict(boundary_rects),
+        zone_parent_map={
+            str(zone.get("id", "")): (
+                str(zone.get("parent_trust_zone_id", "") or "") or None
+            )
+            for zone in surface.get("trust_zones", [])
+            if isinstance(zone, dict) and str(zone.get("id", ""))
+        },
+        viewport_target=viewport_target,
+        diagram_bounds=diagram_bounds,
+        outer_margin=24.0,
+        selected_flow_ids=set(flow_ids),
+        expected_semantic_node_ids=set(node_rects),
+        expected_semantic_flow_ids=set(flow_ids),
+        connector_routes=connector_routes,
+        node_ranks={
+            str(node_id): int(rank)
+            for node_id, rank in (layout_metadata.get("node_ranks") or {}).items()
+        },
+        branch_groups={
+            str(node_id): int(group_id)
+            for node_id, group_id in (
+                layout_metadata.get("branch_groups") or {}
+            ).items()
+        },
+        orientation=str(layout_metadata.get("orientation") or "horizontal").lower(),
+    )
+
+
+def _measured_layout_score(
+    geometry: tm7_visual_feedback.SurfaceGeometry,
+) -> tuple[float, ...]:
+    """Score a laid-out surface on defects measured from its own geometry.
+
+    The ordering is a severity ladder, most damaging first: content the reader
+    cannot see at all, then content in the wrong place, then content that
+    collides, then routing noise. Every term is derived from the drawn shapes,
+    so it carries information the generation-time topology scorer could not
+    have had.
+    """
+    metrics = tm7_visual_feedback.derive_geometry_metrics(geometry)
+    return (
+        float(metrics.get("canvas_clipping_count", 0)),
+        float(metrics.get("node_outside_zone_count", 0)),
+        float(metrics.get("boundary_overlap_count", 0)),
+        float(metrics.get("edge_node_intersections", 0)),
+        float(metrics.get("connector_label_intersections", 0)),
+        float(metrics.get("boundary_label_intersections", 0)),
+        float(metrics.get("edge_crossing_count", 0)),
+        round(float(metrics.get("overlap_ratio", 0.0)), 6),
+        round(float(metrics.get("scroll_extent_ratio_x", 0.0)), 6),
+        round(float(metrics.get("scroll_extent_ratio_y", 0.0)), 6),
+    )
+
+
+def _lay_out_candidate_surface(
+    *,
+    generator_model: dict[str, Any],
+    generator_profile: dict[str, Any],
+    surface_id: str,
+    orientation: str,
+    zone_order: list[str],
+    viewport_target: tuple[float, ...] | None = None,
+) -> tm7_visual_feedback.SurfaceGeometry | None:
+    """Lay out one alternative and return its geometry, or None if unrealizable.
+
+    ``apply_layout`` mutates a whole model in place, so each alternative gets
+    its own deep copy. A candidate reaches layout only through a synthesized
+    ``surface_rules`` overlay, which is the sole channel carrying an orientation
+    and a zone order into placement. A layout that raises is a candidate the
+    generator cannot realize, not a harness failure, so it is rejected and the
+    remaining candidates still run.
+
+    ``viewport_target`` must match the canvas the winning candidate will be
+    replayed against. Omitting it scores every candidate against the default
+    canvas while the emitted rule carries the measured one, so the layout that
+    was compared is not the layout the next iteration builds.
+    """
+    surface_rule: dict[str, Any] = {
+        "surface_id": surface_id,
+        "orientation": orientation,
+        "zone_order": list(zone_order),
+    }
+    if viewport_target is not None and len(viewport_target) == 4:
+        surface_rule["viewport_target"] = {
+            "left": float(viewport_target[0]),
+            "top": float(viewport_target[1]),
+            "width": float(viewport_target[2]),
+            "height": float(viewport_target[3]),
+        }
+    overlay = {"surface_rules": [surface_rule]}
+    try:
+        laid_out = generate_tm7.apply_layout(
+            copy.deepcopy(generator_model),
+            generator_profile,
+            layout_overlay=overlay,
+        )
+    except generate_tm7.GenerationError:
+        return None
+    for surface in laid_out.get("surfaces", []):
+        if isinstance(surface, dict) and str(surface.get("id", "")) == surface_id:
+            return _semantic_surface_geometry(surface)
+    return None
+
+
+def _refinement_surface_rule_candidate(
+    *,
+    refinement_decision: dict[str, Any] | None,
+    surface_metrics: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Convert a refinement selection into an accumulated surface rule.
+
+    Without this the selection has no reader at all: the launch gate consumed
+    the decision as a boolean and discarded the chosen layout, so an iteration
+    that earned a native launch would reopen the tool against the unchanged
+    model. That is worse than not launching, because it spends an operator
+    takeover to produce identical evidence.
+    """
+    if not refinement_decision or not refinement_decision.get("requires_native_launch"):
+        return None
+    selected = refinement_decision.get("selected")
+    if not isinstance(selected, dict):
+        return None
+    surface_id = str(refinement_decision.get("surface_id", ""))
+    zone_order = [str(zone_id) for zone_id in (selected.get("zone_order") or [])]
+    orientation = str(selected.get("orientation", "") or "")
+    if (
+        not surface_id
+        or not zone_order
+        or orientation
+        not in {
+            "horizontal",
+            "vertical",
+        }
+    ):
+        return None
+    viewport_payload: Any = None
+    for metric in surface_metrics:
+        if str(metric.get("surface_id", "")) == surface_id:
+            viewport_payload = (metric.get("surface_geometry") or {}).get(
+                "viewport_target"
+            )
+            break
+    viewport = _point_tuple_from_payload(viewport_payload)
+    if viewport is None or len(viewport) != 4:
+        viewport = (
+            0.0,
+            0.0,
+            generate_tm7.DEFAULT_VIEWPORT_WIDTH,
+            generate_tm7.DEFAULT_VIEWPORT_HEIGHT,
+        )
+    return {
+        "surface_id": surface_id,
+        "target_type": "surface",
+        "target_id": surface_id,
+        "constraint_type": "surface-refinement",
+        "rule_collection": "surface_rules",
+        "overlay_rule": {
+            "surface_id": surface_id,
+            "orientation": orientation,
+            "zone_order": zone_order,
+            "viewport_target": {
+                "left": viewport[0],
+                "top": viewport[1],
+                "width": viewport[2],
+                "height": viewport[3],
+            },
+            "outer_margin": 24.0,
+        },
+    }
+
+
+def _merge_validated_rule(
+    accumulated_rules: list[dict[str, Any]],
+    accumulated_surface_id: str | None,
+    candidate: dict[str, Any],
+    *,
+    overlay_payload: dict[str, Any],
+    overlay_context: Any,
+    generator_profile: str,
+) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    """Merge a rule only when the resulting overlay still validates.
+
+    Zone and connector rules became reachable once the full surface geometry
+    reached candidate derivation, so a shape that fails overlay validation is
+    now possible where it never was before. Both existing validation call sites
+    abort the run, which would suppress the agent review request and leave the
+    operator with neither an automated correction nor a review to perform. A
+    rejected rule is dropped instead, so the run keeps whatever corrections did
+    validate and still reports its ordinary outcome.
+    """
+    trial_rules, trial_surface_id = _merge_accumulated_rule(
+        list(accumulated_rules),
+        accumulated_surface_id,
+        candidate,
+    )
+    if trial_rules == accumulated_rules:
+        return accumulated_rules, accumulated_surface_id, None
+    trial_overlay = copy.deepcopy(overlay_payload)
+    _apply_accumulated_rules(
+        trial_overlay,
+        trial_rules,
+        generator_profile=generator_profile,
+    )
+    try:
+        tm7_visual_feedback.validate_layout_overlay(trial_overlay, overlay_context)
+    except (ValueError, TypeError, KeyError) as exc:
+        return (
+            accumulated_rules,
+            accumulated_surface_id,
+            f"{candidate.get('rule_collection', 'node_rules')}: {exc}",
+        )
+    return trial_rules, trial_surface_id, None
+
+
 def _evaluate_surface_refinement(
     *,
     surface_metrics: list[dict[str, Any]],
     failing_candidates: list[dict[str, Any]],
     semantic_surfaces: dict[str, dict[str, Any]],
+    generator_model: dict[str, Any] | None = None,
+    generator_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Decide whether any whole-surface alternative earns a native TMT launch.
 
     Returns None when the caller has no failing surface to refine. Otherwise the
-    result reports whether a complete alternative strictly improves the portable
-    score tuple, so a non-improving iteration never spends a native launch.
+    result reports whether a complete alternative strictly improves the score,
+    so a non-improving iteration never spends a native launch. Supplying the
+    generator model and profile scores alternatives on measured geometry, which
+    is the only basis on which one can win: without them the comparison uses the
+    same topology scorer generation already minimized.
     """
     failing_surface_ids = {
         str(candidate.get("surface_id", "")) for candidate in failing_candidates
@@ -4541,6 +5211,9 @@ def _evaluate_surface_refinement(
             continue
         geometry_payload = metric.get("surface_geometry") or {}
         semantic_surface = semantic_surfaces.get(surface_id) or {}
+        layout_metadata = semantic_surface.get("layout_metadata") or {}
+        if not isinstance(layout_metadata, dict):
+            layout_metadata = {}
         node_ids = sorted(
             str(node_id) for node_id in (geometry_payload.get("node_rects") or {})
         )
@@ -4551,21 +5224,30 @@ def _evaluate_surface_refinement(
             str(zone_id)
             for zone_id in (geometry_payload.get("zone_content_rects") or {})
         )
-        node_ranks = dict(geometry_payload.get("node_ranks") or {})
+        node_ranks = dict(layout_metadata.get("node_ranks") or {})
         # Without zones or ranks the surface exposes no whole-surface degrees of
         # freedom, so the refinement search has no opinion and must not claim the
         # candidate space was exhausted.
         if not zone_ids and not node_ranks:
             continue
+        # Orientation, ranks, branches, and zone order describe what the
+        # generator decided, not what the tool drew, so they are read from the
+        # layout metadata the generator published. The capture payload never
+        # carried them; reading them from there scored every incumbent as an
+        # unranked horizontal layout, which is the zero-penalty answer and made
+        # a strict improvement arithmetically unreachable.
         incumbent = {
             "candidate_id": f"{surface_id}:incumbent",
             "node_ids": node_ids,
             "flow_ids": flow_ids,
             "zone_ids": zone_ids,
-            "orientation": str(geometry_payload.get("orientation") or "horizontal"),
-            "zone_order": zone_ids,
+            "orientation": str(layout_metadata.get("orientation") or "horizontal"),
+            "zone_order": [
+                str(zone_id)
+                for zone_id in (layout_metadata.get("zone_order") or zone_ids)
+            ],
             "node_ranks": node_ranks,
-            "branch_groups": dict(geometry_payload.get("branch_groups") or {}),
+            "branch_groups": dict(layout_metadata.get("branch_groups") or {}),
         }
         viewport_payload = geometry_payload.get("viewport_target")
         viewport_target = (
@@ -4583,6 +5265,40 @@ def _evaluate_surface_refinement(
             incumbent=incumbent,
             semantic_surface=semantic_surface,
         )
+        # Measured scoring needs a model to lay candidates out against. When
+        # the caller cannot supply one the search falls back to the topology
+        # scorer, which cannot find an improvement, so the decision stays
+        # honest rather than pretending alternatives were evaluated.
+        score_candidate = None
+        if generator_model is not None and generator_profile is not None:
+            incumbent_geometry = _lay_out_candidate_surface(
+                generator_model=generator_model,
+                generator_profile=generator_profile,
+                surface_id=surface_id,
+                orientation=str(incumbent["orientation"]),
+                zone_order=list(incumbent["zone_order"]),
+                viewport_target=viewport_target,
+            )
+            if incumbent_geometry is not None:
+                incumbent_score = _measured_layout_score(incumbent_geometry)
+
+                def score_candidate(
+                    candidate: dict[str, Any],
+                    _surface_id: str = surface_id,
+                    _viewport: tuple[float, ...] | None = viewport_target,
+                ) -> tuple[float, ...] | None:
+                    geometry = _lay_out_candidate_surface(
+                        generator_model=generator_model,
+                        generator_profile=generator_profile,
+                        surface_id=_surface_id,
+                        orientation=str(candidate.get("orientation", "horizontal")),
+                        zone_order=list(candidate.get("zone_order") or []),
+                        viewport_target=_viewport,
+                    )
+                    if geometry is None:
+                        return None
+                    return _measured_layout_score(geometry)
+
         decision = tm7_visual_feedback.select_surface_refinement(
             incumbent_score=incumbent_score,
             incumbent_semantic_fingerprint=(
@@ -4590,6 +5306,7 @@ def _evaluate_surface_refinement(
             ),
             candidates=alternatives,
             viewport_target=viewport_target,
+            score_candidate=score_candidate,
         )
         decision["surface_id"] = surface_id
         if decision.get("requires_native_launch"):
@@ -4604,54 +5321,57 @@ def _build_surface_refinement_candidates(
     incumbent: dict[str, Any],
     semantic_surface: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Build bounded complete alternatives that preserve semantic identities."""
+    """Build bounded complete alternatives that preserve semantic identities.
+
+    Only the orientation and the zone order can reach layout, so the search
+    enumerates distinct pairs of those two. Earlier revisions also varied a rank
+    spacing and a branch offset, but neither has an overlay channel: they moved
+    numbers inside the candidate dict and produced byte-identical layouts. Under
+    measured scoring their variants were exact ties, and ties are actively
+    harmful here because dominated-candidate pruning discards equal scores and
+    selection demands a strict improvement. Dropping them takes the space from
+    192 mostly identical candidates to at most 32 distinct ones.
+    """
     zone_ids = list(incumbent.get("zone_order") or [])
     orientations = ["horizontal", "vertical"]
     zone_orders: list[list[str]] = []
     if zone_ids:
-        for rotation in range(min(len(zone_ids), 8)):
+        rotation_cap = min(
+            len(zone_ids),
+            tm7_visual_feedback.SURFACE_REFINEMENT_ZONE_ROTATION_CAP,
+        )
+        for rotation in range(rotation_cap):
             rotated = zone_ids[rotation:] + zone_ids[:rotation]
             zone_orders.append(rotated)
             zone_orders.append(list(reversed(rotated)))
     else:
         zone_orders.append([])
-    rank_spacings = [0, 1, 2]
-    branch_offsets = [0, 1]
     candidates: list[dict[str, Any]] = []
+    seen_signatures: set[tuple[str, tuple[str, ...]]] = set()
     for orientation in orientations:
         for zone_order in zone_orders:
-            for rank_spacing in rank_spacings:
-                for branch_offset in branch_offsets:
-                    if len(candidates) >= (
-                        tm7_visual_feedback.MAX_SURFACE_REFINEMENT_CANDIDATES
-                    ):
-                        return candidates
-                    candidates.append(
-                        {
-                            "candidate_id": (
-                                f"{surface_id}:{orientation}:"
-                                f"{'-'.join(zone_order) or 'none'}:"
-                                f"{rank_spacing}:{branch_offset}"
-                            ),
-                            "node_ids": list(incumbent["node_ids"]),
-                            "flow_ids": list(incumbent["flow_ids"]),
-                            "zone_ids": list(incumbent["zone_ids"]),
-                            "orientation": orientation,
-                            "zone_order": list(zone_order),
-                            "node_ranks": {
-                                node_id: int(rank) + rank_spacing
-                                for node_id, rank in (
-                                    incumbent.get("node_ranks") or {}
-                                ).items()
-                            },
-                            "branch_groups": {
-                                node_id: int(group_id) + branch_offset
-                                for node_id, group_id in (
-                                    incumbent.get("branch_groups") or {}
-                                ).items()
-                            },
-                        }
-                    )
+            signature = (orientation, tuple(zone_order))
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            if len(candidates) >= (
+                tm7_visual_feedback.MAX_SURFACE_REFINEMENT_CANDIDATES
+            ):
+                return candidates
+            candidates.append(
+                {
+                    "candidate_id": (
+                        f"{surface_id}:{orientation}:{'-'.join(zone_order) or 'none'}"
+                    ),
+                    "node_ids": list(incumbent["node_ids"]),
+                    "flow_ids": list(incumbent["flow_ids"]),
+                    "zone_ids": list(incumbent["zone_ids"]),
+                    "orientation": orientation,
+                    "zone_order": list(zone_order),
+                    "node_ranks": dict(incumbent.get("node_ranks") or {}),
+                    "branch_groups": dict(incumbent.get("branch_groups") or {}),
+                }
+            )
     return candidates
 
 
@@ -5030,32 +5750,9 @@ def run_feedback_loop(
             candidates = []
             for metric in surface_metrics:
                 geometry_payload = metric.get("surface_geometry") or {}
-                node_rects = {
-                    str(node_id): tuple(rect)
-                    for node_id, rect in (
-                        geometry_payload.get("node_rects") or {}
-                    ).items()
-                }
-                connector_segments = []
-                for item in geometry_payload.get("connector_segments") or []:
-                    if len(item) != 4:
-                        continue
-                    source_id, target_id, start, end = item
-                    connector_segments.append(
-                        (
-                            str(source_id),
-                            str(target_id),
-                            tuple(start),
-                            tuple(end),
-                        )
-                    )
-                geometry = tm7_visual_feedback.SurfaceGeometry(
+                geometry = _surface_geometry_from_payload(
                     surface_id=str(metric["surface_id"]),
-                    nominal_node_size=float(
-                        geometry_payload.get("nominal_node_size", 100.0) or 100.0
-                    ),
-                    node_rects=node_rects,
-                    connector_segments=connector_segments,
+                    geometry_payload=geometry_payload,
                 )
                 candidates.extend(
                     tm7_visual_feedback.derive_overlay_candidates(
@@ -5082,7 +5779,30 @@ def run_feedback_loop(
                 surface_metrics=surface_metrics,
                 failing_candidates=failing_candidates,
                 semantic_surfaces=semantic_surfaces or {},
+                generator_model=generator_model,
+                generator_profile=profile,
             )
+            if refinement_decision is not None:
+                # A stop reason has to be checkable, not just true. Without
+                # this line an operator reading the evidence cannot tell a
+                # genuine "no alternative was better" from the older behavior
+                # where no alternative was ever evaluated, because both report
+                # repeated-defect-no-improvement and neither leaves a trace.
+                semantic_rejected = len(
+                    refinement_decision.get("semantic_rejected_ids") or []
+                )
+                unrealizable_rejected = len(
+                    refinement_decision.get("unrealizable_rejected_ids") or []
+                )
+                bundle.write_action_log(
+                    "Refinement evaluated "
+                    f"surface={refinement_decision.get('surface_id', 'unknown')} "
+                    f"evaluated={int(refinement_decision.get('evaluated_count', 0))} "
+                    f"pruned={int(refinement_decision.get('pruned_count', 0))} "
+                    f"semantic_rejected={semantic_rejected} "
+                    f"unrealizable_rejected={unrealizable_rejected} "
+                    f"launch={bool(refinement_decision.get('requires_native_launch'))}"
+                )
             all_findings = [
                 finding
                 for metric in surface_metrics
@@ -5183,16 +5903,65 @@ def run_feedback_loop(
                             field_name="provenance.evidence_ref",
                         )
                     )
-                    accumulated_rules, accumulated_surface_id = _merge_accumulated_rule(
+                    (
+                        accumulated_rules,
+                        accumulated_surface_id,
+                        rejected_rule,
+                    ) = _merge_validated_rule(
                         accumulated_rules,
                         accumulated_surface_id,
                         selected_candidate,
+                        overlay_payload=overlay_payload,
+                        overlay_context=overlay_context,
+                        generator_profile=generator_profile,
                     )
+                    if rejected_rule is not None:
+                        bundle.write_action_log(
+                            f"Dropped an invalid overlay rule: {rejected_rule}"
+                        )
                     _apply_accumulated_rules(
                         overlay_payload,
                         accumulated_rules,
                         generator_profile=generator_profile,
                     )
+                    # On the success path every captured surface must be
+                    # addressable, so a reviewer can author a rule for any of
+                    # them without editing fingerprinted identity. The widening
+                    # runs unconditionally: making it the alternative of the
+                    # seed substitution would skip it exactly when the seed
+                    # build fails, which is the case it exists for.
+                    if final_status == "automated-ready-pending-human":
+                        rules_empty = not any(
+                            overlay_payload.get(collection)
+                            for collection in (
+                                "zone_rules",
+                                "node_rules",
+                                "connector_rules",
+                                "surface_rules",
+                            )
+                        )
+                        if rules_empty:
+                            # The seed shape carries an overlay_id that signals
+                            # no automated correction was found.
+                            try:
+                                overlay_payload = _build_overlay_seed(
+                                    spec_path=spec_path,
+                                    overlay_context=overlay_context,
+                                    iteration_id=iteration_index,
+                                    spec_sha256=spec_sha256,
+                                    generator_profile=generator_profile,
+                                    generator_profile_sha256=generator_profile_sha256,
+                                    evidence_dir=evidence_dir,
+                                )
+                            except (ValueError, TypeError, KeyError):
+                                pass
+                        overlay_payload["applies_to"] = [
+                            {
+                                "surface_id": surface_id,
+                                "generator_profile": generator_profile,
+                            }
+                            for surface_id in sorted(overlay_context.surface_ids)
+                        ]
                     try:
                         tm7_visual_feedback.validate_layout_overlay(
                             overlay_payload,
@@ -5218,11 +5987,48 @@ def run_feedback_loop(
                     candidate_path=candidate_model_path,
                     ranking_key=selected_candidate["ranking_key"],
                 )
-                accumulated_rules, accumulated_surface_id = _merge_accumulated_rule(
+                (
+                    accumulated_rules,
+                    accumulated_surface_id,
+                    rejected_rule,
+                ) = _merge_validated_rule(
                     accumulated_rules,
                     accumulated_surface_id,
                     selected_candidate,
+                    overlay_payload=overlay_payload,
+                    overlay_context=overlay_context,
+                    generator_profile=generator_profile,
                 )
+                if rejected_rule is not None:
+                    bundle.write_action_log(
+                        f"Dropped an invalid overlay rule: {rejected_rule}"
+                    )
+                # The refinement selection rides on the same accumulated set as
+                # the node-level corrections, so the next iteration regenerates
+                # against the chosen layout instead of the unchanged model, and
+                # the merge keeps both.
+                refinement_rule = _refinement_surface_rule_candidate(
+                    refinement_decision=refinement_decision,
+                    surface_metrics=surface_metrics,
+                )
+                if refinement_rule is not None:
+                    (
+                        accumulated_rules,
+                        accumulated_surface_id,
+                        rejected_refinement,
+                    ) = _merge_validated_rule(
+                        accumulated_rules,
+                        accumulated_surface_id,
+                        refinement_rule,
+                        overlay_payload=overlay_payload,
+                        overlay_context=overlay_context,
+                        generator_profile=generator_profile,
+                    )
+                    if rejected_refinement is not None:
+                        bundle.write_action_log(
+                            "Dropped an invalid refinement surface rule: "
+                            f"{rejected_refinement}"
+                        )
                 _apply_accumulated_rules(
                     overlay_payload,
                     accumulated_rules,
@@ -5257,6 +6063,12 @@ def run_feedback_loop(
         # blocked. A stopped run still writes a rules-empty seed, which carries
         # valid fingerprints a reviewer cannot compute by hand while changing
         # no geometry on replay.
+        #
+        # Publication is tracked rather than probed: _discard_stale_overlay
+        # deliberately keeps the file when input and output are the same path,
+        # so a filesystem probe would report a caller's earlier overlay as this
+        # run's output and invite edits against stale fingerprints.
+        published_overlay: Path | None = None
         if final_status == "automated-ready-pending-human":
             if final_overlay is None:
                 final_status = "evidence-incomplete"
@@ -5276,6 +6088,7 @@ def run_feedback_loop(
                     json.dumps(bundle.redact(final_overlay), indent=2, sort_keys=True),
                     encoding="utf-8",
                 )
+                published_overlay = overlay_output
         if final_status != "automated-ready-pending-human" or final_overlay is None:
             seed_overlay = None
             if (
@@ -5308,8 +6121,49 @@ def run_feedback_loop(
                     json.dumps(bundle.redact(seed_overlay), indent=2, sort_keys=True),
                     encoding="utf-8",
                 )
+                published_overlay = overlay_output
             else:
                 _discard_stale_overlay(overlay_output, overlay_input)
+        # Build the agent visual-review request for a run that captured
+        # trustworthy evidence. A build or write failure must not change the
+        # result, stop_reason, or exit code, so the block is swallowed like the
+        # seed-build precedent above. OSError is included because write_json
+        # truncates before writing, so a disk failure would otherwise both
+        # change the outcome and strand a partial artifact.
+        agent_review_block: dict[str, Any] | None = None
+        if (
+            final_status == "automated-ready-pending-human"
+            or final_status in OVERLAY_SEED_STOP_REASONS
+        ) and final_surface_metrics:
+            try:
+                review_request = _build_agent_review_request(
+                    final_surface_metrics=final_surface_metrics,
+                    final_surface_payloads=final_surface_payloads,
+                    semantic_surfaces=semantic_surfaces or {},
+                    published_overlay_path=published_overlay,
+                    overlay_input=overlay_input,
+                    bundle=bundle,
+                )
+                if review_request is not None:
+                    request_path = bundle.write_json(
+                        "agent-review-request.json",
+                        review_request,
+                    )
+                    agent_review_block = {
+                        "status": "pending",
+                        "request_path": request_path.name,
+                        "round": review_request["agent_round"],
+                    }
+            except (ValueError, TypeError, KeyError, OSError) as exc:
+                # Without this line a missing agent_review is indistinguishable
+                # from a run the emission gate deliberately excluded.
+                bundle.write_action_log(
+                    f"Agent review request was not published: {exc}"
+                )
+                with contextlib.suppress(OSError):
+                    (bundle.evidence_dir / "agent-review-request.json").unlink(
+                        missing_ok=True
+                    )
         candidate_sha256: str | None = None
         feedback_manifest_path: Path | None = None
         if final_candidate_path is not None and final_candidate_path.is_file():
@@ -5416,6 +6270,7 @@ def run_feedback_loop(
                 message=final_message,
                 bundle=bundle,
                 manifest=manifest,
+                agent_review=agent_review_block,
             )
         )
         return FeedbackLoopResult(

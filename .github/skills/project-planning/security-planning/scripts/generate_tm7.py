@@ -73,7 +73,17 @@ MIN_LAYOUT_GUTTER_RATIO = 0.28
 # spans, so lowering it shrinks surface extent and flattens aspect less, while
 # raising it does the reverse. Gains saturate above 3.5.
 LAYOUT_EXPANSION_LIMIT = 2.5
+# Padding between a trust zone's own rectangle and the content placed inside it.
+# Zone sizing and the post-placement extent reclaim both measure against it, so
+# they cannot drift apart and leave a zone drawn tighter than its own nodes.
+ZONE_INNER_PADDING = 16.0
 MIN_LABEL_ARROWHEAD_CLEARANCE = 24.0
+# How many extra edge crossings one connector may introduce to buy a readable
+# label when no placement is both readable and cleanly routed. An overprinted
+# label carries no information at all, while a crossing still leaves both flows
+# traceable, so a small exchange is worth making; an unbounded one is not,
+# because crossings accumulate across every connector on the surface.
+LABEL_READABILITY_CROSSING_BUDGET = 1
 MAX_LABEL_OWNERSHIP_DISTANCE = 120.0
 # Whole-surface layout candidates are the cross product of two fixed dimensions:
 # orientation and zone-order variant. Three zone orders are produced for orders
@@ -1956,50 +1966,6 @@ def _iter_grid_values(start: float, end: float, step: float) -> list[float]:
     return values
 
 
-def _build_dense_candidate_offsets(
-    *,
-    explicit_offset: tuple[float, float] | None,
-) -> list[tuple[float, float]]:
-    """Build a deterministic, dense set of label offsets for a candidate handle."""
-    if explicit_offset is not None:
-        base = explicit_offset
-        step_values = (0.0, 24.0, -24.0, 48.0, -48.0)
-        offsets = []
-        for delta_x in step_values:
-            for delta_y in step_values:
-                offsets.append((base[0] + delta_x, base[1] + delta_y))
-        return list(dict.fromkeys(offsets))
-
-    base_offsets = [
-        (12.0, 12.0),
-        (0.0, -80.0),
-        (0.0, 80.0),
-        (-80.0, 0.0),
-        (80.0, 0.0),
-        (-24.0, -24.0),
-        (24.0, -24.0),
-        (-24.0, 24.0),
-        (24.0, 24.0),
-    ]
-    dense_offsets = list(dict.fromkeys(base_offsets))
-    for delta in range(0, 161, 40):
-        for offset_x in (-delta, 0.0, delta):
-            for offset_y in (-delta, 0.0, delta):
-                if offset_x == 0.0 and offset_y == 0.0:
-                    continue
-                dense_offsets.append((float(offset_x), float(offset_y)))
-    for delta in range(200, 321, 40):
-        dense_offsets.extend(
-            [
-                (float(delta), 0.0),
-                (float(-delta), 0.0),
-                (0.0, float(delta)),
-                (0.0, float(-delta)),
-            ]
-        )
-    return list(dict.fromkeys(dense_offsets))
-
-
 def _point_to_segment_distance(
     point: tuple[float, float],
     start: tuple[float, float],
@@ -2066,22 +2032,22 @@ def _place_connector_label(
     routing_obstacles: list[dict[str, float]],
     source_point: tuple[float, float],
     target_point: tuple[float, float],
-    explicit_offset: tuple[float, float] | None,
     existing_segments: list[tuple[tuple[float, float], tuple[float, float]]]
     | None = None,
     preserve_handle: bool = False,
     explicit_handle: bool = False,
     reverse_lane_sign: float = 0.0,
     existing_handles: list[tuple[float, float]] | None = None,
+    canvas_bounds: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Choose a deterministic connector label placement without failing the model."""
     fixed_handle = handle
-    candidate_offsets = list(
-        dict.fromkeys(
-            [(0.0, 0.0)]
-            + _build_dense_candidate_offsets(explicit_offset=explicit_offset)
-        )
-    )
+    # TMT draws every connector label centred on the handle point, and the
+    # handle is the only label geometry the model serializes. A non-zero offset
+    # therefore moves the predicted rect without moving the drawn label, so a
+    # search that ranks offsets scores placements the renderer never produces.
+    # Searching handles alone keeps the prediction equal to the render.
+    candidate_offsets: list[tuple[float, float]] = [(0.0, 0.0)]
 
     def evaluate_candidate(
         candidate_handle: tuple[float, float],
@@ -2168,29 +2134,45 @@ def _place_connector_label(
         )
         reverse_label_penalty = 0.0
         if reverse_lane_sign:
-            handle_axis_is_vertical = abs(target_point[0] - source_point[0]) >= abs(
+            # A bidirectional pair must bend to opposite sides so its two
+            # labels do not stack. The lane is measured from the candidate
+            # handle against the straight source-to-target line, because the
+            # handle is what the model serializes and what TMT centres the
+            # label on. Measuring the predicted rect against the handle would
+            # compare a value to itself.
+            flow_is_horizontal = abs(target_point[0] - source_point[0]) >= abs(
                 target_point[1] - source_point[1]
             )
-            if handle_axis_is_vertical:
-                lane_offset = rect_center[1] - candidate_handle[1]
+            if flow_is_horizontal:
+                midpoint = (source_point[1] + target_point[1]) / 2.0
+                lane_offset = candidate_handle[1] - midpoint
             else:
-                lane_offset = rect_center[0] - candidate_handle[0]
+                midpoint = (source_point[0] + target_point[0]) / 2.0
+                lane_offset = candidate_handle[0] - midpoint
             if lane_offset * reverse_lane_sign <= 0.0:
                 reverse_label_penalty = MIN_LAYOUT_GUTTER + abs(lane_offset)
-        if explicit_offset is not None:
-            displacement = abs(candidate_offset[0] - explicit_offset[0]) + abs(
-                candidate_offset[1] - explicit_offset[1]
-            )
-        else:
-            displacement = abs(candidate_handle[0] - handle[0]) + abs(
-                candidate_handle[1] - handle[1]
-            )
+        displacement = abs(candidate_handle[0] - handle[0]) + abs(
+            candidate_handle[1] - handle[1]
+        )
+        # A label driven past the visible canvas is truncated by the renderer,
+        # which no obstacle or routing term measures: the label is clear of
+        # every rectangle precisely because it sits where nothing else does.
+        # The penalty is the distance the rect overruns the canvas, so it is
+        # zero for every placement already inside it and a surface whose labels
+        # all land on-canvas ranks exactly as it did before.
+        canvas_penalty = 0.0
+        if canvas_bounds is not None:
+            canvas_penalty = max(
+                0.0,
+                (rect["left"] + rect["width"]) - canvas_bounds[0],
+            ) + max(0.0, (rect["top"] + rect["height"]) - canvas_bounds[1])
         return {
             "layout": layout,
             "label_clear": label_clear,
             "label_obstacle_hits": label_obstacle_hits,
             "route_obstacle_hits": route_obstacle_hits,
             "crossings": crossings,
+            "canvas_penalty": canvas_penalty,
             "arrowhead_penalty": arrowhead_penalty,
             "ownership_penalty": ownership_penalty,
             "reverse_label_penalty": reverse_label_penalty,
@@ -2227,7 +2209,10 @@ def _place_connector_label(
             best = min(
                 ranked,
                 key=lambda item: (
+                    item["label_obstacle_hits"],
+                    item["route_obstacle_hits"],
                     item["crossings"],
+                    item["canvas_penalty"],
                     item["arrowhead_penalty"],
                     item["ownership_penalty"],
                     item["reverse_label_penalty"],
@@ -2244,6 +2229,7 @@ def _place_connector_label(
                     item["label_obstacle_hits"],
                     item["route_obstacle_hits"],
                     item["crossings"],
+                    item["canvas_penalty"],
                     item["arrowhead_penalty"],
                     item["ownership_penalty"],
                     item["reverse_label_penalty"],
@@ -2271,6 +2257,30 @@ def _place_connector_label(
         envelope_max_x = maximum_x + 160.0
         envelope_min_y = minimum_y - 160.0
         envelope_max_y = maximum_y + 160.0
+        # The envelope reaches past the content so a label can escape a crowded
+        # neighbourhood, and past the canvas edge that reach is worthless: TMT
+        # centres the label on the handle, so a handle within half a label of
+        # the edge is drawn truncated. Clamping the envelope keeps the search
+        # inside the region where a label can actually be read, using this
+        # label's own measured extent rather than the widest possible one. The
+        # clamp never crosses the nominal handle, so every connector keeps at
+        # least its own starting placement and a surface whose labels already
+        # sit on-canvas searches exactly the region it did before.
+        if canvas_bounds is not None:
+            nominal_rect = _build_connector_label_layout(
+                label,
+                transport,
+                handle=handle,
+                label_offset=(0.0, 0.0),
+            )["label_rect"]
+            envelope_max_x = min(
+                envelope_max_x,
+                max(handle[0], canvas_bounds[0] - float(nominal_rect[2]) / 2.0),
+            )
+            envelope_max_y = min(
+                envelope_max_y,
+                max(handle[1], canvas_bounds[1] - float(nominal_rect[3]) / 2.0),
+            )
         candidate_handles = list(
             dict.fromkeys(
                 _build_dense_candidate_handles(
@@ -2328,12 +2338,37 @@ def _place_connector_label(
             if evaluation["route_obstacle_hits"] == 0 and evaluation["crossings"] == 0
         ]
         if not route_clear_candidates:
-            route_clear_candidates = [
+            # No placement is both label-clear and route-clear. Ranking only the
+            # route-clear ones discards every readable placement, which is how
+            # two labels end up overprinted into unreadable text while the
+            # connectors beneath them route perfectly; ranking the union instead
+            # lets a readable label pull the choice off a clean route and costs
+            # more crossings than the diagram can afford. The tier is therefore
+            # route-clear plus only those label-clear candidates that route no
+            # worse than the best route-clear one, so readability is bought with
+            # the routing budget that is already being spent.
+            route_only = [
                 evaluation
                 for evaluation in evaluations
                 if evaluation["route_obstacle_hits"] == 0
                 and evaluation["crossings"] == 0
             ]
+            best_route_cost = min(
+                (
+                    (evaluation["route_obstacle_hits"], evaluation["crossings"])
+                    for evaluation in route_only
+                ),
+                default=(0, 0),
+            )
+            readable_at_cost = [
+                evaluation
+                for evaluation in evaluations
+                if evaluation["label_clear"]
+                and evaluation["route_obstacle_hits"] <= best_route_cost[0]
+                and evaluation["crossings"]
+                <= best_route_cost[1] + LABEL_READABILITY_CROSSING_BUDGET
+            ]
+            route_clear_candidates = route_only + readable_at_cost
         ranked = route_clear_candidates or label_clear_candidates or evaluations
         # A label that drifts away from its own connector is ambiguous about
         # which flow it describes, which is a correctness problem rather than an
@@ -2350,7 +2385,10 @@ def _place_connector_label(
             best = min(
                 ranked,
                 key=lambda item: (
+                    item["label_obstacle_hits"],
+                    item["route_obstacle_hits"],
                     item["crossings"],
+                    item["canvas_penalty"],
                     item["arrowhead_penalty"],
                     item["ownership_penalty"],
                     item["reverse_label_penalty"],
@@ -2369,6 +2407,7 @@ def _place_connector_label(
                     item["label_obstacle_hits"],
                     item["route_obstacle_hits"],
                     item["crossings"],
+                    item["canvas_penalty"],
                     item["arrowhead_penalty"],
                     item["ownership_penalty"],
                     item["reverse_label_penalty"],
@@ -2409,7 +2448,10 @@ def _place_connector_label(
         best = min(
             ranked,
             key=lambda item: (
+                item["label_obstacle_hits"],
+                item["route_obstacle_hits"],
                 item["crossings"],
+                item["canvas_penalty"],
                 item["arrowhead_penalty"],
                 item["ownership_penalty"],
                 item["reverse_label_penalty"],
@@ -2426,6 +2468,7 @@ def _place_connector_label(
                 item["label_obstacle_hits"],
                 item["route_obstacle_hits"],
                 item["crossings"],
+                item["canvas_penalty"],
                 item["arrowhead_penalty"],
                 item["ownership_penalty"],
                 item["reverse_label_penalty"],
@@ -3363,6 +3406,36 @@ def _zone_target_aspect(
     return surface_aspect / span
 
 
+def _resolve_surface_orientation_and_zone_order(
+    surface: dict[str, Any],
+    *,
+    layout_overlay: dict[str, Any] | None,
+) -> tuple[str, list[str]]:
+    """Resolve the orientation and zone order that layout commits to.
+
+    Zone placement and the layout metadata published for downstream refinement
+    must agree on these two facts. Resolving them in one place keeps the
+    published record a report of what layout actually did rather than a second,
+    independently derived opinion that could drift from it.
+    """
+    preferences = _resolve_surface_layout_preferences(
+        surface,
+        layout_overlay=layout_overlay,
+    )
+    orientation = str(preferences.get("orientation", "horizontal") or "horizontal")
+    zone_order = preferences.get("zone_order")
+    if zone_order:
+        return orientation, list(zone_order)
+    graph = _analyze_surface_layout_graph(surface)
+    candidate = _select_surface_layout_candidate(
+        surface,
+        graph,
+        layout_overlay=layout_overlay,
+    )
+    orientation = str(candidate.get("orientation", orientation) or orientation)
+    return orientation, list(candidate.get("zone_order", []) or [])
+
+
 def _assign_zone_regions(
     surface: dict[str, Any],
     *,
@@ -3376,19 +3449,12 @@ def _assign_zone_regions(
     viewport_target = preferences["viewport_target"]
     outer_margin = float(preferences["outer_margin"])
     label_band = 24.0
-    inner_padding = 16.0
+    inner_padding = ZONE_INNER_PADDING
     gutter = 16.0
-    graph = _analyze_surface_layout_graph(surface)
-    candidate = _select_surface_layout_candidate(
+    orientation, zone_order = _resolve_surface_orientation_and_zone_order(
         surface,
-        graph,
         layout_overlay=layout_overlay,
     )
-    orientation = str(preferences.get("orientation", "horizontal") or "horizontal")
-    zone_order = preferences.get("zone_order")
-    if not zone_order:
-        orientation = str(candidate.get("orientation", orientation) or orientation)
-        zone_order = list(candidate.get("zone_order", []) or [])
 
     surface_zones = [
         zone
@@ -3959,13 +4025,13 @@ def _assign_zone_regions(
         )
         return columns * cell_width + (columns - 1) * layout_gutter + inner_padding * 2
 
-    desired_root_widths = {
-        root_zone_id: max(
-            # Count-based floor on root width, mirroring the per-zone floor.
-            # It controls how wide a root subtree spreads and is a composition
-            # control rather than a containment control.
-            220.0 + max(0, root_node_counts[root_zone_id] - 1) * 88.0,
-            260.0 if _subtree_depth(root_zone_id) > 0 else 0.0,
+    def _root_containment_width(root_zone_id: str) -> float:
+        """Return the width a root subtree needs to hold its own content.
+
+        Every term is a containment floor: allocating less than this pushes
+        nodes past the zone that owns them and fails generation.
+        """
+        return max(
             _root_cell_size(root_zone_id)[0] + inner_padding * 4,
             _root_grid_width(root_zone_id),
             # The floors above describe how far a subtree spreads, not how much
@@ -3973,12 +4039,41 @@ def _assign_zone_regions(
             # zone can be allocated less width than its own subtree demands.
             _estimate_zone_content_requirements(root_zone_id)[0],
         )
-        for root_zone_id in root_zone_ids
+
+    def _root_spread_width(root_zone_id: str) -> float:
+        """Return the width a root subtree is allowed to fan out into."""
+        return max(
+            # Count-based floor on root width, mirroring the per-zone floor.
+            # It controls how wide a root subtree spreads and is a composition
+            # control rather than a containment control.
+            220.0 + max(0, root_node_counts[root_zone_id] - 1) * 88.0,
+            260.0 if _subtree_depth(root_zone_id) > 0 else 0.0,
+            _root_containment_width(root_zone_id),
+        )
+
+    def _total_root_width(widths: dict[str, float]) -> float:
+        return sum(widths.values()) + gutter * max(0, len(root_zone_ids) - 1)
+
+    desired_root_widths = {
+        root_zone_id: _root_spread_width(root_zone_id) for root_zone_id in root_zone_ids
     }
-    desired_total_width = sum(desired_root_widths.values()) + gutter * max(
-        0,
-        len(root_zone_ids) - 1,
-    )
+    desired_total_width = _total_root_width(desired_root_widths)
+    # The spread floors decide how far a subtree fans out, not how much room its
+    # nodes need, so they are the first thing to give up when a surface would
+    # otherwise be laid out past the visible canvas and silently clipped.
+    # Containment floors are kept either way. The exchange is only taken when it
+    # actually buys a fitting surface, so a surface that overflows on content
+    # alone keeps its spread and still reports the overflow through the fill and
+    # clipping metrics, and a surface that already fits is laid out unchanged.
+    width_budget = viewport_rect["width"] - (outer_margin * 2)
+    if desired_total_width > width_budget:
+        containment_root_widths = {
+            root_zone_id: _root_containment_width(root_zone_id)
+            for root_zone_id in root_zone_ids
+        }
+        if _total_root_width(containment_root_widths) <= width_budget:
+            desired_root_widths = containment_root_widths
+            desired_total_width = _total_root_width(containment_root_widths)
     # The viewport bounds how far a sparse surface is allowed to spread, but it
     # must not compress content below what it measurably needs: doing so pushes
     # nodes outside the zone that owns them and fails generation. A surface
@@ -4022,9 +4117,25 @@ def _assign_zone_regions(
         # Zones shrink to fit a narrow canvas and expand into a wide one, so a
         # sparse surface uses its share of the pane instead of clustering in a
         # column. Expansion is bounded so nodes are not scattered.
+        # Expansion also stops at the visible canvas. Beyond that edge content
+        # is clipped rather than merely scrolled, and expansion is discretionary
+        # width by definition, so spending it on clipped space buys nothing. The
+        # ratio floors at 1.0 so a surface whose content already exceeds the
+        # canvas keeps its measured width instead of being compressed into its
+        # own zones, which would push nodes out and fail generation.
+        budget_content_width = width_budget - gutter * max(
+            0,
+            len(root_zone_ids) - 1,
+        )
+        budget_scale = (
+            max(1.0, budget_content_width / desired_content_width)
+            if desired_content_width > 0
+            else LAYOUT_EXPANSION_LIMIT
+        )
         scale = min(
             LAYOUT_EXPANSION_LIMIT,
             available_content_width / desired_content_width,
+            budget_scale,
         )
         root_rects = []
         next_left = root_available["left"]
@@ -4417,6 +4528,106 @@ def _apply_overlay_rules(
     return {key: value for key, value in position_updates.items()}
 
 
+def _reclaim_unused_zone_extent(
+    surface: dict[str, Any],
+    zone_rects: dict[str, dict[str, float]],
+    *,
+    layout_overlay: dict[str, Any] | None = None,
+) -> None:
+    """Shrink zone rectangles onto their placed content when a surface overruns.
+
+    Zone sizing runs before placement and deliberately never under-counts the
+    rows a zone will need, so a zone is routinely allocated more room than its
+    content finally uses. That surplus is invisible on a surface that fits, but
+    on one that overruns the visible canvas it is the difference between a
+    clipped diagram and a whole one.
+
+    Only the zone rectangle changes and only ever by shrinking onto content that
+    is already placed, so no node moves: zone containment and every routed
+    connector are unaffected. A surface that already fits is left untouched, so
+    the deliberate spread of a fitting layout is preserved.
+    """
+    if not zone_rects:
+        return
+    preferences = _resolve_surface_layout_preferences(
+        surface,
+        layout_overlay=layout_overlay,
+    )
+    viewport_target = preferences["viewport_target"]
+    outer_margin = float(preferences["outer_margin"])
+    width_limit = float(viewport_target.get("width", 0.0)) - outer_margin
+    height_limit = float(viewport_target.get("height", 0.0)) - outer_margin
+
+    node_rects: dict[str, list[tuple[float, float]]] = {}
+    for element in surface.get("elements", []):
+        if not isinstance(element, dict):
+            continue
+        if str(element.get("kind", "")).lower() == "trust_boundary_box":
+            continue
+        position = element.get("position")
+        if not isinstance(position, dict):
+            continue
+        zone_id = str(element.get("trust_zone_id", "") or "")
+        if not zone_id:
+            continue
+        node_rects.setdefault(zone_id, []).append(
+            (
+                float(position.get("left", 0.0)) + float(position.get("width", 0.0)),
+                float(position.get("top", 0.0)) + float(position.get("height", 0.0)),
+            )
+        )
+
+    surface_right = max(
+        (rect["left"] + rect["width"] for rect in zone_rects.values()),
+        default=0.0,
+    )
+    surface_bottom = max(
+        (rect["top"] + rect["height"] for rect in zone_rects.values()),
+        default=0.0,
+    )
+    if surface_right <= width_limit and surface_bottom <= height_limit:
+        return
+
+    parents = {
+        str(zone.get("id", "") or ""): str(zone.get("parent_trust_zone_id", "") or "")
+        for zone in surface.get("trust_zones", [])
+        if isinstance(zone, dict)
+    }
+
+    def _depth(zone_id: str) -> int:
+        depth = 0
+        seen = {zone_id}
+        parent = parents.get(zone_id, "")
+        while parent and parent not in seen:
+            seen.add(parent)
+            depth += 1
+            parent = parents.get(parent, "")
+        return depth
+
+    # Children are reclaimed before their parents so a parent measures against
+    # the child rectangle its own content already shrank to.
+    for zone_id in sorted(zone_rects, key=_depth, reverse=True):
+        rect = zone_rects[zone_id]
+        corners = list(node_rects.get(zone_id, []))
+        corners.extend(
+            (child["left"] + child["width"], child["top"] + child["height"])
+            for child_id, child in zone_rects.items()
+            if parents.get(child_id, "") == zone_id
+        )
+        if not corners:
+            continue
+        content_right = max(corner[0] for corner in corners)
+        content_bottom = max(corner[1] for corner in corners)
+        rect["width"] = min(
+            rect["width"],
+            max(0.0, content_right + ZONE_INNER_PADDING - rect["left"]),
+        )
+        rect["height"] = min(
+            rect["height"],
+            max(0.0, content_bottom + ZONE_INNER_PADDING - rect["top"]),
+        )
+
+
 def apply_layout(
     model: dict[str, Any],
     profile: dict[str, Any],
@@ -4429,6 +4640,20 @@ def apply_layout(
 
     for surface in model.get("surfaces", []):
         elements = list(surface.get("elements", []))
+        # Resolved before any mutation and reused at the layout_metadata write
+        # below. Placement and the published record must describe one layout.
+        # Resolving a second time after placement would read a mutated surface:
+        # the flow list is rebuilt further down and silently drops any flow
+        # whose endpoint is missing, which changes the graph the orientation
+        # and zone order are derived from. The published record would then
+        # describe a layout that was never placed, which is the same class of
+        # defect this metadata exists to fix.
+        surface_orientation, surface_zone_order = (
+            _resolve_surface_orientation_and_zone_order(
+                surface,
+                layout_overlay=layout_overlay,
+            )
+        )
         layout_positions, zone_rects = _assign_layered_positions(
             surface, layout_overlay=layout_overlay
         )
@@ -4463,6 +4688,12 @@ def apply_layout(
             surface,
             layout_overlay=layout_overlay,
             zone_rects=zone_rects,
+        )
+
+        _reclaim_unused_zone_extent(
+            surface,
+            zone_rects,
+            layout_overlay=layout_overlay,
         )
 
         boundary_elements: list[dict[str, Any]] = []
@@ -4557,6 +4788,20 @@ def apply_layout(
 
         surface_flows: list[dict[str, Any]] = []
         placed_label_rects: list[dict[str, float]] = []
+        # Connector labels are placed after the nodes they annotate and are the
+        # one piece of surface geometry that can still leave the visible canvas
+        # once every zone fits inside it, so label placement is given the same
+        # canvas the layout targeted.
+        connector_preferences = _resolve_surface_layout_preferences(
+            surface,
+            layout_overlay=layout_overlay,
+        )
+        connector_viewport = connector_preferences["viewport_target"]
+        connector_outer_margin = float(connector_preferences["outer_margin"])
+        connector_canvas_bounds = (
+            float(connector_viewport.get("width", 0.0)) - connector_outer_margin,
+            float(connector_viewport.get("height", 0.0)) - connector_outer_margin,
+        )
         placed_connector_segments: list[
             tuple[tuple[float, float], tuple[float, float]]
         ] = []
@@ -4836,14 +5081,6 @@ def apply_layout(
                 existing_handles=placed_handles,
                 reverse_lane_sign=reverse_lane_sign,
             )
-            label_offset = None
-            if isinstance(overlay_rule, dict):
-                raw_label_offset = overlay_rule.get("label_offset")
-                if isinstance(raw_label_offset, dict):
-                    label_offset = (
-                        float(raw_label_offset.get("x", 0.0)),
-                        float(raw_label_offset.get("y", 0.0)),
-                    )
             flow_payload = flow_lookup.get(str(flow.get("id", "")), flow)
             all_boundary_label_bands = [
                 {
@@ -4880,13 +5117,13 @@ def apply_layout(
                     routing_obstacles=routing_obstacles,
                     source_point=source_point,
                     target_point=target_point,
-                    explicit_offset=label_offset,
                     existing_segments=placed_connector_segments,
                     preserve_handle=True,
                     explicit_handle=isinstance(overlay_rule, dict)
                     and isinstance(overlay_rule.get("handle_point"), dict),
                     reverse_lane_sign=reverse_lane_sign,
                     existing_handles=placed_handles,
+                    canvas_bounds=connector_canvas_bounds,
                 )
             except ValueError as exc:
                 raise GenerationError(
@@ -5034,6 +5271,13 @@ def apply_layout(
                     f"Surface {surface.get('id', 'unknown')} exceeds the bounded "
                     "two-by-two pane canvas"
                 )
+            # Layout derives the graph ranks, branch groups, orientation, and
+            # zone order it places against and would otherwise discard them.
+            # Validation-time refinement cannot recover them from a rendered
+            # diagram, so it previously scored the shipped layout as though it
+            # had no ranks and no branches at all. Publishing them here is
+            # in-process surface state only; the serializer reads none of these
+            # keys, so generated bytes are unchanged.
             surface["layout_metadata"] = {
                 "diagram_bounds": [24.0, 24.0, maximum_x, maximum_y],
                 "viewport": [
@@ -5044,6 +5288,10 @@ def apply_layout(
                 ],
                 "scroll_extent_ratio_x": maximum_x / viewport_width,
                 "scroll_extent_ratio_y": maximum_y / viewport_height,
+                "orientation": surface_orientation,
+                "zone_order": surface_zone_order,
+                "node_ranks": dict(routing_graph.get("node_ranks", {})),
+                "branch_groups": dict(routing_graph.get("branch_groups", {})),
             }
     return model
 

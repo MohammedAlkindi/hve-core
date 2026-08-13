@@ -30,11 +30,11 @@ The `.tm7` output mirrors the Microsoft Threat Modeling Tool's real `Serializabl
 
 The skill also supports an opt-in, Windows-local feedback loop for the native Microsoft Threat Modeling Tool UI. The feature is off by default. The generator and standard validator keep their existing portable behavior when the feedback flags are absent. Native feedback is enabled only when `validate_tm7_with_tmt.py` is run with `--feedback-loop`, `--spec`, and `--overlay-output`; optional `--overlay-input`, `--max-iterations`, and `--require-feedback-evidence` refine the execution contract.
 
-The workflow requires Microsoft Threat Modeling Tool 7.3.51110.1, a Windows desktop session, and UI Automation access. The loop is bounded to a baseline run plus at most three refinement iterations. Exit codes, stop reasons, and the discovery-failure rules are defined in the generation reference.
+The workflow requires Microsoft Threat Modeling Tool 7.3.51110.1, a Windows desktop session, and UI Automation access. The loop is bounded to a baseline run plus at most three refinement iterations, and defaults to a baseline plus one. A single run holds the mouse and keyboard continuously across the baseline and every refinement iteration; control returns only at the release notice. Replaying a corrected overlay is a new run and a new takeover. Exit codes, stop reasons, and the discovery-failure rules are defined in the generation reference.
 
 The harness controls TMT windows and may open, close, and reopen the app for save/reopen validation. It emits a start notice before automation begins, progress updates for the baseline and each refinement candidate, and a release notice when the loop completes or aborts so the operator knows when control is returned. These are notices only; the harness does not block on operator acknowledgment. The agent-facing lockout and release obligations that surround a run are owned by `tm7-generation-workflow.instructions.md`.
 
-The loop records one evidence bundle per run under the requested evidence directory, with per-iteration screenshots, UI Automation snapshots, summaries, and candidate models. The overlay payload remains in `approval_state: pending`, and no runtime path or flag auto-promotes it to `approved` or rewrites the canonical baseline.
+The loop records one evidence bundle per run under the requested evidence directory, with per-iteration screenshots, UI Automation snapshots, summaries, and candidate models. A run that captured at least one surface and either passed the automated gates or stopped for layout exhaustion also emits `agent-review-request.json` at the bundle root. The overlay payload remains in `approval_state: pending`, and no runtime path or flag auto-promotes it to `approved` or rewrites the canonical baseline.
 
 Scoring keeps deterministic geometry gates separate from advisory screenshot heuristics. Screenshot heuristics are not a semantic approval signal.
 
@@ -57,11 +57,13 @@ See [references/tm7-generation.md](references/tm7-generation.md) for the full CL
 
 ### Agent-assisted visual review
 
-Some layout defects never reach a metric. TM7 persists no connector label geometry and UI Automation exposes no label element, so label collisions, unreadable label text, and visual crowding are invisible to the deterministic gates. An agent that reads the iteration screenshots alongside `feedback-manifest.json` and each surface's UI Automation tree can see them and author corrections into the overlay the harness publishes. The capability is documented; it has not yet been demonstrated end to end on a real defect.
+Some layout defects never reach a metric. TM7 persists no connector label geometry and UI Automation exposes no label element, so label collisions, unreadable label text, and visual crowding are invisible to the deterministic gates. An agent that reads the rendered screenshots can see them and author corrections into the overlay the harness publishes.
 
-A stopped run publishes the overlay seed the agent edits. Layout-exhaustion stops write a valid overlay with correct fingerprints and empty rule collections; a correctness or environment stop publishes no seed at all.
+This review is a default step of every feedback-loop run, not an opt-in extra. A run that captured at least one surface and either passed the automated gates or stopped for layout exhaustion emits `agent-review-request.json` at the evidence root, carrying per surface the screenshot and UI Automation paths, the node and zone rectangles, the connector handle points, and the predicted label rectangles in model coordinates, plus the coordinate-translation constants and the port convention. The agent reviews from that payload rather than hand-parsing UI Automation trees. `automated-ready-pending-human` means the automated gates passed and the result awaits review; it is not an approval. The remedy remains documented rather than proven: it has not yet been demonstrated end to end on a real defect.
 
-See [references/tm7-generation.md](references/tm7-generation.md) for the protocol, the accepted rule fields, the coordinate translation the rule values require, and the constraints that bound an agent-authored overlay.
+On the success path the published overlay addresses every captured surface, so a correction can be authored for any of them. When the run found no automated correction, that overlay is the seed shape, carrying an `overlay-seed-` identifier and empty rule collections. A layout-exhaustion stop publishes the same seed shape; a correctness or environment stop publishes nothing at all.
+
+See [references/tm7-generation.md](references/tm7-generation.md) for the protocol, the request payload, the accepted rule fields, the coordinate translation, and the constraints that bound an agent-authored overlay.
 
 > [!CAUTION]
 > **Disclaimer:** This agent is an assistive tool only. It does not provide legal, regulatory, or compliance advice and does not replace professional security review boards, penetration testing teams, compliance auditors, legal counsel, or other qualified human reviewers. The output consists of suggested actions and considerations to support a user's own internal security review and decision-making. All security plans, threat models, security models, and mitigation recommendations generated by this tool must be independently reviewed and validated by appropriate security and compliance reviewers before use. Outputs from this tool do not constitute security approval, compliance certification, or regulatory sign-off.
@@ -94,6 +96,7 @@ Bundled executable and data resources:
 | `scripts/validate_tm7_with_tmt.py`                        | Run for native Windows TMT validation and the opt-in feedback loop |
 | `scripts/Deserialize-Tm7.ps1`                             | Run to check round-trip fidelity against the tool's own assemblies |
 | `assets/schemas/tm7-layout-overlay.schema.json`           | Read as the layout overlay schema                                  |
+| `assets/schemas/tm7-agent-review-request.schema.json`     | Read as the agent visual-review request schema                     |
 | `assets/schemas/tm7-visual-feedback-manifest.schema.json` | Read as the evidence manifest schema                               |
 | `templates/threat-model-spec-example.yaml`                | Copy as the starting point for a new spec                          |
 
