@@ -337,14 +337,17 @@ Describe 'Asset documentation section contract' -Tag 'Unit' {
             Should -Be $Expected
     }
 
-    It 'Preserves Optional as a distinct resolved status' {
-        $section = [PSCustomObject]@{
-            Name         = 'optional-example'
-            Requirements = @{ instruction = 'Optional' }
-        }
+    It 'Resolves Example usage from the shared contract' -ForEach @(
+        @{ Kind = 'agent'; Interactive = $true; Expected = 'Required' }
+        @{ Kind = 'agent'; Interactive = $false; Expected = 'Required' }
+        @{ Kind = 'prompt'; Interactive = $true; Expected = 'Required' }
+        @{ Kind = 'skill'; Interactive = $false; Expected = 'Required' }
+        @{ Kind = 'instruction'; Interactive = $false; Expected = 'Optional' }
+    ) {
+        $section = $script:sections | Where-Object Name -EQ 'example-usage'
 
-        Resolve-AssetDocSectionStatus -Section $section -Kind 'instruction' -Interactive $false |
-            Should -Be 'Optional'
+        Resolve-AssetDocSectionStatus -Section $section -Kind $Kind -Interactive $Interactive |
+            Should -Be $Expected
     }
 
     It 'Rejects unsupported resolved statuses' {

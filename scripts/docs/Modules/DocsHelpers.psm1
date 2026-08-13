@@ -586,7 +586,9 @@ function Get-AssetDocSectionContract {
             Requirements    = [ordered]@{
                 agent       = 'Required'
                 prompt      = 'Required'
-                instruction = 'Required'
+                # Optional: scaffolded for instruction pages but not enforced,
+                # because an always-on instruction has no invocation to show.
+                instruction = 'Optional'
                 skill       = 'Required'
             }
         }

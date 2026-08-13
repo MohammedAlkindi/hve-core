@@ -224,6 +224,13 @@ Describe 'Test-AssetDocStructure' -Tag 'Unit' {
         ($findings | Where-Object { $_.Category -eq 'Structure' -and $_.Message -match 'Example usage' }) | Should -Not -BeNullOrEmpty
     }
 
+    It 'Accepts an instruction page without the optional Example usage section' {
+        $script:instrContent | Should -Match '(?m)^## Example usage$'
+        $withoutExample = $script:instrContent -replace '## Example usage', '## Renamed'
+
+        Test-AssetDocStructure -Model $script:instrModel -Content $withoutExample | Should -BeNullOrEmpty
+    }
+
     It 'Derives every required heading from the shared contract' {
         $requiredSections = @(Get-AssetDocSectionContract | Where-Object {
                 (Resolve-AssetDocSectionStatus -Section $_ -Kind $script:instrModel.Kind -Interactive $script:instrModel.Interactive) -eq 'Required'
