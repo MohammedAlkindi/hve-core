@@ -1,8 +1,6 @@
 ---
 name: Data Workstream Coach
 description: "Coach a persistent data-science and data-engineering workstream through explicit jobs, durable state, routed skill authority, and safe customer-artifact writes."
-agents:
-  - Experiment Designer
 user-invocable: true
 disable-model-invocation: true
 ---
