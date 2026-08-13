@@ -2,7 +2,7 @@
 title: Customizing HVE Core
 description: Overview of customization approaches from lightweight settings to full fork-and-extend, with role-based entry points
 author: Microsoft
-ms.date: 2026-08-09
+ms.date: 2026-08-12
 ms.topic: overview
 sidebar_position: 1
 keywords:
@@ -60,7 +60,7 @@ graph LR
 | Instructions       | Configure Copilot behavior through `.github/copilot-instructions.md` and `.instructions.md` files. Lowest effort with highest return for shaping AI output. |
 | Agents and Prompts | Specialized workflows: agents for multi-turn interactions, prompts for single-shot tasks. Both accept tool restrictions and delegation rules.               |
 | Skills             | Domain knowledge in self-contained bundles with optional scripts. Use when instruction files alone cannot capture the depth of a domain.                    |
-| Marketplace Recipe | Declare the complete plugin and VSIX component set with lifecycle disclosure.                                                                               |
+| Marketplace Recipe | Declare canonical component membership for manifest-only plugins and VSIX packages with lifecycle disclosure.                                                |
 | Build System       | Validation scripts, schema checks, and plugin generation pipelines.                                                                                         |
 | Fork and Extend    | Full control over every artifact. Fork the repository when your changes diverge significantly from upstream.                                                |
 
@@ -117,7 +117,7 @@ Each HVE role benefits from different customization techniques. The table below 
 2. [Creating Custom Agents](custom-agents.md): Build specialized agents with tool restrictions and subagent delegation
 3. [Creating Custom Prompts](prompts.md): Author reusable prompt templates with variables
 4. [Authoring Custom Skills](skills.md): Create domain knowledge packages
-5. [Managing Marketplace Packages](packages.md): Define self-contained plugin and VSIX packages
+5. [Managing Marketplace Packages](packages.md): Define manifest-only plugins and VSIX packages
 6. [Build System and Validation](build-system.md): Plugin generation, schema validation, npm scripts
 7. [Forking and Extending](forking.md): Full fork-and-extend customization
 8. [Environment Customization](environment.md): DevContainers, VS Code settings, MCP servers

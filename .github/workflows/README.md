@@ -2,7 +2,7 @@
 title: GitHub Actions Workflows
 description: Modular CI/CD workflow architecture for validation, security scanning, and automated maintenance
 author: HVE Core Team
-ms.date: 2026-08-10
+ms.date: 2026-08-12
 ms.topic: reference
 keywords:
   - github actions
@@ -61,14 +61,14 @@ The validation jobs in `pr-validation.yml` feed the `pr-validation-success` aggr
 
 release-stable.yml jobs: prepare-promotion, open-promotion-pr
 
-release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-pr, validate-release, close-milestone, extension-package-release, extension-provenance, plugin-package-release, generate-dependency-sbom, upload-plugin-packages, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
+release-stable-publish.yml jobs: validate-trigger, release-please, sync-release-pr, validate-release, close-milestone, extension-package-release, extension-provenance, plugin-package-release, generate-dependency-sbom, vex-attest, verify-provenance, sbom-diff, append-verification-notes, publish-release
 
 release-prerelease-prepare.yml jobs: prepare-promotion, open-promotion-pr
 
 release-prerelease.yml jobs: release-please, sync-release-pr, validate-release,
-close-milestone, extension-package-prerelease, plugin-package-prerelease,
-generate-dependency-sbom, extension-provenance-prerelease,
-upload-plugin-packages, verify-provenance, publish-release
+close-milestone, extension-package-prerelease, extension-provenance-prerelease,
+plugin-package-prerelease, generate-dependency-sbom, verify-provenance,
+publish-release
 
 ### Release Channel Contract
 
@@ -98,7 +98,7 @@ Release-please creates the draft channel release at the reviewed managed merge, 
 
 Publication does not synchronize release metadata, changelog history, or catalog locators back to `main`. The ref-less main catalog omits `source.ref`; release-branch and exact-tag catalogs use their channel's exact immutable tag. An explicit marketplace refresh and plugin update are required for the ref-less main catalog, which has no release gate, SBOM, or attestation. Release-channel assets remain release-gated, SBOM-covered, and attested.
 
-Both release channels preserve the VSIX package, plugin-release-evidence.json, signed plugin ZIPs, SBOM, Sigstore, in-toto, provenance, attestation, verification, and Azure OIDC publication chain. Each Marketplace workflow passes its validated exact tag and the workflow that attested its VSIX to the generic publisher.
+Both release channels preserve the VSIX package, `plugin-release-evidence.json`, dependency SBOM, Sigstore, in-toto provenance, evidence attestation, verification, and Azure OIDC publication chain. The evidence attests catalog-resolved canonical Git-tracked sources at the exact channel ref. Each Marketplace workflow passes its validated exact tag and the workflow that attested its VSIX to the generic publisher.
 
 The publisher's no-environment gate validates matrix structure, package-ID
 grammar and uniqueness, channel tag namespace and minor-version parity, and the
@@ -152,9 +152,10 @@ aligned with VS Code Marketplace guidance and behavior, rather than a
 requirement of `MAJOR.MINOR.PATCH` syntax.
 
 Release catalogs set every plugin entry to their exact `prerelease-v<version>`
-or `v<version>` ref. Their reviewed, release-gated assets remain SBOM-covered,
-attested, and immutable. The ref-less main catalog instead sources canonical
-`.github` content and has no published-release assurance.
+or `v<version>` ref. Their reviewed, release-gated VSIX, dependency SBOM, and
+canonical-source evidence remain attested and immutable. The ref-less main
+catalog instead sources canonical `.github` content and has no
+published-release assurance.
 
 Because snapshot publication has stopped, tags and catalogs remain immutable and supported only as historical records. They are not current release or registration namespaces.
 

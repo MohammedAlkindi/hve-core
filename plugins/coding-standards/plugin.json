@@ -1,0 +1,66 @@
+{
+  "name": "coding-standards",
+  "description": "Language-specific coding instructions and pre-PR code review agents for bash, Bicep, C#, PowerShell, Python, Rust, and Terraform projects",
+  "version": "3.2.2",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "coding-standards",
+    "code-review",
+    "pull-request",
+    "quality",
+    "bash",
+    "bicep",
+    "csharp",
+    "powershell",
+    "python",
+    "rust",
+    "terraform",
+    "uv"
+  ],
+  "agents": [
+    "../../.github/agents/accessibility/accessibility-reviewer.agent.md",
+    "../../.github/agents/accessibility/subagents/accessibility-framework-assessor.agent.md",
+    "../../.github/agents/accessibility/subagents/accessibility-surface-inventory.agent.md",
+    "../../.github/agents/coding-standards/code-review.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-accessibility.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-explainer.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-functional.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-pr.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-readiness.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-security.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-standards.agent.md",
+    "../../.github/agents/coding-standards/subagents/code-review-walkback.agent.md",
+    "../../.github/agents/hve-core/subagents/rpi-researcher.agent.md"
+  ],
+  "rules": [
+    "../../.github/instructions/coding-standards/bash/bash.instructions.md",
+    "../../.github/instructions/coding-standards/bicep/bicep.instructions.md",
+    "../../.github/instructions/coding-standards/code-review/diff-computation.instructions.md",
+    "../../.github/instructions/coding-standards/code-review/review-artifacts.instructions.md",
+    "../../.github/instructions/coding-standards/csharp/csharp-tests.instructions.md",
+    "../../.github/instructions/coding-standards/csharp/csharp.instructions.md",
+    "../../.github/instructions/coding-standards/powershell/pester.instructions.md",
+    "../../.github/instructions/coding-standards/powershell/powershell.instructions.md",
+    "../../.github/instructions/coding-standards/python-script.instructions.md",
+    "../../.github/instructions/coding-standards/python-tests.instructions.md",
+    "../../.github/instructions/coding-standards/rust/rust-tests.instructions.md",
+    "../../.github/instructions/coding-standards/rust/rust.instructions.md",
+    "../../.github/instructions/coding-standards/terraform/terraform.instructions.md",
+    "../../.github/instructions/coding-standards/uv-projects.instructions.md",
+    "../../.github/instructions/shared/hve-core-location.instructions.md",
+    "../../.github/instructions/shared/telemetry-overlay.instructions.md"
+  ],
+  "skills": [
+    "../../.github/skills/coding-standards/code-review",
+    "../../.github/skills/coding-standards/python-foundational",
+    "../../.github/skills/rpi/rpi-research",
+    "../../.github/skills/shared/pr-reference",
+    "../../.github/skills/shared/telemetry-foundations"
+  ]
+}

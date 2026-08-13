@@ -2,7 +2,7 @@
 title: Release Process
 description: Release HVE Core through reviewed PreRelease metadata and Stable promotion workflows
 sidebar_position: 9
-ms.date: 2026-08-10
+ms.date: 2026-08-12
 ms.topic: how-to
 author: WilliamBerryiii
 ---
@@ -111,10 +111,10 @@ flowchart TD
     `v<version>` release at that managed merge commit.
 7. The workflow proves event SHA, PR merge SHA, release-please SHA, tag SHA,
     and `release/stable` ancestry are consistent.
-8. It packages from the release tag and attaches signed plugin ZIPs,
-    `plugin-release-evidence.json`, SBOM, VEX, Sigstore, in-toto, provenance,
-    and verification assets. Release evidence and package assets are attested
-    against the immutable release identity.
+8. It packages from the release tag and attaches the VSIX,
+    `plugin-release-evidence.json`, dependency SBOM, VEX, Sigstore, in-toto,
+    provenance, and verification assets. The evidence attests catalog-resolved
+    canonical Git-tracked sources at the immutable release identity.
 9. A release GitHub App token publishes the Stable release with
     `gh release edit --draft=false`. The event triggers
     `Stable Marketplace Publish`.
@@ -235,9 +235,9 @@ preparation workflow.
     versions, changelog, manifest, and immutable plugin locator.
 5. Merge the managed PR and verify the draft `prerelease-v<version>` release
     targets that managed merge commit.
-6. Verify packaging uses the release tag and attaches signed plugin ZIPs,
-    `plugin-release-evidence.json`, SBOM, Sigstore, and in-toto assets for the
-    same source SHA.
+6. Verify packaging uses the release tag and attaches the VSIX,
+    `plugin-release-evidence.json`, dependency SBOM, Sigstore, and in-toto
+    assets for the same source SHA.
 7. Verify App-token publication marks the GitHub release as a prerelease,
     and triggers `Pre-Release Marketplace Publish`.
 
@@ -260,9 +260,8 @@ The promotion and managed release PR are separate review boundaries. When ready 
     when the approved merge creates the Stable `v<version>` tag.
 5. Merge the managed PR and verify the draft tag targets that managed merge
     commit.
-6. Verify the workflow attaches the VSIX, signed plugin ZIPs,
-    `plugin-release-evidence.json`, SBOM, VEX, Sigstore, in-toto, and provenance
-    assets.
+6. Verify the workflow attaches the VSIX, `plugin-release-evidence.json`,
+    dependency SBOM, VEX, Sigstore, in-toto, and provenance assets.
 7. Verify App-token publication triggers `Stable Marketplace Publish` for the
     same release tag.
 

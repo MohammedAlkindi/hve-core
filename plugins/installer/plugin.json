@@ -1,0 +1,23 @@
+{
+  "name": "installer",
+  "description": "Decision-driven installer skill for deploying HVE Core artifacts across workspace configurations",
+  "version": "3.2.2",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "installer",
+    "setup",
+    "deployment"
+  ],
+  "rules": [
+    "../../.github/instructions/shared/hve-core-location.instructions.md"
+  ],
+  "skills": [
+    "../../.github/skills/installer/hve-core-installer"
+  ]
+}

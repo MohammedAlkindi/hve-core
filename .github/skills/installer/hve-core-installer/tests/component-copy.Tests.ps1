@@ -61,32 +61,32 @@ BeforeAll {
                 [ordered]@{
                     name     = 'hve-core'
                     version  = $Version
-                    agents   = @('agents/hve-core/rpi-agent.agent.md', 'agents/hve-core/subagents/rpi-planner.agent.md')
-                    commands = @('prompts/hve-core/rpi.prompt.md')
-                    rules    = @('instructions/hve-core/copilot-tracking.instructions.md')
-                    skills   = @('skills/rpi/rpi-plan')
-                    hooks    = 'hooks/shared/telemetry.json'
+                    agents   = @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/agents/hve-core/subagents/rpi-planner.agent.md')
+                    commands = @('../../.github/prompts/hve-core/rpi.prompt.md')
+                    rules    = @('../../.github/instructions/hve-core/copilot-tracking.instructions.md')
+                    skills   = @('../../.github/skills/rpi/rpi-plan')
+                    hooks    = '../../.github/hooks/shared/telemetry.json'
                     'x-hve'  = [ordered]@{
                         componentMaturity = [ordered]@{
-                            'hooks/shared/telemetry.json' = 'experimental'
+                            '../../.github/hooks/shared/telemetry.json' = 'experimental'
                         }
                     }
                 }
                 [ordered]@{
                     name     = 'hve-core-all'
                     version  = $Version
-                    agents   = @('agents/experimental/pptx.agent.md', 'agents/hve-core/rpi-agent.agent.md', 'agents/hve-core/subagents/rpi-planner.agent.md')
-                    commands = @('prompts/hve-core/rpi.prompt.md')
-                    rules    = @('instructions/hve-core/copilot-tracking.instructions.md')
-                    skills   = @('skills/rpi/rpi-plan')
-                    hooks    = 'hooks/shared/telemetry.json'
+                    agents   = @('../../.github/agents/experimental/pptx.agent.md', '../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/agents/hve-core/subagents/rpi-planner.agent.md')
+                    commands = @('../../.github/prompts/hve-core/rpi.prompt.md')
+                    rules    = @('../../.github/instructions/hve-core/copilot-tracking.instructions.md')
+                    skills   = @('../../.github/skills/rpi/rpi-plan')
+                    hooks    = '../../.github/hooks/shared/telemetry.json'
                     'x-hve'  = [ordered]@{
                         componentMaturity = [ordered]@{
-                            'agents/experimental/pptx.agent.md' = 'experimental'
-                            'hooks/shared/telemetry.json'       = 'experimental'
+                            '../../.github/agents/experimental/pptx.agent.md' = 'experimental'
+                            '../../.github/hooks/shared/telemetry.json'       = 'experimental'
                         }
                         profiles          = [ordered]@{
-                            starter = @('agents/hve-core/rpi-agent.agent.md', 'skills/rpi/rpi-plan')
+                            starter = @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan')
                         }
                     }
                 }
@@ -207,9 +207,9 @@ Describe 'component-copy path mapping' -Tag 'Unit' {
 
     It 'Maps every kind to its canonical target root without flattening paths' {
         Invoke-ComponentCopy -Fixture $script:fixture -Component @(
-            'agents/hve-core/subagents/rpi-planner.md'
-            'commands/hve-core/rpi.md'
-            'rules/hve-core/copilot-tracking.instructions.md'
+            '../../.github/agents/hve-core/subagents/rpi-planner.agent.md'
+            '../../.github/prompts/hve-core/rpi.prompt.md'
+            '../../.github/instructions/hve-core/copilot-tracking.instructions.md'
         ) | Out-Null
 
         Get-TargetFile -Fixture $script:fixture | Should -Be @(
@@ -221,21 +221,21 @@ Describe 'component-copy path mapping' -Tag 'Unit' {
     }
 
     It 'Copies source content verbatim' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         Get-Content -LiteralPath (Join-Path $script:fixture.Target '.github/agents/hve-core/rpi-agent.agent.md') -Raw |
             Should -Be '# RPI Agent'
     }
 
     It 'Copies a skill as a complete directory' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan') | Out-Null
 
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.github/skills/rpi/rpi-plan/SKILL.md') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.github/skills/rpi/rpi-plan/references/notes.md') | Should -BeTrue
     }
 
     It 'Excludes local environment and test directories from a skill copy' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan') | Out-Null
 
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.github/skills/rpi/rpi-plan/.venv') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.github/skills/rpi/rpi-plan/.VENV') | Should -BeFalse
@@ -246,7 +246,7 @@ Describe 'component-copy path mapping' -Tag 'Unit' {
     It 'Omits file symlinks and does not traverse directory symlinks' {
         if (-not $script:fixture.SymlinkAvailable) { Set-ItResult -Skipped -Because 'symbolic links are unavailable'; return }
 
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan') | Out-Null
 
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.github/skills/rpi/rpi-plan/linked-notes.md') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.github/skills/rpi/rpi-plan/linked-references') | Should -BeFalse
@@ -254,9 +254,9 @@ Describe 'component-copy path mapping' -Tag 'Unit' {
     }
 
     It 'Copies a repeated component once' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan', 'skills/rpi/rpi-plan/') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan', '../../.github/skills/rpi/rpi-plan/') | Out-Null
 
-        @((Get-TrackingManifest -Fixture $script:fixture).selection.components) | Should -Be @('skills/rpi/rpi-plan')
+        @((Get-TrackingManifest -Fixture $script:fixture).selection.components) | Should -Be @('../../.github/skills/rpi/rpi-plan')
     }
 
     It 'Overwrites an existing managed file' {
@@ -264,7 +264,7 @@ Describe 'component-copy path mapping' -Tag 'Unit' {
         New-Item -ItemType Directory -Path (Split-Path $existing -Parent) -Force | Out-Null
         Set-Content -LiteralPath $existing -Value '# Local edit' -NoNewline
 
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         Get-Content -LiteralPath $existing -Raw | Should -Be '# RPI Agent'
     }
@@ -274,7 +274,7 @@ Describe 'component-copy tracking manifest' -Tag 'Unit' {
     BeforeEach { $script:fixture = New-ComponentCopyFixture -Version '3.3.106' }
 
     It 'Writes exactly the version 2 manifest keys' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') -SelectionName 'starter' | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') -SelectionName 'starter' | Out-Null
 
         $manifest = Get-TrackingManifest -Fixture $script:fixture
         @($manifest.Keys | Sort-Object) | Should -Be @('files', 'installed', 'schemaVersion', 'selection', 'source', 'version')
@@ -283,7 +283,7 @@ Describe 'component-copy tracking manifest' -Tag 'Unit' {
     }
 
     It 'Records the source repository, version, and ISO 8601 install timestamp' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         $manifest = Get-TrackingManifest -Fixture $script:fixture
         $manifest.source | Should -Be 'microsoft/hve-core'
@@ -292,21 +292,21 @@ Describe 'component-copy tracking manifest' -Tag 'Unit' {
     }
 
     It 'Records the selection profile and component paths' {
-        Invoke-ComponentCopy -Fixture $script:fixture -SelectionName 'starter' -Component @('skills/rpi/rpi-plan', 'agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -SelectionName 'starter' -Component @('../../.github/skills/rpi/rpi-plan', '../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         $selection = (Get-TrackingManifest -Fixture $script:fixture).selection
         @($selection.Keys) | Should -Be @('package', 'profile', 'components')
         $selection.package | Should -Be 'hve-core-all'
         $selection.profile | Should -Be 'starter'
-        @($selection.components) | Should -Be @('agents/hve-core/rpi-agent.md', 'skills/rpi/rpi-plan')
+        @($selection.components) | Should -Be @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan')
     }
 
     It 'Records component, kind, maturity, version, hash, and status for each file' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/experimental/pptx.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/experimental/pptx.agent.md') | Out-Null
 
         $entry = (Get-TrackingManifest -Fixture $script:fixture).files['.github/agents/experimental/pptx.agent.md']
         @($entry.Keys | Sort-Object) | Should -Be @('component', 'kind', 'maturity', 'sha256', 'status', 'version')
-        $entry.component | Should -Be 'agents/experimental/pptx.md'
+        $entry.component | Should -Be '../../.github/agents/experimental/pptx.agent.md'
         $entry.kind | Should -Be 'agent'
         $entry.maturity | Should -Be 'experimental'
         $entry.version | Should -Be '3.3.106'
@@ -315,13 +315,13 @@ Describe 'component-copy tracking manifest' -Tag 'Unit' {
     }
 
     It 'Defaults an unlabeled component to stable maturity' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         (Get-TrackingManifest -Fixture $script:fixture).files['.github/agents/hve-core/rpi-agent.agent.md'].maturity | Should -Be 'stable'
     }
 
     It 'Keys every skill file to its owning skill component' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan') | Out-Null
 
         $files = (Get-TrackingManifest -Fixture $script:fixture).files
         $trackedKeys = [string[]]@($files.Keys)
@@ -331,13 +331,13 @@ Describe 'component-copy tracking manifest' -Tag 'Unit' {
             '.github/skills/rpi/rpi-plan/references/notes.md'
         )
         foreach ($key in $files.Keys) {
-            $files[$key].component | Should -Be 'skills/rpi/rpi-plan'
+            $files[$key].component | Should -Be '../../.github/skills/rpi/rpi-plan'
             $files[$key].kind | Should -Be 'skill'
         }
     }
 
     It 'Persists no absolute target root' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         Get-Content -LiteralPath (Join-Path $script:fixture.Target '.hve-tracking.json') -Raw |
             Should -Not -Match ([regex]::Escape((Resolve-Path -LiteralPath $script:fixture.Target).Path))
@@ -348,7 +348,7 @@ Describe 'component-copy preflight rejection' -Tag 'Unit' {
     BeforeEach { $script:fixture = New-ComponentCopyFixture }
 
     It 'Rejects a traversal component path before any write' {
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/../../etc/passwd') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/../../etc/passwd') } |
             Should -Throw -ExpectedMessage '*relative path segments*'
 
         Get-TargetFile -Fixture $script:fixture | Should -BeNullOrEmpty
@@ -360,53 +360,58 @@ Describe 'component-copy preflight rejection' -Tag 'Unit' {
     }
 
     It 'Rejects a backslash component path' {
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents\hve-core\rpi-agent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('..\..\.github\agents\hve-core\rpi-agent.agent.md') } |
             Should -Throw -ExpectedMessage '*forward slashes*'
     }
 
+    It 'Rejects a component that carries no package-root traversal' {
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.agent.md') } |
+            Should -Throw -ExpectedMessage "*must address a canonical source through the '../../' package-root traversal*"
+    }
+
     It 'Rejects a component outside the four installable kinds' {
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('hooks/shared/telemetry.json') } |
-            Should -Throw -ExpectedMessage '*agents, commands, rules, skills*'
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/hooks/shared/telemetry.json') } |
+            Should -Throw -ExpectedMessage '*must address one of:*'
     }
 
     It 'Rejects a partial skill selection' {
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan/SKILL.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan/SKILL.md') } |
             Should -Throw -ExpectedMessage '*not declared membership*'
 
         Get-TargetFile -Fixture $script:fixture | Should -BeNullOrEmpty
     }
 
     It 'Rejects a component that the recipe does not declare' {
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/absent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/absent.agent.md') } |
             Should -Throw -ExpectedMessage '*not declared membership*'
     }
 
     It 'Rejects an unknown package before any write' {
-        { Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'not-a-package' -Component @('agents/hve-core/rpi-agent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'not-a-package' -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') } |
             Should -Throw -ExpectedMessage "*declares no package named 'not-a-package'*"
 
         Get-TargetFile -Fixture $script:fixture | Should -BeNullOrEmpty
     }
 
     It 'Rejects a component outside the selected focused package before any write' {
-        { Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'hve-core' -Component @('agents/experimental/pptx.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'hve-core' -Component @('../../.github/agents/experimental/pptx.agent.md') } |
             Should -Throw -ExpectedMessage "*not declared membership of the 'hve-core' marketplace recipe*"
 
         Get-TargetFile -Fixture $script:fixture | Should -BeNullOrEmpty
     }
 
     It 'Accepts shared components from focused and full packages' {
-        Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'hve-core' -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'hve-core' -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
         (Get-TrackingManifest -Fixture $script:fixture).selection.package | Should -Be 'hve-core'
 
-        Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'hve-core-all' -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -PackageName 'hve-core-all' -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
         (Get-TrackingManifest -Fixture $script:fixture).selection.package | Should -Be 'hve-core-all'
     }
 
     It 'Rejects a declared component whose source is missing' {
         Remove-Item -LiteralPath (Join-Path $script:fixture.Source '.github/agents/hve-core/rpi-agent.agent.md') -Force
 
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') } |
             Should -Throw -ExpectedMessage '*has no source file*'
 
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.hve-tracking.json') | Should -BeFalse
@@ -414,13 +419,13 @@ Describe 'component-copy preflight rejection' -Tag 'Unit' {
 
     It 'Rejects a target root that does not exist' {
         { & $script:PowerShellScript -HveCoreBasePath $script:fixture.Source -TargetRoot (Join-Path $script:fixture.Root 'absent') `
-            -PackageName 'hve-core-all' -SelectionName 'custom' -Component @('agents/hve-core/rpi-agent.md') } | Should -Throw -ExpectedMessage '*TargetRoot*'
+            -PackageName 'hve-core-all' -SelectionName 'custom' -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') } | Should -Throw -ExpectedMessage '*TargetRoot*'
     }
 
     It 'Rejects a source without a marketplace catalog' {
         Remove-Item -LiteralPath (Join-Path $script:fixture.Source '.github/plugin/marketplace.json') -Force
 
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') } |
             Should -Throw -ExpectedMessage '*Marketplace catalog not found*'
     }
 }
@@ -432,7 +437,7 @@ Describe 'component-copy manifest schema gate' -Tag 'Unit' {
         $legacy = @{ source = 'microsoft/hve-core'; version = '3.3.100'; package = 'hve-core'; files = @{} }
         $legacy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $script:fixture.Target '.hve-tracking.json')
 
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') } |
             Should -Throw -ExpectedMessage '*clean reinstall*'
 
         Test-Path -LiteralPath (Join-Path $script:fixture.Target '.github/agents') | Should -BeFalse
@@ -442,7 +447,7 @@ Describe 'component-copy manifest schema gate' -Tag 'Unit' {
         @{ schemaVersion = 3; files = @{} } | ConvertTo-Json -Depth 10 |
             Set-Content -LiteralPath (Join-Path $script:fixture.Target '.hve-tracking.json')
 
-        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') } |
             Should -Throw -ExpectedMessage "*schemaVersion '3'*"
     }
 }
@@ -455,16 +460,16 @@ Describe 'component-copy collision retention and eject' -Tag 'Unit' {
         New-Item -ItemType Directory -Path (Split-Path $existing -Parent) -Force | Out-Null
         Set-Content -LiteralPath $existing -Value '# Local skill' -NoNewline
 
-        $output = Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan', 'agents/hve-core/rpi-agent.md') `
-            -KeepExisting -Collisions @('skills/rpi/rpi-plan')
+        $output = Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan', '../../.github/agents/hve-core/rpi-agent.agent.md') `
+            -KeepExisting -Collisions @('../../.github/skills/rpi/rpi-plan')
 
         Get-Content -LiteralPath $existing -Raw | Should -Be '# Local skill'
-        $output | Should -Match 'Kept existing: skills/rpi/rpi-plan'
+        $output | Should -Match 'Kept existing: \.\./\.\./\.github/skills/rpi/rpi-plan'
         @((Get-TrackingManifest -Fixture $script:fixture).files.Keys) | Should -Be @('.github/agents/hve-core/rpi-agent.agent.md')
     }
 
     It 'Preserves an ejected entry and leaves its file untouched' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
         $manifestPath = Join-Path $script:fixture.Target '.hve-tracking.json'
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -AsHashtable
         $manifest.files['.github/agents/hve-core/rpi-agent.agent.md'].status = 'ejected'
@@ -472,7 +477,7 @@ Describe 'component-copy collision retention and eject' -Tag 'Unit' {
         $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath
         Set-Content -LiteralPath (Join-Path $script:fixture.Target '.github/agents/hve-core/rpi-agent.agent.md') -Value '# User owned' -NoNewline
 
-        $output = Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md')
+        $output = Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md')
 
         $output | Should -Match 'Skipped ejected: \.github/agents/hve-core/rpi-agent\.agent\.md'
         Get-Content -LiteralPath (Join-Path $script:fixture.Target '.github/agents/hve-core/rpi-agent.agent.md') -Raw | Should -Be '# User owned'
@@ -482,19 +487,19 @@ Describe 'component-copy collision retention and eject' -Tag 'Unit' {
     }
 
     It 'Preserves omitted managed records across a narrower selection' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md', 'skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan') | Out-Null
         $before = Get-TrackingManifest -Fixture $script:fixture
 
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
         $after = Get-TrackingManifest -Fixture $script:fixture
 
         @($after.files.Keys | Sort-Object) | Should -Be @($before.files.Keys | Sort-Object)
-        @($after.selection.components) | Should -Be @('agents/hve-core/rpi-agent.md', 'skills/rpi/rpi-plan')
+        @($after.selection.components) | Should -Be @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan')
         $after.files['.github/skills/rpi/rpi-plan/SKILL.md'].status | Should -Be 'managed'
     }
 
     It 'Preserves an omitted ejected record and never overwrites it after re-inclusion' {
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md', 'skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan') | Out-Null
         $manifestPath = Join-Path $script:fixture.Target '.hve-tracking.json'
         $manifest = Get-TrackingManifest -Fixture $script:fixture
         $agentPath = '.github/agents/hve-core/rpi-agent.agent.md'
@@ -503,14 +508,14 @@ Describe 'component-copy collision retention and eject' -Tag 'Unit' {
         $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath
         Set-Content -LiteralPath (Join-Path $script:fixture.Target $agentPath) -Value '# User owned' -NoNewline
 
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('skills/rpi/rpi-plan') | Out-Null
-        Invoke-ComponentCopy -Fixture $script:fixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:fixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         $after = Get-TrackingManifest -Fixture $script:fixture
         $after.files[$agentPath].status | Should -Be 'ejected'
         Get-Content -LiteralPath $manifestPath -Raw | Should -Match '"ejectedAt": "2026-08-03T00:00:00Z"'
         Get-Content -LiteralPath (Join-Path $script:fixture.Target $agentPath) -Raw | Should -Be '# User owned'
-        @($after.selection.components) | Should -Be @('agents/hve-core/rpi-agent.md', 'skills/rpi/rpi-plan')
+        @($after.selection.components) | Should -Be @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan')
     }
 }
 
@@ -518,10 +523,10 @@ Describe 'component-copy report-only preflight' -Tag 'Unit' {
     BeforeEach { $script:fixture = New-ComponentCopyFixture }
 
     It 'Reports canonical maturity for every component without writing' {
-        $output = Invoke-ComponentCopy -Fixture $script:fixture -ReportOnly -Component @('agents/experimental/pptx.md', 'skills/rpi/rpi-plan')
+        $output = Invoke-ComponentCopy -Fixture $script:fixture -ReportOnly -Component @('../../.github/agents/experimental/pptx.agent.md', '../../.github/skills/rpi/rpi-plan')
 
-        $output | Should -Match 'COMPONENT=agents/experimental/pptx\.md\|KIND=agent\|MATURITY=experimental\|TARGET=\.github/agents/experimental/pptx\.agent\.md\|EXISTS=false'
-        $output | Should -Match 'COMPONENT=skills/rpi/rpi-plan\|KIND=skill\|MATURITY=stable\|TARGET=\.github/skills/rpi/rpi-plan\|EXISTS=false'
+        $output | Should -Match 'COMPONENT=\.\./\.\./\.github/agents/experimental/pptx\.agent\.md\|KIND=agent\|MATURITY=experimental\|TARGET=\.github/agents/experimental/pptx\.agent\.md\|EXISTS=false'
+        $output | Should -Match 'COMPONENT=\.\./\.\./\.github/skills/rpi/rpi-plan\|KIND=skill\|MATURITY=stable\|TARGET=\.github/skills/rpi/rpi-plan\|EXISTS=false'
         $output | Should -Match 'COLLISIONS_DETECTED=false'
         Get-TargetFile -Fixture $script:fixture | Should -BeNullOrEmpty
     }
@@ -531,19 +536,19 @@ Describe 'component-copy report-only preflight' -Tag 'Unit' {
         New-Item -ItemType Directory -Path (Split-Path $existing -Parent) -Force | Out-Null
         Set-Content -LiteralPath $existing -Value '# Local' -NoNewline
 
-        $output = Invoke-ComponentCopy -Fixture $script:fixture -ReportOnly -Component @('agents/hve-core/rpi-agent.md')
+        $output = Invoke-ComponentCopy -Fixture $script:fixture -ReportOnly -Component @('../../.github/agents/hve-core/rpi-agent.agent.md')
 
         $output | Should -Match 'COLLISIONS_DETECTED=true'
-        $output | Should -Match 'COLLISION_COMPONENTS=agents/hve-core/rpi-agent\.md'
+        $output | Should -Match 'COLLISION_COMPONENTS=\.\./\.\./\.github/agents/hve-core/rpi-agent\.agent\.md'
         $output | Should -Match 'COLLISION_TARGETS=\.github/agents/hve-core/rpi-agent\.agent\.md'
     }
 
     It 'Reports a skill collision on the target directory' {
         New-Item -ItemType Directory -Path (Join-Path $script:fixture.Target '.github/skills/rpi/rpi-plan') -Force | Out-Null
 
-        $output = Invoke-ComponentCopy -Fixture $script:fixture -ReportOnly -Component @('skills/rpi/rpi-plan')
+        $output = Invoke-ComponentCopy -Fixture $script:fixture -ReportOnly -Component @('../../.github/skills/rpi/rpi-plan')
 
-        $output | Should -Match 'COLLISION_COMPONENTS=skills/rpi/rpi-plan'
+        $output | Should -Match 'COLLISION_COMPONENTS=\.\./\.\./\.github/skills/rpi/rpi-plan'
         $output | Should -Match 'COLLISION_TARGETS=\.github/skills/rpi/rpi-plan'
     }
 }
@@ -610,11 +615,11 @@ Describe 'component-copy PowerShell and Bash parity' -Tag 'Unit' -Skip:(-not $sc
         $script:powerShellFixture = New-ComponentCopyFixture -Version '3.3.106'
         $script:bashFixture = New-ComponentCopyFixture -Version '3.3.106'
         $script:AllComponents = @(
-            'agents/experimental/pptx.md'
-            'agents/hve-core/subagents/rpi-planner.md'
-            'commands/hve-core/rpi.md'
-            'rules/hve-core/copilot-tracking.instructions.md'
-            'skills/rpi/rpi-plan'
+            '../../.github/agents/experimental/pptx.agent.md'
+            '../../.github/agents/hve-core/subagents/rpi-planner.agent.md'
+            '../../.github/prompts/hve-core/rpi.prompt.md'
+            '../../.github/instructions/hve-core/copilot-tracking.instructions.md'
+            '../../.github/skills/rpi/rpi-plan'
         )
     }
 
@@ -680,9 +685,9 @@ Describe 'component-copy PowerShell and Bash parity' -Tag 'Unit' -Skip:(-not $sc
             Set-Content -LiteralPath $existing -Value '# Local skill' -NoNewline
         }
         $collisionsFile = Join-Path $script:bashFixture.Root 'collisions.txt'
-        Set-Content -LiteralPath $collisionsFile -Value 'skills/rpi/rpi-plan'
+        Set-Content -LiteralPath $collisionsFile -Value '../../.github/skills/rpi/rpi-plan'
 
-        Invoke-ComponentCopy -Fixture $script:powerShellFixture -Component $script:AllComponents -KeepExisting -Collisions @('skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:powerShellFixture -Component $script:AllComponents -KeepExisting -Collisions @('../../.github/skills/rpi/rpi-plan') | Out-Null
         Invoke-BashComponentCopy -Fixture $script:bashFixture -Component $script:AllComponents -Environment @{ KEEP_EXISTING = 'true'; COLLISIONS_FILE = $collisionsFile } | Out-Null
 
         foreach ($fixture in @($script:powerShellFixture, $script:bashFixture)) {
@@ -695,12 +700,12 @@ Describe 'component-copy PowerShell and Bash parity' -Tag 'Unit' -Skip:(-not $sc
         foreach ($fixture in @($script:powerShellFixture, $script:bashFixture)) {
             if ($fixture -eq $script:powerShellFixture) {
                 Invoke-ComponentCopy -Fixture $fixture -Component $script:AllComponents | Out-Null
-                Invoke-ComponentCopy -Fixture $fixture -Component @('agents/hve-core/subagents/rpi-planner.md') | Out-Null
+                Invoke-ComponentCopy -Fixture $fixture -Component @('../../.github/agents/hve-core/subagents/rpi-planner.agent.md') | Out-Null
             }
             else {
                 Invoke-BashComponentCopy -Fixture $fixture -Component $script:AllComponents | Out-Null
                 $LASTEXITCODE | Should -Be 0
-                Invoke-BashComponentCopy -Fixture $fixture -Component @('agents/hve-core/subagents/rpi-planner.md') | Out-Null
+                Invoke-BashComponentCopy -Fixture $fixture -Component @('../../.github/agents/hve-core/subagents/rpi-planner.agent.md') | Out-Null
                 $LASTEXITCODE | Should -Be 0
             }
         }
@@ -708,12 +713,12 @@ Describe 'component-copy PowerShell and Bash parity' -Tag 'Unit' -Skip:(-not $sc
         $powerShellManifest = Get-TrackingManifest -Fixture $script:powerShellFixture
         $bashManifest = Get-TrackingManifest -Fixture $script:bashFixture
         @($powerShellManifest.files.Keys | Sort-Object) | Should -Be @($bashManifest.files.Keys | Sort-Object)
-        @($powerShellManifest.selection.components) | Should -Be @($bashManifest.selection.components)
-        @($powerShellManifest.selection.components) | Should -Be $script:AllComponents
+        @($powerShellManifest.selection.components | Sort-Object) | Should -Be @($bashManifest.selection.components | Sort-Object)
+        @($powerShellManifest.selection.components | Sort-Object) | Should -Be @($script:AllComponents | Sort-Object)
     }
 
     It 'Exits non-zero and writes nothing for a component outside recipe membership' {
-        Invoke-BashComponentCopy -Fixture $script:bashFixture -Component @('agents/hve-core/absent.md') | Out-Null
+        Invoke-BashComponentCopy -Fixture $script:bashFixture -Component @('../../.github/agents/hve-core/absent.agent.md') | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
 
         Test-Path -LiteralPath (Join-Path $script:bashFixture.Target '.hve-tracking.json') | Should -BeFalse
@@ -723,7 +728,7 @@ Describe 'component-copy PowerShell and Bash parity' -Tag 'Unit' -Skip:(-not $sc
         $legacy = @{ source = 'microsoft/hve-core'; version = '3.3.100'; package = 'hve-core'; files = @{} }
         $legacy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $script:bashFixture.Target '.hve-tracking.json')
 
-        $output = Invoke-BashComponentCopy -Fixture $script:bashFixture -Component @('agents/hve-core/rpi-agent.md')
+        $output = Invoke-BashComponentCopy -Fixture $script:bashFixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md')
         $LASTEXITCODE | Should -Not -Be 0
         $output | Should -Match 'clean reinstall'
         Test-Path -LiteralPath (Join-Path $script:bashFixture.Target '.github/agents') | Should -BeFalse
@@ -748,7 +753,7 @@ Describe 'component-copy destination containment' -Tag 'Unit' {
         New-Item -ItemType Directory -Path (Split-Path $linkPath -Parent) -Force | Out-Null
         New-Item -ItemType SymbolicLink -Path $linkPath -Target $script:outsideRoot -ErrorAction Stop | Out-Null
 
-        { Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('skills/rpi/rpi-plan') } |
+        { Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('../../.github/skills/rpi/rpi-plan') } |
             Should -Throw -ExpectedMessage '*resolves through a link*'
 
         # The escape is what matters, not only the exception: nothing may land
@@ -780,14 +785,14 @@ Describe 'component-copy destination containment' -Tag 'Unit' {
             return
         }
 
-        { Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('skills/rpi/rpi-plan') } |
+        { Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('../../.github/skills/rpi/rpi-plan') } |
             Should -Throw -ExpectedMessage '*resolves through a link*'
 
         @(Get-ChildItem -LiteralPath $script:outsideRoot -File).Name | Should -Be @('bystander.txt')
     }
 
     It 'Installs normally when no destination ancestor is a link' {
-        Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('skills/rpi/rpi-plan') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('../../.github/skills/rpi/rpi-plan') | Out-Null
 
         Test-Path -LiteralPath (Join-Path $script:containmentFixture.Target '.github/skills/rpi/rpi-plan/SKILL.md') |
             Should -BeTrue
@@ -804,12 +809,12 @@ Describe 'component-copy destination containment' -Tag 'Unit' {
         # the only thing standing between that race and an escaped write.
         $agentsDir = Join-Path $script:containmentFixture.Target '.github/agents'
         New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
-        Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
 
         Remove-Item -LiteralPath $agentsDir -Recurse -Force
         New-Item -ItemType SymbolicLink -Path $agentsDir -Target $script:outsideRoot -ErrorAction Stop | Out-Null
 
-        { Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('agents/hve-core/rpi-agent.md') } |
+        { Invoke-ComponentCopy -Fixture $script:containmentFixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') } |
             Should -Throw -ExpectedMessage '*resolves through a link*'
 
         @(Get-ChildItem -LiteralPath $script:outsideRoot -File).Name | Should -Be @('bystander.txt')
@@ -835,10 +840,10 @@ Describe 'component-copy containment parity' -Tag 'Unit' -Skip:(-not $script:Bas
         New-Item -ItemType SymbolicLink -Path $linkPath -Target $script:parityOutside -ErrorAction Stop | Out-Null
 
         $powerShellRefused = $false
-        try { Invoke-ComponentCopy -Fixture $script:parityFixture -Component @('skills/rpi/rpi-plan') | Out-Null }
+        try { Invoke-ComponentCopy -Fixture $script:parityFixture -Component @('../../.github/skills/rpi/rpi-plan') | Out-Null }
         catch { $powerShellRefused = $true }
 
-        $bashOutput = Invoke-BashComponentCopy -Fixture $script:parityFixture -Component @('skills/rpi/rpi-plan')
+        $bashOutput = Invoke-BashComponentCopy -Fixture $script:parityFixture -Component @('../../.github/skills/rpi/rpi-plan')
         $bashRefused = $LASTEXITCODE -ne 0
 
         # Behavioural equivalence is the contract; message text is not required
@@ -849,11 +854,11 @@ Describe 'component-copy containment parity' -Tag 'Unit' -Skip:(-not $script:Bas
     }
 
     It 'Reaches the same accept verdict in both shells for a clean destination' {
-        Invoke-ComponentCopy -Fixture $script:parityFixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-ComponentCopy -Fixture $script:parityFixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
         $powerShellInstalled = Test-Path -LiteralPath (Join-Path $script:parityFixture.Target '.github/agents/hve-core/rpi-agent.agent.md')
 
         $bashFixture = New-ComponentCopyFixture
-        Invoke-BashComponentCopy -Fixture $bashFixture -Component @('agents/hve-core/rpi-agent.md') | Out-Null
+        Invoke-BashComponentCopy -Fixture $bashFixture -Component @('../../.github/agents/hve-core/rpi-agent.agent.md') | Out-Null
         $bashInstalled = Test-Path -LiteralPath (Join-Path $bashFixture.Target '.github/agents/hve-core/rpi-agent.agent.md')
 
         $bashInstalled | Should -Be $powerShellInstalled

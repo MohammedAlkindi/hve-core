@@ -41,18 +41,11 @@ jobs:
       - name: Create logs directory
         run: mkdir -p logs
 
-      - name: Guard tracked plugin output and symbolic links
-        run: npm run lint:plugin-output
-      - name: Validate marketplace manifest
-        run: npm run lint:marketplace
+      - name: Validate marketplace catalog and tracked plugin roots
+        run: npm run plugin:validate
 
       - name: Validate hook manifests
         run: npm run lint:hooks
-
-      - name: Regenerate plugins from source
-        env:
-          HVE_PLUGIN_STAGING_ROOT: ${{ runner.temp }}/plugins
-        run: npm run plugin:generate
 
       - name: Record canonical release evidence
         run: npm run plugin:evidence

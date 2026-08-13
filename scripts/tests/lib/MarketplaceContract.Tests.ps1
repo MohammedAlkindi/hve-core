@@ -95,18 +95,27 @@ Describe 'Get-MarketplaceComponentSourceRoot' -Tag 'Unit' {
     }
 
     It 'Describes <Field> as <Kind> rooted at <SourceRoot>' -ForEach @(
-        @{ Field = 'agents'; Kind = 'agent'; CatalogRoot = 'agents'; SourceRoot = '.github/agents'; SourceSuffix = '.agent.md'; PackageSuffix = '.md' }
-        @{ Field = 'commands'; Kind = 'prompt'; CatalogRoot = 'prompts'; SourceRoot = '.github/prompts'; SourceSuffix = '.prompt.md'; PackageSuffix = '.md' }
-        @{ Field = 'rules'; Kind = 'instruction'; CatalogRoot = 'instructions'; SourceRoot = '.github/instructions'; SourceSuffix = '.instructions.md'; PackageSuffix = '.instructions.md' }
-        @{ Field = 'skills'; Kind = 'skill'; CatalogRoot = 'skills'; SourceRoot = '.github/skills'; SourceSuffix = ''; PackageSuffix = '' }
-        @{ Field = 'hooks'; Kind = 'hook'; CatalogRoot = 'hooks'; SourceRoot = '.github/hooks'; SourceSuffix = '.json'; PackageSuffix = '.json' }
+        @{ Field = 'agents'; Kind = 'agent'; SourceRoot = '.github/agents'; SourceSuffix = '.agent.md'; PackageSuffix = '.md' }
+        @{ Field = 'commands'; Kind = 'prompt'; SourceRoot = '.github/prompts'; SourceSuffix = '.prompt.md'; PackageSuffix = '.md' }
+        @{ Field = 'rules'; Kind = 'instruction'; SourceRoot = '.github/instructions'; SourceSuffix = '.instructions.md'; PackageSuffix = '.instructions.md' }
+        @{ Field = 'skills'; Kind = 'skill'; SourceRoot = '.github/skills'; SourceSuffix = ''; PackageSuffix = '' }
+        @{ Field = 'hooks'; Kind = 'hook'; SourceRoot = '.github/hooks'; SourceSuffix = '.json'; PackageSuffix = '.json' }
     ) {
         $descriptor = $script:SourceRoots[$Field]
         $descriptor.Kind | Should -BeExactly $Kind
-        $descriptor.CatalogRoot | Should -BeExactly $CatalogRoot
         $descriptor.SourceRoot | Should -BeExactly $SourceRoot
         $descriptor.SourceSuffix | Should -BeExactly $SourceSuffix
         $descriptor.PackageSuffix | Should -BeExactly $PackageSuffix
+    }
+
+    It 'Declares no catalog root for field <Field>' -ForEach @(
+        @{ Field = 'agents' }
+        @{ Field = 'commands' }
+        @{ Field = 'rules' }
+        @{ Field = 'skills' }
+        @{ Field = 'hooks' }
+    ) {
+        $script:SourceRoots[$Field].ContainsKey('CatalogRoot') | Should -BeFalse
     }
 }
 
@@ -127,65 +136,29 @@ Describe 'Get-PluginSubdirectory and Get-MarketplaceComponentField' -Tag 'Unit' 
     }
 }
 
-Describe 'Get-PluginItemName' -Tag 'Unit' {
-    It 'Renames <FileName> for kind <Kind> to <Expected>' -ForEach @(
-        @{ Kind = 'agent'; FileName = 'code-review.agent.md'; Expected = 'code-review.md' }
-        @{ Kind = 'prompt'; FileName = 'create-pull-request.prompt.md'; Expected = 'create-pull-request.md' }
-        @{ Kind = 'instruction'; FileName = 'markdown.instructions.md'; Expected = 'markdown.instructions.md' }
-        @{ Kind = 'skill'; FileName = 'rpi-plan'; Expected = 'rpi-plan' }
-        @{ Kind = 'hook'; FileName = 'hooks.json'; Expected = 'hooks.json' }
-    ) {
-        Get-PluginItemName -FileName $FileName -Kind $Kind | Should -BeExactly $Expected
-    }
-
-    It 'Only strips the kind suffix at the end of the name' {
-        Get-PluginItemName -FileName 'agent.md.agent.md' -Kind 'agent' | Should -BeExactly 'agent.md.md'
-    }
-}
-
-Describe 'Get-PluginItemSubpath' -Tag 'Unit' {
-    It 'Extracts <Expected> from <Path>' -ForEach @(
-        @{ Kind = 'agent'; Path = '.github/agents/coding-standards/code-review.agent.md'; Expected = 'coding-standards' }
-        @{ Kind = 'agent'; Path = '.github/agents/hve-core/subagents/rpi-researcher.agent.md'; Expected = 'hve-core/subagents' }
-        @{ Kind = 'prompt'; Path = '.github/prompts/ado/create-pull-request.prompt.md'; Expected = 'ado' }
-        @{ Kind = 'instruction'; Path = '.github/instructions/security/vex/rules.instructions.md'; Expected = 'security/vex' }
-        @{ Kind = 'skill'; Path = '.github/skills/rpi/rpi-plan'; Expected = 'rpi' }
-        @{ Kind = 'hook'; Path = '.github/hooks/hve-core/hooks.json'; Expected = 'hve-core' }
-    ) {
-        Get-PluginItemSubpath -Path $Path -Kind $Kind | Should -BeExactly $Expected
-    }
-
-    It 'Normalizes backslash separators before extracting the subpath' {
-        Get-PluginItemSubpath -Path '.github\agents\coding-standards\code-review.agent.md' -Kind 'agent' |
-            Should -BeExactly 'coding-standards'
-    }
-
-    It 'Returns an empty subpath for a root-level artifact' {
-        Get-PluginItemSubpath -Path '.github/agents/code-review.agent.md' -Kind 'agent' | Should -BeExactly ''
-    }
-
-    It 'Returns an empty subpath when the path is outside the canonical root' {
-        Get-PluginItemSubpath -Path 'docs/agents/coding-standards/code-review.agent.md' -Kind 'agent' | Should -BeExactly ''
-    }
-}
-
 Describe 'Resolve-MarketplaceComponentPath' -Tag 'Unit' {
     Context 'when the path is acceptable' {
-        It 'Returns the path unchanged and reports no error' {
-            $resolved = Resolve-MarketplaceComponentPath -Path 'agents/coding-standards/code-review.md'
-            $resolved.Path | Should -BeExactly 'agents/coding-standards/code-review.md'
+        It 'Returns the reference unchanged and reports no error' {
+            $resolved = Resolve-MarketplaceComponentPath -Path '../../.github/agents/coding-standards/code-review.agent.md'
+            $resolved.Path | Should -BeExactly '../../.github/agents/coding-standards/code-review.agent.md'
             $resolved.Error | Should -BeExactly ''
         }
 
         It 'Trims surrounding whitespace' {
-            $resolved = Resolve-MarketplaceComponentPath -Path '   agents/demo/first.md   '
-            $resolved.Path | Should -BeExactly 'agents/demo/first.md'
+            $resolved = Resolve-MarketplaceComponentPath -Path '   ../../.github/agents/demo/first.agent.md   '
+            $resolved.Path | Should -BeExactly '../../.github/agents/demo/first.agent.md'
             $resolved.Error | Should -BeExactly ''
         }
 
         It 'Trims a trailing slash from a directory component' {
-            $resolved = Resolve-MarketplaceComponentPath -Path 'skills/rpi/rpi-plan/'
-            $resolved.Path | Should -BeExactly 'skills/rpi/rpi-plan'
+            $resolved = Resolve-MarketplaceComponentPath -Path '../../.github/skills/rpi/rpi-plan/'
+            $resolved.Path | Should -BeExactly '../../.github/skills/rpi/rpi-plan'
+            $resolved.Error | Should -BeExactly ''
+        }
+
+        It 'Normalizes a repository-relative metadata path unchanged' {
+            $resolved = Resolve-MarketplaceComponentPath -Path 'docs/plugins/rpi.md'
+            $resolved.Path | Should -BeExactly 'docs/plugins/rpi.md'
             $resolved.Error | Should -BeExactly ''
         }
     }
@@ -194,12 +167,13 @@ Describe 'Resolve-MarketplaceComponentPath' -Tag 'Unit' {
         It 'Rejects <Description>' -ForEach @(
             @{ Description = 'an empty path'; Path = ''; Expected = 'component path must be a non-empty string' }
             @{ Description = 'a whitespace-only path'; Path = '    '; Expected = 'component path must be a non-empty string' }
-            @{ Description = 'a backslash separator'; Path = 'agents\demo\first.md'; Expected = "component path 'agents\demo\first.md' must use forward slashes" }
-            @{ Description = 'a rooted POSIX path'; Path = '/agents/demo/first.md'; Expected = "component path '/agents/demo/first.md' must be relative to the package root" }
-            @{ Description = 'a Windows drive path'; Path = 'C:/agents/demo/first.md'; Expected = "component path 'C:/agents/demo/first.md' must be relative to the package root" }
-            @{ Description = 'an empty path segment'; Path = 'agents//first.md'; Expected = "component path 'agents//first.md' must not contain empty path segments" }
-            @{ Description = 'a parent traversal segment'; Path = 'agents/../../secrets.md'; Expected = "component path 'agents/../../secrets.md' must not escape the package root" }
-            @{ Description = 'a current-directory segment'; Path = 'agents/./first.md'; Expected = "component path 'agents/./first.md' must not contain relative path segments" }
+            @{ Description = 'a backslash separator'; Path = '..\..\.github\agents\demo\first.agent.md'; Expected = "component path '..\..\.github\agents\demo\first.agent.md' must use forward slashes" }
+            @{ Description = 'a rooted POSIX path'; Path = '/agents/demo/first.agent.md'; Expected = "component path '/agents/demo/first.agent.md' must be relative to the package root" }
+            @{ Description = 'a Windows drive path'; Path = 'C:/agents/demo/first.agent.md'; Expected = "component path 'C:/agents/demo/first.agent.md' must be relative to the package root" }
+            @{ Description = 'an empty path segment'; Path = '../../.github/agents//first.agent.md'; Expected = "component path '../../.github/agents//first.agent.md' must not contain empty path segments" }
+            @{ Description = 'a further parent traversal segment'; Path = '../../.github/agents/../../secrets.md'; Expected = "component path '../../.github/agents/../../secrets.md' must not traverse beyond the repository root" }
+            @{ Description = 'a current-directory segment'; Path = '../../.github/agents/./first.agent.md'; Expected = "component path '../../.github/agents/./first.agent.md' must not contain relative path segments" }
+            @{ Description = 'a bare package-root traversal'; Path = '../../'; Expected = "component path '../../' must name a canonical source below '../../'" }
         ) {
             $resolved = Resolve-MarketplaceComponentPath -Path $Path
             $resolved.Error | Should -BeExactly $Expected
@@ -207,7 +181,7 @@ Describe 'Resolve-MarketplaceComponentPath' -Tag 'Unit' {
         }
 
         It 'Rejects an embedded control character' {
-            $candidate = "agents/demo/$([char]9)first.md"
+            $candidate = "../../.github/agents/demo/$([char]9)first.agent.md"
             $resolved = Resolve-MarketplaceComponentPath -Path $candidate
             $resolved.Error | Should -BeExactly "component path '$candidate' must not contain control characters"
             $resolved.Path | Should -BeExactly ''
@@ -220,13 +194,13 @@ Describe 'Resolve-MarketplaceComponentPath' -Tag 'Unit' {
     }
 }
 
-Describe 'Marketplace source and package path round-trip' -Tag 'Unit' {
-    It 'Projects <SourcePath> to <PackagePath> and resolves <CatalogPath>' -ForEach @(
-        @{ Kind = 'agent'; Field = 'agents'; CatalogPath = 'agents/rpi/rpi-agent.agent.md'; SourcePath = '.github/agents/rpi/rpi-agent.agent.md'; PackagePath = 'agents/rpi/rpi-agent.md' }
-        @{ Kind = 'prompt'; Field = 'commands'; CatalogPath = 'prompts/ado/create-pull-request.prompt.md'; SourcePath = '.github/prompts/ado/create-pull-request.prompt.md'; PackagePath = 'commands/ado/create-pull-request.md' }
-        @{ Kind = 'instruction'; Field = 'rules'; CatalogPath = 'instructions/hve-core/markdown.instructions.md'; SourcePath = '.github/instructions/hve-core/markdown.instructions.md'; PackagePath = 'rules/hve-core/markdown.instructions.md' }
-        @{ Kind = 'skill'; Field = 'skills'; CatalogPath = 'skills/rpi/rpi-plan'; SourcePath = '.github/skills/rpi/rpi-plan'; PackagePath = 'skills/rpi/rpi-plan' }
-        @{ Kind = 'hook'; Field = 'hooks'; CatalogPath = 'hooks/hve-core/hooks.json'; SourcePath = '.github/hooks/hve-core/hooks.json'; PackagePath = 'hooks/hve-core/hooks.json' }
+Describe 'Marketplace source and manifest reference round-trip' -Tag 'Unit' {
+    It 'Projects <SourcePath> to <PackagePath>' -ForEach @(
+        @{ Kind = 'agent'; Field = 'agents'; SourcePath = '.github/agents/rpi/rpi-agent.agent.md'; PackagePath = '../../.github/agents/rpi/rpi-agent.agent.md' }
+        @{ Kind = 'prompt'; Field = 'commands'; SourcePath = '.github/prompts/ado/create-pull-request.prompt.md'; PackagePath = '../../.github/prompts/ado/create-pull-request.prompt.md' }
+        @{ Kind = 'instruction'; Field = 'rules'; SourcePath = '.github/instructions/hve-core/markdown.instructions.md'; PackagePath = '../../.github/instructions/hve-core/markdown.instructions.md' }
+        @{ Kind = 'skill'; Field = 'skills'; SourcePath = '.github/skills/rpi/rpi-plan'; PackagePath = '../../.github/skills/rpi/rpi-plan' }
+        @{ Kind = 'hook'; Field = 'hooks'; SourcePath = '.github/hooks/hve-core/hooks.json'; PackagePath = '../../.github/hooks/hve-core/hooks.json' }
     ) {
         Get-MarketplacePackagePath -SourcePath $SourcePath -Kind $Kind | Should -BeExactly $PackagePath
 
@@ -234,22 +208,25 @@ Describe 'Marketplace source and package path round-trip' -Tag 'Unit' {
         $component.SourcePath | Should -BeExactly $SourcePath
         $component.PackagePath | Should -BeExactly $PackagePath
         $component.Kind | Should -BeExactly $Kind
+        $component.ContainsKey('CatalogPath') | Should -BeFalse
+    }
 
-        $catalogComponent = Resolve-MarketplaceComponentSource -PackagePath $CatalogPath -Field $Field
-        $catalogComponent.CatalogPath | Should -BeExactly $CatalogPath
-        $catalogComponent.SourcePath | Should -BeExactly $SourcePath
-        $catalogComponent.PackagePath | Should -BeExactly $PackagePath
-        $catalogComponent.Kind | Should -BeExactly $Kind
+    It 'Rejects copied-runtime form <PackagePath> in field <Field>' -ForEach @(
+        @{ Field = 'commands'; PackagePath = 'commands/ado/create-pull-request.md' }
+        @{ Field = 'rules'; PackagePath = 'rules/hve-core/markdown.instructions.md' }
+    ) {
+        { Resolve-MarketplaceComponentSource -PackagePath $PackagePath -Field $Field } |
+            Should -Throw -ExpectedMessage "Component path '$PackagePath' must address its canonical source through the '../../' package-root traversal."
     }
 
     It 'Projects a root-level source without inventing a subdirectory' {
         Get-MarketplacePackagePath -SourcePath '.github/agents/code-review.agent.md' -Kind 'agent' |
-            Should -BeExactly 'agents/code-review.md'
+            Should -BeExactly '../../.github/agents/code-review.agent.md'
     }
 
     It 'Normalizes backslash separators in the source path' {
         Get-MarketplacePackagePath -SourcePath '.github\agents\rpi\rpi-agent.agent.md' -Kind 'agent' |
-            Should -BeExactly 'agents/rpi/rpi-agent.md'
+            Should -BeExactly '../../.github/agents/rpi/rpi-agent.agent.md'
     }
 
     It 'Rejects a source path outside the canonical root' {
@@ -257,24 +234,24 @@ Describe 'Marketplace source and package path round-trip' -Tag 'Unit' {
             Should -Throw -ExpectedMessage "Source path 'docs/agents/rpi-agent.agent.md' is not under the canonical '.github/agents' root for kind 'agent'."
     }
 
-    It 'Rejects a package path that does not start with its field directory' {
-        { Resolve-MarketplaceComponentSource -PackagePath 'commands/demo/first.md' -Field 'agents' } |
-            Should -Throw -ExpectedMessage "Component path 'commands/demo/first.md' must start with the 'agents/' canonical directory or 'agents/' package directory."
+    It 'Rejects a reference that addresses another canonical root' {
+        { Resolve-MarketplaceComponentSource -PackagePath '../../.github/prompts/demo/first.prompt.md' -Field 'agents' } |
+            Should -Throw -ExpectedMessage "Component path '../../.github/prompts/demo/first.prompt.md' must address the canonical '.github/agents' root for the 'agents' field."
     }
 
-    It 'Rejects a package path with the wrong extension' {
-        { Resolve-MarketplaceComponentSource -PackagePath 'agents/demo/first.txt' -Field 'agents' } |
-            Should -Throw -ExpectedMessage "Package component path 'agents/demo/first.txt' must end with '.md'."
+    It 'Rejects a reference with the wrong extension' {
+        { Resolve-MarketplaceComponentSource -PackagePath '../../.github/agents/demo/first.txt' -Field 'agents' } |
+            Should -Throw -ExpectedMessage "Component path '../../.github/agents/demo/first.txt' must end with '.agent.md'."
     }
 
-    It 'Rejects a rules path that does not carry the instruction suffix' {
-        { Resolve-MarketplaceComponentSource -PackagePath 'rules/demo/style.md' -Field 'rules' } |
-            Should -Throw -ExpectedMessage "Package component path 'rules/demo/style.md' must end with '.instructions.md'."
+    It 'Rejects a rules reference that does not carry the instruction suffix' {
+        { Resolve-MarketplaceComponentSource -PackagePath '../../.github/instructions/demo/style.md' -Field 'rules' } |
+            Should -Throw -ExpectedMessage "Component path '../../.github/instructions/demo/style.md' must end with '.instructions.md'."
     }
 
     It 'Surfaces path validation failures with the field name' {
-        { Resolve-MarketplaceComponentSource -PackagePath 'agents\demo\first.md' -Field 'agents' } |
-            Should -Throw -ExpectedMessage "Component field 'agents': component path 'agents\demo\first.md' must use forward slashes"
+        { Resolve-MarketplaceComponentSource -PackagePath '..\..\.github\agents\demo\first.agent.md' -Field 'agents' } |
+            Should -Throw -ExpectedMessage "Component field 'agents': component path '..\..\.github\agents\demo\first.agent.md' must use forward slashes"
     }
 }
 
@@ -283,18 +260,18 @@ Describe 'Test-MarketplaceEntryContract component membership' -Tag 'Unit' {
         BeforeAll {
             $script:ValidEntry = @{
                 name     = 'demo'
-                agents   = @('agents/demo/first.md', 'agents/demo/second.md')
-                commands = @('commands/demo/run.md')
-                rules    = @('rules/demo/style.instructions.md')
-                skills   = @('skills/demo/toolkit')
-                hooks    = 'hooks/demo/hooks.json'
+                agents   = @('../../.github/agents/demo/first.agent.md', '../../.github/agents/demo/second.agent.md')
+                commands = @('../../.github/prompts/demo/run.prompt.md')
+                rules    = @('../../.github/instructions/demo/style.instructions.md')
+                skills   = @('../../.github/skills/demo/toolkit')
+                hooks    = '../../.github/hooks/demo/hooks.json'
                 author   = @{ name = 'Contoso'; url = 'https://example.invalid/contoso' }
                 'x-hve'  = @{
                     displayName       = 'Demo Package'
                     maturity          = 'preview'
-                    componentMaturity = @{ 'agents/demo/second.md' = 'experimental' }
+                    componentMaturity = @{ '../../.github/agents/demo/second.agent.md' = 'experimental' }
                     documentation     = 'docs/plugins/demo.md'
-                    profiles          = @{ starter = @('agents/demo/first.md', 'skills/demo/toolkit') }
+                    profiles          = @{ starter = @('../../.github/agents/demo/first.agent.md', '../../.github/skills/demo/toolkit') }
                 }
             }
             $script:ValidErrors = @(Test-MarketplaceEntryContract -Entry $script:ValidEntry)
@@ -302,46 +279,6 @@ Describe 'Test-MarketplaceEntryContract component membership' -Tag 'Unit' {
 
         It 'Reports no contract errors' {
             $script:ValidErrors.Count | Should -Be 0
-        }
-    }
-
-    Context 'when the catalog uses canonical component paths' {
-        BeforeAll {
-            $script:CanonicalEntry = @{
-                name     = 'demo'
-                agents   = @('agents/demo/first.agent.md')
-                commands = @('prompts/demo/run.prompt.md')
-                rules    = @('instructions/demo/style.instructions.md')
-                skills   = @('skills/demo/toolkit')
-                hooks    = 'hooks/demo/hooks.json'
-                'x-hve'  = @{
-                    componentMaturity = @{ 'agents/demo/first.agent.md' = 'preview' }
-                    profiles          = @{ starter = @('agents/demo/first.agent.md', 'skills/demo/toolkit') }
-                }
-            }
-        }
-
-        It 'Accepts canonical membership, maturity, and profile paths' {
-            @(Test-MarketplaceEntryContract -Entry $script:CanonicalEntry -CanonicalMembership).Count | Should -Be 0
-        }
-
-        It 'Preserves projected package paths and declared maturity' {
-            $recipe = @(Get-MarketplacePackageRecipe -Entry $script:CanonicalEntry -Channel PreRelease)
-            ($recipe.PackagePath | Sort-Object) -join '|' | Should -BeExactly (@(
-                    'agents/demo/first.md'
-                    'commands/demo/run.md'
-                    'hooks/demo/hooks.json'
-                    'rules/demo/style.instructions.md'
-                    'skills/demo/toolkit'
-                ) -join '|')
-            @($recipe | Where-Object PackagePath -eq 'agents/demo/first.md')[0].Maturity | Should -BeExactly 'preview'
-        }
-
-        It 'Rejects projected membership in strict catalog mode' {
-            $entry = $script:CanonicalEntry.Clone()
-            $entry['commands'] = @('commands/demo/run.md')
-            @(Test-MarketplaceEntryContract -Entry $entry -CanonicalMembership) -join ' ' |
-                Should -Match "component field 'commands' path 'commands/demo/run.md' must use canonical path 'prompts/demo/run.prompt.md'"
         }
     }
 
@@ -362,41 +299,51 @@ Describe 'Test-MarketplaceEntryContract component membership' -Tag 'Unit' {
         }
 
         It 'Rejects a non-string element inside an array' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('agents/demo/first.md', 42) })
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('../../.github/agents/demo/first.agent.md', 42) })
             $errors | Should -Contain "component field 'agents' must contain only path strings"
         }
 
         It 'Rejects an invalid path and names the offending field' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; commands = @('commands/../escape.md') })
-            $errors | Should -Contain "component field 'commands': component path 'commands/../escape.md' must not escape the package root"
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; commands = @('../../.github/prompts/../escape.prompt.md') })
+            $errors | Should -Contain "component field 'commands': component path '../../.github/prompts/../escape.prompt.md' must not traverse beyond the repository root"
+        }
+
+        It 'Rejects a copied-runtime membership path' {
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; commands = @('commands/demo/run.md') })
+            $errors | Should -Contain "component field 'commands': Component path 'commands/demo/run.md' must address its canonical source through the '../../' package-root traversal."
+        }
+
+        It 'Rejects a membership path with the wrong canonical suffix' {
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; rules = @('../../.github/instructions/demo/style.md') })
+            $errors | Should -Contain "component field 'rules': Component path '../../.github/instructions/demo/style.md' must end with '.instructions.md'."
         }
 
         It 'Rejects a duplicate path within one field' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('agents/demo/first.md', 'agents/demo/first.md') })
-            $errors | Should -Contain "component field 'agents' declares duplicate path 'agents/demo/first.md'"
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('../../.github/agents/demo/first.agent.md', '../../.github/agents/demo/first.agent.md') })
+            $errors | Should -Contain "component field 'agents' declares duplicate path '../../.github/agents/demo/first.agent.md'"
         }
 
         It 'Treats paths that normalize to the same value as duplicates' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; skills = @('skills/demo/toolkit', 'skills/demo/toolkit/') })
-            $errors | Should -Contain "component field 'skills' declares duplicate path 'skills/demo/toolkit'"
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; skills = @('../../.github/skills/demo/toolkit', '../../.github/skills/demo/toolkit/') })
+            $errors | Should -Contain "component field 'skills' declares duplicate path '../../.github/skills/demo/toolkit'"
         }
 
         It 'Rejects the same path declared across two fields' {
             $errors = @(Test-MarketplaceEntryContract -Entry @{
                     name     = 'demo'
-                    agents   = @('agents/demo/first.md')
-                    commands = @('agents/demo/first.md')
+                    agents   = @('../../.github/agents/demo/first.agent.md')
+                    commands = @('../../.github/agents/demo/first.agent.md')
                 })
-            $errors | Should -Contain "component path 'agents/demo/first.md' is declared in both 'agents' and 'commands'"
+            ($errors -join ' ') | Should -Match "must address the canonical '\.github/prompts' root for the 'commands' field"
         }
 
         It 'Accepts a single hooks path string' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; hooks = 'hooks/demo/hooks.json' })
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; hooks = '../../.github/hooks/demo/hooks.json' })
             $errors.Count | Should -Be 0
         }
 
         It 'Rejects a hooks array' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; hooks = @('hooks/demo/hooks.json') })
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; hooks = @('../../.github/hooks/demo/hooks.json') })
             $errors | Should -Contain "component field 'hooks' must be a single path string"
         }
 
@@ -410,32 +357,32 @@ Describe 'Test-MarketplaceEntryContract component membership' -Tag 'Unit' {
 Describe 'Test-MarketplaceEntryContract membership hygiene' -Tag 'Unit' {
     Context 'when a root-level repository artifact is declared' {
         It 'Rejects root-level <PackagePath> in field <Field>' -ForEach @(
-            @{ Field = 'agents'; PackagePath = 'agents/first.md' }
-            @{ Field = 'commands'; PackagePath = 'commands/run.md' }
-            @{ Field = 'rules'; PackagePath = 'rules/style.instructions.md' }
-            @{ Field = 'skills'; PackagePath = 'skills/toolkit' }
+            @{ Field = 'agents'; PackagePath = '../../.github/agents/first.agent.md' }
+            @{ Field = 'commands'; PackagePath = '../../.github/prompts/run.prompt.md' }
+            @{ Field = 'rules'; PackagePath = '../../.github/instructions/style.instructions.md' }
+            @{ Field = 'skills'; PackagePath = '../../.github/skills/toolkit' }
         ) {
             $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; $Field = @($PackagePath) })
             $errors | Should -Contain "component path '$PackagePath' is a root-level repository artifact and must not be declared"
         }
 
         It 'Rejects a root-level hooks manifest' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; hooks = 'hooks/hooks.json' })
-            $errors | Should -Contain "component path 'hooks/hooks.json' is a root-level repository artifact and must not be declared"
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; hooks = '../../.github/hooks/hooks.json' })
+            $errors | Should -Contain "component path '../../.github/hooks/hooks.json' is a root-level repository artifact and must not be declared"
         }
 
         It 'Accepts a namespaced artifact' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('agents/demo/first.md') })
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('../../.github/agents/demo/first.agent.md') })
             $errors.Count | Should -Be 0
         }
     }
 
     Context 'when an experimental namespace is declared' {
         It 'Rejects <PackagePath> when no componentMaturity is declared' -ForEach @(
-            @{ Field = 'agents'; PackagePath = 'agents/experimental/first.md' }
-            @{ Field = 'commands'; PackagePath = 'commands/experimental/run.md' }
-            @{ Field = 'rules'; PackagePath = 'rules/experimental/style.instructions.md' }
-            @{ Field = 'skills'; PackagePath = 'skills/experimental/toolkit' }
+            @{ Field = 'agents'; PackagePath = '../../.github/agents/experimental/first.agent.md' }
+            @{ Field = 'commands'; PackagePath = '../../.github/prompts/experimental/run.prompt.md' }
+            @{ Field = 'rules'; PackagePath = '../../.github/instructions/experimental/style.instructions.md' }
+            @{ Field = 'skills'; PackagePath = '../../.github/skills/experimental/toolkit' }
         ) {
             $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; $Field = @($PackagePath) })
             $errors | Should -Contain "component path '$PackagePath' is under an experimental namespace and must declare a non-stable x-hve.componentMaturity"
@@ -444,10 +391,10 @@ Describe 'Test-MarketplaceEntryContract membership hygiene' -Tag 'Unit' {
         It 'Rejects an explicit stable label under an experimental namespace' {
             $errors = @(Test-MarketplaceEntryContract -Entry @{
                     name    = 'demo'
-                    agents  = @('agents/experimental/first.md')
-                    'x-hve' = @{ componentMaturity = @{ 'agents/experimental/first.md' = 'stable' } }
+                    agents  = @('../../.github/agents/experimental/first.agent.md')
+                    'x-hve' = @{ componentMaturity = @{ '../../.github/agents/experimental/first.agent.md' = 'stable' } }
                 })
-            $errors | Should -Contain "component path 'agents/experimental/first.md' is under an experimental namespace and must declare a non-stable x-hve.componentMaturity"
+            $errors | Should -Contain "component path '../../.github/agents/experimental/first.agent.md' is under an experimental namespace and must declare a non-stable x-hve.componentMaturity"
         }
 
         It 'Accepts non-stable label <Maturity> under an experimental namespace' -ForEach @(
@@ -458,14 +405,14 @@ Describe 'Test-MarketplaceEntryContract membership hygiene' -Tag 'Unit' {
         ) {
             $errors = @(Test-MarketplaceEntryContract -Entry @{
                     name    = 'demo'
-                    agents  = @('agents/experimental/first.md')
-                    'x-hve' = @{ componentMaturity = @{ 'agents/experimental/first.md' = $Maturity } }
+                    agents  = @('../../.github/agents/experimental/first.agent.md')
+                    'x-hve' = @{ componentMaturity = @{ '../../.github/agents/experimental/first.agent.md' = $Maturity } }
                 })
             $errors.Count | Should -Be 0
         }
 
         It 'Leaves components outside an experimental namespace on the stable default' {
-            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('agents/demo/experimental.md') })
+            $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; agents = @('../../.github/agents/demo/experimental.agent.md') })
             $errors.Count | Should -Be 0
         }
     }
@@ -485,13 +432,13 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
     It 'Accepts every key in the closed metadata set' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
+                agents  = @('../../.github/agents/demo/first.agent.md')
                 'x-hve' = @{
                     displayName       = 'Demo'
                     maturity          = 'stable'
-                    componentMaturity = @{ 'agents/demo/first.md' = 'preview' }
+                    componentMaturity = @{ '../../.github/agents/demo/first.agent.md' = 'preview' }
                     documentation     = 'docs/plugins/demo.md'
-                    profiles          = @{ starter = @('agents/demo/first.md') }
+                    profiles          = @{ starter = @('../../.github/agents/demo/first.agent.md') }
                 }
             })
         $errors.Count | Should -Be 0
@@ -526,31 +473,39 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
     It 'Rejects a componentMaturity key that is not normalized' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                'x-hve' = @{ componentMaturity = @{ 'skills/demo/toolkit/' = 'preview' } }
+                'x-hve' = @{ componentMaturity = @{ '../../.github/skills/demo/toolkit/' = 'preview' } }
             })
-        $errors | Should -Contain "x-hve.componentMaturity key 'skills/demo/toolkit/' must be a normalized component path"
+        $errors | Should -Contain "x-hve.componentMaturity key '../../.github/skills/demo/toolkit/' must be a normalized component path"
     }
 
     It 'Rejects a componentMaturity key that fails path validation' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                'x-hve' = @{ componentMaturity = @{ 'agents\demo\first.md' = 'preview' } }
+                'x-hve' = @{ componentMaturity = @{ '..\..\.github\agents\demo\first.agent.md' = 'preview' } }
             })
-        $errors | Should -Contain "x-hve.componentMaturity: component path 'agents\demo\first.md' must use forward slashes"
+        $errors | Should -Contain "x-hve.componentMaturity: component path '..\..\.github\agents\demo\first.agent.md' must use forward slashes"
+    }
+
+    It 'Rejects a componentMaturity key outside the canonical component roots' {
+        $errors = @(Test-MarketplaceEntryContract -Entry @{
+                name    = 'demo'
+                'x-hve' = @{ componentMaturity = @{ '../../docs/demo/first.md' = 'preview' } }
+            })
+        $errors | Should -Contain "x-hve.componentMaturity key '../../docs/demo/first.md' must use a package component directory"
     }
 
     It 'Rejects a componentMaturity value outside the vocabulary' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                'x-hve' = @{ componentMaturity = @{ 'agents/demo/first.md' = 'beta' } }
+                'x-hve' = @{ componentMaturity = @{ '../../.github/agents/demo/first.agent.md' = 'beta' } }
             })
-        $errors | Should -Contain "x-hve.componentMaturity['agents/demo/first.md'] value 'beta' must be one of: stable, preview, experimental, deprecated, removed"
+        $errors | Should -Contain "x-hve.componentMaturity['../../.github/agents/demo/first.agent.md'] value 'beta' must be one of: stable, preview, experimental, deprecated, removed"
     }
 
     It 'Accepts a removed componentMaturity tombstone without membership' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                'x-hve' = @{ componentMaturity = @{ 'skills/demo/retired' = 'removed' } }
+                'x-hve' = @{ componentMaturity = @{ '../../.github/skills/demo/retired' = 'removed' } }
             })
         $errors.Count | Should -Be 0
     }
@@ -567,7 +522,7 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
 
     It 'Rejects a documentation path that escapes the repository root' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{ name = 'demo'; 'x-hve' = @{ documentation = '../secrets.md' } })
-        $errors | Should -Contain "x-hve.documentation: component path '../secrets.md' must not escape the package root"
+        $errors | Should -Contain "x-hve.documentation: component path '../secrets.md' must not traverse beyond the repository root"
     }
 
     It 'Rejects a non-object profiles overlay' {
@@ -578,8 +533,8 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
     It 'Rejects a profile name outside the identifier vocabulary' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
-                'x-hve' = @{ profiles = @{ 'Starter Profile' = @('agents/demo/first.md') } }
+                agents  = @('../../.github/agents/demo/first.agent.md')
+                'x-hve' = @{ profiles = @{ 'Starter Profile' = @('../../.github/agents/demo/first.agent.md') } }
             })
         $errors | Should -Contain "x-hve.profiles name 'Starter Profile' must contain only lowercase letters, digits, and hyphens"
     }
@@ -587,8 +542,8 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
     It 'Rejects a profile that is not an array of paths' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
-                'x-hve' = @{ profiles = @{ starter = 'agents/demo/first.md' } }
+                agents  = @('../../.github/agents/demo/first.agent.md')
+                'x-hve' = @{ profiles = @{ starter = '../../.github/agents/demo/first.agent.md' } }
             })
         $errors | Should -Contain "x-hve.profiles['starter'] must be an array of component paths"
     }
@@ -596,7 +551,7 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
     It 'Rejects an empty profile' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
+                agents  = @('../../.github/agents/demo/first.agent.md')
                 'x-hve' = @{ profiles = @{ starter = @() } }
             })
         $errors | Should -Contain "x-hve.profiles['starter'] must declare at least one component path"
@@ -605,46 +560,46 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
     It 'Rejects a duplicate profile member' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
-                'x-hve' = @{ profiles = @{ starter = @('agents/demo/first.md', 'agents/demo/first.md') } }
+                agents  = @('../../.github/agents/demo/first.agent.md')
+                'x-hve' = @{ profiles = @{ starter = @('../../.github/agents/demo/first.agent.md', '../../.github/agents/demo/first.agent.md') } }
             })
-        $errors | Should -Contain "x-hve.profiles['starter'] declares duplicate path 'agents/demo/first.md'"
+        $errors | Should -Contain "x-hve.profiles['starter'] declares duplicate path '../../.github/agents/demo/first.agent.md'"
     }
 
     It 'Rejects a profile member that fails path validation' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
-                'x-hve' = @{ profiles = @{ starter = @('agents/../escape.md') } }
+                agents  = @('../../.github/agents/demo/first.agent.md')
+                'x-hve' = @{ profiles = @{ starter = @('../../.github/agents/../escape.agent.md') } }
             })
-        $errors | Should -Contain "x-hve.profiles['starter']: component path 'agents/../escape.md' must not escape the package root"
+        $errors | Should -Contain "x-hve.profiles['starter']: component path '../../.github/agents/../escape.agent.md' must not traverse beyond the repository root"
     }
 
     It 'Rejects a profile member that is not declared component membership' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
-                'x-hve' = @{ profiles = @{ starter = @('agents/demo/absent.md') } }
+                agents  = @('../../.github/agents/demo/first.agent.md')
+                'x-hve' = @{ profiles = @{ starter = @('../../.github/agents/demo/absent.agent.md') } }
             })
-        $errors | Should -Contain "x-hve.profiles['starter'] references 'agents/demo/absent.md', which is not declared component membership"
+        $errors | Should -Contain "x-hve.profiles['starter'] references '../../.github/agents/demo/absent.agent.md', which is not declared component membership"
     }
 
     It 'Rejects a profile member from a non-installable field' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md')
-                hooks   = 'hooks/demo/hooks.json'
-                'x-hve' = @{ profiles = @{ starter = @('agents/demo/first.md', 'hooks/demo/hooks.json') } }
+                agents  = @('../../.github/agents/demo/first.agent.md')
+                hooks   = '../../.github/hooks/demo/hooks.json'
+                'x-hve' = @{ profiles = @{ starter = @('../../.github/agents/demo/first.agent.md', '../../.github/hooks/demo/hooks.json') } }
             })
-        $errors | Should -Contain "x-hve.profiles['starter'] references 'hooks/demo/hooks.json' from non-installable field 'hooks'; profiles support only: agents, commands, rules, skills"
+        $errors | Should -Contain "x-hve.profiles['starter'] references '../../.github/hooks/demo/hooks.json' from non-installable field 'hooks'; profiles support only: agents, commands, rules, skills"
     }
 
     It 'Accepts a profile that selects a subset of declared membership' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md', 'agents/demo/second.md')
-                skills  = @('skills/demo/toolkit')
-                'x-hve' = @{ profiles = @{ starter = @('agents/demo/first.md', 'skills/demo/toolkit') } }
+                agents  = @('../../.github/agents/demo/first.agent.md', '../../.github/agents/demo/second.agent.md')
+                skills  = @('../../.github/skills/demo/toolkit')
+                'x-hve' = @{ profiles = @{ starter = @('../../.github/agents/demo/first.agent.md', '../../.github/skills/demo/toolkit') } }
             })
         $errors.Count | Should -Be 0
     }
@@ -652,11 +607,11 @@ Describe 'Test-MarketplaceEntryContract x-hve overlay' -Tag 'Unit' {
     It 'Reports membership errors alongside overlay errors' {
         $errors = @(Test-MarketplaceEntryContract -Entry @{
                 name    = 'demo'
-                agents  = @('agents/demo/first.md', 'agents/demo/first.md')
+                agents  = @('../../.github/agents/demo/first.agent.md', '../../.github/agents/demo/first.agent.md')
                 'x-hve' = @{ displayName = '' }
             })
         $errors.Count | Should -Be 2
-        $errors | Should -Contain "component field 'agents' declares duplicate path 'agents/demo/first.md'"
+        $errors | Should -Contain "component field 'agents' declares duplicate path '../../.github/agents/demo/first.agent.md'"
         $errors | Should -Contain 'x-hve.displayName must be a non-empty string'
     }
 }

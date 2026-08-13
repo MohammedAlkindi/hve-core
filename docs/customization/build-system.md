@@ -2,7 +2,7 @@
 title: Build System and Validation
 description: Understand the plugin generation pipeline, schema validation system, npm scripts, and CI checks for customizing and extending HVE Core
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-12
 ms.topic: how-to
 keywords:
   - build system
@@ -15,28 +15,17 @@ estimated_reading_time: 8
 
 ## Plugin Generation Pipeline
 
-The plugin generation pipeline transforms marketplace package recipes into distributable
-plugin output. The `plugin:generate` script runs two stages:
+The plugin generation pipeline refreshes the ten tracked manifest-only plugin
+roots. `Generate-Plugins.ps1` reads `.github/plugin/marketplace.json` and
+writes only `plugins/<package>/plugin.json`. Each manifest references canonical
+`.github` sources; generation does not copy components, create package READMEs,
+write documentation, or produce a plugin archive.
 
-1. `Generate-Plugins.ps1` reads `.github/plugin/marketplace.json` and produces
-  output under an explicit absolute staging root outside the repository. Each
-  package gets its own subdirectory within that temporary root.
-
-2. `plugin:postprocess` applies markdownlint auto-fixes (`markdownlint-cli2 --fix`) and
-   aligns Markdown table columns (`markdown-table-formatter`) for generated package
-   READMEs and `docs/plugins/*.md`. Materialized component files remain byte-identical to
-   their canonical sources and are validated there rather than as generated duplicates.
-
-Run the full pipeline with a single command:
+Run the pipeline with a single command:
 
 ```bash
-HVE_PLUGIN_STAGING_ROOT=/absolute/path/outside/hve-core npm run plugin:generate
+npm run plugin:generate
 ```
-
-> [!IMPORTANT]
-> Package staging requires `HVE_PLUGIN_STAGING_ROOT` or the generator's
-> `-StagingRoot` parameter to name an absolute path outside the repository.
-> Ordinary validation must not create a repository-root `plugins/` directory.
 
 ## Schema Validation System
 
@@ -154,7 +143,7 @@ for the complete set.
 
 | Script                         | Command                                | Description                                       |
 |--------------------------------|----------------------------------------|---------------------------------------------------|
-| `plugin:generate`              | `npm run plugin:generate`              | Generate plugins in explicit external staging     |
+| `plugin:generate`              | `npm run plugin:generate`              | Refresh the ten manifest-only plugin roots        |
 | `plugin:validate`              | `npm run plugin:validate`              | Validate marketplace package metadata and closure |
 | `extension:prepare`            | `npm run extension:prepare`            | Prepare VS Code extension for packaging           |
 | `extension:prepare:prerelease` | `npm run extension:prepare:prerelease` | Prepare extension for pre-release                 |

@@ -289,6 +289,39 @@ Describe 'Update-MarketplaceCatalogVersion' -Tag 'Unit' {
     ) {
         Get-MarketplaceChannelRef -Channel $Channel -Version '2.3.4' | Should -Not -Match '^hve-core-v'
     }
+
+    # A tracked root is addressed by path and dated by ref. The channel
+    # transform owns the ref alone, so the delivered root path survives every
+    # transform of a main catalog that names no ref at all.
+    It 'Preserves every tracked package root path while applying the <Channel> ref' -ForEach @(
+        @{ Channel = 'PreRelease'; Ref = 'prerelease-v2.3.4' }
+        @{ Channel = 'Stable'; Ref = 'v2.3.4' }
+    ) {
+        $catalog = ([ordered]@{
+                metadata = [ordered]@{ version = '1.0.0' }
+                plugins  = @(
+                    [ordered]@{
+                        name    = 'alpha'
+                        version = '1.0.0'
+                        source  = [ordered]@{ source = 'github'; repo = 'contoso/hve'; path = 'plugins/alpha' }
+                    }
+                    [ordered]@{
+                        name    = 'beta'
+                        version = '1.0.0'
+                        source  = [ordered]@{ source = 'github'; repo = 'contoso/hve'; path = 'plugins/beta' }
+                    }
+                )
+            } | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
+
+        # The main catalog is the ref-less input every channel transform starts from.
+        foreach ($plugin in $catalog.plugins) {
+            $plugin.source.PSObject.Properties.Name | Should -Not -Contain 'ref'
+        }
+
+        $updated = Update-MarketplaceCatalogVersion -Catalog $catalog -Version '2.3.4' -Channel $Channel
+        @($updated.plugins | ForEach-Object { $_.source.path }) | Should -Be @('plugins/alpha', 'plugins/beta')
+        @($updated.plugins | ForEach-Object { $_.source.ref }) | Should -Be @($Ref, $Ref)
+    }
 }
 
 Describe 'Assert-BaselineLocator' -Tag 'Unit' {
@@ -808,6 +841,32 @@ Describe 'Update-VersionFiles script execution' -Tag 'Unit' {
         $catalogWrites[0].Extent.StartOffset |
             Should -BeGreaterThan $guard.ElseClause.Extent.StartOffset
     }
+
+    # The canonical generator is the only writer of a runtime manifest. The
+    # updater advances the authored version authorities and invokes that one
+    # generator.
+    It 'Serializes no runtime plugin manifest' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script:ScriptPath).Path, [ref]$null, [ref]$null)
+        @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -in @('Set-Content', 'Add-Content', 'Out-File') -and
+                    $node.Extent.Text -match 'plugin\.json'
+                }, $true)) | Should -HaveCount 0
+    }
+
+    It 'Refreshes runtime manifests through the one canonical generation command' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script:ScriptPath).Path, [ref]$null, [ref]$null)
+        $generation = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq 'npm'
+                }, $true))
+        $generation | Should -HaveCount 1
+        $generation[0].Extent.Text | Should -BeExactly 'npm run plugin:generate'
+    }
 }
 
 Describe 'Managed release head verification' -Tag 'Unit' {
@@ -1286,7 +1345,7 @@ Describe 'Release preparation repair' -Tag 'Unit' {
                 Should -BeExactly '${{ needs.validate-release.outputs.sha }}'
         }
 
-        foreach ($jobName in @('generate-dependency-sbom', 'upload-plugin-packages', 'verify-provenance')) {
+        foreach ($jobName in @('generate-dependency-sbom', 'verify-provenance')) {
             $sourceCheckout = @(
                 $document['jobs'][$jobName]['steps'] |
                     Where-Object { $_.Contains('uses') -and [string]$_['uses'] -match '^actions/checkout@' }
@@ -1310,6 +1369,19 @@ Describe 'Release preparation repair' -Tag 'Unit' {
         }
         $consistency[0] | Should -Match ([regex]::Escape('.source.ref == ("v" + $version)'))
         $consistency[0] | Should -Not -Match 'hve-core-v'
+
+        # The released commit ships the roots users install, so the delivered
+        # root set and every runtime manifest are proved before publication.
+        foreach ($rootCheck in @(
+                '.source.path == ("plugins/" + .name)',
+                "jq -r '.plugins[].name' .github/plugin/marketplace.json",
+                "find plugins -mindepth 1 -maxdepth 1 -type d -printf '%f\n'",
+                'Tracked package roots do not match the released catalog package set',
+                'manifest="plugins/$name/plugin.json"',
+                'is not synchronized with $name at $RELEASE_VERSION'
+            )) {
+            $consistency[0] | Should -Match ([regex]::Escape($rootCheck))
+        }
 
         $candidate = @($runs | Where-Object { $_ -match '-CandidateAction Verify' })
         $candidate | Should -HaveCount 1

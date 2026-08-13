@@ -14,7 +14,7 @@ BeforeAll {
 
     # Real recipe members used as the detection input.
     $script:PackageName = 'hve-core'
-    $script:Components = @('agents/hve-core/rpi-agent.md', 'skills/rpi/rpi-plan')
+    $script:Components = @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan')
 
     function script:New-CollisionFixture {
         param([string[]]$ExistingTarget = @())
@@ -78,14 +78,14 @@ Describe 'collision-detection component reporting' -Tag 'Unit' {
         $target = New-CollisionFixture
         $output = & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $script:PackageName -Component $script:Components 6>&1 | Out-String
 
-        $output | Should -Match 'COMPONENT=agents/hve-core/rpi-agent\.md\|KIND=agent\|MATURITY=stable\|TARGET=\.github/agents/hve-core/rpi-agent\.agent\.md\|EXISTS=false'
-        $output | Should -Match 'COMPONENT=skills/rpi/rpi-plan\|KIND=skill\|MATURITY=stable\|TARGET=\.github/skills/rpi/rpi-plan\|EXISTS=false'
+        $output | Should -Match 'COMPONENT=\.\./\.\./\.github/agents/hve-core/rpi-agent\.agent\.md\|KIND=agent\|MATURITY=stable\|TARGET=\.github/agents/hve-core/rpi-agent\.agent\.md\|EXISTS=false'
+        $output | Should -Match 'COMPONENT=\.\./\.\./\.github/skills/rpi/rpi-plan\|KIND=skill\|MATURITY=stable\|TARGET=\.github/skills/rpi/rpi-plan\|EXISTS=false'
         $output | Should -Match 'COLLISIONS_DETECTED=false'
     }
 
     It 'Reports experimental maturity before any write' {
         $target = New-CollisionFixture
-        $output = & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $script:PackageName -Component @('skills/hve-core/vally-tests') 6>&1 | Out-String
+        $output = & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $script:PackageName -Component @('../../.github/skills/hve-core/vally-tests') 6>&1 | Out-String
 
         $output | Should -Match 'MATURITY=experimental'
         @(Get-ChildItem -LiteralPath $target -Recurse -File -Force) | Should -BeNullOrEmpty
@@ -96,7 +96,7 @@ Describe 'collision-detection component reporting' -Tag 'Unit' {
         $output = & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $script:PackageName -Component $script:Components 6>&1 | Out-String
 
         $output | Should -Match 'COLLISIONS_DETECTED=true'
-        Get-KeyValue -Output $output -Key 'COLLISION_COMPONENTS' | Should -Be @('agents/hve-core/rpi-agent.md')
+        Get-KeyValue -Output $output -Key 'COLLISION_COMPONENTS' | Should -Be @('../../.github/agents/hve-core/rpi-agent.agent.md')
         Get-KeyValue -Output $output -Key 'COLLISION_TARGETS' | Should -Be @('.github/agents/hve-core/rpi-agent.agent.md')
     }
 
@@ -104,7 +104,7 @@ Describe 'collision-detection component reporting' -Tag 'Unit' {
         $target = New-CollisionFixture -ExistingTarget @('.github/skills/rpi/rpi-plan/')
         $output = & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $script:PackageName -Component $script:Components 6>&1 | Out-String
 
-        Get-KeyValue -Output $output -Key 'COLLISION_COMPONENTS' | Should -Be @('skills/rpi/rpi-plan')
+        Get-KeyValue -Output $output -Key 'COLLISION_COMPONENTS' | Should -Be @('../../.github/skills/rpi/rpi-plan')
         Get-KeyValue -Output $output -Key 'COLLISION_TARGETS' | Should -Be @('.github/skills/rpi/rpi-plan')
     }
 
@@ -117,7 +117,7 @@ Describe 'collision-detection component reporting' -Tag 'Unit' {
 
     It 'Rejects a component outside recipe membership' {
         $target = New-CollisionFixture
-        { & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $script:PackageName -Component @('agents/hve-core/absent.md') } |
+        { & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $script:PackageName -Component @('../../.github/agents/hve-core/absent.agent.md') } |
             Should -Throw -ExpectedMessage '*not declared membership*'
     }
 
@@ -130,7 +130,7 @@ Describe 'collision-detection component reporting' -Tag 'Unit' {
 
     It 'Rejects a component outside the selected focused package' {
         $target = New-CollisionFixture
-        { & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName 'hve-core' -Component @('agents/ado/ado-backlog-manager.md') } |
+        { & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName 'hve-core' -Component @('../../.github/agents/ado/ado-backlog-manager.agent.md') } |
             Should -Throw -ExpectedMessage "*not declared membership of the 'hve-core' marketplace recipe*"
     }
 
@@ -138,7 +138,7 @@ Describe 'collision-detection component reporting' -Tag 'Unit' {
         foreach ($packageName in @('hve-core', 'hve-core-all')) {
             $target = New-CollisionFixture
             $output = & $script:PowerShellScript -HveCoreBasePath $script:RepoRoot -TargetRoot $target -PackageName $packageName -Component $script:Components 6>&1 | Out-String
-            $output | Should -Match 'COMPONENT=agents/hve-core/rpi-agent\.md'
+            $output | Should -Match 'COMPONENT=\.\./\.\./\.github/agents/hve-core/rpi-agent\.agent\.md'
             $output | Should -Match 'COLLISIONS_DETECTED=false'
         }
     }
@@ -164,7 +164,7 @@ Describe 'collision-detection PowerShell and Bash parity' -Tag 'Unit' -Skip:(-no
 
     It 'Exits non-zero for a component outside recipe membership' {
         $target = New-CollisionFixture
-        & bash $script:BashScript $script:RepoRoot $target $script:PackageName 'agents/hve-core/absent.md' 2>&1 | Out-Null
+        & bash $script:BashScript $script:RepoRoot $target $script:PackageName '../../.github/agents/hve-core/absent.agent.md' 2>&1 | Out-Null
 
         $LASTEXITCODE | Should -Not -Be 0
     }

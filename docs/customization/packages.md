@@ -2,7 +2,7 @@
 title: Managing the Marketplace Recipe
 description: Maintain ordinary Copilot plugin and VSIX recipes through the marketplace catalog
 author: Microsoft
-ms.date: 2026-08-10
+ms.date: 2026-08-12
 ms.topic: how-to
 keywords:
   - marketplace
@@ -14,7 +14,7 @@ estimated_reading_time: 6
 
 ## Recipe Authority
 
-`.github/plugin/marketplace.json` is the only operational distribution definition. Every active entry is an ordinary, self-contained recipe with standard fields for `agents`, `commands`, `rules`, `skills`, and optional `hooks`. `x-hve` holds entry metadata only: display name, lifecycle maturity, documentation path, and optional profiles. It never appears in generated `plugin.json` files.
+`.github/plugin/marketplace.json` is the only operational distribution definition. Every active entry declares canonical `.github` membership through standard fields for `agents`, `commands`, `rules`, `skills`, and optional `hooks`. `x-hve` holds entry metadata only: display name, lifecycle maturity, documentation path, and optional profiles. It never appears in generated `plugin.json` files.
 
 | Package choice            | Use it for                                               |
 |---------------------------|----------------------------------------------------------|
@@ -40,7 +40,7 @@ A recipe path maps deterministically to a canonical source path. Do not add a fa
 
 ## Closure And Channels
 
-`MarketplaceHelpers.psm1` resolves transitive agent handoffs from each catalog entry. Unresolved or ambiguous handoffs fail. The resolved source set feeds plugin and VSIX packaging before channel-specific destination mapping.
+`MarketplaceHelpers.psm1` resolves transitive agent handoffs from each catalog entry. Unresolved or ambiguous handoffs fail. The resolved source set feeds manifest-only plugin roots and VSIX packaging before channel-specific destination mapping.
 
 Stable and PreRelease have the same active package names and the same active components and maturity map per package. They differ only in source ownership, cadence, and version. Packages have no dependencies, aggregate metadata, `extensionPack`, or `extensionDependencies`.
 
@@ -50,10 +50,10 @@ Hooks are per-plugin declarations. `hve-core` and `hve-core-all` each include th
 
 ## Validation and Package Staging
 
-Ordinary validation reads canonical `.github` sources and never creates a
-repository-root `plugins/` tree. Extension preparation writes
-`extension/package*.json` and `extension/README*.md`. Generated ZIP and VSIX
-paths are host-specific package layouts, not catalog membership vocabulary.
+Ordinary validation reads canonical `.github` sources and verifies the ten
+tracked manifest-only plugin roots. Extension preparation writes
+`extension/package*.json` and `extension/README*.md`. VSIX paths are
+host-specific packaging details, not catalog membership vocabulary.
 
 Use these checks for package changes:
 
@@ -65,11 +65,9 @@ npm run test:ps -- -TestPath scripts/tests/plugins/
 npm run test:ps -- -TestPath scripts/tests/extension/
 ```
 
-When explicit plugin assembly is required, supply external staging:
-
-```bash
-HVE_PLUGIN_STAGING_ROOT=/absolute/path/outside/hve-core npm run plugin:generate
-```
+Run `npm run plugin:generate` to refresh the ten manifests after canonical
+membership changes. It does not copy package payloads or generate
+documentation.
 
 ## Selective Adoption
 

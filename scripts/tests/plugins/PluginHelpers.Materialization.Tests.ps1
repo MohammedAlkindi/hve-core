@@ -9,44 +9,6 @@ BeforeAll {
     Mock Write-Warning {} -ModuleName PluginHelpers
 }
 
-Describe 'Assert-PluginStagingRoot' -Tag 'Unit' {
-    BeforeAll {
-        $script:stagingWorkspace = Join-Path $TestDrive 'staging-workspace'
-        $script:stagingRepo = Join-Path $script:stagingWorkspace 'repo'
-        New-Item -ItemType Directory -Path $script:stagingRepo -Force | Out-Null
-    }
-
-    It 'Accepts and normalizes an absolute sibling path' {
-        $candidate = "$($script:stagingRepo)-packages"
-        Assert-PluginStagingRoot -Path $candidate -RepoRoot $script:stagingRepo |
-            Should -BeExactly ([System.IO.Path]::GetFullPath($candidate))
-    }
-
-    It 'Rejects a missing staging root' {
-        { Assert-PluginStagingRoot -Path '' -RepoRoot $script:stagingRepo } |
-            Should -Throw -ExpectedMessage '*A staging root is required*'
-    }
-
-    It 'Rejects a relative staging root' {
-        { Assert-PluginStagingRoot -Path 'plugins' -RepoRoot $script:stagingRepo } |
-            Should -Throw -ExpectedMessage "*must be an absolute path*"
-    }
-
-    It 'Rejects the repository root and a path below it' -ForEach @(
-        @{ Candidate = { $script:stagingRepo } }
-        @{ Candidate = { Join-Path $script:stagingRepo 'plugins' } }
-    ) {
-        $path = & $Candidate
-        { Assert-PluginStagingRoot -Path $path -RepoRoot $script:stagingRepo } |
-            Should -Throw -ExpectedMessage '*resolves inside the repository root*'
-    }
-
-    It 'Rejects a staging root that contains the repository' {
-        { Assert-PluginStagingRoot -Path $script:stagingWorkspace -RepoRoot $script:stagingRepo } |
-            Should -Throw -ExpectedMessage '*contains the repository root*'
-    }
-}
-
 Describe 'Get-PluginTrackedPathIndex' -Tag 'Unit' {
     Context 'when the working tree mixes tracked and untracked content' {
         BeforeAll {
@@ -64,7 +26,6 @@ Describe 'Get-PluginTrackedPathIndex' -Tag 'Unit' {
         It 'Returns exactly the staged paths' {
             @($script:trackedIndex.Paths | Sort-Object) | Should -Be @(
                 @(
-                    '.github/plugin.json',
                     '.github/skills/rpi/rpi-plan/SKILL.md',
                     '.github/skills/rpi/rpi-plan/references/checklist.md',
                     'package.json'

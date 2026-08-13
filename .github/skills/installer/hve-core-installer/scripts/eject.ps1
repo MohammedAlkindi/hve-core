@@ -8,11 +8,11 @@
     version 2 .hve-tracking.json so future upgrades skip it. The files remain
     on disk and become owned by the user.
 .PARAMETER Component
-    Marketplace component path such as agents/hve-core/rpi-agent.md or skills/rpi/rpi-plan.
+    Marketplace component reference such as ../../.github/agents/hve-core/rpi-agent.agent.md or ../../.github/skills/rpi/rpi-plan.
 .PARAMETER TargetRoot
     Root of the repository that holds the manifest.
 .EXAMPLE
-    ./scripts/eject.ps1 -Component 'agents/hve-core/rpi-agent.md'
+    ./scripts/eject.ps1 -Component '../../.github/agents/hve-core/rpi-agent.agent.md'
 .OUTPUTS
     Ejection confirmation or a not-tracked notice.
 #>

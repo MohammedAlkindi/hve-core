@@ -9,7 +9,7 @@
 
 .DESCRIPTION
     Scans a directory of downloaded release artifacts and runs gh attestation verify
-    with the correct signer workflow and predicate arguments for VSIX, plugin zip,
+    with the correct signer workflow and predicate arguments for VSIX, generic ZIP,
     and VEX files.
 
 .PARAMETER ArtifactDirectory

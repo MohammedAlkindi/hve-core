@@ -9,11 +9,11 @@
 # the first write.
 #
 # Usage: component-copy.sh <hve_core_base_path> <target_root> <package_name> <selection_name> <component...>
-#   component: marketplace path such as agents/hve-core/rpi-agent.md or skills/rpi/rpi-plan
+#   component: marketplace reference such as ../../.github/agents/hve-core/rpi-agent.agent.md or ../../.github/skills/rpi/rpi-plan
 # Environment:
 #   REPORT_ONLY=true      run preflight and report maturity and collisions without writing
 #   KEEP_EXISTING=true    leave components listed in COLLISIONS_FILE untouched
-#   COLLISIONS_FILE=path  newline-delimited component paths to keep
+#   COLLISIONS_FILE=path  newline-delimited component references to keep
 
 set -euo pipefail
 
@@ -21,6 +21,9 @@ readonly SCHEMA_VERSION=2
 # Local environment, cache, and test directories are never distributed, matching
 # the extension skill-materialization exclusions.
 readonly EXCLUDED_SKILL_PATH='(^|/)(tests|\.venv|\.hypothesis|node_modules|__pycache__|\.ruff_cache|\.pytest_cache)(/|$)|\.pyc$'
+# Every catalog reference is authored from plugins/<name>/plugin.json, so a
+# canonical source is addressed by exactly one two-level traversal.
+readonly REFERENCE_PREFIX='../../'
 
 entries_file=""
 
@@ -82,59 +85,19 @@ assert_within_target_root() {
   echo "$base/$relative"
 }
 
-# Maps a marketplace field to "<kind>|<source root>|<package suffix>|<source suffix>".
-field_descriptor() {
+# Maps a canonical source root to the artifact kind it delivers.
+source_root_kind() {
   case "$1" in
-    agents) echo "agent|.github/agents|.md|.agent.md" ;;
-    commands) echo "prompt|.github/prompts|.md|.prompt.md" ;;
-    rules) echo "instruction|.github/instructions|.instructions.md|.instructions.md" ;;
-    skills) echo "skill|.github/skills||" ;;
+    .github/agents/*) echo "agent" ;;
+    .github/prompts/*) echo "prompt" ;;
+    .github/instructions/*) echo "instruction" ;;
+    .github/skills/*) echo "skill" ;;
     *) echo "" ;;
   esac
 }
 
-# Maps a canonical catalog root to "<field>|<source suffix>|<package suffix>".
-catalog_root_descriptor() {
-  case "$1" in
-    agents) echo "agents|.agent.md|.md" ;;
-    prompts) echo "commands|.prompt.md|.md" ;;
-    instructions) echo "rules|.instructions.md|.instructions.md" ;;
-    skills) echo "skills||" ;;
-    *) echo "" ;;
-  esac
-}
-
-# The marketplace catalog stores canonical source identities while installer input
-# and manifests use package form. A path whose root is outside the four installable
-# fields, such as hooks/, carries through unprojected so catalog load never fails.
-to_package_component_path() {
-  local catalog_path="$1"
-  [[ "$catalog_path" == */* ]] || {
-    echo "$catalog_path"
-    return 0
-  }
-
-  local catalog_root="${catalog_path%%/*}"
-  local relative="${catalog_path#*/}"
-  local descriptor field source_suffix package_suffix
-  descriptor=$(catalog_root_descriptor "$catalog_root")
-  [[ -n "$descriptor" ]] || {
-    echo "$catalog_path"
-    return 0
-  }
-
-  IFS='|' read -r field source_suffix package_suffix <<<"$descriptor"
-  if [[ -n "$source_suffix" ]]; then
-    [[ "$relative" == *"$source_suffix" ]] || {
-      echo "$catalog_path"
-      return 0
-    }
-    relative="${relative%"$source_suffix"}$package_suffix"
-  fi
-  echo "$field/$relative"
-}
-
-# Trims and validates a component path, echoing the normalized value.
+# Trims and validates a manifest-relative component reference, echoing the
+# normalized value.
 normalize_component_path() {
   local candidate="$1"
   candidate="${candidate#"${candidate%%[![:space:]]*}"}"
@@ -145,10 +108,11 @@ normalize_component_path() {
   [[ "$candidate" == *\\* ]] && fail "Component path '$candidate' must use forward slashes."
   [[ "$candidate" == /* ]] && fail "Component path '$candidate' must be relative to the package root."
   [[ "$candidate" =~ ^[A-Za-z]: ]] && fail "Component path '$candidate' must be relative to the package root."
+  [[ "$candidate" == "$REFERENCE_PREFIX"* ]] || fail "Component path '$candidate' must address a canonical source through the '$REFERENCE_PREFIX' package-root traversal."
   while [[ "$candidate" == */ ]]; do candidate="${candidate%/}"; done
 
   local segment
-  local remainder="$candidate"
+  local remainder="${candidate#"$REFERENCE_PREFIX"}"
   while [[ -n "$remainder" ]]; do
     segment="${remainder%%/*}"
     [[ -n "$segment" ]] || fail "Component path '$candidate' must not contain empty path segments."
@@ -202,18 +166,18 @@ main() {
   local -A membership=()
   local package_path
   while IFS= read -r package_path; do
-    [[ -n "$package_path" ]] && membership["$(to_package_component_path "$package_path")"]=1
+    [[ -n "$package_path" ]] && membership["$package_path"]=1
   done < <(jq -r '[(.agents // [])[], (.commands // [])[], (.rules // [])[], (.skills // [])[]] | .[]' <<<"$entry_json")
   [[ ${#membership[@]} -gt 0 ]] || fail "Marketplace package '$package_name' in '$catalog_path' declares no installable components."
 
-  # One projected membership set backs both component validation and the manifest filter.
+  # One membership set backs both component validation and the manifest filter.
   local membership_json
   membership_json=$(printf '%s\n' "${!membership[@]}" | LC_ALL=C sort | jq -R -s -c 'split("\n") | map(select(length > 0))')
 
   local -A component_maturity=()
   local maturity_key maturity_value
   while IFS=$'\t' read -r maturity_key maturity_value; do
-    [[ -n "$maturity_key" ]] && component_maturity["$(to_package_component_path "$maturity_key")"]="$maturity_value"
+    [[ -n "$maturity_key" ]] && component_maturity["$maturity_key"]="$maturity_value"
   done < <(jq -r '."x-hve".componentMaturity // {} | to_entries[] | "\(.key)\t\(.value)"' <<<"$entry_json")
 
   # An unsupported manifest must fail before the target is touched. Version 1 has
@@ -248,23 +212,16 @@ main() {
   local -a plan_components=()
   local -A plan_kinds=() plan_maturities=() plan_targets=() plan_files=()
   local -A seen_targets=()
-  local raw candidate field descriptor kind root package_suffix source_suffix relative source_rel files
+  local raw candidate kind source_rel files
   for raw in "$@"; do
     candidate=$(normalize_component_path "$raw")
 
-    field="${candidate%%/*}"
-    descriptor=$(field_descriptor "$field")
-    [[ -n "$descriptor" ]] || fail "Component path '$candidate' must start with one of: agents, commands, rules, skills."
+    source_rel="${candidate#"$REFERENCE_PREFIX"}"
+    kind=$(source_root_kind "$source_rel")
+    [[ -n "$kind" ]] || fail "Component path '$candidate' must address one of: ${REFERENCE_PREFIX}.github/agents, ${REFERENCE_PREFIX}.github/prompts, ${REFERENCE_PREFIX}.github/instructions, ${REFERENCE_PREFIX}.github/skills."
     [[ -n "${membership[$candidate]+x}" ]] || fail "Component '$candidate' is not declared membership of the '$package_name' marketplace recipe."
     [[ -z "${plan_targets[$candidate]+x}" ]] || continue
 
-    IFS='|' read -r kind root package_suffix source_suffix <<<"$descriptor"
-    relative="${candidate#"$field"/}"
-    if [[ -n "$package_suffix" ]]; then
-      [[ "$relative" == *"$package_suffix" ]] || fail "Component path '$candidate' must end with '$package_suffix'."
-      relative="${relative%"$package_suffix"}$source_suffix"
-    fi
-    source_rel="$root/$relative"
     [[ -z "${seen_targets[$source_rel]+x}" ]] || fail "Component '$candidate' resolves to duplicate target '$source_rel'."
     seen_targets["$source_rel"]=1
 

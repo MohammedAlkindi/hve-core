@@ -1,0 +1,51 @@
+{
+  "name": "experimental",
+  "description": "Experimental and preview artifacts not yet promoted to stable packages",
+  "version": "3.2.2",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "experimental",
+    "preview"
+  ],
+  "agents": [
+    "../../.github/agents/experimental/experiment-designer.agent.md",
+    "../../.github/agents/experimental/pptx.agent.md",
+    "../../.github/agents/experimental/subagents/pptx-subagent.agent.md",
+    "../../.github/agents/hve-core/subagents/rpi-researcher.agent.md"
+  ],
+  "commands": [
+    "../../.github/prompts/experimental/cspell-config.prompt.md",
+    "../../.github/prompts/experimental/graph-research.prompt.md"
+  ],
+  "rules": [
+    "../../.github/instructions/experimental/experiment-designer.instructions.md",
+    "../../.github/instructions/experimental/graphify.instructions.md",
+    "../../.github/instructions/experimental/mural/mural-bootstrap.instructions.md",
+    "../../.github/instructions/experimental/mural/mural-destinations.instructions.md",
+    "../../.github/instructions/experimental/mural/mural-human-record.instructions.md",
+    "../../.github/instructions/experimental/mural/mural-log-hygiene.instructions.md",
+    "../../.github/instructions/experimental/mural/mural-seeding-patterns.instructions.md",
+    "../../.github/instructions/experimental/mural/mural-writeback-hygiene.instructions.md",
+    "../../.github/instructions/experimental/mural/mural-writing-style.instructions.md",
+    "../../.github/instructions/experimental/pptx.instructions.md",
+    "../../.github/instructions/shared/hve-core-location.instructions.md"
+  ],
+  "skills": [
+    "../../.github/skills/experimental/caveman",
+    "../../.github/skills/experimental/copilot-otel-metrics",
+    "../../.github/skills/experimental/customer-card-render",
+    "../../.github/skills/experimental/demo-video",
+    "../../.github/skills/experimental/mural",
+    "../../.github/skills/experimental/powerpoint",
+    "../../.github/skills/experimental/tts-voiceover",
+    "../../.github/skills/experimental/video-to-gif",
+    "../../.github/skills/experimental/vscode-playwright",
+    "../../.github/skills/rpi/rpi-research"
+  ]
+}

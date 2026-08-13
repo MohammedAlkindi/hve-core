@@ -16,9 +16,9 @@
 .PARAMETER PackageName
     Marketplace package name whose recipe declares the installable components.
 .PARAMETER Component
-    Marketplace component paths such as agents/hve-core/rpi-agent.md or skills/rpi/rpi-plan.
+    Marketplace component references such as ../../.github/agents/hve-core/rpi-agent.agent.md or ../../.github/skills/rpi/rpi-plan.
 .EXAMPLE
-    ./scripts/collision-detection.ps1 -HveCoreBasePath ../hve-core -TargetRoot . -PackageName hve-core -Component @('agents/hve-core/rpi-agent.md')
+    ./scripts/collision-detection.ps1 -HveCoreBasePath ../hve-core -TargetRoot . -PackageName hve-core -Component @('../../.github/agents/hve-core/rpi-agent.agent.md')
 .OUTPUTS
     COMPONENT lines plus COLLISIONS_DETECTED, COLLISION_COMPONENTS, and COLLISION_TARGETS.
 #>

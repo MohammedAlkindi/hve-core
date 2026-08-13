@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-08-10
+ms.date: 2026-08-12
 ms.topic: overview
 ---
 
@@ -117,7 +117,7 @@ Individual validation workflows called by orchestration workflows:
 | `extension-provenance.yml`            | VS Code extension attestation and release upload | N/A                                      |
 | `copyright-headers.yml`               | Copyright header validation                      | `npm run validate:copyright`             |
 | `gitleaks-scan.yml`                   | Secret detection scanning                        | N/A (gitleaks direct)                    |
-| `plugin-package.yml`                  | Plugin packaging                                 | N/A                                      |
+| `plugin-package.yml`                  | Plugin release evidence                          | N/A                                      |
 | `plugin-validation.yml`               | Marketplace package metadata and closure         | `npm run lint:marketplace`               |
 | `extension-marketplace-publish.yml`   | Extension marketplace publishing                 | N/A                                      |
 | `python-lint.yml`                     | Python linting (ruff)                            | `npm run lint:py`                        |
@@ -238,15 +238,14 @@ not a requirement of `MAJOR.MINOR.PATCH` syntax.
 
 `release-prerelease.yml` jobs: `release-please`, `sync-release-pr`,
 `validate-release`, `close-milestone`, `extension-package-prerelease`,
-`plugin-package-prerelease`, `generate-dependency-sbom`,
-`extension-provenance-prerelease`, `upload-plugin-packages`,
-`verify-provenance`, and `publish-release`.
+`extension-provenance-prerelease`, `plugin-release-evidence`,
+`generate-dependency-sbom`, `verify-provenance`, and `publish-release`.
 
 `release-stable-publish.yml` jobs: `validate-trigger`, `release-please`,
 `sync-release-pr`, `validate-release`, `close-milestone`,
 `extension-package-release`, `extension-provenance`,
-`plugin-package-release`, `generate-dependency-sbom`,
-`upload-plugin-packages`, `vex-attest`, `verify-provenance`, `sbom-diff`,
+`plugin-package-release`, `generate-dependency-sbom`, `vex-attest`,
+`verify-provenance`, `sbom-diff`,
 `append-verification-notes`, and `publish-release`.
 
 Both channels build the VSIX in `extension-package.yml`, which holds only
@@ -257,9 +256,10 @@ Both release workflows verify event, merge, release-please, and release-tag
 SHA equality plus target-branch ancestry. Extension and plugin packages use
 the validated release SHA bound to the immutable channel tag. Every release
 catalog entry uses `prerelease-v<version>` or `v<version>` for its channel. The
-workflows attach and attest
-`plugin-release-evidence.json`, derived from declared canonical tracked
-sources, alongside signed plugin ZIPs, SBOM, Sigstore, and in-toto assets.
+workflows attach and attest `plugin-release-evidence.json`, derived from
+declared canonical tracked sources at the exact release ref. The VSIX,
+dependency SBOM, Sigstore, and in-toto assets retain their applicable release
+roles without publishing a plugin archive.
 
 Both channels publish their draft with a release GitHub App token. The
 resulting `published` event triggers the matching Marketplace workflow.
@@ -329,10 +329,9 @@ OIDC and `vsce`.
 
 `hve-core` retains the unsuffixed HVE Core extension identity. Every other active catalog entry receives a deterministic package-specific extension identity and plugin root.
 
-Each package remains self-contained; the release model does not use package
-dependencies or aggregate metadata. Catalog membership uses `.github`-root
-canonical paths, while generated ZIP and VSIX paths remain host-specific
-packaging details.
+The release model does not use package dependencies or aggregate metadata.
+Catalog membership uses `.github`-root canonical paths, and each Copilot
+plugin root remains a manifest-only `plugins/<package>/plugin.json` file.
 
 Lifecycle inclusion rules:
 

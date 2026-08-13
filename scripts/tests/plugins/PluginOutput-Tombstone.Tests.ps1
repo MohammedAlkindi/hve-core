@@ -8,13 +8,13 @@ param()
 # Declared at discovery scope so the parameterized tests below are expanded.
 $script:TombstoneComponents = @(
     @{
-        PackagePath = 'skills/security/owasp-docker'
+        PackagePath = '../../.github/skills/security/owasp-docker'
         SourcePath  = '.github/skills/security/owasp-docker/SKILL.md'
         Leaf        = 'owasp-docker'
         Sentinel    = 'sentinel_tombstone_docker'
     }
     @{
-        PackagePath = 'agents/security/legacy-scanner.md'
+        PackagePath = '../../.github/agents/security/legacy-scanner.agent.md'
         SourcePath  = '.github/agents/security/legacy-scanner.agent.md'
         Leaf        = 'legacy-scanner'
         Sentinel    = 'sentinel_tombstone_agent'
@@ -28,7 +28,6 @@ BeforeAll {
     Mock Write-Host {} -ModuleName PluginHelpers
     Mock Write-Warning {}
     Mock Write-Warning {} -ModuleName PluginHelpers
-    $script:OriginalPluginStagingRoot = $env:HVE_PLUGIN_STAGING_ROOT
 
     function New-TombstoneFixture {
         <#
@@ -56,16 +55,16 @@ BeforeAll {
         else {
             @{
                 componentMaturity = @{
-                    'skills/security/owasp-docker'      = 'removed'
-                    'agents/security/legacy-scanner.md' = 'removed'
+                    '../../.github/skills/security/owasp-docker'             = 'removed'
+                    '../../.github/agents/security/legacy-scanner.agent.md' = 'removed'
                 }
             }
         }
 
         Add-PluginFixtureCatalog -RepoRoot $Root -Version '9.9.9' -Entries @(
             New-PluginFixtureEntry -Name 'security' -Description 'Security package' -Version '9.9.9' `
-                -Agents @('agents/security/security-planner.md', 'agents/security/legacy-scanner.md') `
-                -Skills @('skills/security/owasp-llm', 'skills/security/owasp-docker') `
+                -Agents @('../../.github/agents/security/security-planner.agent.md', '../../.github/agents/security/legacy-scanner.agent.md') `
+                -Skills @('../../.github/skills/security/owasp-llm', '../../.github/skills/security/owasp-docker') `
                 -Overlay $overlay
         ) | Out-Null
 
@@ -104,8 +103,7 @@ BeforeAll {
 Describe 'Removed component tombstones' -Tag 'Unit' {
     BeforeEach {
         $script:tombstoneRepo = Join-Path $TestDrive ([System.Guid]::NewGuid().ToString())
-        $script:tombstoneStagingRoot = Join-Path $TestDrive "$([System.Guid]::NewGuid())-staging"
-        $env:HVE_PLUGIN_STAGING_ROOT = $script:tombstoneStagingRoot
+        $script:tombstonePluginsRoot = Join-Path $script:tombstoneRepo 'plugins'
     }
 
     Context 'when the catalog retires components' {
@@ -114,7 +112,7 @@ Describe 'Removed component tombstones' -Tag 'Unit' {
             $script:discoveredTombstones = Get-RemovedComponentTombstone -CatalogPath (Join-Path $script:tombstoneRepo '.github/plugin/marketplace.json')
 
             Invoke-PluginGeneration -RepoRoot $script:tombstoneRepo -Refresh | Out-Null
-            $script:generatedRoot = Join-Path $script:tombstoneStagingRoot 'security'
+            $script:generatedRoot = Join-Path $script:tombstonePluginsRoot 'security'
             $script:generatedPaths = @(Get-PluginFixtureInventory -Path $script:generatedRoot)
             $script:generatedText = @(Get-ChildItem -LiteralPath $script:generatedRoot -File -Recurse -Force |
                     ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join "`n"
@@ -123,23 +121,12 @@ Describe 'Removed component tombstones' -Tag 'Unit' {
         It 'Discovers a non-empty tombstone set before any exclusion is applied' {
             @($script:discoveredTombstones) | Should -Not -BeNullOrEmpty
             @($script:discoveredTombstones) | Should -Be @(
-                @('skills/security/owasp-docker', 'agents/security/legacy-scanner.md') | Sort-Object
+                @('../../.github/skills/security/owasp-docker', '../../.github/agents/security/legacy-scanner.agent.md') | Sort-Object
             )
         }
 
-        It 'Still generates the retained components' {
-            $script:generatedPaths | Should -Contain 'skills/security/owasp-llm/SKILL.md'
-            $script:generatedPaths | Should -Contain 'agents/security/security-planner.md'
-        }
-
-        It 'Leaks no package path for the tombstoned component <PackagePath>' -ForEach $script:TombstoneComponents {
-            $componentPrefix = $PackagePath
-            @($script:generatedPaths | Where-Object { $_ -eq $componentPrefix -or $_.StartsWith("$componentPrefix/") }) |
-                Should -HaveCount 0
-        }
-
-        It 'Leaks no source leaf name for the tombstoned component <Leaf>' -ForEach $script:TombstoneComponents {
-            @($script:generatedPaths | Where-Object { $_ -match [regex]::Escape($Leaf) }) | Should -HaveCount 0
+        It 'Delivers only the runtime manifest' {
+            $script:generatedPaths | Should -Be @('plugin.json')
         }
 
         It 'Leaks no content sentinel for the tombstoned component <Leaf>' -ForEach $script:TombstoneComponents {
@@ -147,17 +134,10 @@ Describe 'Removed component tombstones' -Tag 'Unit' {
             $script:generatedText | Should -Not -Match ([regex]::Escape($Leaf))
         }
 
-        It 'Omits the tombstoned components from the generated README' {
-            $readme = Get-Content -LiteralPath (Join-Path $script:generatedRoot 'README.md') -Raw
-            $readme | Should -Match 'owasp-llm'
-            $readme | Should -Match 'security-planner'
-            $readme | Should -Not -Match 'owasp-docker'
-            $readme | Should -Not -Match 'legacy-scanner'
-        }
-
         It 'Omits the tombstoned components from the generated manifest' {
             $manifest = Get-Content -LiteralPath (Join-Path $script:generatedRoot 'plugin.json') -Raw
-            $manifest | Should -Match 'skills/security/owasp-llm/'
+            $manifest | Should -Match '\.\./\.\./\.github/skills/security/owasp-llm'
+            $manifest | Should -Match '\.\./\.\./\.github/agents/security/security-planner\.agent\.md'
             $manifest | Should -Not -Match 'owasp-docker'
             $manifest | Should -Not -Match 'legacy-scanner'
         }
@@ -168,22 +148,21 @@ Describe 'Removed component tombstones' -Tag 'Unit' {
             New-TombstoneFixture -Root $script:tombstoneRepo -WithoutTombstones | Out-Null
             $script:controlTombstones = Get-RemovedComponentTombstone -CatalogPath (Join-Path $script:tombstoneRepo '.github/plugin/marketplace.json')
             Invoke-PluginGeneration -RepoRoot $script:tombstoneRepo -Refresh | Out-Null
-            $script:controlPaths = @(Get-PluginFixtureInventory -Path (Join-Path $script:tombstoneStagingRoot 'security'))
         }
 
         It 'Discovers an empty tombstone set' {
             @($script:controlTombstones) | Should -HaveCount 0
         }
 
-        It 'Generates the components the tombstoned run excluded' {
-            $script:controlPaths | Should -Contain 'skills/security/owasp-docker/SKILL.md'
-            $script:controlPaths | Should -Contain 'agents/security/legacy-scanner.md'
+        It 'Declares the components the tombstoned run excluded' {
+            $manifest = Get-Content -LiteralPath (Join-Path $script:tombstonePluginsRoot 'security/plugin.json') -Raw
+            $manifest | Should -Match '\.\./\.\./\.github/skills/security/owasp-docker'
+            $manifest | Should -Match '\.\./\.\./\.github/agents/security/legacy-scanner\.agent\.md'
         }
     }
 }
 
 AfterAll {
-    $env:HVE_PLUGIN_STAGING_ROOT = $script:OriginalPluginStagingRoot
     Remove-Module PluginTestFixtures -Force -ErrorAction SilentlyContinue
     Remove-Module PluginHelpers -Force -ErrorAction SilentlyContinue
     Remove-Module CIHelpers -Force -ErrorAction SilentlyContinue

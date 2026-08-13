@@ -248,9 +248,6 @@ Describe 'Package matrix workflow consumers' -Tag 'Unit' {
             'extension-marketplace-publish.yml/verify'
             'extension-package.yml/package'
             'extension-provenance.yml/attest'
-            'plugin-package.yml/package'
-            'release-prerelease.yml/upload-plugin-packages'
-            'release-stable-publish.yml/upload-plugin-packages'
         )
     }
 
@@ -262,9 +259,6 @@ Describe 'Package matrix workflow consumers' -Tag 'Unit' {
         @{ Workflow = 'extension-marketplace-publish.yml'; Job = 'verify' }
         @{ Workflow = 'extension-package.yml'; Job = 'package' }
         @{ Workflow = 'extension-provenance.yml'; Job = 'attest' }
-        @{ Workflow = 'plugin-package.yml'; Job = 'package' }
-        @{ Workflow = 'release-prerelease.yml'; Job = 'upload-plugin-packages' }
-        @{ Workflow = 'release-stable-publish.yml'; Job = 'upload-plugin-packages' }
     ) {
         $consumer = @($script:Consumers | Where-Object { $_.Workflow -eq $Workflow -and $_.Job -eq $Job })
         $consumer | Should -HaveCount 1

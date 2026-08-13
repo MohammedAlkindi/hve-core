@@ -1,0 +1,37 @@
+{
+  "name": "rpi",
+  "description": "Skill-forward Research, Plan, Implement, Review, and Follow-up entry points with bounded planning and critique support.",
+  "version": "3.2.2",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://www.microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/hve-core",
+  "repository": "https://github.com/microsoft/hve-core",
+  "license": "MIT",
+  "keywords": [
+    "rpi",
+    "research",
+    "planning",
+    "implementation",
+    "review",
+    "skills"
+  ],
+  "agents": [
+    "../../.github/agents/hve-core/subagents/rpi-planner.agent.md",
+    "../../.github/agents/hve-core/subagents/rpi-researcher.agent.md"
+  ],
+  "rules": [
+    "../../.github/instructions/hve-core/copilot-tracking.instructions.md"
+  ],
+  "skills": [
+    "../../.github/skills/rpi/rpi-challenger",
+    "../../.github/skills/rpi/rpi-implement",
+    "../../.github/skills/rpi/rpi-plan",
+    "../../.github/skills/rpi/rpi-plan-critique",
+    "../../.github/skills/rpi/rpi-quick",
+    "../../.github/skills/rpi/rpi-research",
+    "../../.github/skills/rpi/rpi-review",
+    "../../.github/skills/rpi/rpi-walkthrough"
+  ]
+}

@@ -4,11 +4,11 @@
 .SYNOPSIS
     Copies selected HVE-Core components into a target repository.
 .DESCRIPTION
-    Maps marketplace component paths to their canonical .github locations,
-    copies files and complete skill directories under TargetRoot without
-    flattening paths, and writes the schema version 2 .hve-tracking.json
-    manifest. Membership, path-safety, and manifest-schema checks all run
-    before the first write.
+    Resolves manifest-relative marketplace component references to their
+    canonical .github locations, copies files and complete skill directories
+    under TargetRoot without flattening paths, and writes the schema version 2
+    .hve-tracking.json manifest. Membership, path-safety, and manifest-schema
+    checks all run before the first write.
 .PARAMETER HveCoreBasePath
     Root path of the local HVE-Core clone used as the copy source.
 .PARAMETER TargetRoot
@@ -18,15 +18,15 @@
 .PARAMETER SelectionName
     Marketplace profile name that produced the selection, or 'custom'.
 .PARAMETER Component
-    Marketplace component paths such as agents/hve-core/rpi-agent.md or skills/rpi/rpi-plan.
+    Marketplace component references such as ../../.github/agents/hve-core/rpi-agent.agent.md or ../../.github/skills/rpi/rpi-plan.
 .PARAMETER ReportOnly
     When set, runs preflight and reports component maturity and collisions without writing.
 .PARAMETER KeepExisting
     When set, components listed in Collisions are left untouched.
 .PARAMETER Collisions
-    Component paths that already exist in the target and may conflict.
+    Component references that already exist in the target and may conflict.
 .EXAMPLE
-    ./scripts/component-copy.ps1 -HveCoreBasePath ../hve-core -TargetRoot . -PackageName hve-core-all -SelectionName starter -Component @('agents/hve-core/rpi-agent.md', 'skills/rpi/rpi-plan')
+    ./scripts/component-copy.ps1 -HveCoreBasePath ../hve-core -TargetRoot . -PackageName hve-core-all -SelectionName starter -Component @('../../.github/agents/hve-core/rpi-agent.agent.md', '../../.github/skills/rpi/rpi-plan')
 .OUTPUTS
     Per-component copy status and manifest creation confirmation.
 #>
@@ -123,33 +123,14 @@ $schemaVersion = 2
 # Local environment, cache, and test directories are never distributed, matching
 # the extension skill-materialization exclusions.
 $excludedSkillPath = '(^|/)(tests|\.venv|\.hypothesis|node_modules|__pycache__|\.ruff_cache|\.pytest_cache)(/|$)|\.pyc$'
+# Every catalog reference is authored from plugins/<name>/plugin.json, so a
+# canonical source is addressed by exactly one two-level traversal.
+$referencePrefix = '../../'
 $fieldMap = [ordered]@{
-    agents   = @{ Kind = 'agent'; Root = '.github/agents'; CatalogRoot = 'agents'; PackageSuffix = '.md'; SourceSuffix = '.agent.md' }
-    commands = @{ Kind = 'prompt'; Root = '.github/prompts'; CatalogRoot = 'prompts'; PackageSuffix = '.md'; SourceSuffix = '.prompt.md' }
-    rules    = @{ Kind = 'instruction'; Root = '.github/instructions'; CatalogRoot = 'instructions'; PackageSuffix = '.instructions.md'; SourceSuffix = '.instructions.md' }
-    skills   = @{ Kind = 'skill'; Root = '.github/skills'; CatalogRoot = 'skills'; PackageSuffix = ''; SourceSuffix = '' }
-}
-
-# The marketplace catalog stores canonical source identities while installer input
-# and manifests use package form. A path whose root is outside the four installable
-# fields, such as hooks/, carries through unprojected so catalog load never fails.
-function ConvertTo-PackageComponentPath {
-    param([string]$CatalogPath)
-
-    $segments = $CatalogPath -split '/', 2
-    if ($segments.Count -lt 2) { return $CatalogPath }
-    $catalogRoot = $segments[0]
-    $relative = $segments[1]
-    foreach ($field in $fieldMap.Keys) {
-        $descriptor = $fieldMap[$field]
-        if (-not [string]::Equals($descriptor.CatalogRoot, $catalogRoot, [System.StringComparison]::Ordinal)) { continue }
-        if ($descriptor.SourceSuffix) {
-            if (-not $relative.EndsWith($descriptor.SourceSuffix, [System.StringComparison]::Ordinal)) { return $CatalogPath }
-            $relative = "$($relative.Substring(0, $relative.Length - $descriptor.SourceSuffix.Length))$($descriptor.PackageSuffix)"
-        }
-        return "$field/$relative"
-    }
-    return $CatalogPath
+    agents   = @{ Kind = 'agent'; Root = '.github/agents' }
+    commands = @{ Kind = 'prompt'; Root = '.github/prompts' }
+    rules    = @{ Kind = 'instruction'; Root = '.github/instructions' }
+    skills   = @{ Kind = 'skill'; Root = '.github/skills' }
 }
 
 $sourceRoot = (Resolve-Path -LiteralPath $HveCoreBasePath).Path
@@ -174,15 +155,14 @@ $entry = $packageEntries[0]
 $componentMaturity = @{}
 if ($entry['x-hve'] -is [System.Collections.IDictionary] -and $entry['x-hve']['componentMaturity'] -is [System.Collections.IDictionary]) {
     foreach ($key in $entry['x-hve']['componentMaturity'].Keys) {
-        $maturityComponent = ConvertTo-PackageComponentPath -CatalogPath ([string]$key)
-        $componentMaturity[$maturityComponent] = [string]$entry['x-hve']['componentMaturity'][$key]
+        $componentMaturity[[string]$key] = [string]$entry['x-hve']['componentMaturity'][$key]
     }
 }
 $membership = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 foreach ($field in $fieldMap.Keys) {
-    foreach ($catalogPathValue in @($entry[$field])) {
-        if ([string]::IsNullOrWhiteSpace([string]$catalogPathValue)) { continue }
-        [void]$membership.Add((ConvertTo-PackageComponentPath -CatalogPath ([string]$catalogPathValue)))
+    foreach ($packagePathValue in @($entry[$field])) {
+        if ([string]::IsNullOrWhiteSpace([string]$packagePathValue)) { continue }
+        [void]$membership.Add([string]$packagePathValue)
     }
 }
 if ($membership.Count -eq 0) {
@@ -232,15 +212,19 @@ foreach ($raw in $Component) {
     if ($candidate -match '\p{C}') { throw "Component path '$candidate' must not contain control characters." }
     if ($candidate -match '\\') { throw "Component path '$candidate' must use forward slashes." }
     if ($candidate -match '^/' -or $candidate -match '^[A-Za-z]:') { throw "Component path '$candidate' must be relative to the package root." }
+    if (-not $candidate.StartsWith($referencePrefix, [System.StringComparison]::Ordinal)) {
+        throw "Component path '$candidate' must address a canonical source through the '$referencePrefix' package-root traversal."
+    }
     $normalized = $candidate.TrimEnd('/')
-    foreach ($segment in ($normalized -split '/')) {
+    $sourceRelative = $normalized.Substring($referencePrefix.Length)
+    foreach ($segment in ($sourceRelative -split '/')) {
         if ([string]::IsNullOrEmpty($segment)) { throw "Component path '$candidate' must not contain empty path segments." }
         if ($segment -eq '.' -or $segment -eq '..') { throw "Component path '$candidate' must not contain relative path segments." }
     }
 
-    $field = ($normalized -split '/', 2)[0]
-    if (-not $fieldMap.Contains($field)) {
-        throw "Component path '$normalized' must start with one of: $($fieldMap.Keys -join ', ')."
+    $field = @($fieldMap.Keys | Where-Object { $sourceRelative.StartsWith("$($fieldMap[$_].Root)/", [System.StringComparison]::Ordinal) })[0]
+    if (-not $field) {
+        throw "Component path '$normalized' must address one of: $(@($fieldMap.Keys | ForEach-Object { "$referencePrefix$($fieldMap[$_].Root)" }) -join ', ')."
     }
     if (-not $membership.Contains($normalized)) {
         throw "Component '$normalized' is not declared membership of the '$PackageName' marketplace recipe."
@@ -248,14 +232,6 @@ foreach ($raw in $Component) {
     if (-not $seenComponents.Add($normalized)) { continue }
 
     $descriptor = $fieldMap[$field]
-    $relative = $normalized.Substring($field.Length + 1)
-    if ($descriptor.PackageSuffix) {
-        if (-not $relative.EndsWith($descriptor.PackageSuffix, [System.StringComparison]::Ordinal)) {
-            throw "Component path '$normalized' must end with '$($descriptor.PackageSuffix)'."
-        }
-        $relative = "$($relative.Substring(0, $relative.Length - $descriptor.PackageSuffix.Length))$($descriptor.SourceSuffix)"
-    }
-    $sourceRelative = "$($descriptor.Root)/$relative"
     $sourceFull = Join-Path $sourceRoot $sourceRelative
     # Preflight bounds the component; the resolved path is recomputed at the
     # write site, so only the assertion's failure behaviour is needed here.

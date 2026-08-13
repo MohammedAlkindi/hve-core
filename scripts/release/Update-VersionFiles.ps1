@@ -19,8 +19,10 @@
     - .github/plugin/release-candidate.json, when a candidate action is selected
     - The selected release-please manifest, unless SkipManifest is set
 
-    After updating the files, runs 'npm run plugin:generate' against the
-    caller-supplied staging root unless generation is skipped.
+    After updating the files, runs 'npm run plugin:generate' unless generation
+    is skipped, so every tracked plugins/<name>/plugin.json carries the new
+    version. The canonical generator remains the only writer of those
+    manifests; this script never serializes one.
 
     The same canonical serialization and digest functions serve the promotion
     that records a candidate and the managed synchronization that reapplies it,
@@ -79,8 +81,8 @@
 
 .NOTES
     Requires Node.js and npm dependencies installed when SkipPluginGenerate is
-    not set. The caller must also supply package staging outside the repository.
-    Catalog ref updates are explicit because release-please's extra-files
+    not set, because the canonical generator refreshes the tracked package
+    roots. Catalog ref updates are explicit because release-please's extra-files
     updaters cannot express property insertion or removal.
 #>
 

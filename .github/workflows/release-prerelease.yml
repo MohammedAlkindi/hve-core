@@ -627,6 +627,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RELEASE_ID: ${{ steps.classify.outputs.release-id }}
+          RELEASE_SHA: ${{ github.sha }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
           REQUIRED_ASSETS: |
@@ -659,11 +660,10 @@ jobs:
           gh api -H 'Accept: application/octet-stream' \
             "/repos/$REPOSITORY/releases/assets/$EVIDENCE_ID" > "$EVIDENCE_PATH"
 
-          # Plugin ZIP and VSIX identities both come from the released catalog
-          # under the channel package policy, and the evidence document is
-          # reconciled against that catalog-derived set, so no expected count
-          # is maintained by hand and no single asset defines its own
-          # expectation.
+          # VSIX identities come from the released catalog under the channel
+          # package policy, and the evidence document is reconciled against that
+          # catalog-derived set, so no expected count is maintained by hand and
+          # no single asset defines its own expectation.
           pwsh -NoProfile -File ./scripts/release/Assert-ReleaseAssetSet.ps1 \
             -AssetNamePath "$ASSET_NAMES" \
             -EvidencePath "$EVIDENCE_PATH" \
@@ -671,7 +671,8 @@ jobs:
             -CatalogPath .github/plugin/marketplace.json \
             -Channel PreRelease \
             -Version "$RELEASE_VERSION" \
-            -ReleaseTag "$RELEASE_TAG"
+            -ReleaseTag "$RELEASE_TAG" \
+            -SourceCommit "$RELEASE_SHA"
       - name: Verify committed pre-release state
         env:
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
@@ -688,11 +689,42 @@ jobs:
           done
 
           if ! jq -e --arg version "$RELEASE_VERSION" '
-            all(.plugins[]; .version == $version and .source.ref == ("prerelease-v" + $version))
+            all(.plugins[];
+              .version == $version
+              and .source.ref == ("prerelease-v" + $version)
+              and .source.path == ("plugins/" + .name))
           ' .github/plugin/marketplace.json >/dev/null; then
-            echo "::error::Catalog versions or immutable plugin locators are inconsistent"
+            echo "::error::Catalog versions, tracked package roots, or immutable plugin locators are inconsistent"
             exit 1
           fi
+
+          # The released commit ships the manifests users install, so the
+          # delivered root set and every runtime manifest must already agree
+          # with the catalog before the release is published.
+          CATALOG_ROOTS="$RUNNER_TEMP/catalog-package-roots.txt"
+          TRACKED_ROOTS="$RUNNER_TEMP/tracked-package-roots.txt"
+          jq -r '.plugins[].name' .github/plugin/marketplace.json | LC_ALL=C sort > "$CATALOG_ROOTS"
+          find plugins -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort > "$TRACKED_ROOTS"
+          if ! diff -u "$CATALOG_ROOTS" "$TRACKED_ROOTS"; then
+            echo "::error::Tracked package roots do not match the released catalog package set"
+            exit 1
+          fi
+          while read -r name; do
+            manifest="plugins/$name/plugin.json"
+            if [ ! -f "$manifest" ]; then
+              echo "::error::$manifest is missing"
+              exit 1
+            fi
+            if [ "$(find "plugins/$name" -mindepth 1 | wc -l)" -ne 1 ]; then
+              echo "::error::plugins/$name delivers more than its runtime manifest"
+              exit 1
+            fi
+            if ! jq -e --arg name "$name" --arg version "$RELEASE_VERSION" \
+              '.name == $name and .version == $version' "$manifest" >/dev/null; then
+              echo "::error::$manifest is not synchronized with $name at $RELEASE_VERSION"
+              exit 1
+            fi
+          done < "$CATALOG_ROOTS"
 
           if ! grep -Eq "^## \[${RELEASE_VERSION}\]" CHANGELOG.md; then
             echo "::error::CHANGELOG.md has no release entry for $RELEASE_VERSION"
@@ -833,101 +865,12 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-  upload-plugin-packages:
-    name: Attest and Upload Plugin (${{ matrix.id }})
-    needs:
-      - validate-release
-      - plugin-package-prerelease
-      - generate-dependency-sbom
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plugin-package-prerelease.outputs.packages-matrix) }}
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    steps:
-      - name: Checkout Syft config
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.validate-release.outputs.sha }}
-          sparse-checkout: .syft.yaml
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - name: Download dependency SBOM
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: sbom-dependencies
-          path: ./sbom
-      - name: Download plugin artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: plugin-package-${{ matrix.id }}
-          path: ./dist/plugins
-      - name: Verify plugin archive exists
-        run: |
-          PLUGIN_ARCHIVE="dist/plugins/${{ matrix.id }}.zip"
-          if [ ! -f "$PLUGIN_ARCHIVE" ]; then
-            echo "::error::Plugin archive not found for package ${{ matrix.id }}"
-            exit 1
-          fi
-      - name: Generate SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          file: dist/plugins/${{ matrix.id }}.zip
-          format: spdx-json
-          output-file: dist/plugins/${{ matrix.id }}.zip.spdx.json
-          artifact-name: sbom-plugin-${{ matrix.id }}
-          upload-release-assets: false
-          upload-artifact: true
-          config: .syft.yaml
-      - name: Verify SBOM files exist
-        run: |
-          test -f "dist/plugins/${{ matrix.id }}.zip.spdx.json" \
-            || { echo "::error::Per-plugin SBOM not found: dist/plugins/${{ matrix.id }}.zip.spdx.json"; exit 1; }
-          test -f "sbom/dependencies.spdx.json" \
-            || { echo "::error::Dependency SBOM not found: sbom/dependencies.spdx.json"; exit 1; }
-      - name: Attest build provenance
-        id: attest
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: dist/plugins/${{ matrix.id }}.zip
-      - name: Attest SBOM
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: dist/plugins/${{ matrix.id }}.zip
-          sbom-path: dist/plugins/${{ matrix.id }}.zip.spdx.json
-      - name: Attest dependency SBOM
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: dist/plugins/${{ matrix.id }}.zip
-          sbom-path: sbom/dependencies.spdx.json
-      - name: Upload assets to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          TAG: ${{ needs.validate-release.outputs.tag_name }}
-          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
-        run: |
-          set -euo pipefail
-          cp "$BUNDLE_PATH" \
-            "dist/plugins/${{ matrix.id }}.zip.sigstore.json"
-          jq -c '.dsseEnvelope' "$BUNDLE_PATH" > \
-            "dist/plugins/${{ matrix.id }}.zip.intoto.jsonl"
-          gh release upload "$TAG" \
-            "dist/plugins/${{ matrix.id }}.zip" \
-            "dist/plugins/${{ matrix.id }}.zip.spdx.json" \
-            "dist/plugins/${{ matrix.id }}.zip.sigstore.json" \
-            "dist/plugins/${{ matrix.id }}.zip.intoto.jsonl" \
-            --clobber -R "$REPOSITORY"
   verify-provenance:
     name: Verify Provenance
     needs:
       - validate-release
       - extension-provenance-prerelease
-      - upload-plugin-packages
+      - plugin-package-prerelease
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -950,7 +893,6 @@ jobs:
           gh release download "$RELEASE_TAG" \
             -R "$REPOSITORY" \
             -p '*.vsix' \
-            -p '*.zip' \
             -D ./artifacts
       - name: Verify build provenance
         shell: pwsh
@@ -964,7 +906,7 @@ jobs:
     needs:
       - validate-release
       - extension-provenance-prerelease
-      - upload-plugin-packages
+      - plugin-package-prerelease
       - verify-provenance
     runs-on: ubuntu-latest
     permissions:

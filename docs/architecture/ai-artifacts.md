@@ -3,7 +3,7 @@ title: AI Artifacts Architecture
 description: Prompt, agent, and instruction delegation model for Copilot customizations
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-12
 ms.topic: concept
 ---
 
@@ -210,7 +210,7 @@ Copilot discovers skills automatically when their description matches the curren
 
 ## Marketplace Identity
 
-`.github/plugin/marketplace.json` is the sole distribution authority. Every active `plugins[]` entry is an ordinary, self-contained recipe whose standard `agents`, `commands`, `rules`, `skills`, and optional `hooks` fields declare membership. The `x-hve` overlay carries display metadata, component lifecycle maturity, a documentation path, and optional profiles.
+`.github/plugin/marketplace.json` is the sole distribution authority. Every active `plugins[]` entry declares membership through standard `agents`, `commands`, `rules`, `skills`, and optional `hooks` fields that resolve to canonical `.github` sources. The `x-hve` overlay carries display metadata, component lifecycle maturity, a documentation path, and optional profiles.
 
 `hve-core` is the focused package for RPI workflows, HVE Builder, Git operations, and code review. `hve-core-all` is the full bundle of active content and the only package that declares the starter profile. Domain and utility packages provide narrower capability sets. The catalog remains authoritative for active package names, memberships, maturity, and documentation.
 
@@ -220,9 +220,10 @@ Catalog membership is relative to the canonical `.github` source root:
 `agents/*.agent.md`, `prompts/*.prompt.md`,
 `instructions/*.instructions.md`, `skills/*` directories, and
 `hooks/*.json`. `MarketplaceHelpers.psm1` applies lifecycle policy and closes
-transitive agent handoffs over those paths. Plugin generation and VSIX
-preparation consume the same resolved source set before mapping it to a
-host-specific package layout. Unresolved or ambiguous handoffs fail validation.
+transitive agent handoffs over those paths. Plugin generation refreshes only
+the corresponding `plugins/<package>/plugin.json` manifest, while VSIX
+preparation consumes the same resolved source set. Unresolved or ambiguous
+handoffs fail validation.
 
 ### Lifecycle Labels and Channels
 
@@ -236,9 +237,13 @@ host-specific package layout. Unresolved or ambiguous handoffs fail validation.
 
 Component maturity defaults to `stable`. The label discloses lifecycle posture and informs governance; it does not select a release channel. Stable and PreRelease contain the same active package-name set and the same active component and maturity projection for each package. Removed component tombstones may remain in `x-hve.componentMaturity` after active membership is removed so policy checks retain the retirement record.
 
-### Self-Contained Outputs
+### Distribution Outputs
 
-Every plugin and VSIX contains the complete resolved projection for its catalog entry. The architecture does not use package dependencies, aggregate metadata, `extensionPack`, or `extensionDependencies` to compose advertised content.
+Every VSIX contains the resolved projection for its catalog entry. Each Copilot
+plugin root contains only `plugin.json`, which references canonical `.github`
+sources in the cloned repository. The architecture does not use copied plugin
+payloads, package dependencies, aggregate metadata, `extensionPack`, or
+`extensionDependencies` to compose advertised content.
 
 ## Extension Integration
 
@@ -262,12 +267,9 @@ The lifecycle table above applies equally to extension contributions. Stable and
 Each active catalog entry projects to one Copilot plugin root and one VSIX identity. The focused `hve-core` entry retains the unsuffixed HVE Core extension identity, `ise-hve-essentials.hve-core`. Other entries use deterministic package-specific identities in the same publisher namespace, `ise-hve-essentials.hve-<package-name>`. These identities are generated from catalog package names and do not indicate that publication has occurred.
 
 The VS Code extension is prepared with `Prepare-Extension.ps1` and packaged
-with `Package-Extension.ps1`. Copilot package assembly materializes regular-file
-packages only under a caller-supplied absolute staging root outside the
-repository. Set `HVE_PLUGIN_STAGING_ROOT` before running
-`npm run plugin:generate`, or pass `-StagingRoot` directly to
-`Generate-Plugins.ps1`. Ordinary validation does not generate a repository-root
-`plugins/` tree.
+with `Package-Extension.ps1`. `npm run plugin:generate` refreshes the ten
+tracked manifest-only Copilot plugin roots. It does not materialize artifact
+payloads, generated package READMEs, or external staging trees.
 
 Choose the catalog entry that matches the required scope. Do not install `hve-core` and `hve-core-all` together because their content overlaps. Both plugin entries include the telemetry hook. VS Code has no declarative hook contribution point, so extension users configure hook locations manually.
 

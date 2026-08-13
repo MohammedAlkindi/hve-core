@@ -14,9 +14,11 @@
     so it is reproducible from a clean checkout of the same source commit.
 
     Evidence digests each package's declared canonical git-tracked source set
-    resolved from the marketplace catalog, so it needs no generated tree and no
-    staging root, and its locator addresses the exact channel release tag,
-    'prerelease-v<version>' or 'v<version>', without a package path.
+    resolved from the marketplace catalog. Package roots hold only a manifest
+    that references those canonical sources in place, so the digest needs no
+    generated tree and no staging root, and its locator addresses the exact
+    channel release tag, 'prerelease-v<version>' or 'v<version>', without a
+    package path.
 
     Default mode records evidence. Supplying -ExpectedEvidencePath verifies a
     previously recorded document against freshly computed values and fails when
@@ -102,7 +104,7 @@ Import-Module (Join-Path $PSScriptRoot 'Modules/PluginHelpers.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/MarketplaceHelpers.psm1') -Force
 
-Set-Variable -Name PluginCanonicalEvidenceSchema -Value 'hve-core/plugin-release-evidence/v2' -Option Constant -Scope Script -Force
+Set-Variable -Name PluginReleaseEvidenceSchema -Value 'hve-core/plugin-release-evidence/v2' -Option Constant -Scope Script -Force
 
 #region Digest
 
@@ -350,10 +352,10 @@ function Get-PluginCanonicalPackageEvidence {
 
 #region Evidence
 
-function New-PluginCanonicalEvidenceDocument {
+function New-PluginReleaseEvidenceDocument {
     <#
     .SYNOPSIS
-        Builds the canonical evidence document for an ordinary release tag.
+        Builds the evidence document for an ordinary release tag.
 
     .DESCRIPTION
         Binds the immutable source commit, the package version, the pathless
@@ -405,7 +407,7 @@ function New-PluginCanonicalEvidenceDocument {
 
     $packages = @($PackageEvidence.Packages)
     if ($packages.Count -eq 0) {
-        throw 'Canonical release evidence must cover at least one package.'
+        throw 'Release evidence must cover at least one package.'
     }
 
     foreach ($package in $packages) {
@@ -417,7 +419,7 @@ function New-PluginCanonicalEvidenceDocument {
     # generatedAt is recorded for operators and deliberately excluded from every
     # compared field, so it can never influence the deterministic invariant.
     return [ordered]@{
-        schema       = $script:PluginCanonicalEvidenceSchema
+        schema       = $script:PluginReleaseEvidenceSchema
         sourceCommit = $SourceCommit
         version      = $Version
         locator      = [ordered]@{
@@ -516,7 +518,10 @@ function Compare-PluginReleaseEvidence {
     foreach ($expectedPackage in $expectedPackages) {
         $name = [string]$expectedPackage['name']
         $actualPackage = @($actualPackages | Where-Object { [string]$_['name'] -eq $name })[0]
-        if ($null -ne $actualPackage -and [string]$expectedPackage['digest'] -cne [string]$actualPackage['digest']) {
+        if ($null -eq $actualPackage) {
+            continue
+        }
+        if ([string]$expectedPackage['digest'] -cne [string]$actualPackage['digest']) {
             $differences += "package '$name' digest disagreement: recorded '$($expectedPackage['digest'])', actual '$($actualPackage['digest'])'"
         }
     }
@@ -623,7 +628,7 @@ function Invoke-PluginReleaseEvidence {
     }
 
     $packageEvidence = Get-PluginCanonicalPackageEvidence -RepoRoot $RepoRoot -CatalogPath $CatalogPath -Channel $Channel
-    $evidence = New-PluginCanonicalEvidenceDocument `
+    $evidence = New-PluginReleaseEvidenceDocument `
         -SourceCommit $SourceCommit `
         -Version $Version `
         -Locator $locator `

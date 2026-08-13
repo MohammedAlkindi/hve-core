@@ -4,29 +4,68 @@
 
 BeforeAll {
     $script:ScriptPath = (Resolve-Path (Join-Path $PSScriptRoot '../../release/Assert-ReleaseAssetSet.ps1')).Path
+    $script:SourceCommit = '0123456789abcdef0123456789abcdef01234567'
+    $script:ReleaseTag = 'prerelease-v3.3.0'
+
     . $script:ScriptPath `
         -AssetNamePath 'unused' `
         -EvidencePath 'unused' `
         -RequiredAssetPath 'unused' `
         -Channel PreRelease `
         -Version '3.3.0' `
-        -ReleaseTag 'prerelease-v3.3.0'
+        -ReleaseTag $script:ReleaseTag `
+        -SourceCommit $script:SourceCommit
 
     $script:RequiredAsset = [string[]]@('dependencies.spdx.json', 'plugin-release-evidence.json')
-    $script:ExpectedZip = [string[]]@('alpha.zip', 'beta.zip')
     $script:ExpectedVsix = [string[]]@('hve-alpha-3.3.0.vsix', 'hve-beta-3.3.0.vsix')
 
-    # One released-catalog fixture backs every expected identity, because plugin
-    # ZIP and VSIX membership both derive from the catalog under channel policy.
-    $script:FixtureCatalog = Join-Path $TestDrive 'released-marketplace.json'
-    @{
-        metadata = @{ version = '3.3.0' }
-        plugins  = @(
-            @{ name = 'alpha' }
-            @{ name = 'beta' }
-            @{ name = 'retired'; 'x-hve' = @{ maturity = 'deprecated' } }
+    function New-ReleasedCatalog {
+        <#
+        .SYNOPSIS
+        Writes a released marketplace catalog for fixture use.
+        .DESCRIPTION
+        VSIX membership and the evidence package set both derive from this
+        catalog. The deprecated entry is excluded by channel policy, so the
+        expected identities follow policy rather than a hand-maintained count.
+        .PARAMETER Root
+        Directory to populate.
+        .OUTPUTS
+        [string] Absolute path to the written catalog.
+        #>
+        [CmdletBinding()]
+        [OutputType([string])]
+        param(
+            [Parameter(Mandatory = $true)][string]$Root
         )
-    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $script:FixtureCatalog -Encoding utf8
+
+        New-Item -ItemType Directory -Path (Join-Path $Root '.github/plugin') -Force | Out-Null
+        $catalog = [ordered]@{
+            metadata = [ordered]@{ version = '3.3.0' }
+            plugins  = @(
+                [ordered]@{
+                    name    = 'alpha'
+                    version = '3.3.0'
+                    source  = [ordered]@{ source = 'github'; repo = 'contoso/hve'; path = 'plugins/alpha'; ref = 'prerelease-v3.3.0' }
+                }
+                [ordered]@{
+                    name    = 'beta'
+                    version = '3.3.0'
+                    source  = [ordered]@{ source = 'github'; repo = 'contoso/hve'; path = 'plugins/beta'; ref = 'prerelease-v3.3.0' }
+                }
+                [ordered]@{
+                    name    = 'retired'
+                    version = '3.3.0'
+                    source  = [ordered]@{ source = 'github'; repo = 'contoso/hve'; path = 'plugins/retired'; ref = 'prerelease-v3.3.0' }
+                    'x-hve' = [ordered]@{ maturity = 'deprecated' }
+                }
+            )
+        }
+        $catalogPath = Join-Path $Root '.github/plugin/marketplace.json'
+        Set-Content -LiteralPath $catalogPath -Value (($catalog | ConvertTo-Json -Depth 8) + "`n") -Encoding utf8NoBOM -NoNewline
+        return $catalogPath
+    }
+
+    $script:FixtureCatalog = New-ReleasedCatalog -Root (Join-Path $TestDrive 'released-repo')
 
     function New-AssetSet {
         <#
@@ -51,7 +90,7 @@ BeforeAll {
 
         $names = [System.Collections.Generic.List[string]]::new()
         foreach ($required in $script:RequiredAsset) { $names.Add($required) }
-        foreach ($primary in @($script:ExpectedZip) + @($script:ExpectedVsix)) {
+        foreach ($primary in $script:ExpectedVsix) {
             $names.Add($primary)
             foreach ($suffix in @('.spdx.json', '.sigstore.json', '.intoto.jsonl')) {
                 $names.Add($primary + $suffix)
@@ -78,7 +117,6 @@ BeforeAll {
         )
 
         return Test-ReleaseAssetSet -AssetName $AssetName `
-            -ExpectedPluginZip $script:ExpectedZip `
             -ExpectedVsix $script:ExpectedVsix `
             -RequiredAsset $script:RequiredAsset
     }
@@ -90,9 +128,15 @@ BeforeAll {
         .PARAMETER Version
         Recorded release version.
         .PARAMETER PackageName
-        Recorded package names.
+        Recorded package names. Defaults to the channel-eligible catalog set.
         .PARAMETER PackageCount
         Declared package count. Defaults to the package name count.
+        .PARAMETER Schema
+        Declared evidence schema.
+        .PARAMETER Commit
+        Recorded source commit.
+        .PARAMETER Ref
+        Recorded locator ref.
         .OUTPUTS
         [hashtable] Evidence document.
         #>
@@ -103,91 +147,169 @@ BeforeAll {
             [string]$Version = '3.3.0',
 
             [Parameter(Mandatory = $false)]
+            [AllowEmptyCollection()]
             [string[]]$PackageName = @('alpha', 'beta'),
 
             [Parameter(Mandatory = $false)]
-            [int]$PackageCount = -1
+            [int]$PackageCount = -1,
+
+            [Parameter(Mandatory = $false)]
+            [string]$Schema = 'hve-core/plugin-release-evidence/v2',
+
+            [Parameter(Mandatory = $false)]
+            [string]$Commit = $script:SourceCommit,
+
+            [Parameter(Mandatory = $false)]
+            [string]$Ref = 'prerelease-v3.3.0'
         )
 
         $packages = @($PackageName | ForEach-Object {
                 @{ name = $_; digest = ('0' * 64); fileCount = 3 }
             })
+
         return @{
-            schema       = 'hve-core/plugin-release-evidence/v2'
+            schema       = $Schema
+            sourceCommit = $Commit
             version      = $Version
+            locator      = @{ source = 'github'; repo = 'contoso/hve'; ref = $Ref }
             packageCount = $(if ($PackageCount -ge 0) { $PackageCount } else { $packages.Count })
             packages     = $packages
+            fileCount    = 6
+            totalBytes   = 1024
+            digest       = ('a' * 64)
         }
+    }
+
+    function Invoke-EvidenceAssertion {
+        <#
+        .SYNOPSIS
+        Reconciles an evidence document against the released fixture catalog.
+        .PARAMETER Evidence
+        Evidence document to reconcile.
+        .PARAMETER Version
+        Released version.
+        .PARAMETER ReleaseTag
+        Released channel tag.
+        .PARAMETER SourceCommit
+        Released source commit.
+        .OUTPUTS
+        [string[]] Reconciled package names.
+        #>
+        [CmdletBinding()]
+        [OutputType([string[]])]
+        param(
+            [Parameter(Mandatory = $true)]
+            [System.Collections.IDictionary]$Evidence,
+
+            [Parameter(Mandatory = $false)]
+            [string]$Version = '3.3.0',
+
+            [Parameter(Mandatory = $false)]
+            [string]$ReleaseTag = $script:ReleaseTag,
+
+            [Parameter(Mandatory = $false)]
+            [string]$SourceCommit = $script:SourceCommit
+        )
+
+        return Assert-ReleaseEvidenceDocument -Evidence $Evidence `
+            -Version $Version `
+            -ReleaseTag $ReleaseTag `
+            -SourceCommit $SourceCommit `
+            -CatalogPath $script:FixtureCatalog
     }
 }
 
 Describe 'Assert-ReleaseAssetSet expected identities' -Tag 'Unit' {
-    Context 'Plugin ZIP identities from the released catalog' {
-        It 'Derives one ZIP identity per released catalog package' {
-            # A deprecated catalog entry contributes no expected ZIP, so the
+    Context 'Evidence package set from the released catalog' {
+        It 'Reconciles one package per released catalog entry' {
+            # A deprecated catalog entry contributes no expected package, so the
             # count follows channel policy rather than a hand-maintained number.
-            Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument) -Version '3.3.0' -CatalogPath $script:FixtureCatalog |
-                Should -Be @('alpha.zip', 'beta.zip')
+            Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument) | Should -Be @('alpha', 'beta')
         }
 
         It 'Derives the expectation from the catalog rather than the evidence ordering' {
-            Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @('beta', 'alpha')) -Version '3.3.0' -CatalogPath $script:FixtureCatalog |
-                Should -Be @('alpha.zip', 'beta.zip')
+            Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @('beta', 'alpha')) |
+                Should -Be @('alpha', 'beta')
         }
 
         # A tampered release can rewrite plugin-release-evidence.json into a
         # smaller self-consistent document, so the released catalog is the
         # authority the document is reconciled against.
         It 'Rejects a self-consistent evidence document that omits a released catalog package' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @('alpha')) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @('alpha')) } |
                 Should -Throw '*omits released catalog package(s): beta*'
         }
 
         It 'Rejects evidence recording a package the released catalog does not publish' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @('alpha', 'beta', 'gamma')) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @('alpha', 'beta', 'gamma')) } |
                 Should -Throw '*does not publish: gamma*'
         }
 
         It 'Rejects evidence recording a package the channel policy excludes' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @('alpha', 'beta', 'retired')) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @('alpha', 'beta', 'retired')) } |
                 Should -Throw '*does not publish: retired*'
         }
 
         It 'Matches evidence package names ordinally' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @('Alpha', 'beta')) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @('Alpha', 'beta')) } |
                 Should -Throw '*omits released catalog package(s): alpha*'
         }
 
         It 'Rejects evidence recorded for a different version' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -Version '3.1.0') -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -Version '3.1.0') } |
                 Should -Throw '*records version 3.1.0 but the release is 3.3.0*'
         }
 
         It 'Rejects a packageCount that disagrees with the package array' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageCount 5) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageCount 5) } |
                 Should -Throw '*declares packageCount 5 but carries 2 package entries*'
         }
 
         It 'Rejects an empty package set' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @() -PackageCount 0) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @() -PackageCount 0) } |
                 Should -Throw '*declares packageCount 0*'
         }
 
         It 'Rejects duplicate package names' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @('alpha', 'alpha')) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @('alpha', 'alpha')) } |
                 Should -Throw '*duplicate package names*'
         }
 
         It 'Rejects a package entry without a name' {
-            { Get-ReleaseExpectedPluginZipName -Evidence (New-EvidenceDocument -PackageName @('alpha', ' ')) -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -PackageName @('alpha', ' ')) } |
                 Should -Throw '*package entry without a name*'
         }
 
         It 'Rejects evidence missing a required field' {
             $evidence = New-EvidenceDocument
             $evidence.Remove('packageCount')
-            { Get-ReleaseExpectedPluginZipName -Evidence $evidence -Version '3.3.0' -CatalogPath $script:FixtureCatalog } |
+            { Invoke-EvidenceAssertion -Evidence $evidence } |
                 Should -Throw "*declares no 'packageCount' field*"
+        }
+    }
+
+    # The current schema is the only contract a release may carry, and every
+    # binding it records is checked against the release it is attached to.
+    Context 'Current evidence schema and release bindings' {
+        It 'Rejects a superseded evidence schema' {
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -Schema 'hve-core/plugin-release-evidence/v1') } |
+                Should -Throw '*declares schema hve-core/plugin-release-evidence/v1 but hve-core/plugin-release-evidence/v2 is required*'
+        }
+
+        It 'Rejects evidence recorded from a different source commit' {
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -Commit 'fedcba9876543210fedcba9876543210fedcba98') } |
+                Should -Throw '*but the release was published from*'
+        }
+
+        It 'Rejects evidence whose locator addresses another channel tag' {
+            { Invoke-EvidenceAssertion -Evidence (New-EvidenceDocument -Ref 'v3.3.0') } |
+                Should -Throw '*records locator ref v3.3.0 but the release tag is prerelease-v3.3.0*'
+        }
+
+        It 'Rejects evidence carrying no locator object' {
+            $evidence = New-EvidenceDocument
+            $evidence['locator'] = 'prerelease-v3.3.0'
+            { Invoke-EvidenceAssertion -Evidence $evidence } | Should -Throw '*carries no locator object*'
         }
     }
 
@@ -213,7 +335,7 @@ Describe 'Assert-ReleaseAssetSet expected identities' -Tag 'Unit' {
     }
 
     Context 'Repeated import' {
-        # A Constant script variable cannot be replaced even with -Force, so a
+        # A ReadOnly script variable cannot be replaced without -Force, so a
         # second dot-source of the helper must stay possible.
         It 'Dot-sources again without failing on its script-scoped state' {
             {
@@ -223,7 +345,8 @@ Describe 'Assert-ReleaseAssetSet expected identities' -Tag 'Unit' {
                     -RequiredAssetPath 'unused' `
                     -Channel PreRelease `
                     -Version '3.3.0' `
-                    -ReleaseTag 'prerelease-v3.3.0'
+                    -ReleaseTag $script:ReleaseTag `
+                    -SourceCommit $script:SourceCommit
             } | Should -Not -Throw
         }
     }
@@ -234,25 +357,19 @@ Describe 'Assert-ReleaseAssetSet reconciliation' -Tag 'Unit' {
         Invoke-AssetSetTest -AssetName (New-AssetSet) | Should -BeNullOrEmpty
     }
 
-    It 'Reports a missing <Kind> asset' -ForEach @(
-        @{ Kind = 'plugin ZIP'; Asset = 'beta.zip' }
-        @{ Kind = 'VSIX'; Asset = 'hve-alpha-3.3.0.vsix' }
-    ) {
-        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @($Asset))
-        $findings | Should -Contain "missing $Kind asset '$Asset'"
+    It 'Reports a missing VSIX asset' {
+        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @('hve-alpha-3.3.0.vsix'))
+        $findings | Should -Contain "missing VSIX asset 'hve-alpha-3.3.0.vsix'"
     }
 
-    It 'Reports an unexpected <Kind> asset' -ForEach @(
-        @{ Kind = 'plugin ZIP'; Asset = 'gamma.zip' }
-        @{ Kind = 'VSIX'; Asset = 'hve-gamma-3.3.0.vsix' }
-    ) {
+    It 'Reports an unexpected VSIX asset' {
         $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Add @(
-                $Asset
-                "$Asset.spdx.json"
-                "$Asset.sigstore.json"
-                "$Asset.intoto.jsonl"
+                'hve-gamma-3.3.0.vsix'
+                'hve-gamma-3.3.0.vsix.spdx.json'
+                'hve-gamma-3.3.0.vsix.sigstore.json'
+                'hve-gamma-3.3.0.vsix.intoto.jsonl'
             ))
-        $findings | Should -Contain "unexpected $Kind asset '$Asset'"
+        $findings | Should -Contain "unexpected VSIX asset 'hve-gamma-3.3.0.vsix'"
     }
 
     It 'Reports a stale VSIX carrying the wrong release version' {
@@ -263,20 +380,17 @@ Describe 'Assert-ReleaseAssetSet reconciliation' -Tag 'Unit' {
     }
 
     It 'Reports a duplicate asset name' {
-        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Add @('alpha.zip'))
-        $findings | Should -Contain "duplicate asset 'alpha.zip' appears 2 times"
+        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Add @('hve-alpha-3.3.0.vsix'))
+        $findings | Should -Contain "duplicate asset 'hve-alpha-3.3.0.vsix' appears 2 times"
     }
 
-    It 'Reports an incomplete <Sidecar> sidecar for <Kind> asset <Primary>' -ForEach @(
-        @{ Kind = 'plugin ZIP'; Primary = 'alpha.zip'; Sidecar = '.spdx.json' }
-        @{ Kind = 'plugin ZIP'; Primary = 'alpha.zip'; Sidecar = '.sigstore.json' }
-        @{ Kind = 'plugin ZIP'; Primary = 'alpha.zip'; Sidecar = '.intoto.jsonl' }
-        @{ Kind = 'VSIX'; Primary = 'hve-beta-3.3.0.vsix'; Sidecar = '.spdx.json' }
-        @{ Kind = 'VSIX'; Primary = 'hve-beta-3.3.0.vsix'; Sidecar = '.sigstore.json' }
-        @{ Kind = 'VSIX'; Primary = 'hve-beta-3.3.0.vsix'; Sidecar = '.intoto.jsonl' }
+    It 'Reports an incomplete <Sidecar> sidecar for VSIX asset <Primary>' -ForEach @(
+        @{ Primary = 'hve-beta-3.3.0.vsix'; Sidecar = '.spdx.json' }
+        @{ Primary = 'hve-beta-3.3.0.vsix'; Sidecar = '.sigstore.json' }
+        @{ Primary = 'hve-beta-3.3.0.vsix'; Sidecar = '.intoto.jsonl' }
     ) {
         $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @("$Primary$Sidecar"))
-        $findings | Should -Be @("missing sidecar '$Primary$Sidecar' for $Kind asset '$Primary'")
+        $findings | Should -Be @("missing sidecar '$Primary$Sidecar' for VSIX asset '$Primary'")
     }
 
     It 'Reports a missing required singleton asset' {
@@ -286,18 +400,15 @@ Describe 'Assert-ReleaseAssetSet reconciliation' -Tag 'Unit' {
 
     # Release asset names are ordinal identities, so a case variant is a
     # different asset rather than the expected one.
-    It 'Treats a mixed-case <Kind> asset as a distinct identity' -ForEach @(
-        @{ Kind = 'plugin ZIP'; Expected = 'alpha.zip'; Variant = 'ALPHA.zip' }
-        @{ Kind = 'VSIX'; Expected = 'hve-alpha-3.3.0.vsix'; Variant = 'HVE-Alpha-3.3.0.vsix' }
-    ) {
-        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @($Expected) -Add @($Variant))
-        $findings | Should -Contain "missing $Kind asset '$Expected'"
-        $findings | Should -Contain "unexpected $Kind asset '$Variant'"
+    It 'Treats a mixed-case VSIX asset as a distinct identity' {
+        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @('hve-alpha-3.3.0.vsix') -Add @('HVE-Alpha-3.3.0.vsix'))
+        $findings | Should -Contain "missing VSIX asset 'hve-alpha-3.3.0.vsix'"
+        $findings | Should -Contain "unexpected VSIX asset 'HVE-Alpha-3.3.0.vsix'"
     }
 
     It 'Does not collapse two case-colliding assets into one duplicate' {
-        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Add @('Alpha.zip'))
-        $findings | Should -Contain "unexpected plugin ZIP asset 'Alpha.zip'"
+        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Add @('Hve-alpha-3.3.0.vsix'))
+        $findings | Should -Contain "unexpected VSIX asset 'Hve-alpha-3.3.0.vsix'"
         @($findings | Where-Object { $_ -like 'duplicate asset*' }) | Should -BeNullOrEmpty
     }
 
@@ -307,42 +418,44 @@ Describe 'Assert-ReleaseAssetSet reconciliation' -Tag 'Unit' {
     }
 
     It 'Treats a mixed-case sidecar as absent' {
-        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @('alpha.zip.spdx.json') -Add @('alpha.zip.SPDX.json'))
-        $findings | Should -Be @("missing sidecar 'alpha.zip.spdx.json' for plugin ZIP asset 'alpha.zip'")
+        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @('hve-alpha-3.3.0.vsix.spdx.json') -Add @('hve-alpha-3.3.0.vsix.SPDX.json'))
+        $findings | Should -Be @("missing sidecar 'hve-alpha-3.3.0.vsix.spdx.json' for VSIX asset 'hve-alpha-3.3.0.vsix'")
     }
 
-    It 'Rejects a release carrying one of each primary kind' {
-        # The superseded contract accepted any nonzero VSIX and ZIP count.
+    It 'Rejects a release carrying only one expected VSIX' {
+        # The superseded contract accepted any nonzero VSIX count.
         $partial = [string[]]@(
             'dependencies.spdx.json'
             'plugin-release-evidence.json'
-            'alpha.zip'
-            'alpha.zip.spdx.json'
-            'alpha.zip.sigstore.json'
-            'alpha.zip.intoto.jsonl'
             'hve-alpha-3.3.0.vsix'
             'hve-alpha-3.3.0.vsix.spdx.json'
             'hve-alpha-3.3.0.vsix.sigstore.json'
             'hve-alpha-3.3.0.vsix.intoto.jsonl'
         )
         $findings = Invoke-AssetSetTest -AssetName $partial
-        $findings | Should -Contain "missing plugin ZIP asset 'beta.zip'"
         $findings | Should -Contain "missing VSIX asset 'hve-beta-3.3.0.vsix'"
     }
 
     It 'Reports every finding rather than stopping at the first' {
-        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @('beta.zip', 'alpha.zip.spdx.json', 'dependencies.spdx.json'))
+        $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @(
+                'hve-beta-3.3.0.vsix'
+                'hve-beta-3.3.0.vsix.spdx.json'
+                'hve-beta-3.3.0.vsix.sigstore.json'
+                'hve-beta-3.3.0.vsix.intoto.jsonl'
+                'hve-alpha-3.3.0.vsix.spdx.json'
+                'dependencies.spdx.json'
+            ))
         @($findings).Count | Should -Be 3
     }
 
     It 'Does not echo sidecar findings for an absent primary asset' {
         $findings = Invoke-AssetSetTest -AssetName (New-AssetSet -Remove @(
-                'beta.zip'
-                'beta.zip.spdx.json'
-                'beta.zip.sigstore.json'
-                'beta.zip.intoto.jsonl'
+                'hve-beta-3.3.0.vsix'
+                'hve-beta-3.3.0.vsix.spdx.json'
+                'hve-beta-3.3.0.vsix.sigstore.json'
+                'hve-beta-3.3.0.vsix.intoto.jsonl'
             ))
-        $findings | Should -Be @("missing plugin ZIP asset 'beta.zip'")
+        $findings | Should -Be @("missing VSIX asset 'hve-beta-3.3.0.vsix'")
     }
 }
 
@@ -396,35 +509,33 @@ Describe 'Assert-ReleaseAssetSet end to end' -Tag 'Unit' {
                 -RequiredAssetPath $script:RequiredFile `
                 -Channel PreRelease `
                 -Version $Version `
-                -ReleaseTag 'prerelease-v3.3.0' `
+                -ReleaseTag $script:ReleaseTag `
+                -SourceCommit $script:SourceCommit `
                 -CatalogPath $script:FixtureCatalog
         }
     }
 
     It 'Reports the verified identities for a complete published release' {
         $result = Invoke-AssertOverFile -AssetName (New-AssetSet)
-        $result.PluginZip | Should -Be $script:ExpectedZip
+        $result.EvidencePackage | Should -Be @('alpha', 'beta')
         $result.Vsix | Should -Be $script:ExpectedVsix
-        $result.ReleaseTag | Should -BeExactly 'prerelease-v3.3.0'
+        $result.ReleaseTag | Should -BeExactly $script:ReleaseTag
     }
 
     It 'Fails an incomplete published release with a finding count' {
-        { Invoke-AssertOverFile -AssetName (New-AssetSet -Remove @('beta.zip')) } |
+        { Invoke-AssertOverFile -AssetName (New-AssetSet -Remove @(
+                    'hve-beta-3.3.0.vsix'
+                    'hve-beta-3.3.0.vsix.spdx.json'
+                    'hve-beta-3.3.0.vsix.sigstore.json'
+                    'hve-beta-3.3.0.vsix.intoto.jsonl'
+                )) } |
             Should -Throw '*has incomplete release assets: 1 findings*'
     }
 
     # The verified release is complete under its own evidence, so only the
     # released catalog can expose the shortened package list.
     It 'Fails a self-consistent release whose evidence omits a catalog package' {
-        $shortened = [string[]]@(
-            'dependencies.spdx.json'
-            'plugin-release-evidence.json'
-            'alpha.zip'
-            'alpha.zip.spdx.json'
-            'alpha.zip.sigstore.json'
-            'alpha.zip.intoto.jsonl'
-        )
-        { Invoke-AssertOverFile -AssetName $shortened -EvidencePath $script:PartialEvidenceFile } |
+        { Invoke-AssertOverFile -AssetName (New-AssetSet) -EvidencePath $script:PartialEvidenceFile } |
             Should -Throw '*omits released catalog package(s): beta*'
     }
 
@@ -442,7 +553,8 @@ Describe 'Assert-ReleaseAssetSet end to end' -Tag 'Unit' {
                 -RequiredAssetPath $script:RequiredFile `
                 -Channel PreRelease `
                 -Version '3.3.0' `
-                -ReleaseTag 'prerelease-v3.3.0' `
+                -ReleaseTag $script:ReleaseTag `
+                -SourceCommit $script:SourceCommit `
                 -CatalogPath $script:FixtureCatalog
         } | Should -Throw '*carries no release assets*'
     }
@@ -456,7 +568,8 @@ Describe 'Assert-ReleaseAssetSet end to end' -Tag 'Unit' {
                 -RequiredAssetPath $script:RequiredFile `
                 -Channel PreRelease `
                 -Version '3.3.0' `
-                -ReleaseTag 'prerelease-v3.3.0' `
+                -ReleaseTag $script:ReleaseTag `
+                -SourceCommit $script:SourceCommit `
                 -CatalogPath $script:FixtureCatalog
         } | Should -Throw '*carries no readable plugin-release-evidence.json*'
     }

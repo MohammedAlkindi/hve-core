@@ -3,7 +3,7 @@ title: HVE Core Installer
 description: Decision-driven installer skill for deploying HVE Core artifacts across workspace configurations
 sidebar_position: 10
 author: Microsoft
-ms.date: 2026-08-03
+ms.date: 2026-08-12
 ms.topic: reference
 ---
 
@@ -13,21 +13,23 @@ It provides a decision-driven installer skill with environment detection and sel
 
 Lifecycle labels are disclosure metadata. In the channel model, Stable and PreRelease have equal active content, including components labeled stable, preview, and experimental; publication cadence and source ownership can differ.
 
+Package membership is declared in `.github/plugin/marketplace.json` and resolves to canonical `.github` artifacts. The tracked `plugins/installer/plugin.json` root contains only the manifest, not copied components or a generated README.
+
 ## Included Artifacts
 
 <!-- BEGIN AUTO-GENERATED ARTIFACTS -->
 
 ### Instructions
 
-| Name                         | Maturity | Description                                                                                                                                                                                                                                                 |
-|------------------------------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **shared/hve-core-location** | stable   | Important: hve-core is the repository containing this instruction file; Guidance: if a referenced prompt, instructions, agent, or script is missing in the current directory, fall back to this hve-core location by walking up this file's directory tree. |
+| Name | Maturity | Description |
+|------|----------|-------------|
+| **shared/hve-core-location** | stable | Important: hve-core is the repository containing this instruction file; Guidance: if a referenced prompt, instructions, agent, or script is missing in the current directory, fall back to this hve-core location by walking up this file's directory tree. |
 
 ### Skills
 
-| Name                   | Maturity | Description                                                                                                                                             |
-|------------------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **hve-core-installer** | stable   | Decision-driven HVE-Core installer with multiple clone-based and extension install methods, environment detection, and selective component installation |
+| Name | Maturity | Description |
+|------|----------|-------------|
+| **hve-core-installer** | stable | Decision-driven HVE-Core installer with multiple clone-based and extension install methods, environment detection, and selective component installation |
 
 <!-- END AUTO-GENERATED ARTIFACTS -->
 

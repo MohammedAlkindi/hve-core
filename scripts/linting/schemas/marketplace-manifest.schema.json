@@ -11,23 +11,32 @@
       "not": {
         "pattern": "(^|/)\\.\\.?(/|$)"
       },
-      "description": "Canonical .github-root-relative forward-slash path. Absolute paths, backslashes, empty segments, and relative or escaping segments are rejected."
+      "description": "Normalized repository-relative forward-slash path. Absolute paths, backslashes, empty segments, and relative or escaping segments are rejected."
+    },
+    "componentReference": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\.\\./\\.\\./\\.github/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+      "not": {
+        "pattern": "^\\.\\./\\.\\./\\.github/(?:[A-Za-z0-9._-]+/)*\\.\\.?(?:/|$)"
+      },
+      "description": "Manifest-relative reference to a canonical .github source. Each runtime manifest lives at plugins/<name>/plugin.json, so exactly one two-level traversal reaches the repository root. Absolute paths, backslashes, empty segments, and any further relative or escaping segment are rejected."
     },
     "componentMembership": {
       "oneOf": [
         {
-          "$ref": "#/definitions/componentPath"
+          "$ref": "#/definitions/componentReference"
         },
         {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/definitions/componentPath"
+            "$ref": "#/definitions/componentReference"
           }
         }
       ],
-      "description": "Standard component membership: one canonical .github-root-relative path or an array of them."
+      "description": "Standard component membership: one manifest-relative reference to a canonical .github source or an array of them. Every reference keeps its canonical suffix: .agent.md, .prompt.md, .instructions.md, a skill directory, or a hook .json path."
     },
     "maturity": {
       "type": "string",
@@ -87,7 +96,7 @@
           "not": {
             "pattern": "(^|/)\\.\\.?(/|$)"
           },
-          "description": "Repository-relative package path."
+          "description": "Repository-relative path to the tracked package root, such as plugins/<name>."
         },
         "ref": {
           "type": "string",
@@ -221,8 +230,8 @@
             "$ref": "#/definitions/componentMembership"
           },
           "hooks": {
-            "$ref": "#/definitions/componentPath",
-            "description": "Single hooks configuration path."
+            "$ref": "#/definitions/componentReference",
+            "description": "Single hooks configuration reference."
           },
           "x-hve": {
             "type": "object",
@@ -241,12 +250,12 @@
               "componentMaturity": {
                 "type": "object",
                 "propertyNames": {
-                  "$ref": "#/definitions/componentPath"
+                  "$ref": "#/definitions/componentReference"
                 },
                 "additionalProperties": {
                   "$ref": "#/definitions/maturity"
                 },
-                "description": "Per-component maturity keyed by normalized standard component path. Removed tombstones may be absent from active membership."
+                "description": "Per-component maturity keyed by normalized manifest-relative component reference. Removed tombstones may be absent from active membership."
               },
               "documentation": {
                 "$ref": "#/definitions/componentPath"
@@ -261,10 +270,10 @@
                   "minItems": 1,
                   "uniqueItems": true,
                   "items": {
-                    "$ref": "#/definitions/componentPath"
+                    "$ref": "#/definitions/componentReference"
                   }
                 },
-                "description": "Named selection profiles. Every profile path must also appear in entry membership; profiles never define distribution membership."
+                "description": "Named selection profiles. Every profile reference must also appear in entry membership in the same manifest-relative form; profiles never define distribution membership."
               }
             },
             "additionalProperties": false

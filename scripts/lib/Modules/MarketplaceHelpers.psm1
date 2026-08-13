@@ -9,76 +9,23 @@
 
 Import-Module (Join-Path $PSScriptRoot 'ArtifactHelpers.psm1') -Force
 
-function Get-PluginItemName {
+function Get-MarketplaceManifestReferencePrefix {
     <#
     .SYNOPSIS
-    Returns an artifact filename in package form.
-    .PARAMETER FileName
-    Source filename.
-    .PARAMETER Kind
-    Artifact kind.
+    Returns the traversal from a package manifest to the repository root.
+    .DESCRIPTION
+    Every runtime manifest lives at plugins/<package>/plugin.json, so a
+    component reference reaches the canonical .github source by rising two
+    directory levels. Components are referenced in place; nothing is copied
+    beneath a package root.
     .OUTPUTS
-    [string] Package filename.
+    [string] Relative traversal prefix ending in a forward slash.
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$FileName,
+    param()
 
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agent', 'prompt', 'instruction', 'skill', 'hook')]
-        [string]$Kind
-    )
-
-    switch ($Kind) {
-        'agent' { return $FileName -replace '\.agent\.md$', '.md' }
-        'prompt' { return $FileName -replace '\.prompt\.md$', '.md' }
-        default { return $FileName }
-    }
-}
-
-function Get-PluginItemSubpath {
-    <#
-    .SYNOPSIS
-    Returns the path between an artifact root and leaf.
-    .PARAMETER Path
-    Repository-relative source path.
-    .PARAMETER Kind
-    Artifact kind.
-    .OUTPUTS
-    [string] Intermediate path or an empty string.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('agent', 'prompt', 'instruction', 'skill', 'hook')]
-        [string]$Kind
-    )
-
-    $prefixMap = @{
-        agent       = '.github/agents/'
-        prompt      = '.github/prompts/'
-        instruction = '.github/instructions/'
-        skill       = '.github/skills/'
-        hook        = '.github/hooks/'
-    }
-    $normalized = $Path -replace '\\', '/'
-    $prefix = $prefixMap[$Kind]
-    if (-not $normalized.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-        return ''
-    }
-
-    $parts = $normalized.Substring($prefix.Length) -split '/'
-    if ($parts.Count -gt 1) {
-        return $parts[0..($parts.Count - 2)] -join '/'
-    }
-
-    return ''
+    return '../../'
 }
 
 function Get-PluginSubdirectory {
@@ -153,11 +100,11 @@ function Get-MarketplaceComponentSourceRoot {
     param()
 
     return [ordered]@{
-        agents   = @{ Kind = 'agent'; CatalogRoot = 'agents'; SourceRoot = '.github/agents'; SourceSuffix = '.agent.md'; PackageSuffix = '.md' }
-        commands = @{ Kind = 'prompt'; CatalogRoot = 'prompts'; SourceRoot = '.github/prompts'; SourceSuffix = '.prompt.md'; PackageSuffix = '.md' }
-        rules    = @{ Kind = 'instruction'; CatalogRoot = 'instructions'; SourceRoot = '.github/instructions'; SourceSuffix = '.instructions.md'; PackageSuffix = '.instructions.md' }
-        skills   = @{ Kind = 'skill'; CatalogRoot = 'skills'; SourceRoot = '.github/skills'; SourceSuffix = ''; PackageSuffix = '' }
-        hooks    = @{ Kind = 'hook'; CatalogRoot = 'hooks'; SourceRoot = '.github/hooks'; SourceSuffix = '.json'; PackageSuffix = '.json' }
+        agents   = @{ Kind = 'agent'; SourceRoot = '.github/agents'; SourceSuffix = '.agent.md'; PackageSuffix = '.agent.md' }
+        commands = @{ Kind = 'prompt'; SourceRoot = '.github/prompts'; SourceSuffix = '.prompt.md'; PackageSuffix = '.prompt.md' }
+        rules    = @{ Kind = 'instruction'; SourceRoot = '.github/instructions'; SourceSuffix = '.instructions.md'; PackageSuffix = '.instructions.md' }
+        skills   = @{ Kind = 'skill'; SourceRoot = '.github/skills'; SourceSuffix = ''; PackageSuffix = '' }
+        hooks    = @{ Kind = 'hook'; SourceRoot = '.github/hooks'; SourceSuffix = '.json'; PackageSuffix = '.json' }
     }
 }
 
@@ -184,9 +131,9 @@ function Get-MarketplaceComponentField {
 function Get-MarketplaceComponentFieldForPath {
     <#
     .SYNOPSIS
-    Returns the component field that owns a catalog or package path.
+    Returns the component field that owns a manifest-relative component reference.
     .PARAMETER Path
-    Canonical catalog path or package-relative component path.
+    Manifest-relative component reference.
     .OUTPUTS
     [string] Component field, or an empty string when no field owns the path.
     #>
@@ -203,12 +150,16 @@ function Get-MarketplaceComponentFieldForPath {
         return ''
     }
 
-    foreach ($field in (Get-MarketplaceComponentFieldMap).Keys) {
-        $descriptor = (Get-MarketplaceComponentSourceRoot)[$field]
-        foreach ($prefix in @("$($descriptor.CatalogRoot)/", "$field/") | Sort-Object -Unique) {
-            if ($resolved.Path.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                return $field
-            }
+    $prefix = Get-MarketplaceManifestReferencePrefix
+    if (-not $resolved.Path.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+        return ''
+    }
+
+    $sourceRelative = $resolved.Path.Substring($prefix.Length)
+    $sourceRoots = Get-MarketplaceComponentSourceRoot
+    foreach ($field in $sourceRoots.Keys) {
+        if ($sourceRelative.StartsWith("$($sourceRoots[$field].SourceRoot)/", [System.StringComparison]::Ordinal)) {
+            return $field
         }
     }
 
@@ -218,9 +169,15 @@ function Get-MarketplaceComponentFieldForPath {
 function Resolve-MarketplaceComponentPath {
     <#
     .SYNOPSIS
-    Normalizes and validates a package-relative component path.
+    Normalizes and validates a manifest-relative component reference.
+    .DESCRIPTION
+    A component reference addresses canonical repository content from a package
+    manifest, so exactly one leading package-root traversal is permitted. Every
+    remaining segment must be a literal path segment. A repository-relative
+    metadata path such as x-hve.documentation carries no traversal and is
+    normalized unchanged.
     .PARAMETER Path
-    Candidate component path.
+    Candidate component reference.
     .OUTPUTS
     [hashtable] Normalized Path and Error.
     #>
@@ -248,12 +205,21 @@ function Resolve-MarketplaceComponentPath {
     }
 
     $normalized = $candidate.TrimEnd('/')
-    foreach ($segment in ($normalized -split '/')) {
+    $prefix = Get-MarketplaceManifestReferencePrefix
+    $remainder = $normalized
+    if ($remainder.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+        $remainder = $remainder.Substring($prefix.Length)
+        if ([string]::IsNullOrEmpty($remainder)) {
+            return @{ Path = ''; Error = "component path '$candidate' must name a canonical source below '$prefix'" }
+        }
+    }
+
+    foreach ($segment in ($remainder -split '/')) {
         if ([string]::IsNullOrEmpty($segment)) {
             return @{ Path = ''; Error = "component path '$candidate' must not contain empty path segments" }
         }
         if ($segment -eq '..') {
-            return @{ Path = ''; Error = "component path '$candidate' must not escape the package root" }
+            return @{ Path = ''; Error = "component path '$candidate' must not traverse beyond the repository root" }
         }
         if ($segment -eq '.') {
             return @{ Path = ''; Error = "component path '$candidate' must not contain relative path segments" }
@@ -266,13 +232,13 @@ function Resolve-MarketplaceComponentPath {
 function Get-MarketplacePackagePath {
     <#
     .SYNOPSIS
-    Projects a canonical source path to a package component path.
+    Projects a canonical source path to a manifest-relative component reference.
     .PARAMETER SourcePath
     Repository-relative source path.
     .PARAMETER Kind
     Artifact kind.
     .OUTPUTS
-    [string] Package-relative path.
+    [string] Manifest-relative component reference.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -294,20 +260,15 @@ function Get-MarketplacePackagePath {
         throw "Source path '$SourcePath' is not under the canonical '$($descriptor.SourceRoot)' root for kind '$Kind'."
     }
 
-    $leaf = Get-PluginItemName -FileName (Split-Path -Leaf $normalized) -Kind $Kind
-    $subpath = Get-PluginItemSubpath -Path $normalized -Kind $Kind
-    if ($subpath) {
-        return "$field/$subpath/$leaf"
-    }
-    return "$field/$leaf"
+    return "$(Get-MarketplaceManifestReferencePrefix)$normalized"
 }
 
 function Resolve-MarketplaceComponentSource {
     <#
     .SYNOPSIS
-    Resolves a catalog or package component path to its canonical source.
+    Resolves a manifest-relative component reference to its canonical repository source.
     .PARAMETER PackagePath
-    Canonical catalog path or package-relative component path.
+    Manifest-relative component reference.
     .PARAMETER Field
     Standard component field.
     .OUTPUTS
@@ -331,40 +292,23 @@ function Resolve-MarketplaceComponentSource {
     }
 
     $descriptor = (Get-MarketplaceComponentSourceRoot)[$Field]
-    $catalogPrefix = "$($descriptor.CatalogRoot)/"
-    $packagePrefix = "$Field/"
-    $sourcePath = ''
-
-    if ($resolved.Path.StartsWith($catalogPrefix, [System.StringComparison]::Ordinal)) {
-        $catalogRelative = $resolved.Path.Substring($catalogPrefix.Length)
-        if (-not $descriptor.SourceSuffix -or $catalogRelative.EndsWith($descriptor.SourceSuffix, [System.StringComparison]::Ordinal)) {
-            $sourcePath = "$($descriptor.SourceRoot)/$catalogRelative"
-        }
-        elseif ($catalogPrefix -cne $packagePrefix) {
-            throw "Canonical component path '$PackagePath' must end with '$($descriptor.SourceSuffix)'."
-        }
+    $prefix = Get-MarketplaceManifestReferencePrefix
+    if (-not $resolved.Path.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+        throw "Component path '$PackagePath' must address its canonical source through the '$prefix' package-root traversal."
     }
 
-    if (-not $sourcePath) {
-        if (-not $resolved.Path.StartsWith($packagePrefix, [System.StringComparison]::Ordinal)) {
-            throw "Component path '$PackagePath' must start with the '$($descriptor.CatalogRoot)/' canonical directory or '$Field/' package directory."
-        }
-
-        $packageRelative = $resolved.Path.Substring($packagePrefix.Length)
-        if ($descriptor.PackageSuffix) {
-            if (-not $packageRelative.EndsWith($descriptor.PackageSuffix, [System.StringComparison]::Ordinal)) {
-                throw "Package component path '$PackagePath' must end with '$($descriptor.PackageSuffix)'."
-            }
-            $packageRelative = "$($packageRelative.Substring(0, $packageRelative.Length - $descriptor.PackageSuffix.Length))$($descriptor.SourceSuffix)"
-        }
-        $sourcePath = "$($descriptor.SourceRoot)/$packageRelative"
+    $sourcePath = $resolved.Path.Substring($prefix.Length)
+    $expectedRoot = "$($descriptor.SourceRoot)/"
+    if (-not $sourcePath.StartsWith($expectedRoot, [System.StringComparison]::Ordinal)) {
+        throw "Component path '$PackagePath' must address the canonical '$($descriptor.SourceRoot)' root for the '$Field' field."
+    }
+    if ($descriptor.SourceSuffix -and -not $sourcePath.EndsWith($descriptor.SourceSuffix, [System.StringComparison]::Ordinal)) {
+        throw "Component path '$PackagePath' must end with '$($descriptor.SourceSuffix)'."
     }
 
-    $projectedPath = Get-MarketplacePackagePath -SourcePath $sourcePath -Kind $descriptor.Kind
     return @{
         Kind        = $descriptor.Kind
-        CatalogPath = $sourcePath.Substring('.github/'.Length)
-        PackagePath = $projectedPath
+        PackagePath = Get-MarketplacePackagePath -SourcePath $sourcePath -Kind $descriptor.Kind
         SourcePath  = $sourcePath
     }
 }
@@ -587,14 +531,13 @@ function Test-MarketplaceEntryContract {
     [OutputType([string[]])]
     param(
         [Parameter(Mandatory = $true)]
-        [System.Collections.IDictionary]$Entry,
-
-        [Parameter(Mandatory = $false)]
-        [switch]$CanonicalMembership
+        [System.Collections.IDictionary]$Entry
     )
 
     $errors = @()
     $declared = @{}
+    $declaredSource = @{}
+    $sourceRoots = Get-MarketplaceComponentSourceRoot
     foreach ($field in (Get-MarketplaceComponentFieldMap).Keys) {
         if (-not $Entry.Contains($field)) {
             continue
@@ -628,30 +571,21 @@ function Test-MarketplaceEntryContract {
                 $errors += "component field '$field': $($resolved.Error)"
                 continue
             }
-            $contractPath = $resolved.Path
-            $component = $null
-            if ($CanonicalMembership) {
-                try {
-                    $component = Resolve-MarketplaceComponentSource -PackagePath $resolved.Path -Field $field
-                    $contractPath = $component.PackagePath
-                    if ($resolved.Path -cne $component.CatalogPath) {
-                        $errors += "component field '$field' path '$($resolved.Path)' must use canonical path '$($component.CatalogPath)'"
-                    }
-                }
-                catch {
-                    $errors += "component field '$field': $($_.Exception.Message)"
-                    continue
-                }
+            try {
+                $component = Resolve-MarketplaceComponentSource -PackagePath $resolved.Path -Field $field
             }
+            catch {
+                $errors += "component field '$field': $($_.Exception.Message)"
+                continue
+            }
+            $contractPath = $component.PackagePath
             if ($seen.ContainsKey($contractPath)) {
                 $errors += "component field '$field' declares duplicate path '$($resolved.Path)'"
                 continue
             }
             $seen[$contractPath] = $true
-            $fieldPrefix = "$field/"
-            $hygienePath = if ($component) { $component.PackagePath } else { $resolved.Path }
-            if ($hygienePath.StartsWith($fieldPrefix, [System.StringComparison]::Ordinal) -and
-                (Test-HveCoreRepoSpecificPath -RelativePath $hygienePath.Substring($fieldPrefix.Length))) {
+            $sourceRootPrefix = "$($sourceRoots[$field].SourceRoot)/"
+            if (Test-HveCoreRepoSpecificPath -RelativePath $component.SourcePath.Substring($sourceRootPrefix.Length)) {
                 $errors += "component path '$($resolved.Path)' is a root-level repository artifact and must not be declared"
             }
             if ($declared.ContainsKey($contractPath)) {
@@ -659,6 +593,7 @@ function Test-MarketplaceEntryContract {
             }
             else {
                 $declared[$contractPath] = $field
+                $declaredSource[$contractPath] = $component.SourcePath
             }
         }
     }
@@ -667,8 +602,8 @@ function Test-MarketplaceEntryContract {
     # stays truthful for any component added under an experimental root.
     $componentMaturity = Get-MarketplaceComponentMaturityMap -Entry $Entry
     foreach ($path in @($declared.Keys | Sort-Object)) {
-        $segments = $path -split '/'
-        if ($segments.Count -lt 2 -or $segments[1] -ne 'experimental') {
+        $segments = $declaredSource[$path] -split '/'
+        if ($segments.Count -lt 3 -or $segments[2] -ne 'experimental') {
             continue
         }
         if (-not $componentMaturity.ContainsKey($path) -or $componentMaturity[$path] -eq 'stable') {
@@ -719,17 +654,14 @@ function Test-MarketplaceEntryContract {
                 elseif ($resolved.Path -ne [string]$key) {
                     $errors += "x-hve.componentMaturity key '$key' must be a normalized component path"
                 }
-                elseif ($CanonicalMembership) {
+                else {
                     $field = Get-MarketplaceComponentFieldForPath -Path $resolved.Path
                     if (-not $field) {
-                        $errors += "x-hve.componentMaturity key '$key' must use a canonical component directory"
+                        $errors += "x-hve.componentMaturity key '$key' must use a package component directory"
                     }
                     else {
                         try {
-                            $component = Resolve-MarketplaceComponentSource -PackagePath $resolved.Path -Field $field
-                            if ($resolved.Path -cne $component.CatalogPath) {
-                                $errors += "x-hve.componentMaturity key '$key' must use canonical path '$($component.CatalogPath)'"
-                            }
+                            $null = Resolve-MarketplaceComponentSource -PackagePath $resolved.Path -Field $field
                         }
                         catch {
                             $errors += "x-hve.componentMaturity key '$key': $($_.Exception.Message)"
@@ -795,24 +727,17 @@ function Test-MarketplaceEntryContract {
                         continue
                     }
                     $seenMembers[$resolvedMember.Path] = $true
-                    $memberPath = $resolvedMember.Path
-                    if ($CanonicalMembership) {
-                        $field = Get-MarketplaceComponentFieldForPath -Path $resolvedMember.Path
-                        if (-not $field) {
-                            $errors += "x-hve.profiles['$profileName'] member '$($resolvedMember.Path)' must use a canonical component directory"
-                            continue
-                        }
-                        try {
-                            $component = Resolve-MarketplaceComponentSource -PackagePath $resolvedMember.Path -Field $field
-                            $memberPath = $component.PackagePath
-                            if ($resolvedMember.Path -cne $component.CatalogPath) {
-                                $errors += "x-hve.profiles['$profileName'] member '$($resolvedMember.Path)' must use canonical path '$($component.CatalogPath)'"
-                            }
-                        }
-                        catch {
-                            $errors += "x-hve.profiles['$profileName'] member '$($resolvedMember.Path)': $($_.Exception.Message)"
-                            continue
-                        }
+                    $field = Get-MarketplaceComponentFieldForPath -Path $resolvedMember.Path
+                    if (-not $field) {
+                        $errors += "x-hve.profiles['$profileName'] member '$($resolvedMember.Path)' must use a package component directory"
+                        continue
+                    }
+                    try {
+                        $memberPath = (Resolve-MarketplaceComponentSource -PackagePath $resolvedMember.Path -Field $field).PackagePath
+                    }
+                    catch {
+                        $errors += "x-hve.profiles['$profileName'] member '$($resolvedMember.Path)': $($_.Exception.Message)"
+                        continue
                     }
                     if (-not $declared.ContainsKey($memberPath)) {
                         $errors += "x-hve.profiles['$profileName'] references '$($resolvedMember.Path)', which is not declared component membership"
@@ -1488,6 +1413,7 @@ Export-ModuleMember -Function @(
     'Get-MarketplaceEntryOverlayValue',
     'Get-MarketplaceInstallableField',
     'Get-MarketplaceLiteralReference',
+    'Get-MarketplaceManifestReferencePrefix',
     'Get-MarketplaceMetadataKey',
     'Get-MarketplacePackagePath',
     'Get-MarketplacePackageRecipe',
@@ -1495,8 +1421,6 @@ Export-ModuleMember -Function @(
     'Get-MarketplaceSourceIndex',
     'Get-MarketplaceSourceMaturity',
     'Get-MarketplaceSourcePolicyIndex',
-    'Get-PluginItemName',
-    'Get-PluginItemSubpath',
     'Get-PluginSubdirectory',
     'Resolve-MarketplaceComponentPath',
     'Resolve-MarketplaceComponentSelection',

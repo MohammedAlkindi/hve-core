@@ -3,7 +3,7 @@ title: Architecture Overview
 description: HVE Core system design and component relationships
 sidebar_position: 1
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-12
 ms.topic: concept
 ---
 
@@ -39,7 +39,7 @@ graph TD
 | GitHub Workflows    | `.github/workflows/`       | CI/CD pipelines for validation, security, and release automation              |
 | Access Control      | `.github/CODEOWNERS`       | Path-based review requirements and ownership                                  |
 | MCP Configuration   | `.vscode/mcp.json`         | Model Context Protocol server definitions                                     |
-| Plugin staging      | External absolute path     | Temporary Copilot package output for explicit assembly                        |
+| Plugin roots        | `plugins/<package>/`       | Manifest-only Copilot package roots referencing canonical `.github` sources   |
 | Test Infrastructure | `scripts/tests/`           | Pester test suites with fixtures and mocks                                    |
 
 ## Core Subsystems
@@ -59,13 +59,13 @@ Automation scripts handle quality assurance and development workflows. The scrip
 
 ### Plugins
 
-Marketplace entries in `.github/plugin/marketplace.json` define self-contained
-packages from `.github`-root-relative canonical paths: `agents/*.agent.md`,
+Marketplace entries in `.github/plugin/marketplace.json` define package
+membership from canonical `.github` paths: `agents/*.agent.md`,
 `prompts/*.prompt.md`, `instructions/*.instructions.md`, `skills/*`
-directories, and `hooks/*.json`. Explicit package assembly requires
-`HVE_PLUGIN_STAGING_ROOT` or `-StagingRoot` to name an absolute path outside the
-repository. Ordinary validation never creates a repository-root `plugins/`
-tree. See [scripts/plugins/README.md](https://github.com/microsoft/hve-core/blob/main/scripts/plugins/README.md) for the generation pipeline.
+directories, and `hooks/*.json`. Each tracked `plugins/<package>/plugin.json`
+root references those canonical sources and contains no copied payload. See
+[scripts/plugins/README.md](https://github.com/microsoft/hve-core/blob/main/scripts/plugins/README.md)
+for the manifest generation pipeline.
 
 ### Documentation
 

@@ -87,17 +87,12 @@ Each plugin includes:
 | Skills       | Yes           | Self-contained skill packages                      |
 | Instructions | No            | Included for `#file:` references, not auto-applied |
 
-All marketplace entries install from the shared `.github` source tree, whose
-manifest is `.github/plugin.json`. During Git-source installation, the CLI
-copies that complete source tree for each installed entry. The declarations on
 the selected marketplace entry determine which recognized agents, commands,
-skills, and hooks the CLI loads for that package; they do not filter the copied
-files. Distinct packages can therefore share the same source tree and manifest
-while loading different component sets.
-
-Generated per-package ZIPs are release assets. They are separate from the
-Git-source tree used by `copilot plugin install` and do not determine the
-contents copied during installation.
+Every marketplace entry points to a manifest-only
+`plugins/<package>/plugin.json` root. The manifest selects canonical `.github`
+agents, commands, skills, instructions, and hooks. Git-source installation
+clones the repository, so those references resolve within the clone without a
+copied package tree or generated package README.
 
 ## Limitations
 
@@ -113,12 +108,11 @@ The CLI loads path-specific instructions exclusively from
 Instruction files in plugin directories are **not** auto-applied via `applyTo`
 pattern matching.
 
-Instruction files are still included in plugin output because agents and
-prompts reference them via `#file:` directives. Those cross-file references
-resolve correctly within the plugin directory tree. The difference is between
-explicit inclusion (an agent pulls in instruction content at execution time)
-and automatic application (the CLI matches `applyTo` patterns against the
-files you are editing).
+Instruction files remain canonical `.github` sources because agents and prompts
+reference them with `#file:` directives. Those references resolve from the
+repository clone. The difference is between explicit inclusion (an agent pulls
+in instruction content at execution time) and automatic application (the CLI
+matches `applyTo` patterns against the files you are editing).
 
 For full path-specific instruction behavior, copy instruction files into your
 project's `.github/instructions/` directory.

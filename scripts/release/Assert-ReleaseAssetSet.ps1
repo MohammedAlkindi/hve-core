@@ -9,11 +9,15 @@
 .DESCRIPTION
     Reconciles the actual asset names on an immutable published release against
     the identities the released marketplace catalog and channel package policy
-    require. Plugin ZIP and VSIX identities both derive from that catalog, so no
-    expected count is maintained by hand and no release asset defines the
-    expectation it is verified against. The release's own
-    plugin-release-evidence.json is still schema, version, and count validated,
-    and its package set must match the catalog-derived set exactly.
+    require. VSIX identities derive from that catalog, so no expected count is
+    maintained by hand and no release asset defines the expectation it is
+    verified against.
+
+    The release's own plugin-release-evidence.json must declare the current
+    evidence schema, the released version, the exact channel locator, and the
+    released source commit, and its package set must match the catalog-derived
+    set exactly. Packages install from the repository at the release tag, so no
+    per-package archive asset participates in the expectation.
 
     All identity comparison is ordinal and case sensitive. Missing, unexpected,
     duplicate, and sidecar-incomplete primary assets are all reported together
@@ -31,13 +35,16 @@
 .PARAMETER Version
     Released MAJOR.MINOR.PATCH version.
 .PARAMETER ReleaseTag
-    Released channel tag, used only in reporting.
+    Released channel tag the evidence locator must address.
+.PARAMETER SourceCommit
+    Full 40-character commit id the release was published from.
 .PARAMETER CatalogPath
     Marketplace catalog at the released ref.
 .EXAMPLE
     ./Assert-ReleaseAssetSet.ps1 -AssetNamePath assets.txt -EvidencePath evidence.json `
         -RequiredAssetPath required.txt -CatalogPath .github/plugin/marketplace.json `
-        -Channel PreRelease -Version 3.3.0 -ReleaseTag prerelease-v3.3.0
+        -Channel PreRelease -Version 3.3.0 -ReleaseTag prerelease-v3.3.0 `
+        -SourceCommit 0123456789abcdef0123456789abcdef01234567
 .NOTES
     Invoked by the published-release recovery path of release-prerelease.yml and
     release-stable-publish.yml.
@@ -69,6 +76,10 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$ReleaseTag,
 
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[0-9a-f]{40}$')]
+    [string]$SourceCommit,
+
     [Parameter(Mandatory = $false)]
     [ValidateNotNullOrEmpty()]
     [string]$CatalogPath = (Join-Path $PSScriptRoot '../../.github/plugin/marketplace.json')
@@ -81,10 +92,14 @@ Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
 
 Set-Variable -Name ReleaseAssetSidecarSuffix -Value @('.spdx.json', '.sigstore.json', '.intoto.jsonl') -Option ReadOnly -Scope Script -Force
 
-# Plugin packaging discovers its package set with the PreRelease eligibility
-# policy on both release channels, so the plugin ZIP expectation follows that
-# policy rather than the release channel.
-Set-Variable -Name ReleasePluginPackagingChannel -Value 'PreRelease' -Option ReadOnly -Scope Script -Force
+# The one evidence contract a release may carry. A document declaring any other
+# schema is rejected rather than read through a compatibility path.
+Set-Variable -Name ReleaseEvidenceSchema -Value 'hve-core/plugin-release-evidence/v2' -Option ReadOnly -Scope Script -Force
+
+# Evidence covers every non-deprecated, non-removed catalog entry, which is the
+# PreRelease eligibility policy, so its package set follows that policy rather
+# than the release channel.
+Set-Variable -Name ReleaseEvidencePackagingChannel -Value 'PreRelease' -Option ReadOnly -Scope Script -Force
 
 #region Expected identities
 
@@ -139,24 +154,29 @@ function Get-ReleaseCatalogPackageName {
     return Get-SortedReleaseAssetName -Name ([string[]]@((Get-MarketplacePackageMatrixCore -Channel $Channel -CatalogPath $CatalogPath).Names))
 }
 
-function Get-ReleaseExpectedPluginZipName {
+function Assert-ReleaseEvidenceDocument {
     <#
     .SYNOPSIS
-        Resolves the plugin ZIP identities a release must carry.
+        Fails unless the release evidence document matches the released catalog.
     .DESCRIPTION
-        Membership comes from the released catalog under the plugin packaging
+        Membership comes from the released catalog under the evidence packaging
         policy, so a mutable release asset can never define the expectation it
-        is checked against. The release's own evidence document is still schema,
-        version, and count validated, and its package set must match that
-        catalog-derived set exactly before verification continues.
+        is checked against. The evidence document must declare the current
+        schema, the released version, the exact channel locator, and the
+        released source commit, and its package set must equal the
+        catalog-derived set exactly.
     .PARAMETER Evidence
         Parsed plugin-release-evidence.json document.
     .PARAMETER Version
         Released version the evidence must record.
+    .PARAMETER ReleaseTag
+        Released channel tag the evidence locator must address.
+    .PARAMETER SourceCommit
+        Full commit id the release was published from.
     .PARAMETER CatalogPath
         Marketplace catalog at the released ref.
     .OUTPUTS
-        [string[]] Expected plugin ZIP asset names.
+        [string[]] Ordinally sorted package names the evidence covers.
     #>
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -170,16 +190,37 @@ function Get-ReleaseExpectedPluginZipName {
 
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
+        [string]$ReleaseTag,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$SourceCommit,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$CatalogPath
     )
 
-    foreach ($field in @('version', 'packageCount', 'packages')) {
+    foreach ($field in @('schema', 'sourceCommit', 'version', 'locator', 'packageCount', 'packages', 'digest')) {
         if (-not $Evidence.Contains($field)) {
             throw "plugin-release-evidence.json declares no '$field' field"
         }
     }
+    if ([string]$Evidence['schema'] -cne $script:ReleaseEvidenceSchema) {
+        throw "plugin-release-evidence.json declares schema $($Evidence['schema']) but $($script:ReleaseEvidenceSchema) is required"
+    }
     if ([string]$Evidence['version'] -cne $Version) {
         throw "plugin-release-evidence.json records version $($Evidence['version']) but the release is $Version"
+    }
+    if ([string]$Evidence['sourceCommit'] -cne $SourceCommit) {
+        throw "plugin-release-evidence.json records source commit $($Evidence['sourceCommit']) but the release was published from $SourceCommit"
+    }
+    $locator = $Evidence['locator']
+    if ($locator -isnot [System.Collections.IDictionary]) {
+        throw 'plugin-release-evidence.json carries no locator object'
+    }
+    if ([string]$locator['ref'] -cne $ReleaseTag) {
+        throw "plugin-release-evidence.json records locator ref $($locator['ref']) but the release tag is $ReleaseTag"
     }
 
     $declaredCount = [int]$Evidence['packageCount']
@@ -204,7 +245,7 @@ function Get-ReleaseExpectedPluginZipName {
     # A self-consistent evidence document still proves nothing on its own: an
     # incomplete or tampered package list must disagree with the catalog the
     # release was built from.
-    $catalogName = [string[]]@(Get-ReleaseCatalogPackageName -Channel $script:ReleasePluginPackagingChannel -CatalogPath $CatalogPath)
+    $catalogName = [string[]]@(Get-ReleaseCatalogPackageName -Channel $script:ReleaseEvidencePackagingChannel -CatalogPath $CatalogPath)
     $catalogLookup = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]$catalogName, [System.StringComparer]::Ordinal)
     $omitted = [string[]]@($catalogName | Where-Object { -not $evidenceName.Contains($_) })
@@ -216,7 +257,7 @@ function Get-ReleaseExpectedPluginZipName {
         throw "plugin-release-evidence.json records package(s) the released catalog does not publish: $($foreign -join ', ')"
     }
 
-    return [string[]]@($catalogName | ForEach-Object { $_ + '.zip' })
+    return [string[]]$catalogName
 }
 
 function Get-ReleaseExpectedVsixName {
@@ -275,8 +316,6 @@ function Test-ReleaseAssetSet {
         sensitive, so two names differing only by case are two distinct assets.
     .PARAMETER AssetName
         Actual release asset names.
-    .PARAMETER ExpectedPluginZip
-        Expected plugin ZIP asset names.
     .PARAMETER ExpectedVsix
         Expected VSIX asset names.
     .PARAMETER RequiredAsset
@@ -290,10 +329,6 @@ function Test-ReleaseAssetSet {
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
         [string[]]$AssetName,
-
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyCollection()]
-        [string[]]$ExpectedPluginZip,
 
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
@@ -328,11 +363,6 @@ function Test-ReleaseAssetSet {
     }
 
     $primaryKinds = @(
-        @{
-            Kind     = 'plugin ZIP'
-            Expected = [string[]]@($ExpectedPluginZip)
-            Actual   = Get-SortedReleaseAssetName -Name ([string[]]@($present | Where-Object { $_.EndsWith('.zip', [System.StringComparison]::Ordinal) }))
-        }
         @{
             Kind     = 'VSIX'
             Expected = [string[]]@($ExpectedVsix)
@@ -407,11 +437,13 @@ function Assert-ReleaseAssetSet {
     .PARAMETER Version
         Released MAJOR.MINOR.PATCH version.
     .PARAMETER ReleaseTag
-        Released channel tag, used only in reporting.
+        Released channel tag the evidence locator must address.
+    .PARAMETER SourceCommit
+        Full commit id the release was published from.
     .PARAMETER CatalogPath
         Marketplace catalog at the released ref.
     .OUTPUTS
-        [pscustomobject] The verified plugin ZIP and VSIX identities.
+        [pscustomobject] The verified evidence package set and VSIX identities.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -441,6 +473,10 @@ function Assert-ReleaseAssetSet {
         [string]$ReleaseTag,
 
         [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[0-9a-f]{40}$')]
+        [string]$SourceCommit,
+
+        [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
         [string]$CatalogPath
     )
@@ -462,11 +498,14 @@ function Assert-ReleaseAssetSet {
         throw "published $ReleaseTag carries an unreadable plugin-release-evidence.json document"
     }
 
-    $expectedPluginZip = Get-ReleaseExpectedPluginZipName -Evidence $evidence -Version $Version -CatalogPath $CatalogPath
+    $evidencePackage = Assert-ReleaseEvidenceDocument -Evidence $evidence `
+        -Version $Version `
+        -ReleaseTag $ReleaseTag `
+        -SourceCommit $SourceCommit `
+        -CatalogPath $CatalogPath
     $expectedVsix = Get-ReleaseExpectedVsixName -Channel $Channel -Version $Version -CatalogPath $CatalogPath
 
     $findings = Test-ReleaseAssetSet -AssetName $assetName `
-        -ExpectedPluginZip $expectedPluginZip `
         -ExpectedVsix $expectedVsix `
         -RequiredAsset $requiredAsset
 
@@ -477,13 +516,13 @@ function Assert-ReleaseAssetSet {
         throw "published $ReleaseTag has incomplete release assets: $($findings.Count) findings; reconcile it before rerunning"
     }
 
-    Write-Host "Verified $($expectedVsix.Count) VSIX and $($expectedPluginZip.Count) plugin ZIP assets with complete sidecars on published $ReleaseTag"
+    Write-Host "Verified $($expectedVsix.Count) VSIX assets with complete sidecars and evidence covering $($evidencePackage.Count) packages on published $ReleaseTag"
     return [pscustomobject]@{
-        ReleaseTag = $ReleaseTag
-        Channel    = $Channel
-        Version    = $Version
-        PluginZip  = $expectedPluginZip
-        Vsix       = $expectedVsix
+        ReleaseTag      = $ReleaseTag
+        Channel         = $Channel
+        Version         = $Version
+        EvidencePackage = $evidencePackage
+        Vsix            = $expectedVsix
     }
 }
 
@@ -499,6 +538,7 @@ if ($MyInvocation.InvocationName -ne '.') {
                 -Channel $Channel `
                 -Version $Version `
                 -ReleaseTag $ReleaseTag `
+                -SourceCommit $SourceCommit `
                 -CatalogPath $CatalogPath)
         exit 0
     }

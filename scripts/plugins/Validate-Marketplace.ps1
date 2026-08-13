@@ -9,13 +9,18 @@
 
 .DESCRIPTION
     Reads .github/plugin/marketplace.json and validates JSON schema compliance,
-    version consistency with the root package.json, and the plugin source
-    locator of every entry.
+    version consistency with the root package.json, the plugin source locator
+    of every entry, and the tracked runtime root each entry addresses.
 
-    Every source is a GitHub object locator rooted at .github. Entries either
-    omit ref uniformly, as the Main channel does, or pin one uniform exact
-    channel tag: prerelease-v<version> for PreRelease and v<version> for
-    Stable. Bare package names and commit SHA locators are rejected.
+    Every source is a GitHub object locator rooted at the entry's tracked
+    package root, plugins/<name>. Entries either omit ref uniformly, as the
+    Main channel does, or pin one uniform exact channel tag:
+    prerelease-v<version> for PreRelease and v<version> for Stable. Bare
+    package names and commit SHA locators are rejected.
+
+    Validation never writes tracked package content. Byte and path drift is
+    reported by the generator's own non-mutating check, so generation stays the
+    sole mutating owner of plugins/.
 
 .EXAMPLE
     ./Validate-Marketplace.ps1 -OutputPath 'logs/marketplace-validation-results.json'
@@ -34,6 +39,10 @@ $ErrorActionPreference = 'Stop'
 Import-Module -Name PowerShell-Yaml -RequiredVersion '0.4.7' -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/CIHelpers.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '../lib/Modules/MarketplaceHelpers.psm1') -Force
+
+# The generator owns the only comparison between catalog projection and tracked
+# bytes; dot-sourcing reuses its non-mutating check instead of restating it.
+. (Join-Path $PSScriptRoot 'Generate-Plugins.ps1')
 
 #region Validation Helpers
 
@@ -218,6 +227,140 @@ function Test-PluginObjectSource {
     return [string[]]$sourceErrors
 }
 
+function Test-MarketplacePackageRoot {
+    <#
+    .SYNOPSIS
+    Validates the tracked runtime root that one marketplace entry addresses.
+
+    .DESCRIPTION
+    Each entry addresses exactly one generator-owned root under plugins/ whose
+    sole delivered entry is plugin.json. The manifest must carry the catalog
+    name and version, omit the catalog-only x-hve overlay and the catalog-only
+    source locator, declare exactly the component references the resolved
+    recipe produces, and address a canonical .github source that exists in this
+    repository. Expected references are derived from the catalog rather than
+    read back from generated output, so a manifest that disagrees with catalog
+    membership is reported even when its bytes are self-consistent.
+
+    .PARAMETER Entry
+    Marketplace entry.
+
+    .PARAMETER RepoRoot
+    Repository root containing the tracked plugins/ roots.
+
+    .PARAMETER AgentIndex
+    Catalog agent index used to resolve the package recipe.
+
+    .OUTPUTS
+    [string[]] Tracked package root errors.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Entry,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$AgentIndex
+    )
+
+    $name = [string]$Entry['name']
+    $rootRelative = "plugins/$name"
+    $rootPath = Join-Path -Path $RepoRoot -ChildPath 'plugins' -AdditionalChildPath $name
+    if (-not (Test-Path -LiteralPath $rootPath -PathType Container)) {
+        return [string[]]@("tracked package root '$rootRelative' is missing")
+    }
+
+    # The manifest is the only entry a package root delivers, so anything else
+    # present is undeclared payload rather than distributable content.
+    $rootErrors = @()
+    foreach ($entryItem in @(Get-ChildItem -LiteralPath $rootPath -Force | Sort-Object Name)) {
+        if ($entryItem.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+            $rootErrors += "tracked package root '$rootRelative' contains a link or reparse point: $($entryItem.Name)"
+            continue
+        }
+        if ($entryItem.PSIsContainer -or -not [string]::Equals($entryItem.Name, 'plugin.json', [System.StringComparison]::Ordinal)) {
+            $rootErrors += "tracked package root '$rootRelative' delivers '$($entryItem.Name)'; only plugin.json is permitted"
+        }
+    }
+
+    $manifestRelative = "$rootRelative/plugin.json"
+    $manifestPath = Join-Path -Path $rootPath -ChildPath 'plugin.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        return [string[]]($rootErrors + "runtime manifest '$manifestRelative' is missing")
+    }
+
+    try {
+        $runtimeManifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+    }
+    catch {
+        return [string[]]($rootErrors + "runtime manifest '$manifestRelative' is not valid JSON: $($_.Exception.Message)")
+    }
+    if ($runtimeManifest -isnot [System.Collections.IDictionary]) {
+        return [string[]]($rootErrors + "runtime manifest '$manifestRelative' must contain a JSON object")
+    }
+
+    if ([string]$runtimeManifest['name'] -cne $name) {
+        $rootErrors += "runtime manifest '$manifestRelative' declares name '$($runtimeManifest['name'])' instead of package name '$name'"
+    }
+    if ([string]$runtimeManifest['version'] -cne [string]$Entry['version']) {
+        $rootErrors += "runtime manifest '$manifestRelative' declares version '$($runtimeManifest['version'])' instead of package version '$($Entry['version'])'"
+    }
+    foreach ($catalogOnly in @('x-hve', 'source')) {
+        if ($runtimeManifest.Contains($catalogOnly)) {
+            $rootErrors += "runtime manifest '$manifestRelative' must not carry the catalog-only '$catalogOnly' key"
+        }
+    }
+
+    try {
+        $items = @(Get-MarketplaceResolvedPackageRecipe -Entry $Entry -Channel PreRelease -AgentIndex $AgentIndex)
+    }
+    catch {
+        return [string[]]($rootErrors + "package '$name' recipe does not resolve: $($_.Exception.Message)")
+    }
+
+    # Components stay in place under .github, so a manifest reference is the
+    # catalog reference itself rather than a path inside the package root.
+    $expected = @{}
+    $sourceByReference = @{}
+    foreach ($field in (Get-MarketplaceComponentFieldMap).Keys) {
+        $expected[$field] = [System.Collections.Generic.List[string]]::new()
+    }
+    foreach ($item in $items) {
+        $expected[[string]$item.Field].Add([string]$item.PackagePath)
+        $sourceByReference[[string]$item.PackagePath] = [string]$item.SourcePath
+    }
+
+    foreach ($field in @($expected.Keys | Sort-Object)) {
+        $expectedPaths = @($expected[$field] | Sort-Object -Unique)
+        $declaredPaths = @(
+            if ($runtimeManifest.Contains($field)) {
+                @($runtimeManifest[$field]) | ForEach-Object { [string]$_ } | Sort-Object -Unique
+            }
+        )
+
+        foreach ($omitted in @($expectedPaths | Where-Object { $declaredPaths -notcontains $_ })) {
+            $rootErrors += "runtime manifest '$manifestRelative' omits '$field' reference '$omitted' required by catalog membership"
+        }
+        foreach ($undeclared in @($declaredPaths | Where-Object { $expectedPaths -notcontains $_ })) {
+            $rootErrors += "runtime manifest '$manifestRelative' declares '$field' reference '$undeclared', which catalog membership does not produce"
+        }
+
+        foreach ($declaredPath in @($declaredPaths | Where-Object { $sourceByReference.ContainsKey($_) })) {
+            $sourcePath = Join-Path -Path $RepoRoot -ChildPath $sourceByReference[$declaredPath]
+            if (-not (Test-Path -LiteralPath $sourcePath)) {
+                $rootErrors += "runtime manifest '$manifestRelative' declares '$field' reference '$declaredPath', whose canonical source '$($sourceByReference[$declaredPath])' does not exist"
+            }
+        }
+    }
+
+    return [string[]]$rootErrors
+}
+
 function Test-MarketplaceRepositoryContract {
     <#
     .SYNOPSIS
@@ -226,6 +369,8 @@ function Test-MarketplaceRepositoryContract {
     Parsed marketplace catalog.
     .PARAMETER RepoRoot
     Repository root containing canonical artifacts and package docs.
+    .PARAMETER AgentIndex
+    Catalog agent index used to resolve package recipes.
     .OUTPUTS
     [string[]] Repository contract errors.
     #>
@@ -236,7 +381,10 @@ function Test-MarketplaceRepositoryContract {
         [System.Collections.IDictionary]$Manifest,
 
         [Parameter(Mandatory = $true)]
-        [string]$RepoRoot
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$AgentIndex
     )
 
     # A missing canonical root is reported rather than skipped: silently
@@ -251,33 +399,41 @@ function Test-MarketplaceRepositoryContract {
         $contractErrors += "package documentation root 'docs/plugins' is missing under $RepoRoot"
     }
 
-    # Every entry installs from the shared '.github' source root, so this single
-    # manifest is what GitHub-object installation resolves for the whole catalog.
-    $sharedManifestPath = Join-Path $RepoRoot '.github/plugin.json'
-    $sharedManifest = if (Test-Path -LiteralPath $sharedManifestPath -PathType Leaf) {
-        Get-Content -LiteralPath $sharedManifestPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-    }
-    if ($sharedManifest -isnot [System.Collections.IDictionary]) {
-        $contractErrors += "shared plugin manifest '.github/plugin.json' must exist under $RepoRoot and contain a JSON object"
-    }
-
+    # Every entry installs from its own tracked root, so the delivered package
+    # set is the directory set under plugins/. Missing roots are reported per
+    # entry; only roots the catalog never declares are reported here.
     $entries = @($Manifest['plugins'])
+    $declaredPackageNames = @($entries | ForEach-Object { [string]$_['name'] })
+    $packageRootDirectory = Join-Path $RepoRoot 'plugins'
+    if (-not (Test-Path -LiteralPath $packageRootDirectory -PathType Container)) {
+        $contractErrors += "tracked package root directory 'plugins' is missing under $RepoRoot"
+    }
+    else {
+        foreach ($trackedRoot in @(Get-ChildItem -LiteralPath $packageRootDirectory -Directory -Force |
+                    ForEach-Object { $_.Name } | Sort-Object)) {
+            if ($declaredPackageNames -notcontains $trackedRoot) {
+                $contractErrors += "tracked package root 'plugins/$trackedRoot' does not match any marketplace package"
+            }
+        }
+        foreach ($strayFile in @(Get-ChildItem -LiteralPath $packageRootDirectory -File -Force |
+                    ForEach-Object { $_.Name } | Sort-Object)) {
+            $contractErrors += "'plugins/$strayFile' is not a tracked package root"
+        }
+    }
 
     # The active package set is derived from the package documents on disk, so
     # adding or retiring a package never requires editing a hard-coded count.
     if (Test-Path -LiteralPath $documentationRoot -PathType Container) {
         $documentedNames = @(Get-ChildItem -LiteralPath $documentationRoot -File -Filter '*.md' |
                 ForEach-Object { $_.BaseName } | Sort-Object)
-        $declaredNames = @($entries | ForEach-Object { [string]$_['name'] })
-        foreach ($undocumented in @($declaredNames | Where-Object { $documentedNames -notcontains $_ } | Sort-Object)) {
+        foreach ($undocumented in @($declaredPackageNames | Where-Object { $documentedNames -notcontains $_ } | Sort-Object)) {
             $contractErrors += "package '$undocumented' has no package document under docs/plugins"
         }
-        foreach ($orphan in @($documentedNames | Where-Object { $declaredNames -notcontains $_ })) {
+        foreach ($orphan in @($documentedNames | Where-Object { $declaredPackageNames -notcontains $_ })) {
             $contractErrors += "package document 'docs/plugins/$orphan.md' does not match any marketplace package"
         }
     }
 
-    $agentIndex = Get-MarketplaceAgentIndex -Catalog $Manifest -RepoRoot $RepoRoot
     $tombstoneCount = 0
     foreach ($entry in $entries) {
         $name = [string]$entry['name']
@@ -314,7 +470,7 @@ function Test-MarketplaceRepositoryContract {
             $tombstoneCount += @($componentMaturity.Values | Where-Object { $_ -eq 'removed' }).Count
         }
 
-        foreach ($item in Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel PreRelease -AgentIndex $agentIndex) {
+        foreach ($item in Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel PreRelease -AgentIndex $AgentIndex) {
             $sourcePath = Join-Path $RepoRoot $item.SourcePath
             if (-not (Test-Path -LiteralPath $sourcePath)) {
                 $contractErrors += "package '$name' source is missing: $($item.SourcePath)"
@@ -325,7 +481,7 @@ function Test-MarketplaceRepositoryContract {
         # channel-dependent projection is a policy regression rather than a variant.
         $channelProjections = @{}
         foreach ($channel in @('Stable', 'PreRelease')) {
-            $channelProjections[$channel] = @(Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel $channel -AgentIndex $agentIndex |
+            $channelProjections[$channel] = @(Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel $channel -AgentIndex $AgentIndex |
                     ForEach-Object { "$($_.PackagePath)=$($_.Maturity)" }) -join '|'
         }
         if ($channelProjections['Stable'] -ne $channelProjections['PreRelease']) {
@@ -472,6 +628,10 @@ function Invoke-MarketplaceValidation {
         }
     }
 
+    # One index serves entry-level root checks and the repository contract, so
+    # handoff closure is resolved from the same catalog projection in both.
+    $agentIndex = Get-MarketplaceAgentIndex -Catalog $manifest -RepoRoot $RepoRoot
+
     # Plugins validation
     if ($manifest.plugins -isnot [array] -or $manifest.plugins.Count -eq 0) {
         $catalogErrors += 'plugins array is empty or missing'
@@ -509,7 +669,7 @@ function Invoke-MarketplaceValidation {
                 foreach ($sourceError in @(Test-PluginObjectSource -Source $sourceValue)) {
                     $pluginErrors += $sourceError
                 }
-                $expectedPath = '.github'
+                $expectedPath = "plugins/$pluginName"
                 if ([string]$sourceValue['path'] -cne $expectedPath) {
                     $pluginErrors += "object source path must be '$expectedPath'"
                 }
@@ -540,8 +700,13 @@ function Invoke-MarketplaceValidation {
             }
 
             # Standard component membership and metadata-only x-hve overlay
-            foreach ($contractError in @(Test-MarketplaceEntryContract -Entry $plugin -CanonicalMembership)) {
+            foreach ($contractError in @(Test-MarketplaceEntryContract -Entry $plugin)) {
                 $pluginErrors += $contractError
+            }
+
+            # Delivered runtime root addressed by this entry
+            foreach ($rootError in @(Test-MarketplacePackageRoot -Entry $plugin -RepoRoot $RepoRoot -AgentIndex $agentIndex)) {
+                $pluginErrors += $rootError
             }
 
             $results += @{
@@ -578,7 +743,7 @@ function Invoke-MarketplaceValidation {
     # Repository-contract findings get their own report scope; without it the
     # report would raise ErrorCount without naming a single failing rule.
     $repositoryErrors = @(
-        Test-MarketplaceRepositoryContract -Manifest $manifest -RepoRoot $RepoRoot |
+        Test-MarketplaceRepositoryContract -Manifest $manifest -RepoRoot $RepoRoot -AgentIndex $agentIndex |
             ForEach-Object { "repository contract: $_" }
     )
     if ($repositoryErrors.Count -gt 0) {
@@ -589,6 +754,29 @@ function Invoke-MarketplaceValidation {
             Warnings   = @()
         }
         $errors += $repositoryErrors
+    }
+
+    # Byte and path drift belongs to the generator, which regenerates into a
+    # temporary tree and compares. Validation only reports its verdict so the
+    # tracked roots are never rewritten by a validation run.
+    $driftErrors = @()
+    try {
+        $driftResult = Invoke-PluginGenerationCheck -RepoRoot $RepoRoot
+        if (-not $driftResult.Success) {
+            $driftErrors += [string]$driftResult.ErrorMessage
+        }
+    }
+    catch {
+        $driftErrors += "generated package drift check failed: $($_.Exception.Message)"
+    }
+    if ($driftErrors.Count -gt 0) {
+        $results += @{
+            PluginName = 'plugins'
+            IsValid    = $false
+            Errors     = @($driftErrors)
+            Warnings   = @()
+        }
+        $errors += $driftErrors
     }
 
     if ($errors.Count -gt 0 -and $results.Count -eq 0) {

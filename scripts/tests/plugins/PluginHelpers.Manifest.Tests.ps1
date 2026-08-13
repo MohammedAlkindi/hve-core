@@ -55,11 +55,11 @@ Describe 'New-PluginManifestContent' -Tag 'Unit' {
                 -Repository 'https://github.com/contoso/contoso-hve' `
                 -License 'MIT' `
                 -Keywords @('rpi', 'workflow') `
-                -AgentPaths @('agents/rpi/', 'agents/hve-core/') `
-                -CommandPaths @('commands/rpi/') `
-                -RulePaths @('rules/shared/') `
-                -SkillPaths @('skills/rpi/rpi-plan/', 'skills/rpi/rpi-research/') `
-                -HookPaths @('hooks/rpi/telemetry.json')
+                -AgentPaths @('../../.github/agents/rpi/rpi-agent.agent.md', '../../.github/agents/hve-core/hve-agent.agent.md') `
+                -CommandPaths @('../../.github/prompts/rpi/rpi.prompt.md') `
+                -RulePaths @('../../.github/instructions/shared/hve-core-location.instructions.md') `
+                -SkillPaths @('../../.github/skills/rpi/rpi-plan', '../../.github/skills/rpi/rpi-research') `
+                -HookPaths @('../../.github/hooks/rpi/telemetry.json')
         }
 
         It 'Emits every key in a fixed order' {
@@ -79,23 +79,23 @@ Describe 'New-PluginManifestContent' -Tag 'Unit' {
             @($script:fullManifest['keywords']) | Should -Be @('rpi', 'workflow')
         }
 
-        It 'Sorts declared component paths' {
-            @($script:fullManifest['agents']) | Should -Be @('agents/hve-core/', 'agents/rpi/')
-            @($script:fullManifest['skills']) | Should -Be @('skills/rpi/rpi-plan/', 'skills/rpi/rpi-research/')
+        It 'Sorts declared component references' {
+            @($script:fullManifest['agents']) | Should -Be @('../../.github/agents/hve-core/hve-agent.agent.md', '../../.github/agents/rpi/rpi-agent.agent.md')
+            @($script:fullManifest['skills']) | Should -Be @('../../.github/skills/rpi/rpi-plan', '../../.github/skills/rpi/rpi-research')
         }
 
         It 'Emits hooks as a single path string rather than an array' {
             $script:fullManifest['hooks'] | Should -BeOfType [string]
-            $script:fullManifest['hooks'] | Should -BeExactly 'hooks/rpi/telemetry.json'
+            $script:fullManifest['hooks'] | Should -BeExactly '../../.github/hooks/rpi/telemetry.json'
         }
     }
 
     Context 'when component input order varies' {
         It 'Produces byte-identical serialized manifests' {
             $firstOrder = New-PluginManifestContent -PackageName 'rpi' -Description 'RPI workflow' -Version '9.9.9' `
-                -AgentPaths @('agents/zulu/', 'agents/alpha/') -SkillPaths @('skills/b/', 'skills/a/') -Keywords @('one', 'two')
+                -AgentPaths @('../../.github/agents/zulu/z.agent.md', '../../.github/agents/alpha/a.agent.md') -SkillPaths @('../../.github/skills/b/b', '../../.github/skills/a/a') -Keywords @('one', 'two')
             $secondOrder = New-PluginManifestContent -PackageName 'rpi' -Description 'RPI workflow' -Version '9.9.9' `
-                -AgentPaths @('agents/alpha/', 'agents/zulu/') -SkillPaths @('skills/a/', 'skills/b/') -Keywords @('one', 'two')
+                -AgentPaths @('../../.github/agents/alpha/a.agent.md', '../../.github/agents/zulu/z.agent.md') -SkillPaths @('../../.github/skills/a/a', '../../.github/skills/b/b') -Keywords @('one', 'two')
 
             ($firstOrder | ConvertTo-Json -Depth 10) | Should -BeExactly ($secondOrder | ConvertTo-Json -Depth 10)
         }
@@ -104,11 +104,11 @@ Describe 'New-PluginManifestContent' -Tag 'Unit' {
     Context 'when more than one hook manifest is declared' {
         BeforeAll {
             $script:multiHookManifest = New-PluginManifestContent -PackageName 'rpi' -Description 'RPI workflow' -Version '9.9.9' `
-                -HookPaths @('hooks/zulu/late.json', 'hooks/alpha/early.json')
+                -HookPaths @('../../.github/hooks/zulu/late.json', '../../.github/hooks/alpha/early.json')
         }
 
         It 'Selects the first path in sorted order' {
-            $script:multiHookManifest['hooks'] | Should -BeExactly 'hooks/alpha/early.json'
+            $script:multiHookManifest['hooks'] | Should -BeExactly '../../.github/hooks/alpha/early.json'
         }
 
         It 'Warns that only one hook manifest is referenced' {
@@ -135,7 +135,7 @@ Describe 'New-PluginManifestContent' -Tag 'Unit' {
     Context 'when catalog-only metadata could leak' {
         BeforeAll {
             $script:leakManifest = New-PluginManifestContent -PackageName 'rpi' -Description 'RPI workflow' -Version '9.9.9' `
-                -Author ([ordered]@{ name = 'Contoso' }) -AgentPaths @('agents/rpi/') -HookPaths @('hooks/rpi/telemetry.json')
+                -Author ([ordered]@{ name = 'Contoso' }) -AgentPaths @('../../.github/agents/rpi/rpi-agent.agent.md') -HookPaths @('../../.github/hooks/rpi/telemetry.json')
             $script:leakJson = $script:leakManifest | ConvertTo-Json -Depth 10
         }
 

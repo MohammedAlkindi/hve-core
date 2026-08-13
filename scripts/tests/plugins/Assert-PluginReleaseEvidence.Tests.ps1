@@ -30,13 +30,13 @@ BeforeAll {
 
         $entries = @(
             New-PluginFixtureEntry -Name 'rpi' -Version '9.9.9' `
-                -Agents @('agents/rpi/rpi-planner.agent.md') `
-                -Commands @('prompts/rpi/rpi-plan.prompt.md') `
-                -Rules @('instructions/shared/hve-core-location.instructions.md') `
-                -Skills @('skills/rpi/rpi-plan') `
-                -Hook 'hooks/rpi/telemetry.json'
+                -Agents @('../../.github/agents/rpi/rpi-planner.agent.md') `
+                -Commands @('../../.github/prompts/rpi/rpi-plan.prompt.md') `
+                -Rules @('../../.github/instructions/shared/hve-core-location.instructions.md') `
+                -Skills @('../../.github/skills/rpi/rpi-plan') `
+                -Hook '../../.github/hooks/rpi/telemetry.json'
             New-PluginFixtureEntry -Name 'ado' -Version '9.9.9' `
-                -Rules @('instructions/shared/hve-core-location.instructions.md')
+                -Rules @('../../.github/instructions/shared/hve-core-location.instructions.md')
         )
 
         if ($ReverseOrder) {
@@ -55,7 +55,7 @@ BeforeAll {
 Describe 'Compare-PluginReleaseEvidence' -Tag 'Unit' {
     BeforeEach {
         $script:compareRepo = New-CanonicalEvidenceRepository -Root (Join-Path $TestDrive ([System.Guid]::NewGuid().ToString()))
-        $script:actualEvidence = New-PluginCanonicalEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
+        $script:actualEvidence = New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
             -Locator (New-PluginReleaseLocator -Version '9.9.9' -Channel PreRelease) `
             -PackageEvidence (Get-PluginCanonicalPackageEvidence -RepoRoot $script:compareRepo `
                 -CatalogPath '.github/plugin/marketplace.json' -Channel PreRelease)
@@ -204,12 +204,12 @@ Describe 'Get-PluginCanonicalPackageEvidence' -Tag 'Unit' {
         It 'Moves the owning package digest and the total' {
             $entries = @(
                 New-PluginFixtureEntry -Name 'rpi' -Version '9.9.9' `
-                    -Agents @('agents/rpi/rpi-planner.agent.md') `
-                    -Commands @('prompts/rpi/rpi-plan.prompt.md') `
-                    -Skills @('skills/rpi/rpi-plan') `
-                    -Hook 'hooks/rpi/telemetry.json'
+                    -Agents @('../../.github/agents/rpi/rpi-planner.agent.md') `
+                    -Commands @('../../.github/prompts/rpi/rpi-plan.prompt.md') `
+                    -Skills @('../../.github/skills/rpi/rpi-plan') `
+                    -Hook '../../.github/hooks/rpi/telemetry.json'
                 New-PluginFixtureEntry -Name 'ado' -Version '9.9.9' `
-                    -Rules @('instructions/shared/hve-core-location.instructions.md')
+                    -Rules @('../../.github/instructions/shared/hve-core-location.instructions.md')
             )
             Add-PluginFixtureCatalog -RepoRoot $script:canonicalRepo -Entries $entries -Version '9.9.9' | Out-Null
             $rerun = Get-PluginCanonicalPackageEvidence -RepoRoot $script:canonicalRepo `
@@ -224,7 +224,7 @@ Describe 'Get-PluginCanonicalPackageEvidence' -Tag 'Unit' {
 
         It 'Refuses a package whose declared component matches no tracked source' {
             $entries = @(
-                New-PluginFixtureEntry -Name 'rpi' -Version '9.9.9' -Agents @('agents/rpi/absent.agent.md')
+                New-PluginFixtureEntry -Name 'rpi' -Version '9.9.9' -Agents @('../../.github/agents/rpi/absent.agent.md')
             )
             Add-PluginFixtureCatalog -RepoRoot $script:canonicalRepo -Entries $entries -Version '9.9.9' | Out-Null
             { Get-PluginCanonicalPackageEvidence -RepoRoot $script:canonicalRepo `
@@ -242,14 +242,14 @@ Describe 'Get-PluginCanonicalPackageEvidence' -Tag 'Unit' {
     }
 }
 
-Describe 'New-PluginCanonicalEvidenceDocument' -Tag 'Unit' {
+Describe 'New-PluginReleaseEvidenceDocument' -Tag 'Unit' {
     BeforeEach {
         $script:documentCanonicalRepo = New-CanonicalEvidenceRepository -Root (Join-Path $TestDrive ([System.Guid]::NewGuid().ToString()))
         $script:canonicalPackages = Get-PluginCanonicalPackageEvidence -RepoRoot $script:documentCanonicalRepo `
             -CatalogPath '.github/plugin/marketplace.json' -Channel PreRelease
         $script:canonicalLocator = New-PluginReleaseLocator -Version '9.9.9' -Repo 'contoso/contoso-hve' `
             -Channel PreRelease
-        $script:canonicalDocument = New-PluginCanonicalEvidenceDocument -SourceCommit $script:SourceCommit `
+        $script:canonicalDocument = New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit `
             -Version '9.9.9' -Locator $script:canonicalLocator -PackageEvidence $script:canonicalPackages
     }
 
@@ -283,26 +283,26 @@ Describe 'New-PluginCanonicalEvidenceDocument' -Tag 'Unit' {
 
     Context 'when the binding inputs disagree' {
         It 'Refuses a locator that does not match the version' {
-            { New-PluginCanonicalEvidenceDocument -SourceCommit $script:SourceCommit -Version '1.0.0' `
+            { New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit -Version '1.0.0' `
                     -Locator $script:canonicalLocator -PackageEvidence $script:canonicalPackages } |
                 Should -Throw -ExpectedMessage "*does not match package version '1.0.0'*"
         }
 
         It 'Refuses an abbreviated source commit' {
-            { New-PluginCanonicalEvidenceDocument -SourceCommit '0123456' -Version '9.9.9' `
+            { New-PluginReleaseEvidenceDocument -SourceCommit '0123456' -Version '9.9.9' `
                     -Locator $script:canonicalLocator -PackageEvidence $script:canonicalPackages } |
                 Should -Throw -ExpectedMessage '*must be a full 40-character lowercase commit id*'
         }
 
         It 'Refuses an empty package set' {
-            { New-PluginCanonicalEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
+            { New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
                     -Locator $script:canonicalLocator `
                     -PackageEvidence @{ Digest = 'a'; FileCount = 0; TotalBytes = 0; Packages = @() } } |
                 Should -Throw -ExpectedMessage '*must cover at least one package*'
         }
 
         It 'Refuses a package that covers no file' {
-            { New-PluginCanonicalEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
+            { New-PluginReleaseEvidenceDocument -SourceCommit $script:SourceCommit -Version '9.9.9' `
                     -Locator $script:canonicalLocator `
                     -PackageEvidence @{
                         Digest     = 'a'
@@ -366,7 +366,7 @@ Describe 'Invoke-PluginReleaseEvidence canonical mode' -Tag 'Unit' {
 
         It 'Refuses a changed package set' {
             $entries = @(
-                New-PluginFixtureEntry -Name 'rpi' -Version '9.9.9' -Agents @('agents/rpi/rpi-planner.agent.md')
+                New-PluginFixtureEntry -Name 'rpi' -Version '9.9.9' -Agents @('../../.github/agents/rpi/rpi-planner.agent.md')
             )
             Add-PluginFixtureCatalog -RepoRoot $script:canonicalRunRepo -Entries $entries -Version '9.9.9' | Out-Null
             $verify = Invoke-PluginReleaseEvidence -RepoRoot $script:canonicalRunRepo `

@@ -142,7 +142,7 @@ The marketplace catalog owns plugin and VSIX package composition:
 
 * `.github/plugin/marketplace.json` owns package identity, display names, maturity, documentation pointers, aggregate status, and `.github`-root-relative component membership: `agents/*.agent.md`, `prompts/*.prompt.md`, `instructions/*.instructions.md`, `skills/*` directories, and `hooks/*.json`. Package prose lives under `docs/plugins/`.
 * After changing marketplace recipes or canonical artifacts, run `npm run plugin:validate` and `npm run docs:generate:check` for ordinary validation. Run `npm run plugin:evidence` when release-evidence validation is in scope.
-* Materialize plugin packages only for explicit package assembly. `HVE_PLUGIN_STAGING_ROOT` or `-StagingRoot` must name an absolute path outside the repository before generation runs. Ordinary validation must never create a repository-root `plugins/` directory.
+* `plugins/<package>/plugin.json` is a manifest-only Copilot plugin root. `Generate-Plugins.ps1` and `npm run plugin:generate` refresh only the ten tracked manifests; canonical components remain under `.github`.
 * Run `npm run extension:prepare` and `npm run extension:prepare:prerelease` to regenerate package READMEs and `package.*.json` manifests under `extension/`.
 * After adding, changing, moving, or removing a documentable agent, prompt, instruction, or skill, run `npm run docs:generate` and commit the matching page under `docs/reference/`. The generator owns page frontmatter and the prefix through `<!-- END AUTO-GENERATED: overview -->`; edit only the preserved `When to use it`, applicable `How to use it`, and `Example usage` tail. Do not edit generated regions or catalog indexes by hand.
 * Run `npm run plugin:validate` to confirm marketplace metadata and package closure are correct.
@@ -153,8 +153,8 @@ The marketplace catalog owns plugin and VSIX package composition:
 
 * Scripts follow instructions provided by the codebase for convention and standards.
 * Scripts used by the codebase have an `npm run` script for ease of use.
-* A root `plugins/` directory is forbidden as validation or package output. Do not create, edit, or stage one.
-* Generate plugin output only under a caller-supplied absolute staging root outside the repository. For the npm wrapper, set `HVE_PLUGIN_STAGING_ROOT`; for the PowerShell script, pass `-StagingRoot`. Generated ZIP layout is host-specific and is not marketplace catalog vocabulary.
+* The tracked `plugins/` directory contains exactly ten package directories, each containing only `plugin.json`. Do not add copied artifacts, payload directories, generated READMEs, or other files below those roots.
+* Plugin generation refreshes only those tracked manifests. It does not create an external staging tree, a shared root manifest, or plugin archive payloads.
 * Artifacts at the root of `.github/agents/`, `.github/instructions/`, `.github/prompts/`, or `.github/skills/` (without a subdirectory) are repo-specific and excluded from marketplace membership, plugin generation, and extension packaging. Validation enforces this rule.
 
 PowerShell scripts follow PSScriptAnalyzer rules from `scripts/linting/PSScriptAnalyzer.psd1` and include proper comment-based help. Validation runs via `npm run lint:ps` with results output to `logs/`.

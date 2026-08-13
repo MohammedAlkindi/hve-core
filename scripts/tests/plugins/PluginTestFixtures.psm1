@@ -46,10 +46,11 @@ function New-PluginFixtureRepository {
     Creates an isolated git working tree that mimics the repository layout.
 
     .DESCRIPTION
-    Initializes a standalone git repository containing package.json, the shared
-    .github/plugin.json manifest, and the canonical roots the plugin pipeline
-    reads. Nothing is committed, because every production reader consults the
-    index rather than history.
+    Initializes a standalone git repository containing package.json and the
+    canonical roots the plugin pipeline reads. Nothing is committed, because
+    every production reader consults the index rather than history. Tracked
+    package roots are generator-owned and are materialized separately by
+    Add-PluginFixturePackageRoot.
 
     .PARAMETER Path
     Directory to initialize.
@@ -105,14 +106,6 @@ function New-PluginFixtureRepository {
         author      = 'Contoso'
     } | ConvertTo-Json -Depth 5
     Add-PluginFixtureFile -RepoRoot $Path -RelativePath 'package.json' -Content $packageJson | Out-Null
-
-    $sharedManifest = [ordered]@{
-        name     = 'contoso-hve'
-        agents   = @()
-        commands = @()
-        skills   = @()
-    } | ConvertTo-Json -Depth 5
-    Add-PluginFixtureFile -RepoRoot $Path -RelativePath '.github/plugin.json' -Content $sharedManifest | Out-Null
 
     if (-not $SkipAgentRoot) {
         New-Item -ItemType Directory -Path (Join-Path $Path '.github/agents') -Force | Out-Null
@@ -188,14 +181,14 @@ function Add-PluginFixtureArtifactSet {
     Writes one agent, prompt, instruction, skill, and hook artifact set.
 
     .DESCRIPTION
-    Every artifact carries a distinct description so generated manifests,
-    READMEs, and package documents can be checked against literal expectations.
+    Every artifact carries a distinct description so generated manifests and
+    package documents can be checked against literal expectations.
 
     .PARAMETER RepoRoot
     Fixture repository working tree.
 
     .OUTPUTS
-    [hashtable] Package paths keyed by artifact kind.
+    [hashtable] Manifest-relative component references keyed by artifact kind.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -221,11 +214,11 @@ function Add-PluginFixtureArtifactSet {
         -Content "#!/usr/bin/env bash`necho collect`n" | Out-Null
 
     return @{
-        Agent       = 'agents/rpi/rpi-planner.agent.md'
-        Command     = 'prompts/rpi/rpi-plan.prompt.md'
-        Rule        = 'instructions/shared/hve-core-location.instructions.md'
-        Skill       = 'skills/rpi/rpi-plan'
-        Hook        = 'hooks/rpi/telemetry.json'
+        Agent   = '../../.github/agents/rpi/rpi-planner.agent.md'
+        Command = '../../.github/prompts/rpi/rpi-plan.prompt.md'
+        Rule    = '../../.github/instructions/shared/hve-core-location.instructions.md'
+        Skill   = '../../.github/skills/rpi/rpi-plan'
+        Hook    = '../../.github/hooks/rpi/telemetry.json'
     }
 }
 
@@ -244,25 +237,25 @@ function New-PluginFixtureEntry {
     Package version.
 
     .PARAMETER SourcePath
-    Repository-relative root containing canonical package components.
+    Tracked package root addressed by the entry. Defaults to plugins/<Name>.
 
     .PARAMETER SourceRef
     Optional exact release tag. Omitted by default for a tip-oriented catalog.
 
     .PARAMETER Agents
-    Package-relative agent paths.
+    Manifest-relative agent references.
 
     .PARAMETER Commands
-    Package-relative command paths.
+    Manifest-relative command references.
 
     .PARAMETER Rules
-    Package-relative rule paths.
+    Manifest-relative rule references.
 
     .PARAMETER Skills
-    Package-relative skill paths.
+    Manifest-relative skill references.
 
     .PARAMETER Hook
-    Package-relative hook manifest path.
+    Manifest-relative hook manifest reference.
 
     .PARAMETER Overlay
     x-hve overlay members.
@@ -287,7 +280,7 @@ function New-PluginFixtureEntry {
         [string]$Version = '9.9.9',
 
         [Parameter(Mandatory = $false)]
-        [string]$SourcePath = '.github',
+        [string]$SourcePath,
 
         [Parameter(Mandatory = $false)]
         [AllowEmptyString()]
@@ -320,7 +313,7 @@ function New-PluginFixtureEntry {
         source      = [ordered]@{
             source = 'github'
             repo   = 'contoso/contoso-hve'
-            path   = $SourcePath
+            path   = if ([string]::IsNullOrWhiteSpace($SourcePath)) { "plugins/$Name" } else { $SourcePath }
         }
         description = $Description
         version     = $Version
@@ -427,6 +420,56 @@ function Add-PluginFixtureCatalog {
     return (Add-PluginFixtureFile -RepoRoot $RepoRoot -RelativePath $RelativePath -Content (($catalog | ConvertTo-Json -Depth 12) + "`n"))
 }
 
+function Add-PluginFixturePackageRoot {
+    <#
+    .SYNOPSIS
+    Materializes the tracked package roots a fixture catalog declares.
+
+    .DESCRIPTION
+    Runs the canonical generator against the fixture so plugins/ holds exactly
+    the bytes a mutating run produces. Fixtures never hand-write package roots,
+    which keeps drift-sensitive suites comparing generated output with itself
+    rather than with a restated expectation.
+
+    .PARAMETER RepoRoot
+    Fixture repository working tree.
+
+    .PARAMETER CatalogPath
+    Optional catalog path, absolute or relative to the fixture root.
+
+    .OUTPUTS
+    [string] Absolute path to the generated plugins directory.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $false)]
+        [string]$CatalogPath
+    )
+
+    # Loaded inside the helper so importing fixtures carries no generator
+    # preferences or helper-module reloads into suites that never materialize.
+    . (Join-Path $PSScriptRoot '../../plugins/Generate-Plugins.ps1')
+
+    $generationArguments = @{
+        RepoRoot = $RepoRoot
+        Refresh  = $true
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CatalogPath)) {
+        $generationArguments['CatalogPath'] = $CatalogPath
+    }
+
+    # Generation narrates through the information stream; fixture setup keeps
+    # test output limited to the assertions themselves.
+    Invoke-PluginGeneration @generationArguments 6>$null | Out-Null
+
+    return (Join-Path -Path $RepoRoot -ChildPath 'plugins')
+}
+
 function Get-PluginFixtureInventory {
     <#
     .SYNOPSIS
@@ -531,6 +574,7 @@ Export-ModuleMember -Function @(
     'Add-PluginFixtureArtifactSet',
     'Add-PluginFixtureCatalog',
     'Add-PluginFixtureFile',
+    'Add-PluginFixturePackageRoot',
     'Get-PluginFixtureInventory',
     'Get-PluginFixtureReparsePoint',
     'Get-PluginFixtureTreeDigest',

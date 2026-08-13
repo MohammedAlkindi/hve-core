@@ -1,75 +1,58 @@
 ---
 title: Plugin Generation Scripts
-description: PowerShell tooling for generating Copilot CLI plugins from marketplace package recipes
+description: PowerShell tooling for refreshing manifest-only Copilot CLI plugin roots from marketplace recipes
 ---
 
-PowerShell tooling for generating Copilot CLI plugins from the marketplace
-catalog and shared resolved package projection.
+PowerShell tooling for refreshing manifest-only Copilot CLI plugin roots from
+the marketplace catalog and resolved canonical source membership.
 
 ## Scripts
 
 | Script                           | npm Command                | Description                                     |
 |----------------------------------|----------------------------|-------------------------------------------------|
-| Generate-Plugins.ps1             | `npm run plugin:generate`  | Materialize plugin packages in external staging |
+| Generate-Plugins.ps1             | `npm run plugin:generate`  | Refresh the ten tracked plugin manifests         |
 | Validate-Marketplace.ps1         | `npm run lint:marketplace` | Validate marketplace.json plugin manifest       |
 | Assert-PluginReleaseEvidence.ps1 | `npm run plugin:evidence`  | Record or verify canonical release evidence     |
-| Modules/PluginHelpers.psm1       | (library)                  | Plugin materialization and packaging helpers    |
+| Modules/PluginHelpers.psm1       | (library)                  | Plugin manifest and catalog helpers              |
 
 ## Prerequisites
 
 * PowerShell 7.0+
 * PowerShell-Yaml module (`Install-Module -Name PowerShell-Yaml -RequiredVersion 0.4.7`)
-* Git, because generation copies only git-tracked source paths
+* Git, because manifests and release evidence resolve canonical Git-tracked source paths
 
 ## Marketplace to Plugin Pipeline
 
 1. Author artifacts in `.github/` (agents, prompts, instructions, skills, hooks)
 2. Declare package membership and metadata in `.github/plugin/marketplace.json`
 3. Run `npm run lint:marketplace` for ordinary non-mutating validation
-4. Materialize packages only when packaging requires them, using an absolute
-  staging root outside the repository
+4. Run `npm run plugin:generate` to refresh only the ten tracked
+  `plugins/<package>/plugin.json` manifests
 5. Validate deterministic evidence directly from canonical tracked sources
 
 ## Generated Output
 
-Plugin trees contain only regular files and real directories. No symbolic links
-are created, so generation needs no elevated privileges and no OS-specific
-configuration. Generation requires either `HVE_PLUGIN_STAGING_ROOT` or
-`-StagingRoot` to name an absolute path outside the repository. No default
-points to a workspace `plugins/` directory.
-
-Each declared package source is materialized from the paths git currently
-tracks beneath it. Working-tree bytes are copied, so locally modified tracked
-files are included, while untracked content such as `.venv/`, `node_modules/`,
-and Python bytecode cache directories is never ingested. Generation fails when
-the combined output exceeds `-MaxTotalSizeMB` (default 40), and the failure names
 the largest plugins.
-
-A source path that git does not track produces a warning and is skipped. Stage
-new artifacts before generating.
+Generation refreshes exactly ten tracked `plugins/<package>/plugin.json`
+files. Each package directory contains only that manifest. Canonical agents,
+prompts, instructions, skills, hooks, templates, and scripts remain under
+`.github`; generation does not copy payloads, create package READMEs, or write
+documentation.
 
 ## Refreshing Plugins After Artifact Changes
 
 ```bash
-HVE_PLUGIN_STAGING_ROOT=/absolute/path/outside/hve-core npm run plugin:generate
+npm run plugin:generate
 ```
 
-To call the generator directly, pass the staging root explicitly:
-
-```powershell
-pwsh -File scripts/plugins/Generate-Plugins.ps1 -StagingRoot /absolute/path/outside/hve-core
-```
-
-These commands regenerate all plugins from marketplace package recipes in the
-selected temporary staging location. Ordinary validation uses
-`npm run lint:marketplace` and does not materialize packages.
+This command refreshes the tracked manifests from marketplace package recipes.
+Ordinary validation uses `npm run plugin:validate` and does not create payloads.
 
 ## Marketplace Validation
 
 `Validate-Marketplace.ps1` validates `.github/plugin/marketplace.json` against
-its JSON schema, requires the shared `.github/plugin.json` manifest, and checks
-version alignment with the root `package.json` plus the source locator of every
-entry.
+its JSON schema and checks version alignment with the root `package.json`, the
+ten manifest-only roots, and the canonical source locator of every entry.
 
 ```bash
 npm run lint:marketplace
@@ -85,7 +68,7 @@ of the linting pipeline. Pass `-OutputPath ''` to suppress the report file.
 
 ### Entry Source Contract
 
-Every entry uses the canonical `.github` source root:
+Every entry uses its manifest-only package root:
 
 ```json
 {
@@ -93,35 +76,24 @@ Every entry uses the canonical `.github` source root:
   "source": {
     "source": "github",
     "repo": "microsoft/hve-core",
-    "path": ".github"
+    "path": "plugins/rpi"
   }
 }
 ```
 
-Git-source installation resolves `.github/plugin.json` as the manifest for
-that shared source root:
-
-```json
-{
-  "name": "hve-core",
-  "agents": [],
-  "commands": [],
-  "skills": []
-}
-```
-
-The shared manifest provides the source identity and explicit empty component
-defaults. Each entry in `.github/plugin/marketplace.json` owns its package
-membership declarations. Those entry declarations select the recognized
-components that the CLI loads for that package; they do not filter which files
 the CLI copies from the source root. `Validate-Marketplace.ps1` owns validation
-of the shared manifest and the entry source contract.
+Each `plugins/<package>/plugin.json` manifest declares the package membership
+through paths to canonical `.github` artifacts. Git-source installation clones
+the repository, so those references resolve within the clone without copied
+payloads. `Validate-Marketplace.ps1` checks the manifest-only root, canonical
+source existence, and catalog membership contract.
 
-The `repo` and `path` fields are required, and `path` must be `.github`.
-Main catalog entries omit `ref`. Prerelease catalog entries use the exact
-`prerelease-v<version>` ref, and release catalog entries use the exact
-`v<version>` ref, each matching the package version. Branch refs, commit SHA
-locators, URL locators, and version-mismatched channel refs are rejected.
+The `repo` and `path` fields are required, and `path` must identify one of the
+ten `plugins/<package>` roots. Main catalog entries omit `ref`. Prerelease
+catalog entries use the exact `prerelease-v<version>` ref, and release catalog
+entries use the exact `v<version>` ref, each matching the package version.
+Branch refs, commit SHA locators, URL locators, and version-mismatched channel
+refs are rejected.
 
 Moving registrations and immutable catalog locators serve different purposes.
 Use `microsoft/hve-core#release/prerelease` or
@@ -129,7 +101,7 @@ Use `microsoft/hve-core#release/prerelease` or
 Use `prerelease-v<version>` or `v<version>` when selecting the immutable source
 tree and source SHA used for reproducible evidence.
 
-Component membership is relative to the `.github` source root:
+Component membership resolves to canonical `.github` sources:
 
 * `agents/*.agent.md`
 * `prompts/*.prompt.md` under the `commands` field
@@ -137,11 +109,9 @@ Component membership is relative to the `.github` source root:
 * `skills/*` directories
 * `hooks/*.json`
 
-For Git-source installation, the CLI copies the complete shared `.github`
-source tree for each installed entry. Generated per-package ZIPs are separate
-release assets materialized in external staging; the CLI does not use them for
-Git-source installation. Their host-specific paths are package layout, not
-catalog membership vocabulary.
+The manifest paths traverse from each `plugins/<package>/plugin.json` file to
+these canonical sources. The CLI resolves them from the repository clone; no
+generated plugin ZIP or copied package tree participates in installation.
 
 ## Deterministic Release Evidence
 
@@ -180,11 +150,13 @@ incomplete. `-ExpectedPackageCount` adds a package-count precondition.
 
 ## Release Publication and Historical Snapshots
 
-Release workflows attach `plugin-release-evidence.json` to the
-release for the exact `prerelease-v<version>` or `v<version>` channel ref and
-attest it alongside signed plugin ZIPs, SBOM, Sigstore, and in-toto assets.
-The release and prerelease branch registrations are reviewed and moving; the
-exact tags and their source SHAs are immutable release identities.
+Release workflows attach `plugin-release-evidence.json` to the release for the
+exact `prerelease-v<version>` or `v<version>` channel ref. The evidence attests
+catalog-resolved canonical Git-tracked sources, while the VSIX, dependency
+SBOM, VEX where applicable, Sigstore, and in-toto assets retain their own
+release responsibilities. The release and prerelease branch registrations are
+reviewed and moving; the exact tags and their source SHAs are immutable release
+identities.
 
 Future legacy snapshot publication and evidence v1 are retired. Existing
 historical identities, including earlier `hve-core-v` or `plugins-v` tags,

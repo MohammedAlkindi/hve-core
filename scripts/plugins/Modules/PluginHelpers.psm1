@@ -11,72 +11,9 @@
 Import-Module (Join-Path $PSScriptRoot '../../lib/Modules/ArtifactHelpers.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '../../lib/Modules/MarketplaceHelpers.psm1') -Force
 
-# Marker pair delimiting the optional package notice inside a durable package
-# document. The notice renders in the generated README immediately after the
-# package description rather than inside the Overview section.
-$script:PluginNoticeBeginMarker = '<!-- BEGIN PACKAGE NOTICE -->'
-$script:PluginNoticeEndMarker = '<!-- END PACKAGE NOTICE -->'
-
 # ---------------------------------------------------------------------------
 # Pure Functions (no file system side effects)
 # ---------------------------------------------------------------------------
-
-function Assert-PluginStagingRoot {
-    <#
-    .SYNOPSIS
-    Validates an explicit package staging root outside the repository.
-
-    .PARAMETER Path
-    Absolute package staging root supplied by a caller.
-
-    .PARAMETER RepoRoot
-    Absolute repository root that staging must neither contain nor descend from.
-
-    .OUTPUTS
-    [string] Normalized absolute staging root.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyString()]
-        [string]$Path,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$RepoRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw 'A staging root is required. Supply -StagingRoot or set HVE_PLUGIN_STAGING_ROOT; generation resolves no default inside the repository.'
-    }
-    if (-not [System.IO.Path]::IsPathRooted($Path)) {
-        throw "Staging root '$Path' must be an absolute path."
-    }
-
-    $normalizedStagingRoot = [System.IO.Path]::GetFullPath($Path).TrimEnd(
-        [System.IO.Path]::DirectorySeparatorChar,
-        [System.IO.Path]::AltDirectorySeparatorChar
-    )
-    $normalizedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd(
-        [System.IO.Path]::DirectorySeparatorChar,
-        [System.IO.Path]::AltDirectorySeparatorChar
-    )
-    $comparison = [System.StringComparison]::OrdinalIgnoreCase
-    $separator = [System.IO.Path]::DirectorySeparatorChar
-
-    if (
-        $normalizedStagingRoot.Equals($normalizedRepoRoot, $comparison) -or
-        $normalizedStagingRoot.StartsWith("$normalizedRepoRoot$separator", $comparison)
-    ) {
-        throw "Staging root '$normalizedStagingRoot' resolves inside the repository root '$normalizedRepoRoot'. Materialization stages outside the workspace."
-    }
-    if ($normalizedRepoRoot.StartsWith("$normalizedStagingRoot$separator", $comparison)) {
-        throw "Staging root '$normalizedStagingRoot' contains the repository root '$normalizedRepoRoot'."
-    }
-
-    return $normalizedStagingRoot
-}
 
 function New-PluginManifestContent {
     <#
@@ -85,9 +22,11 @@ function New-PluginManifestContent {
 
     .DESCRIPTION
     Creates the runtime manifest mirroring the standard catalog recipe: name,
-    description, version, provenance, and component path declarations for
-    agents, commands, rules, skills, and hooks. The x-hve metadata overlay is
-    catalog-only and never reaches a generated manifest.
+    description, version, provenance, and component declarations for agents,
+    commands, rules, skills, and hooks. Every component value is a
+    manifest-relative reference to canonical repository content, so nothing is
+    copied beneath a package root. The x-hve metadata overlay and catalog
+    source metadata are catalog-only and never reach a generated manifest.
 
     .PARAMETER PackageName
     The package identifier used as the plugin name.
@@ -114,23 +53,23 @@ function New-PluginManifestContent {
     Optional provenance keywords.
 
     .PARAMETER AgentPaths
-    Optional. Array of package-relative directory paths containing agent files.
+    Optional. Manifest-relative references to canonical agent files.
 
     .PARAMETER CommandPaths
-    Optional. Array of package-relative directory paths containing prompt files.
+    Optional. Manifest-relative references to canonical prompt files.
 
     .PARAMETER RulePaths
-    Optional. Array of package-relative directory paths containing instruction files.
+    Optional. Manifest-relative references to canonical instruction files.
 
     .PARAMETER SkillPaths
-    Optional. Array of package-relative directory paths containing skill subdirs.
+    Optional. Manifest-relative references to canonical skill directories.
 
     .PARAMETER HookPaths
-    Optional. Array of package-relative file paths to hook JSON files.
+    Optional. Manifest-relative references to canonical hook JSON files.
 
     .OUTPUTS
     [hashtable] Plugin manifest with name, description, version, provenance,
-    and component path keys.
+    and component reference keys.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -209,8 +148,8 @@ function New-PluginManifestContent {
         $manifest['keywords'] = @($Keywords)
     }
 
-    # Emit explicit path arrays when provided; the CLI does not recurse
-    # into subdirectories, so each leaf directory must be declared.
+    # Emit explicit reference arrays when provided; each entry names one
+    # canonical artifact so a package never claims a whole shared directory.
     if ($AgentPaths -and $AgentPaths.Count -gt 0) {
         $manifest['agents'] = @($AgentPaths | Sort-Object)
     }
@@ -239,263 +178,6 @@ function New-PluginManifestContent {
     }
 
     return $manifest
-}
-
-function Split-PluginDocumentationSource {
-    <#
-    .SYNOPSIS
-    Separates a package document into title, notice, and overview content.
-
-    .DESCRIPTION
-    The durable package document owns the hand-authored prose that the
-    generated README embeds. Its frontmatter title supplies the README heading,
-    an optional marker-delimited notice block is emitted immediately after the
-    description, and the remaining body becomes the Overview section.
-
-    .PARAMETER Content
-    Raw document content.
-
-    .OUTPUTS
-    [hashtable] Title, Notice, and Body.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyString()]
-        [AllowNull()]
-        [string]$Content
-    )
-
-    $result = @{ Title = ''; Notice = ''; Body = '' }
-    if ([string]::IsNullOrWhiteSpace($Content)) {
-        return $result
-    }
-
-    $body = $Content -replace "`r`n", "`n"
-
-    if ($body -match '(?s)\A---\s*\n(.*?)\n---\s*\n') {
-        $frontmatterText = $Matches[1]
-        $body = $body.Substring($Matches[0].Length)
-        try {
-            $frontmatter = ConvertFrom-Yaml -Yaml $frontmatterText
-            if ($frontmatter -is [System.Collections.IDictionary] -and $frontmatter.Contains('title')) {
-                $result.Title = [string]$frontmatter['title']
-            }
-        }
-        catch {
-            Write-Verbose "Failed to parse package document frontmatter: $_"
-        }
-    }
-
-    # Legacy companion prose leads with an H1; the frontmatter title replaces it.
-    if ($body -match '(?m)\A#\s+([^\r\n]+)\r?\n') {
-        if ([string]::IsNullOrWhiteSpace($result.Title)) {
-            $result.Title = $Matches[1].Trim()
-        }
-        $body = $body -replace '(?m)\A#\s+[^\r\n]+\r?\n(\r?\n)?', ''
-    }
-
-    if ($body -match "(?s)$([regex]::Escape($script:PluginNoticeBeginMarker))\s*\n(.*?)\n\s*$([regex]::Escape($script:PluginNoticeEndMarker))\s*\n?") {
-        $result.Notice = $Matches[1].Trim()
-        $body = $body.Replace($Matches[0], '')
-    }
-
-    $result.Body = $body.Trim()
-    return $result
-}
-
-function Get-PluginItemMaturityLabel {
-    <#
-    .SYNOPSIS
-    Returns the canonical maturity label rendered for one README row.
-
-    .DESCRIPTION
-    The catalog labels only non-default components, so an item without a
-    declared maturity discloses the canonical 'stable' default rather than a
-    blank cell.
-
-    .PARAMETER Item
-    README item carrying an optional Maturity value.
-
-    .OUTPUTS
-    [string] Canonical maturity label.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [object]$Item
-    )
-
-    $value = [string]$Item.Maturity
-    if ([string]::IsNullOrWhiteSpace($value)) { return 'stable' }
-    return $value
-}
-
-function New-PluginReadmeContent {
-    <#
-    .SYNOPSIS
-    Generates README.md markdown for a plugin.
-
-    .DESCRIPTION
-    Builds a complete README.md string with a markdownlint-disable header,
-    title, description, install command, and tables for each artifact kind
-    that has items. Only sections with items are included.
-
-    .PARAMETER PackageMetadata
-    Hashtable with id, name, and description keys for the package.
-    An optional 'notice' key injects a custom blockquote after the description.
-
-    .PARAMETER Items
-    Array of processed item objects. Each object must have Name, Description,
-    and Kind properties, and may carry a canonical Maturity label.
-
-    .PARAMETER Maturity
-        Optional package maturity string. When 'experimental', an
-        experimental notice is injected after the description. When 'preview',
-        a preview notice is injected.
-
-    .PARAMETER PackageDocumentation
-        Optional markdown content from the durable package document. Injected as
-        an Overview section between the description and the Install section.
-
-    .OUTPUTS
-    [string] Complete README markdown content.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [hashtable]$PackageMetadata,
-
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyCollection()]
-        [array]$Items,
-
-        [Parameter(Mandatory = $false)]
-        [AllowNull()]
-        [AllowEmptyString()]
-        [string]$Maturity,
-
-        [Parameter(Mandatory = $false)]
-        [AllowNull()]
-        [AllowEmptyString()]
-        [string]$PackageDocumentation
-    )
-
-    $parsedDocument = Split-PluginDocumentationSource -Content $PackageDocumentation
-    $title = if (-not [string]::IsNullOrWhiteSpace($parsedDocument.Title)) {
-        $parsedDocument.Title
-    }
-    else {
-        [string]$PackageMetadata.name
-    }
-
-    $sb = [System.Text.StringBuilder]::new()
-    [void]$sb.AppendLine('<!-- markdownlint-disable-file -->')
-    [void]$sb.AppendLine("# $title")
-    [void]$sb.AppendLine()
-    [void]$sb.AppendLine($PackageMetadata.description)
-
-    # Inject maturity notice when the package is not stable
-    $effectiveMaturity = if ([string]::IsNullOrWhiteSpace($Maturity)) { 'stable' } else { $Maturity }
-    if ($effectiveMaturity -eq 'experimental') {
-        [void]$sb.AppendLine()
-        [void]$sb.AppendLine("> **`u{26A0}`u{FE0F} Experimental** `u{2014} This package is experimental. Contents and behavior may change or be removed without notice.")
-    }
-    elseif ($effectiveMaturity -eq 'preview') {
-        [void]$sb.AppendLine()
-        [void]$sb.AppendLine("> **`u{1F50D} Preview** `u{2014} This package is in preview. Core features are complete and functional but refinements may follow.")
-    }
-
-    # Inject the package notice declared by the durable package document
-    $notice = if ($PackageMetadata.ContainsKey('notice') -and -not [string]::IsNullOrWhiteSpace($PackageMetadata.notice)) {
-        [string]$PackageMetadata.notice
-    }
-    else {
-        $parsedDocument.Notice
-    }
-    if (-not [string]::IsNullOrWhiteSpace($notice)) {
-        [void]$sb.AppendLine()
-        [void]$sb.AppendLine($notice.TrimEnd())
-    }
-
-    # Inject the package document body as an Overview section. Frontmatter, a
-    # legacy leading H1, and the notice block are already removed because the
-    # title and notice are emitted above.
-    $overviewText = $parsedDocument.Body
-
-    if (-not [string]::IsNullOrWhiteSpace($overviewText)) {
-        [void]$sb.AppendLine()
-        [void]$sb.AppendLine('## Overview')
-        [void]$sb.AppendLine()
-        [void]$sb.AppendLine($overviewText)
-    }
-
-    [void]$sb.AppendLine()
-    [void]$sb.AppendLine('## Install')
-    [void]$sb.AppendLine()
-    [void]$sb.AppendLine('```bash')
-    [void]$sb.AppendLine("copilot plugin install $($PackageMetadata.id)@hve-core")
-    [void]$sb.AppendLine('```')
-
-    $sectionMap = [ordered]@{
-        agent       = @{ Title = 'Agents'; Header = 'Agent' }
-        prompt      = @{ Title = 'Commands'; Header = 'Command' }
-        instruction = @{ Title = 'Instructions'; Header = 'Instruction' }
-        skill       = @{ Title = 'Skills'; Header = 'Skill' }
-        hook        = @{ Title = 'Hooks'; Header = 'Hook' }
-    }
-
-    $hasPackageArtifactContent = -not [string]::IsNullOrWhiteSpace($PackageDocumentation) -and (
-        $PackageDocumentation -match '(?m)^##\s+Included Artifacts\s*$' -or
-        (
-            $PackageDocumentation -match '<!-- BEGIN AUTO-GENERATED ARTIFACTS -->' -and
-            $PackageDocumentation -match '<!-- END AUTO-GENERATED ARTIFACTS -->'
-        )
-    )
-
-    if (-not $hasPackageArtifactContent) {
-        foreach ($entry in $sectionMap.GetEnumerator()) {
-            $kind = $entry.Key
-            $meta = $entry.Value
-            $kindItems = @($Items | Where-Object { $_.Kind -eq $kind })
-            if ($kindItems.Count -eq 0) {
-                continue
-            }
-
-            [void]$sb.AppendLine()
-            [void]$sb.AppendLine("## $($meta.Title)")
-            [void]$sb.AppendLine()
-
-            # Calculate column widths for aligned table output
-            $col1Width = $meta.Header.Length
-            $col2Width = 'Maturity'.Length
-            $col3Width = 'Description'.Length
-            foreach ($item in $kindItems) {
-                $label = Get-PluginItemMaturityLabel -Item $item
-                if ($item.Name.Length -gt $col1Width) { $col1Width = $item.Name.Length }
-                if ($label.Length -gt $col2Width) { $col2Width = $label.Length }
-                if ($item.Description.Length -gt $col3Width) { $col3Width = $item.Description.Length }
-            }
-
-            [void]$sb.AppendLine("| $($meta.Header.PadRight($col1Width)) | $('Maturity'.PadRight($col2Width)) | $('Description'.PadRight($col3Width)) |")
-            [void]$sb.AppendLine('|' + ('-' * ($col1Width + 2)) + '|' + ('-' * ($col2Width + 2)) + '|' + ('-' * ($col3Width + 2)) + '|')
-            foreach ($item in $kindItems) {
-                $label = (Get-PluginItemMaturityLabel -Item $item).PadRight($col2Width)
-                [void]$sb.AppendLine("| $($item.Name.PadRight($col1Width)) | $label | $($item.Description.PadRight($col3Width)) |")
-            }
-        }
-    }
-
-    [void]$sb.AppendLine()
-    [void]$sb.AppendLine('---')
-    [void]$sb.AppendLine()
-    [void]$sb.AppendLine('> Source: [microsoft/hve-core](https://github.com/microsoft/hve-core)')
-    [void]$sb.AppendLine()
-
-    return $sb.ToString()
 }
 
 function New-PluginReleaseLocator {
@@ -626,18 +308,115 @@ function New-GenerateResult {
 # I/O Functions (file system operations)
 # ---------------------------------------------------------------------------
 
+function Get-PluginOutputFileIndex {
+    <#
+    .SYNOPSIS
+    Indexes every regular file in a plugin output tree by relative path.
+
+    .DESCRIPTION
+    Returns forward-slash relative paths mapped to SHA256 content hashes so two
+    generated trees can be compared by exact path set and bytes. A missing root
+    yields an empty index, which makes an absent tracked tree read as complete
+    drift rather than a silent pass.
+
+    .PARAMETER Root
+    Absolute path to a plugin output root.
+
+    .OUTPUTS
+    [hashtable] Relative path to SHA256 hash.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Root
+    )
+
+    $index = @{}
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        return $index
+    }
+
+    $resolvedRoot = [System.IO.Path]::GetFullPath($Root)
+    foreach ($file in Get-ChildItem -LiteralPath $resolvedRoot -File -Recurse -Force) {
+        $relative = [System.IO.Path]::GetRelativePath($resolvedRoot, $file.FullName) -replace '\\', '/'
+        $index[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    }
+    return $index
+}
+
+function Compare-PluginOutputTree {
+    <#
+    .SYNOPSIS
+    Compares an expected plugin output tree with a tracked one.
+
+    .DESCRIPTION
+    Reports every relative path present in only one tree and every shared path
+    whose bytes differ. Neither tree is modified, so the result is usable as a
+    non-mutating drift verdict.
+
+    .PARAMETER ExpectedRoot
+    Absolute path to the freshly generated expected tree.
+
+    .PARAMETER ActualRoot
+    Absolute path to the tracked repository tree.
+
+    .OUTPUTS
+    [hashtable] Missing, Extra, Changed (sorted relative paths) and HasDrift.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$ExpectedRoot,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$ActualRoot
+    )
+
+    $expected = Get-PluginOutputFileIndex -Root $ExpectedRoot
+    $actual = Get-PluginOutputFileIndex -Root $ActualRoot
+
+    $missing = [System.Collections.Generic.List[string]]::new()
+    $changed = [System.Collections.Generic.List[string]]::new()
+    foreach ($relative in $expected.Keys) {
+        if (-not $actual.ContainsKey($relative)) {
+            $missing.Add($relative)
+        }
+        elseif ($actual[$relative] -ne $expected[$relative]) {
+            $changed.Add($relative)
+        }
+    }
+
+    $extra = [System.Collections.Generic.List[string]]::new()
+    foreach ($relative in $actual.Keys) {
+        if (-not $expected.ContainsKey($relative)) {
+            $extra.Add($relative)
+        }
+    }
+
+    return @{
+        Missing  = [string[]]@($missing | Sort-Object)
+        Extra    = [string[]]@($extra | Sort-Object)
+        Changed  = [string[]]@($changed | Sort-Object)
+        HasDrift = (($missing.Count + $extra.Count + $changed.Count) -gt 0)
+    }
+}
+
 function Get-PluginTrackedPathIndex {
     <#
     .SYNOPSIS
     Builds the git-tracked path allowlist for a repository working tree.
 
     .DESCRIPTION
-    Reads the repository-relative paths recorded in the git index. Plugin
-    materialization copies only these paths, so untracked working-tree content
-    such as virtual environments, dependency directories, and bytecode caches
-    can never be ingested into a generated plugin. Throws when the directory is
-    not a git working tree, because materializing without the allowlist would
-    silently copy that residue.
+    Reads the repository-relative paths recorded in the git index. Release
+    evidence digests only these paths, so untracked working-tree content such
+    as virtual environments, dependency directories, and bytecode caches can
+    never enter a digest. Throws when the directory is not a git working tree,
+    because digesting without the allowlist would silently absorb that residue.
 
     .PARAMETER RepoRoot
     Absolute path to the repository working tree.
@@ -682,248 +461,17 @@ function Get-PluginTrackedPathIndex {
     }
 }
 
-function Copy-PluginFileIfChanged {
+function Write-PluginManifest {
     <#
     .SYNOPSIS
-    Copies a file only when the destination content differs.
+    Writes the sole runtime manifest for one catalog package.
 
     .DESCRIPTION
-    Compares length then SHA256 before writing, preserving the git stat cache
-    for unchanged files so repeat generations stay idempotent.
-
-    .PARAMETER SourcePath
-    Absolute path to the source file.
-
-    .PARAMETER DestinationPath
-    Absolute path to the destination file.
-
-    .OUTPUTS
-    [bool] True when the file was written, false when skipped.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$SourcePath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$DestinationPath
-    )
-
-    if (Test-Path -LiteralPath $DestinationPath -PathType Leaf) {
-        $sourceLength = (Get-Item -LiteralPath $SourcePath -Force).Length
-        $destinationLength = (Get-Item -LiteralPath $DestinationPath -Force).Length
-        if ($sourceLength -eq $destinationLength) {
-            $sourceHash = (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash
-            $destinationHash = (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256).Hash
-            if ($sourceHash -eq $destinationHash) {
-                return $false
-            }
-        }
-    }
-
-    Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
-    return $true
-}
-
-function Copy-PluginSource {
-    <#
-    .SYNOPSIS
-    Materializes git-tracked source content into a plugin destination.
-
-    .DESCRIPTION
-    Copies current working-tree bytes for every git-tracked path at or beneath
-    SourcePath, so locally modified tracked files are included and untracked
-    files are excluded. A file source produces exactly one destination file; a
-    directory source reconstructs its tracked subtree beneath DestinationPath.
-    Returns every destination written so callers can record complete generated
-    path bookkeeping for orphan cleanup.
-
-    .PARAMETER SourcePath
-    Absolute path to the repository file or directory being materialized.
-
-    .PARAMETER DestinationPath
-    Absolute destination path: the file itself for a file source, or the
-    subtree root for a directory source.
-
-    .PARAMETER RepoRoot
-    Absolute path to the repository working tree.
-
-    .PARAMETER TrackedIndex
-    Optional index from Get-PluginTrackedPathIndex. Resolved on demand when
-    omitted; callers in per-item loops should supply a shared index.
-
-    .OUTPUTS
-    [string[]] Absolute destination paths written.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$SourcePath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$DestinationPath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$RepoRoot,
-
-        [Parameter(Mandatory = $false)]
-        [AllowNull()]
-        [hashtable]$TrackedIndex
-    )
-
-    $resolvedRoot = [System.IO.Path]::GetFullPath($RepoRoot)
-    $resolvedSource = [System.IO.Path]::GetFullPath($SourcePath)
-    $relativeSource = [System.IO.Path]::GetRelativePath($resolvedRoot, $resolvedSource) -replace '\\', '/'
-
-    if ($relativeSource -eq '..' -or $relativeSource.StartsWith('../') -or [System.IO.Path]::IsPathRooted($relativeSource)) {
-        throw "Source path '$SourcePath' resolves outside the repository root '$resolvedRoot'."
-    }
-
-    if (-not $TrackedIndex) {
-        $TrackedIndex = Get-PluginTrackedPathIndex -RepoRoot $resolvedRoot
-    }
-
-    $isFileSource = $TrackedIndex.Lookup.Contains($relativeSource)
-    $matched = [System.Collections.Generic.List[string]]::new()
-
-    if ($isFileSource) {
-        $matched.Add($relativeSource)
-    }
-    else {
-        $prefix = "$relativeSource/"
-        foreach ($tracked in $TrackedIndex.Paths) {
-            if ($tracked.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
-                $matched.Add($tracked)
-            }
-        }
-    }
-
-    if ($matched.Count -eq 0) {
-        Write-Warning "No git-tracked content found for source: $relativeSource"
-        return @()
-    }
-
-    $written = [System.Collections.Generic.List[string]]::new()
-
-    foreach ($tracked in $matched) {
-        $trackedSource = Join-Path -Path $resolvedRoot -ChildPath $tracked
-
-        if ($isFileSource) {
-            $destination = $DestinationPath
-        }
-        else {
-            $suffix = $tracked.Substring($relativeSource.Length + 1)
-            $destination = [System.IO.Path]::GetFullPath(
-                [System.IO.Path]::Combine($DestinationPath, $suffix)
-            )
-        }
-
-        # A path can be staged while absent from the working tree; skip it
-        # rather than failing the whole generation run.
-        if (-not (Test-Path -LiteralPath $trackedSource -PathType Leaf)) {
-            Write-Warning "Tracked source missing from the working tree: $tracked"
-            continue
-        }
-
-        $destinationDir = Split-Path -Parent $destination
-        if ($destinationDir -and -not (Test-Path -LiteralPath $destinationDir -PathType Container)) {
-            New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
-        }
-
-        Copy-PluginFileIfChanged -SourcePath $trackedSource -DestinationPath $destination | Out-Null
-        $written.Add($destination)
-    }
-
-    return $written.ToArray()
-}
-
-function Write-PluginHookArtifact {
-    <#
-    .SYNOPSIS
-    Materializes a hook manifest and its sibling script directory into a plugin.
-
-    .DESCRIPTION
-    Hook commands in the source manifest default to the repository .github root
-    when no plugin root is set. Inside an installed plugin the same scripts live
-    under the plugin root, so this function writes a transformed copy using the
-    ${CLAUDE_PLUGIN_ROOT} placeholder, then materializes the sibling script
-    directory (the manifest path without its .json extension).
-
-    .PARAMETER SourceManifest
-    Absolute path to the source hook .json manifest in the repository.
-
-    .PARAMETER DestinationManifest
-    Absolute path where the transformed manifest is written in the plugin.
-
-    .PARAMETER GeneratedFiles
-    Set tracking generated paths for orphan cleanup; every materialized script
-    file is added to it.
-
-    .PARAMETER RepoRoot
-    Absolute path to the repository working tree.
-
-    .PARAMETER TrackedIndex
-    Optional git-tracked path index shared across a generation run.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$SourceManifest,
-
-        [Parameter(Mandatory = $true)]
-        [string]$DestinationManifest,
-
-        [Parameter(Mandatory = $true)]
-        [System.Collections.Generic.HashSet[string]]$GeneratedFiles,
-
-        [Parameter(Mandatory = $true)]
-        [string]$RepoRoot,
-
-        [Parameter(Mandatory = $false)]
-        [AllowNull()]
-        [hashtable]$TrackedIndex
-    )
-
-    # Degrade gracefully when the manifest is missing, matching how other kinds
-    # warn rather than throw and fail the entire generation run.
-    if (-not (Test-Path -LiteralPath $SourceManifest)) {
-        Write-Warning "Hook manifest not found: $SourceManifest"
-        return
-    }
-
-    # The source form serves repository and installed-plugin consumers. The
-    # materialized copy keeps the established plain plugin-root placeholder.
-    $manifestText = Get-Content -LiteralPath $SourceManifest -Raw -Encoding utf8
-    $manifestText = $manifestText.Replace('${CLAUDE_PLUGIN_ROOT:-.github}/hooks/', '${CLAUDE_PLUGIN_ROOT}/hooks/')
-    $manifestText = $manifestText.Replace('& (Join-Path ([string]::IsNullOrWhiteSpace($env:CLAUDE_PLUGIN_ROOT) ? ''.github'' : $env:CLAUDE_PLUGIN_ROOT) ''hooks/', '& (Join-Path $env:CLAUDE_PLUGIN_ROOT ''hooks/')
-    $manifestText = $manifestText.Replace('.github/hooks/', '${CLAUDE_PLUGIN_ROOT}/hooks/')
-    Set-ContentIfChanged -Path $DestinationManifest -Value $manifestText | Out-Null
-
-    # Materialize the sibling script directory (manifest path without .json).
-    $scriptSrc = $SourceManifest -replace '\.json$', ''
-    if (Test-Path -LiteralPath $scriptSrc) {
-        $scriptDest = $DestinationManifest -replace '\.json$', ''
-        $materialized = @(Copy-PluginSource -SourcePath $scriptSrc -DestinationPath $scriptDest `
-                -RepoRoot $RepoRoot -TrackedIndex $TrackedIndex)
-        foreach ($file in $materialized) {
-            [void]$GeneratedFiles.Add($file)
-        }
-    }
-}
-
-function Write-PluginDirectory {
-    <#
-    .SYNOPSIS
-    Creates a complete plugin directory structure from a catalog entry.
-
-    .DESCRIPTION
-    Builds the full plugin layout under the specified plugins directory using
-    the resolved catalog recipe. Every declared component is materialized from
-    its canonical git-tracked repository source into the package-relative path
-    the catalog declares, so the manifest, the catalog, and the package tree
-    describe the same membership. Generates the root plugin.json and README.md.
+    Serializes plugins/<package>/plugin.json from the resolved catalog recipe.
+    Component values are the manifest-relative references the catalog declares,
+    so the runtime reads canonical repository content in place and the package
+    root carries no copied payload. Any other entry already present in the
+    package root is removed, keeping the delivered inventory to one manifest.
 
     .PARAMETER Entry
     Marketplace catalog entry describing package identity and provenance.
@@ -935,26 +483,15 @@ function Write-PluginDirectory {
     .PARAMETER PluginsDir
     Absolute path to the root plugins output directory.
 
-    .PARAMETER RepoRoot
-    Absolute path to the repository root.
-
     .PARAMETER Version
     Semantic version string from the repository package.json.
 
-    .PARAMETER Maturity
-        Optional package maturity string. Forwarded to
-        New-PluginReadmeContent for maturity notice injection.
-
-    .PARAMETER DocumentPath
-        Optional absolute path to the durable package document supplying the
-        README title, notice, and Overview content.
-
     .PARAMETER DryRun
-    When specified, logs actions without creating files or directories.
+    When specified, logs actions without creating or removing files.
 
     .OUTPUTS
-    [hashtable] Result with Success, AgentCount, CommandCount, InstructionCount,
-    SkillCount, HookCount, and GeneratedFiles keys.
+    [hashtable] Result with Success, ManifestPath, AgentCount, CommandCount,
+    InstructionCount, SkillCount, and HookCount keys.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -970,20 +507,7 @@ function Write-PluginDirectory {
         [string]$PluginsDir,
 
         [Parameter(Mandatory = $true)]
-        [string]$RepoRoot,
-
-        [Parameter(Mandatory = $true)]
         [string]$Version,
-
-        [Parameter(Mandatory = $false)]
-        [AllowNull()]
-        [AllowEmptyString()]
-        [string]$Maturity,
-
-        [Parameter(Mandatory = $false)]
-        [AllowNull()]
-        [AllowEmptyString()]
-        [string]$DocumentPath,
 
         [Parameter(Mandatory = $false)]
         [switch]$DryRun
@@ -991,172 +515,37 @@ function Write-PluginDirectory {
 
     $packageName = [string]$Entry['name']
     $pluginRoot = Join-Path -Path $PluginsDir -ChildPath $packageName
+    $manifestPath = Join-Path -Path $pluginRoot -ChildPath 'plugin.json'
 
-    # One index per plugin bounds git invocations while staying current for
-    # callers that stage content between generations.
-    $trackedIndex = if ($DryRun) { $null } else { Get-PluginTrackedPathIndex -RepoRoot $RepoRoot }
-
-    $counts = @{
-        AgentCount       = 0
-        CommandCount     = 0
-        InstructionCount = 0
-        SkillCount       = 0
-        HookCount        = 0
+    $references = @{
+        agent       = [System.Collections.Generic.List[string]]::new()
+        prompt      = [System.Collections.Generic.List[string]]::new()
+        instruction = [System.Collections.Generic.List[string]]::new()
+        skill       = [System.Collections.Generic.List[string]]::new()
+        hook        = [System.Collections.Generic.List[string]]::new()
     }
-
-    # Track unique directories per kind for plugin.json path arrays
-    $agentDirs = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    $commandDirs = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    $ruleDirs = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    $skillDirs = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    $hookFiles = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-
-    $readmeItems = @()
-    $generatedFiles = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
 
     foreach ($item in $Items) {
         $kind = [string]$item.Kind
-        $sourcePath = Join-Path -Path $RepoRoot -ChildPath $item.SourcePath
-        $destPath = Join-Path -Path $pluginRoot -ChildPath ($item.PackagePath -replace '/', [System.IO.Path]::DirectorySeparatorChar)
-        $itemName = Split-Path -Leaf $item.PackagePath
-
-        if ($kind -eq 'skill') {
-            # Read frontmatter from SKILL.md for description; fall back to directory name
-            $skillMdPath = Join-Path -Path $sourcePath -ChildPath 'SKILL.md'
-            if (Test-Path -Path $skillMdPath) {
-                $frontmatter = Get-ArtifactFrontmatter -FilePath $skillMdPath -FallbackDescription $itemName
-                $description = $frontmatter.description
-            }
-            else {
-                $description = $itemName
-            }
-        }
-        else {
-            # Read description from the source file. Hook manifests are JSON
-            # with no frontmatter, so read their top-level description field.
-            $fallback = $itemName -replace '\.(md|json)$', ''
-            if (-not (Test-Path -Path $sourcePath)) {
-                $description = $fallback
-                Write-Warning "Source file not found: $sourcePath"
-            }
-            elseif ($kind -eq 'hook') {
-                $hookDesc = Get-ArtifactDescription -FilePath $sourcePath
-                $description = if ($hookDesc) { $hookDesc } else { $fallback }
-            }
-            else {
-                $frontmatter = Get-ArtifactFrontmatter -FilePath $sourcePath -FallbackDescription $fallback
-                $description = $frontmatter.description
-            }
-        }
-
-        $readmeItems += @{
-            Name        = ($itemName -replace '\.md$', '') -replace '\.json$', ''
-            Description = $description
-            Kind        = $kind
-            Maturity    = [string]$item.Maturity
-        }
-
-        $relativeParent = (Split-Path -Parent $item.PackagePath) -replace '\\', '/'
-
-        # Update counts and collect parent directories for manifest paths
-        switch ($kind) {
-            'agent' {
-                $counts.AgentCount++
-                [void]$agentDirs.Add("$relativeParent/")
-            }
-            'prompt' {
-                $counts.CommandCount++
-                [void]$commandDirs.Add("$relativeParent/")
-            }
-            'instruction' {
-                $counts.InstructionCount++
-                [void]$ruleDirs.Add("$relativeParent/")
-            }
-            'skill' {
-                $counts.SkillCount++
-                [void]$skillDirs.Add("$($item.PackagePath)/")
-            }
-            'hook' {
-                $counts.HookCount++
-                [void]$hookFiles.Add($item.PackagePath)
-            }
-        }
-
-        [void]$generatedFiles.Add($destPath)
-
-        if ($DryRun) {
-            Write-Verbose "DryRun: Would materialize $destPath from $sourcePath"
+        if (-not $references.ContainsKey($kind)) {
+            Write-Warning "Package '$packageName' declares unsupported component kind '$kind'."
             continue
         }
-
-        # Hooks bundle a sibling script directory and need plugin-relative
-        # command paths; other kinds materialize their source directly.
-        if ($kind -eq 'hook') {
-            Write-PluginHookArtifact -SourceManifest $sourcePath -DestinationManifest $destPath `
-                -GeneratedFiles $generatedFiles -RepoRoot $RepoRoot -TrackedIndex $trackedIndex
-        }
-        else {
-            $materialized = @(Copy-PluginSource -SourcePath $sourcePath -DestinationPath $destPath `
-                    -RepoRoot $RepoRoot -TrackedIndex $trackedIndex)
-            foreach ($file in $materialized) {
-                [void]$generatedFiles.Add($file)
-            }
+        $reference = [string]$item.PackagePath
+        if (-not $references[$kind].Contains($reference)) {
+            $references[$kind].Add($reference)
         }
     }
 
-    # Materialize shared resource directories (unconditional, all plugins)
-    $sharedDirs = @(
-        @{ Source = 'docs/templates';    Destination = 'docs/templates' }
-        @{ Source = 'scripts/lib';       Destination = 'scripts/lib' }
-    )
-
-    foreach ($dir in $sharedDirs) {
-        $sourcePath = Join-Path -Path $RepoRoot -ChildPath $dir.Source
-        $destPath = Join-Path -Path $pluginRoot -ChildPath $dir.Destination
-
-        if (-not (Test-Path -Path $sourcePath)) {
-            Write-Warning "Shared directory not found: $sourcePath"
-            continue
-        }
-
-        [void]$generatedFiles.Add($destPath)
-
-        if ($DryRun) {
-            Write-Verbose "DryRun: Would materialize shared directory $destPath from $sourcePath"
-            continue
-        }
-
-        $materialized = @(Copy-PluginSource -SourcePath $sourcePath -DestinationPath $destPath `
-                -RepoRoot $RepoRoot -TrackedIndex $trackedIndex)
-        foreach ($file in $materialized) {
-            [void]$generatedFiles.Add($file)
-        }
-    }
-
-    # Generate the single root plugin.json with explicit path arrays for
-    # client discovery. Provenance mirrors the catalog entry; x-hve does not.
-    $manifestPath = Join-Path -Path $pluginRoot -ChildPath 'plugin.json'
     $manifestArgs = @{
         PackageName  = $packageName
         Description  = [string]$Entry['description']
         Version      = $Version
-        AgentPaths   = @($agentDirs)
-        CommandPaths = @($commandDirs)
-        RulePaths    = @($ruleDirs)
-        SkillPaths   = @($skillDirs)
-        HookPaths    = @($hookFiles)
+        AgentPaths   = [string[]]$references.agent.ToArray()
+        CommandPaths = [string[]]$references.prompt.ToArray()
+        RulePaths    = [string[]]$references.instruction.ToArray()
+        SkillPaths   = [string[]]$references.skill.ToArray()
+        HookPaths    = [string[]]$references.hook.ToArray()
     }
     if ($Entry.Contains('author') -and $Entry['author'] -is [System.Collections.IDictionary]) {
         $manifestArgs['Author'] = $Entry['author']
@@ -1169,60 +558,45 @@ function Write-PluginDirectory {
     if ($Entry.Contains('keywords') -and $Entry['keywords']) {
         $manifestArgs['Keywords'] = @($Entry['keywords'] | ForEach-Object { [string]$_ })
     }
+
     $manifest = New-PluginManifestContent @manifestArgs
-    [void]$generatedFiles.Add($manifestPath)
 
     if ($DryRun) {
         Write-Verbose "DryRun: Would write plugin.json at $manifestPath"
     }
     else {
-        if (-not (Test-Path -Path $pluginRoot)) {
+        if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
             New-Item -ItemType Directory -Path $pluginRoot -Force | Out-Null
         }
-        $jsonContent = $manifest | ConvertTo-Json -Depth 10
-        Set-ContentIfChanged -Path $manifestPath -Value $jsonContent | Out-Null
-    }
+        Set-ContentIfChanged -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 10) | Out-Null
 
-    # Generate README.md
-    $readmePath = Join-Path -Path $pluginRoot -ChildPath 'README.md'
-    $documentContent = if (-not [string]::IsNullOrWhiteSpace($DocumentPath) -and (Test-Path -LiteralPath $DocumentPath -PathType Leaf)) {
-        Get-Content -LiteralPath $DocumentPath -Raw -Encoding utf8
-    } else { $null }
-    $readmePackage = @{
-        id          = $packageName
-        name        = $packageName
-        description = [string]$Entry['description']
-    }
-    $readmeContent = New-PluginReadmeContent -PackageMetadata $readmePackage -Items $readmeItems -Maturity $Maturity -PackageDocumentation $documentContent
-    [void]$generatedFiles.Add($readmePath)
-
-    if ($DryRun) {
-        Write-Verbose "DryRun: Would write README.md at $readmePath"
-    }
-    else {
-        Set-ContentIfChanged -Path $readmePath -Value $readmeContent | Out-Null
+        # The manifest is the only file a package root delivers, so anything
+        # else present is retired rather than left as an undeclared payload.
+        foreach ($existing in Get-ChildItem -LiteralPath $pluginRoot -Force) {
+            if ($existing.PSIsContainer -or -not [string]::Equals($existing.Name, 'plugin.json', [System.StringComparison]::Ordinal)) {
+                Remove-Item -LiteralPath $existing.FullName -Recurse -Force -ErrorAction Stop
+                Write-Verbose "Removed non-manifest package entry: $($existing.FullName)"
+            }
+        }
     }
 
     return @{
         Success          = $true
-        AgentCount       = $counts.AgentCount
-        CommandCount     = $counts.CommandCount
-        InstructionCount = $counts.InstructionCount
-        SkillCount       = $counts.SkillCount
-        HookCount        = $counts.HookCount
-        GeneratedFiles   = $generatedFiles
+        ManifestPath     = $manifestPath
+        AgentCount       = $references.agent.Count
+        CommandCount     = $references.prompt.Count
+        InstructionCount = $references.instruction.Count
+        SkillCount       = $references.skill.Count
+        HookCount        = $references.hook.Count
     }
 }
 
 Export-ModuleMember -Function @(
-    'Assert-PluginStagingRoot',
-    'Copy-PluginSource',
-    'Get-PluginItemMaturityLabel',
+    'Compare-PluginOutputTree',
+    'Get-PluginOutputFileIndex',
     'Get-PluginTrackedPathIndex',
     'New-GenerateResult',
     'New-PluginManifestContent',
-    'New-PluginReadmeContent',
     'New-PluginReleaseLocator',
-    'Split-PluginDocumentationSource',
-    'Write-PluginDirectory'
+    'Write-PluginManifest'
 )

@@ -3,7 +3,7 @@ title: 'AI Artifacts Common Standards'
 description: 'Common standards and quality gates for all AI artifact contributions to hve-core'
 sidebar_position: 2
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-12
 ms.topic: reference
 ---
 
@@ -152,7 +152,7 @@ npm run lint:models:refresh
 
 ## Marketplace Packages
 
-`.github/plugin/marketplace.json` is the sole distribution authority. Its active entries are ordinary, self-contained package recipes. Standard `agents`, `commands`, `rules`, `skills`, and optional `hooks` fields declare recipe membership.
+`.github/plugin/marketplace.json` is the sole distribution authority. Its active entries declare package membership through canonical `.github` sources. Standard `agents`, `commands`, `rules`, `skills`, and optional `hooks` fields declare that membership.
 
 An artifact may belong to one or more package recipes when its component maturity is aligned for each membership. `x-hve.displayName` supplies display metadata, `componentMaturity` records lifecycle disclosure and tombstones, and `documentation` points to `docs/plugins/<name>.md`. The starter profile belongs only to `hve-core-all`. Root-level repository-only artifacts are not declared.
 
@@ -160,16 +160,21 @@ When an agent handoff targets another catalog-declared agent, shared marketplace
 
 ## Extension Packaging
 
-Plugin and VSIX packaging consume one handoff-resolved projection per catalog entry. `Prepare-Extension.ps1` maps canonical sources to VS Code contributions and derives deterministic extension identities. `Package-Extension.ps1` stages only git-tracked files from those contribution roots plus explicit shared resources. Hooks remain plugin-only because VS Code has no declarative hook contribution point.
+VSIX packaging consumes one handoff-resolved projection per catalog entry.
+Plugin generation writes only the corresponding manifest-only root, whose
+references resolve to canonical `.github` sources. `Prepare-Extension.ps1` maps
+those sources to VS Code contributions and derives deterministic extension
+identities. Hooks remain plugin-only because VS Code has no declarative hook
+contribution point.
 
 Lifecycle maturity belongs in marketplace metadata, not artifact frontmatter. Stable and PreRelease both include active `stable`, `preview`, and `experimental` components. `deprecated` and `removed` values are excluded from both channels. Labels are disclosure and governance metadata, not channel filters or Responsible AI assessment maturity ratings.
 
-## Plugin Package Staging
+## Plugin Roots
 
-`.github/plugin/marketplace.json` declares canonical package membership.
-Temporary plugin bundles are materialized only for explicit package assembly
-under a caller-supplied absolute staging root outside the repository. Ordinary
-validation never creates a repository-root `plugins/` tree.
+`.github/plugin/marketplace.json` declares canonical package membership. The
+tracked `plugins/` directory contains exactly ten package roots, each with only
+`plugin.json`. Those manifests reference canonical `.github` artifacts; they do
+not contain copied payloads, generated package READMEs, or shared root files.
 
 ### Generation Workflow
 
@@ -182,57 +187,18 @@ When you add or change an artifact:
   `hooks/*.json` manifest.
 3. Align component maturity for each declared membership.
 4. Update the durable package document at `docs/plugins/<name>.md`.
-5. Run `npm run lint:marketplace`.
-6. Run `npm run docs:generate:check` and the focused tests for the changed
-  artifact kind.
+5. Run the applicable marketplace and documentation validation.
 
-Package generators derive host-specific outputs from active catalog entries.
-Commit canonical sources and durable package documentation only.
-
-### Plugin Directory Structure
-
-Each generated plugin directory contains:
-
-| Content                | Description                                                        |
-|------------------------|--------------------------------------------------------------------|
-| Materialized artifacts | Regular-file copies of declared, Git-tracked `.github/` sources    |
-| Generated README       | Auto-generated documentation listing all included artifacts        |
-| Root plugin manifest   | Generated `plugin.json` for Copilot clients                        |
-| Shared resources       | Declared templates and scripts required by packaged customizations |
-
-### Critical Rules for Plugin Staging
-
-> [!WARNING]
-> `HVE_PLUGIN_STAGING_ROOT` or `-StagingRoot` must name an absolute path outside
-> the repository. Do not create, edit, or commit a repository-root `plugins/`
-> directory.
-
-| Rule               | Description                                                                                          |
-|--------------------|------------------------------------------------------------------------------------------------------|
-| Validate changes   | Run non-mutating marketplace, documentation, and focused test commands                               |
-| Stage explicitly   | Materialize packages only under an external absolute staging root                                    |
-| Generated files    | Materialized artifacts, README files, and manifests are generated fresh on each run                  |
-| Source of truth    | Edit `.github/` sources, `.github/plugin/marketplace.json`, or the matching `docs/plugins/<name>.md` |
-| Repository hygiene | Never create or commit a path under the repository-root `plugins/` directory                         |
-
-### When to Materialize Plugins
-
-Materialize plugins only when you need to inspect or assemble package output.
-Supply external staging explicitly:
-
-```bash
-HVE_PLUGIN_STAGING_ROOT=/absolute/path/outside/hve-core npm run plugin:generate
-```
-
-For ordinary recipe and artifact changes, use `npm run plugin:validate` and
-`npm run docs:generate:check` without materializing packages.
+Run `npm run plugin:generate` after canonical membership changes to refresh the
+ten manifests. It does not copy artifacts or generate documentation. Commit
+canonical sources, manifests, and durable package documentation only.
 
 ### Validating the Marketplace Recipe
 
-Run `npm run plugin:validate` before package assembly. It validates canonical
-sources, standard membership, the display name, source containment, the
-documentation pointer, lifecycle maturity and tombstones, complete active
-coverage, the starter profile, root manifest mirrors, and handoff closure.
+Run `npm run plugin:validate` after package changes. It validates the exact
+manifest-only root inventory, canonical sources, standard membership, the
+display name, documentation pointer, lifecycle maturity and tombstones,
+complete active coverage, the starter profile, and handoff closure.
 
 ### Plugin Generation Reference
 
