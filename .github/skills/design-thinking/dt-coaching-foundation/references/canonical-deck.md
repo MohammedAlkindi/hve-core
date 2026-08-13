@@ -1,9 +1,9 @@
 ---
 title: 'DT Canonical Deck Instructions'
-description: Optional canonical deck and customer-card PowerPoint workflow for Design Thinking teams that opt in to deck support.
+description: Optional canonical deck and customer-card PowerPoint workflow for Design Thinking teams, offered on request or once DT work has produced renderable assets.
 ---
 
-Use this workflow only when the team explicitly opts in to canonical deck support.
+Use this workflow when the team requests canonical deck support, or when it accepts an automatic offer at an eligible method exit.
 
 ## Scope
 
@@ -26,32 +26,31 @@ Do not duplicate transition gates or non-waivable checks in:
 
 ## Activation Rule
 
-Do not ask about canonical deck or customer-card workflow during Session Initialization. Canonical entries draw on problem definition, How Might We framing, research-grounded narrative, and user evidence that do not exist before Method 3. Asking earlier forces a decision the team cannot yet answer and produces snapshots dominated by `<insufficient knowledge>` placeholders.
+Canonical deck and customer-card generation is available on request at any time, and is offered automatically only once the DT work has produced content worth capturing.
 
-The canonical-deck workflow becomes active only when either condition is true:
+Do not ask about this workflow during session initialization, at the end of Method 1, or at the end of Method 2. Those points produce scope and raw research, not the validated content the canonical artifacts require, so an offer there asks the team to decide about rendering before there is anything to render.
 
-1. The user asks for canonical deck or customer cards at any point.
-2. The user accepts a canonical deck offer at one of the offer points below.
+The workflow is active when either condition is true:
 
-Until one of those happens, continue normal DT coaching with no canonical-deck prompts and no canonical-deck enforcement.
+1. The user asks for canonical deck or customer cards.
+2. The user accepts an automatic offer at an eligible method exit.
 
-A user request activates the workflow immediately regardless of current method. When the user asks before Method 3, generate what available evidence supports and name the sections that remain `<insufficient knowledge>`.
+Until then, continue normal DT coaching with no canonical-deck enforcement.
 
 ## Offer Points (Optional)
 
-Offer canonical deck snapshot creation or refresh at these method exits only:
+Offer canonical deck snapshot creation or refresh at these method exits, and only when the asset-readiness check below passes:
 
 1. End of Method 3
 2. End of Method 5
 
-Method 3 is the first offer point because Input Synthesis produces the problem definition, insight statements, and How Might We questions that canonical problem statements, scenarios, and personas depend on. Method 5 is the final offer point because User Concepts supply the alternative paths and extensions that complete use-case entries.
+Method 3 produces validated problem definitions and synthesized themes; Method 5 produces selected concepts. Both give the canonical artifacts real content to draw from.
 
-Checkpoint phrasing expectation:
+Each offer is optional and skippable. Declining must not block a method transition.
 
-- At the end of Method 3, ask whether to create or update the canonical deck and customer card artifacts.
-- At the end of Method 5, ask whether to create or update the canonical deck and customer card artifacts.
+### Asset-Readiness Check
 
-Each offer must be optional and skippable. Declining an offer must not block method transition.
+Before making an automatic offer, confirm the project has DT method outputs that map to at least one supported canonical artifact type. When it does not, make no offer and continue coaching. An explicit user request is always honored regardless of this check; when assets are thin, say what is missing and let the user decide.
 
 ## Mandatory Post-Snapshot Customer-Card Checkpoint
 
@@ -59,7 +58,7 @@ After any canonical deck create or refresh, the coach must ask this yes-or-no qu
 
 > Would you like to generate the customer-card PowerPoint now?
 
-This checkpoint is required whenever canonical artifacts were created or updated, whether through a Method 3 or Method 5 offer point or through a direct user request.
+This checkpoint is required whenever canonical artifacts were created or updated at the Method 3 or Method 5 offer points, or at an explicit user request.
 
 Do not end canonical snapshot workflow without asking this question.
 
@@ -69,11 +68,9 @@ Record the offer timestamp and user response in coaching state.
 
 If the user declines the customer-card PowerPoint offer:
 
-- **Do not re-offer between Method 3 and Method 5** — The user's decline is final until the end of Method 5.
-- **Re-offer at the end of Method 5** — Before transitioning from Method 5 to Method 6, ask the customer-card question one final time: *"We're finishing up Method 5. Before we move to prototyping, would you like to generate the customer-card PowerPoint now?"*
-- **If declined again at Method 5, do not re-offer** — Respect the user's decision and continue to implementation methods without further customer-card prompts.
-
-A direct user request always overrides a prior decline. Declining an offer suppresses proactive prompts, never the user's own request.
+- **If the decline happens before Method 5**: do not re-offer until the Method 5 exit checkpoint.
+- **At the Method 5 exit checkpoint**: ask one final customer-card question before the transition to Method 6: *"We're finishing up Method 5. Before we move to prototyping, would you like to generate the customer-card PowerPoint now?"*
+- **If the decline happens at Method 5 (first or second decline)**: do not re-offer again in the current DT run; continue to implementation methods.
 
 Record all offers and responses in coaching state for audit and session recovery.
 
@@ -91,7 +88,7 @@ Before generating or refreshing canonical deck content, run this checklist:
 
 1. Confirm project scope path exists: `.copilot-tracking/dt/{project-slug}/`.
 2. Resolve canonical directory as `.copilot-tracking/dt/{project-slug}/canonical/`.
-3. Confirm canonical source artifacts available from DT method outputs.
+3. Confirm canonical source artifacts available from DT method outputs. When none map to a supported artifact type, stop and tell the user what is missing.
 4. Detect create vs refresh mode:
    - `create`: no canonical entries exist yet
    - `refresh`: canonical entries already exist
@@ -243,7 +240,7 @@ Both ship in the experimental package. When either is unavailable, say which pip
 
 ## Method 5 Auto-Generate
 
-If the team completes Method 5 and canonical workflow is active, ask whether to create or update canonical deck and customer card artifacts. If accepted, generate a final canonical deck refresh and then offer customer-card build.
+If the team completes Method 5 and the asset-readiness check passes, ask whether to create or update canonical deck and customer card artifacts. If accepted, generate a final canonical deck refresh and then offer customer-card build.
 
 ## Coaching State Expectations
 
