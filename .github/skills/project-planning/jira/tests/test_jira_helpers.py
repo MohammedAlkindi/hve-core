@@ -110,6 +110,45 @@ def test_redact_masks_mixed_case_escaped_and_encoded_forms() -> None:
     assert "encoded-secret" not in redacted
 
 
+def test_redact_masks_azure_sas_query_string() -> None:
+    """SAS tokens ride in the query string, so drop everything after the ?."""
+    url = f"https://acct.blob.core.windows.net/c/b?sig={SECRET}&se=2026"
+
+    redacted = jira._redact(url)
+
+    assert SECRET not in redacted
+    assert "acct.blob.core.windows.net" in redacted
+
+
+def test_redact_masks_every_secret_in_a_multi_secret_line() -> None:
+    payload = f"a access_token={SECRET}1 b api_token={SECRET}2 c"
+
+    redacted = jira._redact(payload)
+
+    assert f"{SECRET}1" not in redacted
+    assert f"{SECRET}2" not in redacted
+
+
+def test_redact_is_idempotent() -> None:
+    """Re-redacting already-redacted text must not corrupt the marker."""
+    once = jira._redact(f"api_token={SECRET}")
+
+    assert jira._redact(once) == once
+
+
+@pytest.mark.parametrize("payload", ["", "   "])
+def test_redact_handles_empty_payloads(payload: str) -> None:
+    assert jira._redact(payload).strip() == ""
+
+
+def test_redact_preserves_unicode_around_masked_secrets() -> None:
+    redacted = jira._redact(f"\u65e5\u672c\u8a9e api_token={SECRET} \u2713")
+
+    assert SECRET not in redacted
+    assert "\u65e5\u672c\u8a9e" in redacted
+    assert "\u2713" in redacted
+
+
 def test_client_repr_omits_authorization_header() -> None:
     client = jira.JiraClient(
         api_url=TEST_API_URL,

@@ -142,6 +142,48 @@ class TestRedact:
         assert SECRET not in redacted
         assert "[REDACTED]" in redacted
 
+    def test_masks_azure_sas_query_string(self) -> None:
+        """SAS tokens ride in the query string, so drop everything after the ?."""
+        url = f"https://acct.blob.core.windows.net/c/b?sig={SECRET}&se=2026"
+
+        redacted = gitlab._redact(url)
+
+        assert SECRET not in redacted
+        assert "acct.blob.core.windows.net" in redacted
+
+    def test_masks_basic_authorization_header(self) -> None:
+        """Basic credentials are base64(user:token) and must not survive."""
+        encoded = "dXNlckBleGFtcGxlLmNvbTp0b2tlbg=="
+
+        redacted = gitlab._redact(f"Authorization: Basic {encoded}")
+
+        assert encoded not in redacted
+
+    def test_masks_every_secret_in_a_multi_secret_line(self) -> None:
+        payload = f"a access_token={SECRET}1 b private_token={SECRET}2 c"
+
+        redacted = gitlab._redact(payload)
+
+        assert f"{SECRET}1" not in redacted
+        assert f"{SECRET}2" not in redacted
+
+    def test_is_idempotent(self) -> None:
+        """Re-redacting already-redacted text must not corrupt the marker."""
+        once = gitlab._redact(f"access_token={SECRET}")
+
+        assert gitlab._redact(once) == once
+
+    @pytest.mark.parametrize("payload", ["", "   "])
+    def test_handles_empty_payloads(self, payload: str) -> None:
+        assert gitlab._redact(payload).strip() == ""
+
+    def test_preserves_unicode_around_masked_secrets(self) -> None:
+        redacted = gitlab._redact(f"\u65e5\u672c\u8a9e access_token={SECRET} \u2713")
+
+        assert SECRET not in redacted
+        assert "\u65e5\u672c\u8a9e" in redacted
+        assert "\u2713" in redacted
+
     def test_pinned_keyset_excludes_public_pkce_challenge(self) -> None:
         assert gitlab._REDACT_KEYS == EXPECTED_REDACT_KEYS
         assert "code_challenge" not in gitlab._REDACT_KEYS
