@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import json
+import logging
+import pathlib
 
 import jira
 import pytest
@@ -14,8 +17,27 @@ from test_constants import (
     ERROR_FIELDS_EMPTY,
     FIELDS_COMMENT,
     FIELDS_ISSUE,
+    TEST_API_URL,
     TEST_ISSUE_KEY,
     USAGE_CREATE,
+)
+
+SOURCE = pathlib.Path(jira.__file__).read_text(encoding="utf-8")
+SOURCE_TREE = ast.parse(SOURCE)
+SECRET = "s3cr3t-Value_123"
+EXPECTED_REDACT_KEYS = (
+    "access_token",
+    "refresh_token",
+    "code_verifier",
+    "client_secret",
+    "id_token",
+    "assertion",
+    "client_assertion",
+    "device_code",
+    "password",
+    "jira_pat",
+    "api_token",
+    "personal_access_token",
 )
 
 
@@ -33,7 +55,7 @@ def test_extract_error_message(raw: str, expected: str) -> None:
     assert jira._extract_error_message(raw) == expected
 
 
-def test_redact_sensitive_text_masks_header_and_query_secrets() -> None:
+def test_redact_masks_header_and_query_secrets() -> None:
     payload = (
         "Authorization: Bearer abc123 "
         "PRIVATE-TOKEN: pvt123 "
@@ -43,7 +65,7 @@ def test_redact_sensitive_text_masks_header_and_query_secrets() -> None:
         "https://x/?private_token=abc&access_token=def&token=ghi"
     )
 
-    result = jira._redact_sensitive_text(payload)
+    result = jira._redact(payload)
 
     assert "abc123" not in result
     assert "pvt123" not in result
@@ -51,6 +73,95 @@ def test_redact_sensitive_text_masks_header_and_query_secrets() -> None:
     assert "sessionid=abc" not in result
     assert "sid=abc" not in result
     assert "[REDACTED]" in result
+
+
+@pytest.mark.parametrize("key", EXPECTED_REDACT_KEYS)
+def test_redact_masks_pinned_json_and_form_keys(key: str) -> None:
+    payload = f'{{"{key}": "{SECRET}"}} {key}={SECRET}'
+
+    redacted = jira._redact(payload)
+
+    assert SECRET not in redacted
+    assert "[REDACTED]" in redacted
+
+
+def test_pinned_keyset_excludes_public_pkce_challenge() -> None:
+    """``code_challenge`` is public by PKCE design; masking it corrupts the URL."""
+    assert jira._REDACT_KEYS == EXPECTED_REDACT_KEYS
+    assert "code_challenge" not in jira._REDACT_KEYS
+
+    authorize_url = "https://example.atlassian.net/authorize?code_challenge=abcDEF1"
+
+    assert "abcDEF1" in jira._redact(authorize_url)
+
+
+def test_redact_masks_mixed_case_escaped_and_encoded_forms() -> None:
+    """Upstream payloads vary in casing and encoding; all shapes must mask."""
+    payload = (
+        '{"Access_Token":"mixed-secret"} '
+        r"{\"refresh_token\":\"escaped-secret\"} "
+        "api_token%3Dencoded-secret"
+    )
+
+    redacted = jira._redact(payload)
+
+    assert "mixed-secret" not in redacted
+    assert "escaped-secret" not in redacted
+    assert "encoded-secret" not in redacted
+
+
+def test_client_repr_omits_authorization_header() -> None:
+    client = jira.JiraClient(
+        api_url=TEST_API_URL,
+        auth_header=f"Bearer {SECRET}",
+        use_legacy_search=True,
+        audit_actor="actor",
+        audit_origin="https://jira.example.com",
+        auth_mode="data-center-pat",
+    )
+
+    assert SECRET not in repr(client)
+    assert "auth_header" not in repr(client)
+
+
+def test_api_error_and_debug_traceback_are_secret_free(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    error = jira.JiraAPIError(message=f"api_token={SECRET}")
+    monkeypatch.setenv("JIRA_DEBUG", "1")
+    with caplog.at_level(logging.ERROR, logger="jira"):
+        jira._emit(f"api_token={SECRET}")
+    jira._emit_debug_traceback(error)
+
+    captured = capsys.readouterr()
+    assert SECRET not in str(error)
+    assert SECRET not in repr(error)
+    assert SECRET not in captured.err
+    assert SECRET not in caplog.text
+
+
+def test_source_print_calls_remain_in_emit_helpers() -> None:
+    owners: list[str] = []
+    for node in ast.walk(SOURCE_TREE):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Name)
+            and child.func.id == "print"
+            for child in ast.walk(node)
+        ):
+            owners.append(node.name)
+
+    assert set(owners) <= {
+        "_emit",
+        "_emit_stdout",
+        "_emit_structured_stdout",
+        "_emit_debug_traceback",
+    }
+    assert "LOGGER.exception(" not in SOURCE
 
 
 @pytest.mark.parametrize("issue_key", [TEST_ISSUE_KEY, "ABC1-9", "Proj9-123"])
@@ -224,6 +335,32 @@ def test_print_selected_fields_formats_single_object(
         "author.displayName: Ada",
         "body: done",
     ]
+
+
+def test_print_selected_fields_preserves_empty_edge_columns(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    jira._print_selected_fields(
+        [{"first": "", "title": "fix secret token password", "last": ""}],
+        ["first", "title", "last"],
+    )
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1].split("\t") == ["", "fix secret token password", ""]
+
+
+def test_sanitize_structured_preserves_sensitive_container_shape() -> None:
+    payload = {
+        "summary": "Basic auth broken",
+        "api_token": {"value": SECRET, "nested": [SECRET]},
+    }
+
+    sanitized = jira._sanitize_structured(payload)
+
+    assert sanitized == {
+        "summary": "Basic auth broken",
+        "api_token": {"value": "[REDACTED]", "nested": ["[REDACTED]"]},
+    }
 
 
 def test_print_result_with_none_produces_no_output(
