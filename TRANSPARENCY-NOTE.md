@@ -56,8 +56,7 @@ HVE Core ships text files and supporting tools. When you load an HVE Core file i
 2. You work with the host's model, now shaped by the file's instructions.
 3. The model's replies come back through the normal Copilot surface.
 
-HVE Core has no model, no API, and no network calls while you author or install it. It ships one optional local telemetry hook that is disabled by default and, when you turn it on, records Copilot session lifecycle events to plaintext files on your own disk with no network egress.
-The processed event stream stores derived signals (such as tool-input key names and a truncated prompt preview) rather than full payloads; a separate, explicit opt-in is required before any verbatim prompt or tool input is captured. See the [Local Telemetry guide](docs/customization/local-telemetry.md) for exactly what is captured and how to disable or remove it.
+HVE Core has no model, no API, and no network calls while you author or install it. It ships no telemetry collector that runs on your machine by default. Optional OpenTelemetry export is a Copilot Chat feature you configure yourself, and the `copilot-otel-metrics` skill only generates the settings, local stack, and infrastructure templates you choose to apply. Nothing is collected until you enable that export and run a receiver you control.
 Validation tools (linters, frontmatter checks, Pester tests, plugin generation) run in CI on pull requests. Nothing runs on your machine unless you install the VS Code extension or run a packaged script yourself.
 
 Most skills are pure authoring or validation helpers with no independent Responsible AI surface and are not called out individually. A few skills warrant specific mention because they assemble media outputs or depend on external services:
