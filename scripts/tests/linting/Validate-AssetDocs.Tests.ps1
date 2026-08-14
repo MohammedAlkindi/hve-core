@@ -231,6 +231,23 @@ Describe 'Test-AssetDocStructure' -Tag 'Unit' {
         Test-AssetDocStructure -Model $script:instrModel -Content $withoutExample | Should -BeNullOrEmpty
     }
 
+    It 'Flags applicable sections that appear out of canonical contract order' {
+        # Swap two heading names so every required heading is still present and
+        # only the sequence drifts from the shared contract.
+        $reordered = $script:agentContent -replace '## When to use it', '## __swap__' -replace '## Example usage', '## When to use it' -replace '## __swap__', '## Example usage'
+        $findings = @(Test-AssetDocStructure -Model $script:agentModel -Content $reordered)
+
+        ($findings | Where-Object { $_.Message -match 'Missing required section' }) | Should -BeNullOrEmpty
+        ($findings | Where-Object { $_.Category -eq 'Structure' -and $_.Message -match 'canonical contract order' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'Order-checks an optional section the page includes' {
+        $reordered = $script:instrContent -replace '## When to use it', '## __swap__' -replace '## Example usage', '## When to use it' -replace '## __swap__', '## Example usage'
+        $findings = @(Test-AssetDocStructure -Model $script:instrModel -Content $reordered)
+
+        ($findings | Where-Object { $_.Category -eq 'Structure' -and $_.Message -match 'canonical contract order' }) | Should -Not -BeNullOrEmpty
+    }
+
     It 'Derives every required heading from the shared contract' {
         $requiredSections = @(Get-AssetDocSectionContract | Where-Object {
                 (Resolve-AssetDocSectionStatus -Section $_ -Kind $script:instrModel.Kind -Interactive $script:instrModel.Interactive) -eq 'Required'
