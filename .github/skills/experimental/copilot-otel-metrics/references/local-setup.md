@@ -10,25 +10,27 @@ Read this before writing or advising on any `github.copilot.chat.otel.*` setting
 
 ## The settings
 
-Eleven settings exist. Three of them turn export on; the remaining eight tune it. Enumerate the live set before quoting this table, because it describes one build.
+Seven settings exist in the build verified for this revision. Three of them turn export on; the remaining four tune it. Enumerate the live set before quoting this table, because it describes one build.
 
-| Setting                                           | Type    | Default                   | Sets what                                                                  |
-|---------------------------------------------------|---------|---------------------------|----------------------------------------------------------------------------|
-| `github.copilot.chat.otel.enabled`                | boolean | `false`                   | Master switch for trace, metric, and log emission                          |
-| `github.copilot.chat.otel.exporterType`           | string  | `"otlp-http"`             | One of `otlp-grpc`, `otlp-http`, `console`, `file`                         |
-| `github.copilot.chat.otel.otlpEndpoint`           | string  | `"http://localhost:4318"` | Where the data goes                                                        |
-| `github.copilot.chat.otel.protocol`               | string  | `""`                      | One of `""`, `http/json`, `http/protobuf`, `grpc`; empty means `http/json` |
-| `github.copilot.chat.otel.headers`                | object  | `{}`                      | Extra OTLP headers such as auth tokens, applied to the exporter directly   |
-| `github.copilot.chat.otel.serviceName`            | string  | `""`                      | The `service.name` resource attribute                                      |
-| `github.copilot.chat.otel.resourceAttributes`     | object  | `{}`                      | Extra resource attributes, merged per key with the environment             |
-| `github.copilot.chat.otel.captureContent`         | boolean | `false`                   | Prompts, responses, system instructions, and tool definitions on spans     |
-| `github.copilot.chat.otel.maxAttributeSizeChars`  | integer | `0`                       | Truncation limit in characters; `0` disables truncation                    |
-| `github.copilot.chat.otel.outfile`                | string  | `""`                      | JSON-lines output path; setting it forces the `file` exporter              |
-| `github.copilot.chat.otel.dbSpanExporter.enabled` | boolean | `false`                   | Local SQLite span exporter; turning it on turns OTel on                    |
+Verified against the GitHub Copilot Chat extension manifest, version 0.52.0, reading `contributes.configuration[].properties`.
 
-Every one of them is `scope: application`. That single fact drives the rest of this procedure.
+| Setting                                           | Type    | Default                   | Sets what                                                              |
+|---------------------------------------------------|---------|---------------------------|------------------------------------------------------------------------|
+| `github.copilot.chat.otel.enabled`                | boolean | `false`                   | Master switch for trace, metric, and log emission                      |
+| `github.copilot.chat.otel.exporterType`           | string  | `"otlp-http"`             | One of `otlp-grpc`, `otlp-http`, `console`, `file`                     |
+| `github.copilot.chat.otel.otlpEndpoint`           | string  | `"http://localhost:4318"` | Where the data goes                                                    |
+| `github.copilot.chat.otel.captureContent`         | boolean | `false`                   | Prompts, responses, system instructions, and tool definitions on spans |
+| `github.copilot.chat.otel.maxAttributeSizeChars`  | integer | `0`                       | Truncation limit in characters; `0` disables truncation                |
+| `github.copilot.chat.otel.outfile`                | string  | `""`                      | JSON-lines output path; setting it forces the `file` exporter          |
+| `github.copilot.chat.otel.dbSpanExporter.enabled` | boolean | `false`                   | Local SQLite span exporter; turning it on turns OTel on                |
 
-A minimal local setup writes three keys and leaves the other eight at their defaults:
+An earlier revision of this reference listed eleven settings, adding `protocol`, `headers`, `serviceName`, and `resourceAttributes`, verified against extension build `0.59.2026072702` where all eleven declared `scope: application`. Those four are **not declared in the build verified here**. Both observations are real, which is the point: the settings surface moves with the extension. Writing a key the installed build does not declare produces a setting that is silently inert, so confirm against the user's own build before offering any of them.
+
+`headers` in particular is absent from **user settings** in this build. It is not absent from the product: the managed `telemetry` block carries a `headers` field, which is how a fleet authenticates to a collector. The two are different configuration surfaces delivered through different channels, so an operator who cannot find `headers` in their settings UI has not found a bug. See `org-distribution.md` for the managed surface and the consequence that headers reach the extension exporter and not the agent host.
+
+None of these settings declares a `scope` in the verified manifest, which means they take VS Code's default `window` scope rather than `application`. Do not assert application scope without checking; see the profile section below for what that changes.
+
+A minimal local setup writes three keys and leaves the rest at their defaults:
 
 ```json
 {
@@ -49,10 +51,6 @@ Enterprise policy beats environment variable beats user setting beats default. A
 | `enabled`               | `COPILOT_OTEL_ENABLED`                  |
 | `captureContent`        | `COPILOT_OTEL_CAPTURE_CONTENT`          |
 | `otlpEndpoint`          | `OTEL_EXPORTER_OTLP_ENDPOINT`           |
-| `protocol`              | `OTEL_EXPORTER_OTLP_PROTOCOL`           |
-| `serviceName`           | `OTEL_SERVICE_NAME`                     |
-| `resourceAttributes`    | `OTEL_RESOURCE_ATTRIBUTES`              |
-| `headers`               | `OTEL_EXPORTER_OTLP_HEADERS`            |
 | `maxAttributeSizeChars` | `COPILOT_OTEL_MAX_ATTRIBUTE_SIZE_CHARS` |
 
 `exporterType`, `outfile`, and `dbSpanExporter.enabled` declare no environment variable in the manifest inspected for this revision; they are set through user settings or enterprise policy. Confirm against the installed build before telling a user an environment variable will or will not apply, because this mapping moves with the extension.
@@ -61,7 +59,12 @@ The VS Code documentation renders "This setting is managed at the organization l
 
 ## Find the file that actually resolves
 
-Application-scoped settings live only in the global `settings.json`, and that file resolves from the **default profile no matter which profile is active**. Writing into `User/profiles/<id>/settings.json` therefore accomplishes nothing for these keys, and it fails silently: no error, no warning, no telemetry.
+Which file resolves depends on the declared scope, and the scope is a property of the installed build rather than of this document. Check it before choosing a target file.
+
+* **If a setting declares `scope: application`,** it lives only in the global `settings.json`, and that file resolves from the **default profile no matter which profile is active**. Writing into `User/profiles/<id>/settings.json` accomplishes nothing for that key, and it fails silently: no error, no warning, no telemetry.
+* **If it declares no scope,** as every OTel key does in the verified manifest, it takes the default `window` scope and the active profile's `settings.json` does apply.
+
+When unsure, write the global file: it is correct in both cases, because a window-scoped key still resolves there when no profile overrides it. Then have the user confirm the value took effect rather than assuming it did.
 
 | Platform | VS Code                                                 | VS Code Insiders                                                   |
 |----------|---------------------------------------------------------|--------------------------------------------------------------------|
@@ -76,6 +79,19 @@ Stop and ask if the file cannot be identified with confidence. Do not write to a
 ## The assisted write
 
 Follow every step. Steps 1, 4, and 5 are what make this reversible and visible.
+
+`examples/settings_upsert.py` implements this contract rather than describing it. Prefer it over an ad-hoc edit: it refuses any key outside the verified schema, rejects a type mismatch, an unsafe endpoint, an `outfile` and `otlp-*` combination, and any attempt to enable `captureContent`; it splices only the target value span, backs the file up, restores the backup if the result does not parse, and refuses to write if unrelated settings would change. Run it without `--apply` to get the diff for step 4.
+
+```bash
+python3 settings_upsert.py --settings <path> \
+  --set github.copilot.chat.otel.enabled=true \
+  --set github.copilot.chat.otel.exporterType=otlp-http \
+  --set github.copilot.chat.otel.otlpEndpoint=http://localhost:4318
+```
+
+Its schema is frozen against one build and records which one. Re-verify against the installed extension before trusting it on a newer version.
+
+The steps below remain the contract, whether the tool performs them or a hand edit does.
 
 1. **Back up.** Copy the file alongside itself as `settings.json.bak-otel-<UTC timestamp>`, for example `settings.json.bak-otel-20260727T142530Z`. Tell the user the backup path and that restoring it is a file copy in the other direction. That path sits beside `settings.json`, outside the workspace; name it when asking for the write rather than treating it as a separate approval.
 2. **Read the file as text.** If it does not exist or is empty, treat the content as `{}`. It is JSONC: it may contain `//` and `/* */` comments and trailing commas, all of which are legal and all of which the user wrote deliberately.

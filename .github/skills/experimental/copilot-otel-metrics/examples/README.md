@@ -2,7 +2,7 @@
 title: Copilot OTel Metrics Examples
 description: Reference stack definition, dashboard, and helper scripts for capturing GitHub Copilot OpenTelemetry output locally
 author: Microsoft
-ms.date: 2026-07-27
+ms.date: 2026-08-13
 ms.topic: reference
 keywords:
   - opentelemetry
@@ -15,11 +15,12 @@ estimated_reading_time: 4
 
 ## What is here
 
-Two kinds of file. `compose.yaml` and `dashboards/` are **seeds**: the skill copies and adapts them to produce artifacts for your situation, and you deploy the result. The Python files are **helpers you run yourself**; the skill offers them and shows the command, and you decide when they run and against which endpoint.
+Two kinds of file. `compose.yaml`, `otel-collector-local.yaml`, and `dashboards/` are **seeds**: the skill copies and adapts them to produce artifacts for your situation, and you deploy the result. The Python files are **helpers you run yourself**; the skill offers them and shows the command, and you decide when they run and against which endpoint.
 
 | File                                 | Kind   | Purpose                                                                     |
 |--------------------------------------|--------|-----------------------------------------------------------------------------|
-| `compose.yaml`                       | Seed   | Pinned single-container stack with the external data volume                 |
+| `compose.yaml`                       | Seed   | Digest-pinned Collector plus LGTM stack with the external data volume       |
+| `otel-collector-local.yaml`          | Seed   | Local Collector pipeline with the fail-closed attribute allow-list          |
 | `dashboards/copilot-otel.json`       | Seed   | Local Grafana dashboard: tokens, tools, latency, and agents                 |
 | `dashboards/copilot-otel-azure.json` | Seed   | Azure dashboard querying Log Analytics with KQL                             |
 | `azure/`                             | Seed   | Collector config, Bicep, Terraform, and Azure CLI for the organization path |
@@ -27,6 +28,8 @@ Two kinds of file. `compose.yaml` and `dashboards/` are **seeds**: the skill cop
 | `baseline.py`                        | Helper | Snapshot and diff, to separate real telemetry from residue                  |
 | `inspect_metrics.py`                 | Helper | Enumerate the metric surface the installed build actually emits             |
 | `validate_dashboard.py`              | Helper | Import a dashboard and check every panel query returns data                 |
+| `settings_upsert.py`                 | Helper | Reversible, audited settings edit that refuses anything outside its schema  |
+| `_input_policy.py`                   | Module | Shared endpoint, redirect, path, and credential policy; imported, not run   |
 
 The two dashboards are not interchangeable. The local one queries Prometheus and Tempo; the Azure one queries Log Analytics. See `azure/README.md` for the organization path.
 
@@ -37,37 +40,52 @@ The helpers use only the Python standard library, so there is nothing to install
 Run these yourself, from this directory. Nothing here runs automatically, and the skill will not run any of it for you.
 
 ```bash
-# 1. Create the volume once, then start the stack.
+# 1. Choose Grafana credentials. The stack will not start without them, and
+#    the helpers read the same two variables. Reading the password rather than
+#    writing it inline keeps it out of the terminal scrollback and out of the
+#    shell history file.
+export COPILOT_OTEL_GRAFANA_USER=admin
+read -rs -p 'Grafana password: ' COPILOT_OTEL_GRAFANA_PASSWORD; echo
+export COPILOT_OTEL_GRAFANA_PASSWORD
+
+# 2. Create the volume once, then start the stack.
 docker volume create copilot-otel-data
 docker compose -f compose.yaml up -d
 
-# 2. Optional but recommended if this store has ever held test payloads.
+# 3. Optional but recommended if this store has ever held test payloads.
 python3 baseline.py capture
 
-# 3. Enable export in your VS Code user settings, then reload the window.
+# 4. Enable export in your VS Code user settings, then reload the window.
 
-# 4. Confirm signals are actually stored, not merely accepted.
+# 5. Confirm signals are actually stored, not merely accepted.
 python3 verify.py
 
-# 5. If step 4 is ambiguous, prove the telemetry is genuine.
+# 6. If step 5 is ambiguous, prove the telemetry is genuine.
 python3 baseline.py diff
 
-# 6. See what your build really emits before trusting any metric name.
+# 7. See what your build really emits before trusting any metric name.
 python3 inspect_metrics.py
 
-# 7. Import a dashboard and check every panel resolves.
+# 8. Import a dashboard and check every panel resolves.
 python3 validate_dashboard.py            # the bundled seed
 python3 validate_dashboard.py my-dash.json  # a generated dashboard
 ```
 
 ## Notes on the stack definition
 
-`compose.yaml` carries four deliberate choices worth preserving if you adapt it.
+`compose.yaml` and `otel-collector-local.yaml` carry deliberate choices worth preserving if you adapt them.
 
-* The image tag is pinned. The all-in-one image changes its bundled component versions between tags.
+* **Copilot exports to the Collector, not to LGTM.** LGTM's OTLP ports are not published to the host at all. That is what makes the filter unavoidable: if LGTM listened on the host too, any local process could write straight past it, and loopback binding would not help, because every process on the machine is already on loopback.
+* **The attribute policy is an allow-list.** `allow_all_keys: false` drops any key the config has not named, so an attribute added by a future extension release is dropped rather than stored. A delete-list would pass it through. Every allowed key is there because a shipped dashboard panel reads it.
+* **Grafana requires a credential you supply.** The image otherwise enables anonymous Admin access and hides the login form. The compose file turns that off and requires `COPILOT_OTEL_GRAFANA_USER` and `COPILOT_OTEL_GRAFANA_PASSWORD`; an unset variable fails the `up` with a message rather than starting on a guessable credential.
+* **Both images are pinned by digest, with the tag in a comment.** A tag is mutable, so a tag-pinned stack can change under a configuration you already reviewed.
+* Every port publishes to `127.0.0.1` only. The OTLP endpoint accepts writes from anything that can reach it.
 * The data volume is declared `external`, so Compose binds the existing `copilot-otel-data` volume instead of creating a project-prefixed duplicate that would orphan your history.
-* Every port publishes to `127.0.0.1` only. Grafana ships with default credentials, and this stack is single-machine.
 * `PROMETHEUS_EXTRA_ARGS` enables delta-to-cumulative conversion and raises retention to 120 days. Prometheus otherwise drops delta metrics, and a dropped delta metric was observed failing an entire batched write. The default 15-day retention silently truncates monthly token totals.
+
+The filter governs what reaches the store. It does not change what the extension emits, so content attributes still leave the editor and still cross the loopback hop in plaintext.
+
+To move to a newer image, resolve the multi-architecture manifest digest for the tag you want from the publisher's own registry listing, verify the publisher's signature or attestation separately, and review the new version for known vulnerabilities. Those are three different checks and none of them implies the others.
 
 ## Notes on the helpers
 

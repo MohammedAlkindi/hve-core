@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Microsoft Corporation. All rights reserved.
+# SPDX-License-Identifier: MIT
+"""Shared input policy for the bundled helper scripts.
+
+Every helper takes a configurable endpoint or path from the environment or the
+command line. Each one previously guarded itself, or did not, and the guards
+disagreed: the dashboard helper checked a hostname while the metric and trace
+endpoints were unchecked, and no helper rechecked the target after a redirect.
+
+This module is the single place those decisions are made, so a helper cannot be
+hardened by accident in one place and left open in another.
+
+Nothing here makes an arbitrary PromQL or TraceQL query safe. It constrains
+where a request may go and where a file may be written, not what is asked for.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import os
+import pathlib
+import urllib.parse
+import urllib.request
+
+__all__ = [
+    "DEFAULT_ALLOWED_PORTS",
+    "PolicyError",
+    "check_url",
+    "contain_path",
+    "open_url",
+    "origin_of",
+    "require_credentials",
+]
+
+
+class PolicyError(ValueError):
+    """Raised when an input is refused. No request and no write has occurred."""
+
+
+# The local stack's published surfaces. A helper pointed somewhere else on the
+# machine is more likely a mistake or a redirect than an intent.
+DEFAULT_ALLOWED_PORTS = frozenset({3000, 3200, 4317, 4318, 9090})
+
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
+_LOOPBACK_NAMES = frozenset({"localhost", "ip6-localhost", "ip6-loopback"})
+
+# Headers that identify the caller to the origin they were addressed to. They
+# are meaningless to a different origin and dangerous there.
+_CREDENTIAL_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie"})
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def origin_of(url: str) -> tuple[str, str, int]:
+    """Return the normalized (scheme, host, port) triple for a URL.
+
+    Normalization is the whole point. `http://h/x` and `http://h:80/x` are the
+    same origin, and comparing raw parsed ports would call them different and
+    strip credentials from a redirect that never left the origin that was
+    given them.
+    """
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    return scheme, host, port if port is not None else _DEFAULT_PORTS.get(scheme, -1)
+
+
+def _is_loopback(host: str) -> bool:
+    """Whether a hostname or address refers to this machine."""
+    if host.lower() in _LOOPBACK_NAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def check_url(
+    url: str,
+    *,
+    allow_remote: bool = False,
+    allowed_ports: frozenset[int] = DEFAULT_ALLOWED_PORTS,
+) -> urllib.parse.ParseResult:
+    """Return the parsed URL if policy permits it, otherwise raise PolicyError.
+
+    Remote targets require both an explicit opt-in and HTTPS. A loopback target
+    may stay on HTTP because it does not leave the machine.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError as exc:
+        raise PolicyError(f"unparseable URL: {exc}") from exc
+
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        raise PolicyError(
+            f"refusing scheme '{parsed.scheme or '(none)'}': only http and https are allowed"
+        )
+
+    # Credentials in the authority are refused rather than stripped, because
+    # stripping them silently changes which identity the request is made as.
+    if parsed.username is not None or parsed.password is not None:
+        raise PolicyError("refusing a URL that carries credentials in its authority")
+
+    try:
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise PolicyError(f"malformed authority: {exc}") from exc
+
+    if not host:
+        raise PolicyError("refusing a URL with no host")
+
+    resolved_port = port if port is not None else (443 if parsed.scheme == "https" else 80)
+
+    if _is_loopback(host):
+        if resolved_port not in allowed_ports:
+            raise PolicyError(
+                f"refusing local port {resolved_port}: expected one of "
+                f"{', '.join(str(value) for value in sorted(allowed_ports))}"
+            )
+        return parsed
+
+    if not allow_remote:
+        raise PolicyError(
+            f"refusing non-loopback host '{host}'. "
+            "Set COPILOT_OTEL_ALLOW_REMOTE=1 only if that target is disposable."
+        )
+    if parsed.scheme != "https":
+        raise PolicyError(f"refusing plaintext http to remote host '{host}': use https")
+    return parsed
+
+
+class _PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-applies policy to every redirect target.
+
+    A server that answers a permitted loopback request with a redirect to
+    somewhere else would otherwise carry the request straight past the check
+    that was made on the original URL.
+
+    Rechecking the target is not enough on its own. The standard library
+    carries `Authorization`, `Proxy-Authorization`, and `Cookie` onto the
+    redirected request, so a permitted redirect to a different origin would
+    hand that origin a credential it was never issued. Those headers are
+    removed after the redirect request is built, and only when the normalized
+    origin actually changed.
+    """
+
+    def __init__(self, *, allow_remote: bool, allowed_ports: frozenset[int]) -> None:
+        self._allow_remote = allow_remote
+        self._allowed_ports = allowed_ports
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+        check_url(newurl, allow_remote=self._allow_remote, allowed_ports=self._allowed_ports)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is None:
+            return None
+        if origin_of(req.full_url) != origin_of(redirected.full_url):
+            _strip_credential_headers(redirected)
+        return redirected
+
+
+def _strip_credential_headers(request: urllib.request.Request) -> None:
+    """Remove credential headers from both stores urllib keeps them in.
+
+    Keys are matched case-insensitively rather than by reproducing urllib's
+    `str.capitalize()` convention, so this does not depend on how the header
+    was spelled when it was added.
+    """
+    for store in (request.headers, request.unredirected_hdrs):
+        for key in [name for name in store if name.lower() in _CREDENTIAL_HEADERS]:
+            del store[key]
+
+
+def open_url(
+    request: urllib.request.Request | str,
+    *,
+    allow_remote: bool = False,
+    allowed_ports: frozenset[int] = DEFAULT_ALLOWED_PORTS,
+    timeout: int = 25,
+):  # noqa: ANN201
+    """Open a URL after checking it, and re-check every redirect it follows."""
+    url = request if isinstance(request, str) else request.full_url
+    check_url(url, allow_remote=allow_remote, allowed_ports=allowed_ports)
+    opener = urllib.request.build_opener(
+        _PolicyRedirectHandler(allow_remote=allow_remote, allowed_ports=allowed_ports)
+    )
+    return opener.open(request, timeout=timeout)
+
+
+def contain_path(candidate: str | os.PathLike[str], root: str | os.PathLike[str]) -> pathlib.Path:
+    """Return the resolved candidate if it stays inside root, else raise.
+
+    Both sides are fully resolved first, so `..` segments and symlinks that
+    point outside the root are caught rather than normalized away.
+    """
+    resolved_root = pathlib.Path(root).expanduser().resolve()
+    resolved = pathlib.Path(candidate).expanduser()
+    if not resolved.is_absolute():
+        resolved = resolved_root / resolved
+    resolved = resolved.resolve()
+
+    if resolved != resolved_root and resolved_root not in resolved.parents:
+        raise PolicyError(f"refusing a path outside {resolved_root}: {resolved}")
+    return resolved
+
+
+def require_credentials(*names: str) -> tuple[str, ...]:
+    """Return the named environment values, or raise naming every missing one.
+
+    Missing configuration and a rejected credential are different problems, and
+    a helper that sends a request with an empty password reports the second
+    when it means the first.
+    """
+    values = tuple(os.environ.get(name, "") for name in names)
+    missing = [name for name, value in zip(names, values, strict=True) if not value]
+    if missing:
+        raise PolicyError(f"missing required environment variable(s): {', '.join(missing)}")
+    return values

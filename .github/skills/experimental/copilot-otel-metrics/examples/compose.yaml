@@ -1,4 +1,27 @@
-# Local Copilot OTel stack: Grafana, Prometheus, Tempo, Loki, Pyroscope in one container.
+# Local Copilot OTel stack: a filtering Collector in front of Grafana,
+# Prometheus, Tempo, Loki, and Pyroscope.
+#
+# Copilot exports to the Collector, never to LGTM directly. The Collector
+# applies the fail-closed attribute allow-list in otel-collector-local.yaml and
+# is the only OTLP listener published on the host, so nothing reaches storage
+# without passing that policy. LGTM's own OTLP ports are deliberately not
+# mapped: publishing them would let any local process bypass the filter, which
+# loopback binding alone does not prevent.
+#
+# Both images are pinned by manifest digest rather than tag. A tag is mutable,
+# so a tag-pinned stack can change underneath a reviewed configuration.
+#
+# Grafana credentials are required, not defaulted. Set them before the first
+# up; the stack refuses to start otherwise. Read the password rather than
+# typing it inline, so it does not land in the terminal scrollback or the
+# shell history file:
+#   export COPILOT_OTEL_GRAFANA_USER=admin
+#   read -rs -p 'Grafana password: ' COPILOT_OTEL_GRAFANA_PASSWORD; echo
+#   export COPILOT_OTEL_GRAFANA_PASSWORD
+#
+# In PowerShell, use Read-Host -AsSecureString for the same reason. A .env file
+# reaches these containers but not the bundled Python helpers, which read the
+# same two variables from the environment of the shell that runs them.
 #
 # The data volume is declared external so this file binds the existing
 # copilot-otel-data volume rather than creating a project-prefixed duplicate,
@@ -8,19 +31,52 @@
 #   docker volume create copilot-otel-data
 
 services:
+  otel-collector:
+    # otel/opentelemetry-collector-contrib:0.158.0
+    image: otel/opentelemetry-collector-contrib@sha256:c5918f78992ee73b0d6f0e599423ac5ec52dd5d9726733114d6eca53d5a32ed5
+    container_name: copilot-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      # The only OTLP ingress for the stack, loopback only.
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP  <- Copilot exports here
+    volumes:
+      - ./otel-collector-local.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks:
+      - copilot-otel
+    depends_on:
+      lgtm:
+        condition: service_healthy
+
   lgtm:
-    image: grafana/otel-lgtm:0.29.2
+    # grafana/otel-lgtm:0.29.2
+    image: grafana/otel-lgtm@sha256:af7242c1a9608faf6d26e6f235392fd0c32b67258228f9a3cfc96e724974930c
     container_name: copilot-otel-lgtm
     restart: unless-stopped
     ports:
-      # Loopback only. Grafana ships with default admin credentials and this
-      # stack is single-machine, so nothing needs to be reachable off-host.
+      # Read surfaces only, loopback only. There is deliberately no 4317 or
+      # 4318 mapping here; OTLP arrives from the Collector over the internal
+      # network instead.
       - "127.0.0.1:3000:3000" # Grafana UI
-      - "127.0.0.1:4317:4317" # OTLP gRPC
-      - "127.0.0.1:4318:4318" # OTLP HTTP  <- Copilot exports here
       - "127.0.0.1:9090:9090" # Prometheus
       - "127.0.0.1:3200:3200" # Tempo
+    networks:
+      - copilot-otel
     environment:
+      # This image enables anonymous Grafana access with the Admin role and
+      # hides the login form. Left alone, every panel and every stored prompt
+      # fragment is readable by anything that can reach port 3000 without
+      # presenting a credential. All three flags are needed: disabling
+      # anonymous access without restoring the login form leaves no way in.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_AUTH_BASIC_ENABLED: "true"
+      # Required, with no default. The :? form fails the up with this message
+      # rather than silently starting on a guessable credential, and it is the
+      # same pair validate_dashboard.py reads.
+      GF_SECURITY_ADMIN_USER: ${COPILOT_OTEL_GRAFANA_USER:?set COPILOT_OTEL_GRAFANA_USER before starting the stack}
+      GF_SECURITY_ADMIN_PASSWORD: ${COPILOT_OTEL_GRAFANA_PASSWORD:?set COPILOT_OTEL_GRAFANA_PASSWORD before starting the stack}
       # Two flags, space separated, appended to the Prometheus command line.
       #
       # otlp-deltatocumulative is applied defensively. Prometheus drops
@@ -46,6 +102,12 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+networks:
+  # Explicit rather than implicit so the LGTM OTLP listener is reachable from
+  # the Collector and from nothing else.
+  copilot-otel:
+    driver: bridge
 
 volumes:
   copilot-otel-data:

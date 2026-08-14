@@ -7,6 +7,12 @@ The OTLP endpoint returns HTTP 200 for payloads it silently discards, so a
 successful export call proves nothing. Every check here queries the store.
 
 Exits non-zero if any required check fails.
+
+Every request goes through the shared policy module rather than raw urllib.
+The endpoints below are loopback constants today, so nothing is currently
+refused that was previously allowed; routing them through the chokepoint means
+a later endpoint change inherits the scheme, authority, port, redirect, and
+remote-opt-in rules instead of quietly escaping them.
 """
 
 from __future__ import annotations
@@ -14,7 +20,8 @@ from __future__ import annotations
 import json
 import time
 import urllib.parse
-import urllib.request
+
+from _input_policy import open_url
 
 GRAFANA = "http://localhost:3000"
 PROM = "http://localhost:9090"
@@ -33,7 +40,7 @@ def api(base: str, path: str, params: dict | None = None, timeout: int = 15) -> 
     url = f"{base}{path}"
     if params:
         url += "?" + urllib.parse.urlencode(params, doseq=True)
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
+    with open_url(url, timeout=timeout) as resp:
         return json.load(resp)
 
 
@@ -44,7 +51,7 @@ def check_health() -> None:
         ("tempo", f"{TEMPO}/ready"),
     ):
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with open_url(url, timeout=10) as resp:
                 record(f"{name} reachable", resp.status == 200, f"HTTP {resp.status}")
         except Exception as exc:  # noqa: BLE001 - report, do not raise
             record(f"{name} reachable", False, str(exc))
@@ -65,19 +72,31 @@ def check_copilot_metrics() -> None:
     try:
         names = api(PROM, "/api/v1/label/__name__/values")["data"]
         copilot = [n for n in names if n.startswith(("copilot_chat", "gen_ai"))]
-        record("copilot metric names present", bool(copilot), f"{len(copilot)} names: {copilot[:6]}")
+        record(
+            "copilot metric names present",
+            bool(copilot),
+            f"{len(copilot)} names: {copilot[:6]}",
+        )
 
         now = int(time.time())
         stored = []
         for n in copilot:
             res = (
-                api(PROM, "/api/v1/query_range", {"query": n, "start": now - 3600, "end": now, "step": "60"})
+                api(
+                    PROM,
+                    "/api/v1/query_range",
+                    {"query": n, "start": now - 3600, "end": now, "step": "60"},
+                )
                 .get("data", {})
                 .get("result", [])
             )
             if res:
                 stored.append(n)
-        record("copilot metrics have samples", bool(stored), f"{len(stored)} of {len(copilot)} with data in last hour")
+        record(
+            "copilot metrics have samples",
+            bool(stored),
+            f"{len(stored)} of {len(copilot)} with data in last hour",
+        )
     except Exception as exc:  # noqa: BLE001
         record("copilot metric names present", False, str(exc))
 
@@ -86,7 +105,11 @@ def check_copilot_traces() -> None:
     found = {}
     for svc in COPILOT_SERVICES:
         try:
-            res = api(TEMPO, "/api/search", {"q": f'{{resource.service.name="{svc}"}}', "limit": "5"})
+            res = api(
+                TEMPO,
+                "/api/search",
+                {"q": f'{{resource.service.name="{svc}"}}', "limit": "5"},
+            )
             n = len(res.get("traces") or [])
             if n:
                 found[svc] = n
@@ -122,7 +145,10 @@ def main() -> int:
         return 1
     if not any(signals):
         print("RESULT: stack healthy, but no Copilot signals stored yet.")
-        print("        Confirm export is enabled in user settings.json, then reload the VS Code window.")
+        print(
+            "        Confirm export is enabled in user settings.json, "
+            "then reload the VS Code window."
+        )
         return 1
     print("RESULT: stack healthy and storing Copilot signals.")
     return 0

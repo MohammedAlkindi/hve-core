@@ -3,8 +3,13 @@
 # Copilot's exporter sends static headers; Azure Monitor requires rotating Entra
 # credentials. This collector is what bridges the two, and it is not optional.
 #
-# Supply the connection string through the environment, never in this file:
+# Supply every credential and certificate path through the environment, never in
+# this file:
 #   export APPLICATIONINSIGHTS_CONNECTION_STRING="InstrumentationKey=...;IngestionEndpoint=..."
+#   export COPILOT_OTEL_INGEST_TOKEN="<the fleet ingest token>"
+#   export COPILOT_OTEL_ENVIRONMENT="prod"            # one deployment per environment
+#   export COPILOT_OTEL_TLS_CERT_FILE="/etc/otel/tls/tls.crt"
+#   export COPILOT_OTEL_TLS_KEY_FILE="/etc/otel/tls/tls.key"
 #
 # Requires the OpenTelemetry Collector Contrib distribution; the azuremonitor
 # exporter is not in the core distribution.
@@ -12,10 +17,28 @@
 receivers:
   otlp:
     protocols:
+      # Authentication and TLS are active, not suggested. An unauthenticated
+      # plaintext receiver reachable by a fleet accepts spans from anything that
+      # can route to it, and every span it accepts is billed and stored.
+      #
+      # If TLS is terminated by an ingress controller or load balancer in front
+      # of this collector, delete the tls blocks below and record that the
+      # terminating hop owns certificate lifecycle and cipher policy. Do not
+      # delete them merely because supplying certificates is inconvenient.
       http:
         endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth
+        tls:
+          cert_file: ${env:COPILOT_OTEL_TLS_CERT_FILE}
+          key_file: ${env:COPILOT_OTEL_TLS_KEY_FILE}
       grpc:
         endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth
+        tls:
+          cert_file: ${env:COPILOT_OTEL_TLS_CERT_FILE}
+          key_file: ${env:COPILOT_OTEL_TLS_KEY_FILE}
 
 processors:
   # Bounds collector memory so a traffic spike degrades rather than crashes it.
@@ -49,10 +72,19 @@ processors:
 
   # Fleet dimensions for grouping. Keep these to org structure; anything that
   # identifies an individual lands on every span they produce.
+  #
+  # These are labels, not boundaries. An attribute set by the collector is a
+  # grouping key that anyone with read access to this workspace can filter on;
+  # it does not stop them reading any other environment's data. Separation comes
+  # from deploying one collector and one workspace per environment, which is why
+  # the environment name is a required input rather than a default.
   resource/fleet:
     attributes:
       - key: service.namespace
         value: github-copilot
+        action: upsert
+      - key: deployment.environment.name
+        value: ${env:COPILOT_OTEL_ENVIRONMENT}
         action: upsert
 
   batch:
@@ -68,16 +100,39 @@ extensions:
     endpoint: 0.0.0.0:13133
 
   # Copilot can only send a fixed header set, so a static bearer token is the
-  # available fleet authentication mechanism. Every workstation holds the same
-  # value: it is write-side only, but it cannot be rotated per user. Uncomment
-  # and add `auth: { authenticator: bearertokenauth }` to the otlp receiver
-  # after deciding that trade-off deliberately.
+  # available fleet authentication mechanism, and it is active above. Be clear
+  # about what it is and is not: every workstation holds the same value, so it
+  # authenticates the fleet rather than a person, it cannot be rotated for one
+  # user, and anyone who extracts it from a workstation can write spans as the
+  # fleet. It is write-side only, and it is still worth having, because without
+  # it the receiver accepts spans from anything that can reach it.
   #
-  # bearertokenauth:
-  #   token: ${env:COPILOT_OTEL_INGEST_TOKEN}
+  # This authentication is mandatory, and that has a consequence worth stating
+  # here rather than only in the README. Managed telemetry.headers reach the
+  # extension exporter but deliberately not the agent host, because delivering
+  # them through the environment would put this token inside every tool
+  # subprocess the agent spawns. So the agent host exports without a
+  # credential, this receiver answers 401 or UNAUTHENTICATED, and OTLP treats
+  # neither as retryable: that telemetry is dropped, not queued.
+  #
+  # Do not resolve that by exporting the token into the environment, and do not
+  # resolve it by removing this authenticator. Run a loopback relay on each
+  # workstation that accepts the unauthenticated local export and adds this
+  # credential upstream. See README.md, "Agent-host telemetry needs a relay".
+  #
+  # Mutual TLS would authenticate each workstation rather than the fleet, and
+  # this receiver can already require it: adding client_ca_file beside
+  # cert_file and key_file in the otlp receiver selects
+  # RequireAndVerifyClientCert on both protocols. It is not enabled because
+  # whether the VS Code agent host can present a client certificate is
+  # unestablished, and configuring a receiver to require one the sender cannot
+  # supply would replace a documented gap with fleet-wide data loss.
+  bearertokenauth:
+    scheme: Bearer
+    token: ${env:COPILOT_OTEL_INGEST_TOKEN}
 
 service:
-  extensions: [health_check]
+  extensions: [health_check, bearertokenauth]
   pipelines:
     traces:
       receivers: [otlp]
