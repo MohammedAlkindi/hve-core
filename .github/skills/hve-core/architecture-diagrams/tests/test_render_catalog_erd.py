@@ -35,7 +35,7 @@ CATALOG_FIXTURE = (
     / ".github"
     / "skills"
     / "data-science"
-    / "ds-catalog"
+    / "data-catalog"
     / "examples"
     / "northwind-catalog.md"
 )

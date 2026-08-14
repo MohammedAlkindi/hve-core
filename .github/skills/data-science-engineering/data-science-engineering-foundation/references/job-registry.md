@@ -1,6 +1,6 @@
 ---
 title: Data Workstream Job Registry
-description: Authoritative job names, lifecycle classes, skill and specialist routes, and durable outputs for Data Workstream Coach sessions
+description: Authoritative job names, lifecycle classes, skill and specialist routes, and durable outputs for Data Science and Engineering Coach sessions
 ---
 
 # Data Workstream Job Registry
@@ -15,33 +15,33 @@ it does not duplicate the methods owned by a skill.
 
 | Job             | Class        | Primary route                                                                                | Optional supporting route                                                                                                                | Durable output or completion evidence                           |
 |-----------------|--------------|----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| `catalog`       | `continuous` | `ds-catalog`: durable catalog entities, declared relationships, lineage, and model semantics | `ds-analysis-authoring` when a presented dataset profile is the requested output; `privacy-standards` for classification citation fields | Caller-approved data catalog                                    |
-| `model-diagram` | `episodic`   | `ds-catalog`: authoritative declared entities and relationships                              | `architecture-diagrams`: render the declared model without becoming semantic authority                                                   | Mermaid or ASCII diagram                                        |
-| `feasibility`   | `bounded`    | `ds-feasibility`: evidence-led feasibility studies with durable traceability                 | None                                                                                                                                     | Caller-approved feasibility study                               |
-| `pipeline`      | `episodic`   | `ds-dataops`: tier behavior, pipeline invariants, validation, tests, and drift               | `privacy-standards` for sensitivity classification and DPIA thresholds                                                                   | Transformation, validation, or pipeline code                    |
-| `analysis`      | `episodic`   | `ds-analysis-authoring`: EDA notebook and analytical dashboard authoring and validation      | `ds-catalog` for column semantics; `ds-dataops` for derived-dataset persistence                                                          | Notebook, dashboard, or analysis deliverable                    |
-| `evaluation`    | `episodic`   | `ds-evaluation-design`: AI-system evaluation dataset design, metrics, and tooling            | `rai-planner` when a surfaced risk needs assessment rather than a test case                                                              | Evaluation dataset with curation, metric, and tooling documents |
+| `catalog`       | `continuous` | `data-catalog`: durable catalog entities, declared relationships, lineage, and model semantics | `analysis-authoring` when a presented dataset profile is the requested output; `privacy-standards` for classification citation fields | Caller-approved data catalog                                    |
+| `model-diagram` | `episodic`   | `data-catalog`: authoritative declared entities and relationships                              | `architecture-diagrams`: render the declared model without becoming semantic authority                                                   | Mermaid or ASCII diagram                                        |
+| `feasibility`   | `bounded`    | `feasibility`: evidence-led feasibility studies with durable traceability                 | None                                                                                                                                     | Caller-approved feasibility study                               |
+| `pipeline`      | `episodic`   | `dataops`: tier behavior, pipeline invariants, validation, tests, and drift               | `privacy-standards` for sensitivity classification and DPIA thresholds                                                                   | Transformation, validation, or pipeline code                    |
+| `analysis`      | `episodic`   | `analysis-authoring`: EDA notebook and analytical dashboard authoring and validation      | `data-catalog` for column semantics; `dataops` for derived-dataset persistence                                                          | Notebook, dashboard, or analysis deliverable                    |
+| `evaluation`    | `episodic`   | `evaluation-design`: AI-system evaluation dataset design, metrics, and tooling            | `rai-planner` when a surfaced risk needs assessment rather than a test case                                                              | Evaluation dataset with curation, metric, and tooling documents |
 | `experiment`    | `episodic`   | `experiment-design`: experiment selection, hypotheses, vetting, scope, and evaluation        | `ml-experimentation`: ML reproducibility, tracking, evaluation, abstractions, and production readiness                                   | Hypothesis, experiment assets, and result disposition           |
-| `testing`       | `episodic`   | `ds-dataops`: DataOps and DS/MLOps test techniques                                           | `ds-analysis-authoring` for dashboard validation technique                                                                               | Test code and assertions                                        |
-| `observability` | `episodic`   | `ds-dataops`: data/model signals and validation-versus-drift guidance                        | `telemetry-foundations`: metric names, instruments, units, cardinality, and PII-safe telemetry conventions                               | Instrumentation code and signal recommendations                 |
+| `testing`       | `episodic`   | `dataops`: DataOps and DS/MLOps test techniques                                           | `analysis-authoring` for dashboard validation technique                                                                               | Test code and assertions                                        |
+| `observability` | `episodic`   | `dataops`: data/model signals and validation-versus-drift guidance                        | `telemetry-foundations`: metric names, instruments, units, cardinality, and PII-safe telemetry conventions                               | Instrumentation code and signal recommendations                 |
 
 ## Seven-skill boundaries
 
-The Data Workstream Coach routes to seven Data Science skills. Keep their
+The Data Science and Engineering Coach routes to seven Data Science skills. Keep their
 authority separate even when one job loads more than one skill.
 
 | Exact skill name        | Capability description                                                                                          | Does not own                                                                                  |
 |-------------------------|-----------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
-| `ds-catalog`            | Durable catalog entities, declared relationships, identity, coverage, lineage, and attached dataset profiles    | Pipeline tier behavior, inferred diagram relationships, or feasibility verdicts               |
-| `ds-dataops`            | DataOps tier semantics, pipeline invariants, validation, tests, drift, signals, and derived-dataset persistence | Catalog meaning, experiment selection, ML tracking setup, or sensitivity classification       |
-| `ds-feasibility`        | Evidence-led feasibility studies, lifecycle, recommendations, and interchange traceability                      | Functional requirement numbering, downstream writeback, catalog semantics, or implementation  |
-| `ds-analysis-authoring` | EDA notebook and analytical dashboard composition, visualization selection, and dashboard validation            | Column semantics, persistence format, accessibility conformance, or evaluation dataset design |
-| `ds-evaluation-design`  | AI-system evaluation dataset design, difficulty balance, metric selection, and tooling fit                      | Trained-model evaluation, Responsible AI approval, or session and durable-write mechanics     |
+| `data-catalog`            | Durable catalog entities, declared relationships, identity, coverage, lineage, and attached dataset profiles    | Pipeline tier behavior, inferred diagram relationships, or feasibility verdicts               |
+| `dataops`            | DataOps tier semantics, pipeline invariants, validation, tests, drift, signals, and derived-dataset persistence | Catalog meaning, experiment selection, ML tracking setup, or sensitivity classification       |
+| `feasibility`        | Evidence-led feasibility studies, lifecycle, recommendations, and interchange traceability                      | Functional requirement numbering, downstream writeback, catalog semantics, or implementation  |
+| `analysis-authoring` | EDA notebook and analytical dashboard composition, visualization selection, and dashboard validation            | Column semantics, persistence format, accessibility conformance, or evaluation dataset design |
+| `evaluation-design`  | AI-system evaluation dataset design, difficulty balance, metric selection, and tooling fit                      | Trained-model evaluation, Responsible AI approval, or session and durable-write mechanics     |
 | `experiment-design`     | Experiment selection, hypotheses, vetting, minimum scope, and result evaluation                                 | ML infrastructure, production implementation, or pipeline mechanics                           |
 | `ml-experimentation`    | ML environments, reproducibility, tracking, abstractions, evaluation, and readiness                             | General hypothesis framing, pipeline replay, or Responsible AI approval                       |
 
 The two evaluation authorities are adjacent and must not be blended.
-`ds-evaluation-design` covers systems whose output is a response, such as
+`evaluation-design` covers systems whose output is a response, such as
 assistants and agents. `ml-experimentation` covers a trained model's predictive
 performance.
 

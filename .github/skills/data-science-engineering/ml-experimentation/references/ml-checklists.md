@@ -20,7 +20,7 @@ Establishes that the data underpinning the engagement is obtainable, understood,
 
 ### Feasibility Study
 
-Establishes whether the data can support the proposed task at all, and whether the expected return justifies the risk. Its conclusion is a documented recommendation on how to proceed. `ds-feasibility` owns this workflow.
+Establishes whether the data can support the proposed task at all, and whether the expected return justifies the risk. Its conclusion is a documented recommendation on how to proceed. `feasibility` owns this workflow.
 
 ### Evaluation and Metrics
 
@@ -58,7 +58,7 @@ The upstream checklist works through the question of whether a model will behave
 
 **Integration and operating budgets.** How the model joins the systems around it and what that integration affects, plus the targets and hard limits set for performance, prediction speed, and cost that give trade-offs something to be judged against.
 
-**Monitoring.** How incoming data quality, shifts in data characteristics, and model performance are each monitored. `ds-dataops` owns these.
+**Monitoring.** How incoming data quality, shifts in data characteristics, and model performance are each monitored. `dataops` owns these.
 
 **Ethical review.** Whether ethical implications have been considered. `rai-planner` owns this.
 
@@ -68,10 +68,10 @@ Some items are owned elsewhere.
 
 | Items                                                                          | Route to                                                                                           |
 |--------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| Incoming data quality monitoring, drift monitoring, and performance monitoring | `ds-dataops`, which carries the validation-versus-drift distinction and its asymmetric remediation |
+| Incoming data quality monitoring, drift monitoring, and performance monitoring | `dataops`, which carries the validation-versus-drift distinction and its asymmetric remediation |
 | Ethical concerns                                                               | `rai-planner`                                                                                      |
 | Experiment setup, tracking, and evaluation flow                                | [model-experimentation.md](model-experimentation.md)                                               |
 
 ## A distinction worth preserving
 
-The ML Fundamentals Checklist names reproducible, logged experiments. That is **experiment reproducibility**, which is not the same as **pipeline replayability**. Neither checklist states a pipeline-replayability requirement, and neither names a data-tiering model. Collapsing the two loses technical precision; pipeline replay semantics belong to `ds-dataops`.
+The ML Fundamentals Checklist names reproducible, logged experiments. That is **experiment reproducibility**, which is not the same as **pipeline replayability**. Neither checklist states a pipeline-replayability requirement, and neither names a data-tiering model. Collapsing the two loses technical precision; pipeline replay semantics belong to `dataops`.

@@ -1,17 +1,17 @@
 # Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 # SPDX-License-Identifier: MIT
-slug: data-workstream-coach
+slug: data-science-engineering-coach
 class: planner-coach
-agent_file: .github/agents/data-science/data-workstream-coach.agent.md
-stimulus_file: evals/agent-behavior/stimuli/data-workstream-coach.yml
+agent_file: .github/agents/data-science-engineering/data-science-engineering-coach.agent.md
+stimulus_file: evals/agent-behavior/stimuli/data-science-engineering-coach.yml
 source_review_date: 2026-08-03
 
 expectations:
   - expectation_id: foundation-loaded-explicitly
     summary: Initialization and resume explicitly load the foundation and the state reference.
-    signal: Output names `data-workstream-foundation` and its session-state protocol before state action.
+    signal: Output names `data-science-engineering-foundation` and its session-state protocol before state action.
     pass_criteria: |
-      The response loads `data-workstream-foundation` at initialization and
+      The response loads `data-science-engineering-foundation` at initialization and
       resume and uses its `session-state.md` reference before validating,
       mutating, recovering, reconstructing, or resuming state.
     failure_modes:
@@ -114,13 +114,13 @@ expectations:
     pass_criteria: |
       Catalog, DataOps, feasibility, analysis authoring, AI-system evaluation
       design, general experiment design, and ML experimentation concerns route
-      to `ds-catalog`, `ds-dataops`, `ds-feasibility`, `ds-analysis-authoring`,
-      `ds-evaluation-design`, `experiment-design`, and `ml-experimentation`
+      to `data-catalog`, `dataops`, `feasibility`, `analysis-authoring`,
+      `evaluation-design`, `experiment-design`, and `ml-experimentation`
       respectively. A supporting skill contributes within its own authority
       without taking over the active job.
     failure_modes:
       - Uses `experiment-design` for ML tracking setup.
-      - Lets `ds-dataops` decide sensitivity classification.
+      - Lets `dataops` decide sensitivity classification.
       - Routes AI-agent evaluation dataset design to `ml-experimentation`.
       - Lets a supporting skill mutate coach state or switch jobs.
     priority: high
@@ -128,10 +128,10 @@ expectations:
 
   - expectation_id: skill-primary-analysis-and-evaluation
     summary: Analysis and evaluation jobs are performed through their owning skill rather than delegated to a specialist agent.
-    signal: Output names `ds-analysis-authoring` or `ds-evaluation-design` and proceeds to produce the job output.
+    signal: Output names `analysis-authoring` or `evaluation-design` and proceeds to produce the job output.
     pass_criteria: |
-      A confirmed analysis job routes to `ds-analysis-authoring` and a confirmed
-      evaluation job routes to `ds-evaluation-design`. The coach produces the
+      A confirmed analysis job routes to `analysis-authoring` and a confirmed
+      evaluation job routes to `evaluation-design`. The coach produces the
       durable output itself after user confirmation rather than handing the job
       to a separate specialist agent.
     failure_modes:

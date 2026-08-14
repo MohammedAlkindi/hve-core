@@ -41,7 +41,7 @@ Read only the reference that matches the active concern.
 * Datasets and evaluation are defined consistently enough that experiments are comparable. A tracking framework alone does not deliver comparability.
 * Checklist section headings and readiness domains are preserved, and applicability caveats travel with them.
 * Experiment reproducibility stays distinct from pipeline replayability, which
-  belongs to `ds-dataops`, the DataOps skill for tier behavior, pipeline
+  belongs to `dataops`, the DataOps skill for tier behavior, pipeline
   invariants, validation placement, tests, drift, and operational signals.
 
 ## Constraints
@@ -56,8 +56,8 @@ Read only the reference that matches the active concern.
 | Concern                                                                         | Owner                                           |
 |---------------------------------------------------------------------------------|-------------------------------------------------|
 | Experiment framing, hypothesis formation, vetting criteria, and red flags       | `experiment-design`                             |
-| Pipeline mechanics, data tiering, replay semantics, and DS/MLOps test technique | `ds-dataops`                                    |
-| Data validation, drift detection, and their asymmetric remediation              | `ds-dataops`                                    |
+| Pipeline mechanics, data tiering, replay semantics, and DS/MLOps test technique | `dataops`                                    |
+| Data validation, drift detection, and their asymmetric remediation              | `dataops`                                    |
 | Ethical and Responsible AI review                                               | `rai-planner`                                   |
 | Telemetry naming and data sensitivity classification                            | `telemetry-foundations` and `privacy-standards` |
 

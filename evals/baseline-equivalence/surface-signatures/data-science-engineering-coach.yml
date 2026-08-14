@@ -1,9 +1,9 @@
-# Curated surface signature for the experimental Data Workstream Coach.
+# Curated surface signature for the experimental Data Science and Engineering Coach.
 required:
   - name: foundation-loading-language
     type: output-matches
     config:
-      pattern: '(?i)data-workstream-foundation'
+      pattern: '(?i)data-science-engineering-foundation'
   - name: authoritative-session-path-language
     type: output-matches
     config:

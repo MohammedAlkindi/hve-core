@@ -1,5 +1,5 @@
 ---
-title: ds-catalog provenance and standards posture
+title: data-catalog provenance and standards posture
 description: Source selection, licensing, and non-conformance boundaries for the native data catalog contract
 ---
 

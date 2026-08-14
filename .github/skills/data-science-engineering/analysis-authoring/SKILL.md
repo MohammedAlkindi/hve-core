@@ -1,5 +1,5 @@
 ---
-name: ds-analysis-authoring
+name: analysis-authoring
 description: "Authoring conventions for exploratory data analysis notebooks and analytical dashboards, covering section sequence, visualization selection, scale thresholds, caching and state, and dashboard validation budgets. Use when composing or reviewing an EDA notebook, an analytical dashboard, or a dashboard test pass."
 license: CC-BY-4.0
 user-invocable: false
@@ -18,7 +18,7 @@ Produce exploratory notebooks and analytical dashboards whose structure, visuali
 ## Flow
 
 1. Confirm the analysis question, the datasets in scope, and the deliverable shape: notebook, dashboard, or both.
-2. Read the available profile and objectives artifacts rather than re-deriving column semantics. `ds-catalog` owns the profile contract and semantic roles.
+2. Read the available profile and objectives artifacts rather than re-deriving column semantics. `data-catalog` owns the profile contract and semantic roles.
 3. Select the deliverable's section sequence from the matching reference, including only the conditional sections the data supports.
 4. Choose each visualization from its analytical goal, applying the scale thresholds rather than plotting whole datasets by default.
 5. Record interpretation next to each figure so a reader learns what the figure answers, not only what it shows.
@@ -46,8 +46,8 @@ Produce exploratory notebooks and analytical dashboards whose structure, visuali
 
 * Describe judgment, not tool mechanics. Notebook creation, cell execution, output inspection, browser navigation, and screenshots are native tool capabilities and are not narrated here.
 * Reference profile and objectives artifacts instead of copying their contents into the deliverable.
-* Keep persistence format and dataset versioning with `ds-dataops`, which owns pipeline invariants and storage conventions.
-* Keep entity semantics, relationships, and semantic roles with `ds-catalog`.
+* Keep persistence format and dataset versioning with `dataops`, which owns pipeline invariants and storage conventions.
+* Keep entity semantics, relationships, and semantic roles with `data-catalog`.
 * Treat the performance budgets as defaults. A project-stated budget supersedes them.
 * Do not embed environment-specific absolute paths in a deliverable.
 
@@ -55,17 +55,17 @@ Produce exploratory notebooks and analytical dashboards whose structure, visuali
 
 | Concern                                                                   | Owner                  |
 |---------------------------------------------------------------------------|------------------------|
-| Column semantics, semantic roles, profile and objectives contracts        | `ds-catalog`           |
-| Persistence format, dataset versioning, pipeline and validation placement | `ds-dataops`           |
+| Column semantics, semantic roles, profile and objectives contracts        | `data-catalog`           |
+| Persistence format, dataset versioning, pipeline and validation placement | `dataops`           |
 | Accessibility conformance criteria and assistive-technology review        | `accessibility`        |
-| Evaluation dataset design for AI systems                                  | `ds-evaluation-design` |
+| Evaluation dataset design for AI systems                                  | `evaluation-design` |
 | Trained-model evaluation, tracking, and readiness                         | `ml-experimentation`   |
 
 ## Stop rules
 
 * Stop and ask when the analysis question is unstated, because section selection and visualization choice both depend on it.
 * Stop and record a limitation rather than inventing an explanation for a pattern the data does not support.
-* Stop and route to `ds-catalog` when column meaning, grain, or relationships are ambiguous.
+* Stop and route to `data-catalog` when column meaning, grain, or relationships are ambiguous.
 * Stop and route accessibility conformance work to the `accessibility` skill rather than restating criteria here.
 
 ## Package resources

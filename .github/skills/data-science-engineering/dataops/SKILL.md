@@ -1,5 +1,5 @@
 ---
-name: ds-dataops
+name: dataops
 description: "DataOps and DS/MLOps testing reference for data tiering, Bronze-to-Silver validation placement, pipeline invariants, pytest categories, and validation-versus-drift. Use when designing, reviewing, or generating data pipelines, transformation code, data validation, or data-science test suites."
 license: CC-BY-4.0
 user-invocable: false

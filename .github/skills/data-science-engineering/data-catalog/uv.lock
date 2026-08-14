@@ -120,7 +120,7 @@ toml = [
 ]
 
 [[package]]
-name = "ds-catalog-skill"
+name = "data-catalog-skill"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [

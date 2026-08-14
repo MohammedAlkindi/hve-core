@@ -222,7 +222,7 @@ stimuli:
 
 Agents that sequence work, plan tasks, coach the user through a process, or orchestrate multi-phase workflows.
 
-**Members (13):** accessibility-planner, agentic-workflows, data-workstream-coach, documentation, dt-coach, dt-learning-tutor, experiment-designer, pptx, privacy-planner, rai-planner, rpi-agent, security-planner, sssc-planner
+**Members (13):** accessibility-planner, agentic-workflows, data-science-engineering-coach, documentation, dt-coach, dt-learning-tutor, experiment-designer, pptx, privacy-planner, rai-planner, rpi-agent, security-planner, sssc-planner
 
 **Required Graders:**
 
@@ -257,7 +257,7 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 | backlog-manager              | workitem-manager | light     | [.github/agents/project-planning/backlog-manager.agent.md](../../.github/agents/project-planning/backlog-manager.agent.md)                           |
 | brd-builder                  | research-writer  | light     | [.github/agents/project-planning/brd-builder.agent.md](../../.github/agents/project-planning/brd-builder.agent.md)                                   |
 | code-review                  | code-reviewer    | light     | [.github/agents/coding-standards/code-review.agent.md](../../.github/agents/coding-standards/code-review.agent.md)                                   |
-| data-workstream-coach        | planner-coach    | light     | [.github/agents/data-science/data-workstream-coach.agent.md](../../.github/agents/data-science/data-workstream-coach.agent.md)                       |
+| data-science-engineering-coach        | planner-coach    | light     | [.github/agents/data-science-engineering/data-science-engineering-coach.agent.md](../../.github/agents/data-science-engineering/data-science-engineering-coach.agent.md)                       |
 | dependency-reviewer          | code-reviewer    | light     | [.github/agents/dependency-reviewer.agent.md](../../.github/agents/dependency-reviewer.agent.md)                                                     |
 | documentation                | planner-coach    | light     | [.github/agents/hve-core/documentation.agent.md](../../.github/agents/hve-core/documentation.agent.md)                                               |
 | dt-coach                     | planner-coach    | light     | [.github/agents/design-thinking/dt-coach.agent.md](../../.github/agents/design-thinking/dt-coach.agent.md)                                           |

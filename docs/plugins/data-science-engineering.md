@@ -1,15 +1,15 @@
 ---
-title: Data Science
-description: Persistent data-workstream coaching with routed catalog, DataOps, feasibility, analysis-authoring, and AI-evaluation-design capabilities
+title: Data Science and Engineering
+description: Persistent data science and data engineering coaching with routed catalog, DataOps, feasibility, analysis-authoring, and AI-evaluation-design capabilities
 sidebar_position: 3
 author: Microsoft
-ms.date: 2026-08-07
+ms.date: 2026-08-14
 ms.topic: reference
 ---
 
-Choose this package for data practitioners running a persistent data workstream: cataloging data assets, planning pipelines, assessing feasibility, authoring exploratory notebooks and dashboards, or designing evaluation datasets for AI systems.
+Choose this package for data practitioners running a persistent data science and engineering workstream: cataloging data assets, planning pipelines, assessing feasibility, authoring exploratory notebooks and dashboards, or designing evaluation datasets for AI systems.
 
-The Data Workstream Coach coordinates the work through explicit user-confirmed jobs and routes each one to its owning skill. It combines that coaching surface with synthetic-data and Responsible AI planning entry points, privacy classification and telemetry vocabulary references, Python conventions, and supporting security planning capability.
+The Data Science and Engineering Coach coordinates the work through explicit user-confirmed jobs and routes each one to its owning skill. It combines that coaching surface with synthetic-data and Responsible AI planning entry points, privacy classification and telemetry vocabulary references, Python conventions, and supporting security planning capability.
 
 Lifecycle labels are disclosure metadata. In the channel model, Stable and PreRelease have equal active content, including components labeled stable, preview, and experimental; publication cadence and source ownership can differ.
 

@@ -1,75 +1,80 @@
 ---
-title: Supply Chain Reviewer
-description: Supply-chain posture assessment orchestrator that profiles a codebase, assesses it against supply-chain skills, verifies findings, and writes a consolidated security report
+title: SSSC Reviewer
+description: Supply-chain posture reviewer that profiles a codebase, assesses it against the supply-chain skill, verifies findings adversarially, and authors an evidence-based review report
 sidebar_position: 7
-sidebar_label: Supply Chain Reviewer
+sidebar_label: SSSC Reviewer
 keywords:
   - supply chain security
   - posture assessment
   - OpenSSF Scorecard
   - SLSA
   - SBOM
+  - VEX
   - security review
 tags:
   - agents
   - security
 author: Microsoft
-ms.date: 2026-08-02
+ms.date: 2026-08-14
 ms.topic: concept
 estimated_reading_time: 7
 ---
 
-The Supply Chain Reviewer is a user-invocable agent that assesses your repository's software supply-chain posture and writes a consolidated security report. It orchestrates a four-stage subagent pipeline (profile the codebase, assess it against the applicable supply-chain skill, verify findings through adversarial review, and generate the report) so the output reflects evidence-backed findings rather than a raw checklist pass.
+The SSSC Reviewer is a user-invocable agent that reviews your repository's software supply-chain security posture and authors an evidence-based review report. It dispatches a three-stage subagent pipeline (profile the codebase, assess it against the applicable supply-chain skill, and verify findings through adversarial review), then writes the report itself, so the output reflects evidence-backed findings rather than a raw checklist pass.
 
-> The reviewer is an analysis-and-reporting agent, not a planning conversation. It scans what exists today (or what a plan proposes) and produces a point-in-time report you can act on.
+> The reviewer is an analysis-and-reporting agent, not a planning conversation. It reviews what exists today (or what a plan proposes) and produces a point-in-time report you can act on.
+
+It also owns HVE Core's [VEX assessment capability](vex-capability.md) for triaging dependency vulnerabilities and drafting OpenVEX statements.
 
 ## When to Use
 
 HVE Core includes three complementary security agents. Pick the one matched to your goal.
 
-| Use this                 | When you want to…                                                                                                           |
-|--------------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| 🔎 Supply Chain Reviewer | Run an automated, evidence-verified posture scan of the current codebase (or a PR diff, or a plan) and get a written report |
-| 🛡️ Security Planner     | Walk a structured six-phase threat-modeling interview that produces backlog items across seven operational buckets          |
-| 🔗 SSSC Planner          | Hold a conversational supply-chain planning session that maps OpenSSF Scorecard, SLSA, Sigstore, and SBOM gaps to a backlog |
+| Use this             | When you want to…                                                                                                           |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| 🔎 SSSC Reviewer     | Run an automated, evidence-verified posture review of the current codebase (or a PR diff, or a plan) and get a written report |
+| 🛡️ Security Planner | Walk a structured six-phase threat-modeling interview that produces backlog items across seven operational buckets          |
+| 🔗 SSSC Planner      | Hold a conversational supply-chain planning session that maps OpenSSF Scorecard, SLSA, Sigstore, and SBOM gaps to a backlog |
 
-In short: reach for the **Supply Chain Reviewer** when you need an assessment report now, the **Security Planner** for broad threat modeling and backlog generation, and the **SSSC Planner** when you want a guided, conversational supply-chain plan with handoff-ready work items.
+In short: reach for the **SSSC Reviewer** when you need an assessment report now, the **Security Planner** for broad threat modeling and backlog generation, and the **SSSC Planner** when you want a guided, conversational supply-chain plan with handoff-ready work items.
 
 ## Operating Modes
 
 The reviewer runs in one of three modes. When no mode is supplied, it defaults to `audit`.
 
-| Mode    | Scope                                      | Report artifact                   |
-|---------|--------------------------------------------|-----------------------------------|
-| `audit` | Full repository                            | `security-report-{{NNN}}.md`      |
-| `diff`  | Changed files in a PR (full-repo verifies) | `security-report-diff-{{NNN}}.md` |
-| `plan`  | An implementation plan document            | `plan-risk-assessment-{{NNN}}.md` |
+| Mode    | Scope                                      | Report artifact                |
+|---------|--------------------------------------------|--------------------------------|
+| `audit` | Full repository                            | `sssc-review-{{NNN}}.md`       |
+| `diff`  | Changed files in a PR (full-repo verifies) | `sssc-review-diff-{{NNN}}.md`  |
+| `plan`  | An implementation plan document            | `sssc-plan-review-{{NNN}}.md`  |
 
 * **audit** profiles and assesses the entire codebase.
-* **diff** uses the `pr-reference` skill to resolve the changed files, scopes the assessment to those files, and keeps supply-chain-relevant configuration (CI/CD workflows, dependency manifests, lockfiles, SBOM documents, signing or provenance configuration) in scope. Verification still searches the full repository so mitigations in unchanged code do not produce false positives.
+* **diff** resolves the changed files, scopes the assessment to them, and keeps supply-chain-relevant configuration (CI/CD workflows, dependency manifests, lockfiles, SBOM documents, signing or provenance configuration) in scope. Verification still searches the full repository so mitigations in unchanged code do not produce false positives.
 * **plan** evaluates an implementation plan document for supply-chain risk before the work is built. Findings pass through without the adversarial verification step.
 
-## The Four-Subagent Pipeline
+## The Three-Subagent Pipeline
 
 ```mermaid
 flowchart LR
   A["Codebase Profiler<br/>(profile)"] --> B["Supply Chain Skill Assessor<br/>(assess)"]
   B --> C["Finding Deep Verifier<br/>(verify)"]
-  C --> D["Report Generator<br/>(report)"]
+  C --> D["SSSC Reviewer<br/>(authors the report)"]
 ```
 
-| Stage   | Subagent                    | Responsibility                                                                                       |
+| Stage   | Owner                       | Responsibility                                                                                       |
 |---------|-----------------------------|------------------------------------------------------------------------------------------------------|
 | Profile | Codebase Profiler           | Detects the technology stack and lists applicable supply-chain skills from the codebase signals      |
 | Assess  | Supply Chain Skill Assessor | Assesses the codebase (or plan) against each applicable skill and returns a findings table           |
 | Verify  | Finding Deep Verifier       | Runs adversarial review on every FAIL and PARTIAL finding, confirming, disproving, or downgrading it |
-| Report  | Report Generator            | Collates the verified findings and writes the consolidated report under `Domain: security`           |
+| Report  | SSSC Reviewer               | Translates the verified findings into its own nine-section review report and writes it               |
 
-The orchestrator delegates all reference reading to the subagents; it never reads the supply-chain reference files directly. PASS and `NOT_ASSESSED` findings pass through unchanged. In `plan` mode the verify stage is skipped.
+The reviewer delegates all reference reading to the subagents; it never reads the supply-chain reference files directly. `PASS` and `NOT_ASSESSED` findings pass through unchanged. In `plan` mode the verify stage is skipped.
+
+The reviewer authors the report itself rather than delegating to the shared `Report Generator`, whose report roots are fixed to the security and accessibility directories and whose format differs from the SSSC review contract.
 
 ## Subagent Reference
 
-Each subagent is internal (not user-invocable) and is dispatched by the reviewer. Three of the four are shared across the security and accessibility review pipelines; only the Supply Chain Skill Assessor is specific to supply-chain assessment.
+Each subagent is internal (not user-invocable) and is dispatched by the reviewer. Two of the three are shared with the security and accessibility review pipelines; only the Supply Chain Skill Assessor is specific to supply-chain assessment.
 
 ### Codebase Profiler
 
@@ -92,12 +97,12 @@ Each subagent is internal (not user-invocable) and is dispatched by the reviewer
 * **Output:** One verdict block per finding (`CONFIRMED`, `DISPROVED`, or `DOWNGRADED`) with the updated status and severity.
 * **Notes:** Invoked only in `audit` and `diff` modes; verification is skipped entirely in `plan` mode. In `diff` mode it searches the full repository so mitigations in unchanged code are not flagged as false positives.
 
-### Report Generator
+### Report Authoring
 
-* **Role:** Collates the verified findings into a single report, computes summary and severity counts, sorts remediation guidance by severity, and writes the dated report file.
-* **Inputs:** The verified findings collection (grouped by skill), repository name, ISO 8601 report date, and the assessed-skills list; optional mode, domain, changed-files appendix, and plan reference.
-* **Output:** The written report path plus the format used and the computed counts returned to the reviewer for its completion summary.
-* **Notes:** Supply-chain runs pass `Domain: security`, so the report lands in the shared security reports directory while the body uses supply-chain terminology.
+* **Role:** The reviewer authors the report directly, translating the subagent vocabulary into its own review contract.
+* **Status mapping:** `PASS`, `PARTIAL`, and `FAIL` carry through unchanged; `NOT_ASSESSED` becomes `NEEDS_REVIEW`.
+* **Verification:** Each verified finding records its verdict (`CONFIRMED`, `DOWNGRADED`, or `UNCHANGED`) alongside its verified status and severity. `DISPROVED` findings are retained in a distinct subsection rather than dropped, so the report shows what adversarial verification eliminated.
+* **Notes:** The report follows a nine-section contract with an evidence inventory, limitations, follow-up guidance, and human-review checkboxes.
 
 ## Inputs
 
@@ -114,35 +119,36 @@ The reviewer runs with no required arguments; an unqualified invocation performs
 
 ## Output Artifacts
 
-The consolidated report is written to the shared security reports directory, dated by the run:
+The review report is written to the SSSC reviews directory, dated by the run:
 
 ```text
-.copilot-tracking/security/{{YYYY-MM-DD}}/security-report-{{NNN}}.md
-.copilot-tracking/security/{{YYYY-MM-DD}}/security-report-diff-{{NNN}}.md   # diff mode
-.copilot-tracking/security/{{YYYY-MM-DD}}/plan-risk-assessment-{{NNN}}.md   # plan mode
+.copilot-tracking/sssc-reviews/{{YYYY-MM-DD}}/sssc-review-{{NNN}}.md
+.copilot-tracking/sssc-reviews/{{YYYY-MM-DD}}/sssc-review-diff-{{NNN}}.md   # diff mode
+.copilot-tracking/sssc-reviews/{{YYYY-MM-DD}}/sssc-plan-review-{{NNN}}.md   # plan mode
 ```
 
-The `{{NNN}}` sequence number increments per day, starting at `001`. After the report is written, the agent prints a completion summary with severity and status counts, the assessed skills, and the report path, followed by a professional review disclaimer. Reports are written under `Domain: security` while the report body uses supply-chain terminology.
+The `{{NNN}}` sequence number increments per day, starting at `001`. After the report is written, the agent prints a completion summary with the report path and the highest-priority next steps, followed by a professional review disclaimer.
 
 ## Prerequisites
 
-* The Supply Chain Reviewer agent installed and enabled through the complete `hve-core` identity.
-* The four pipeline subagents available: Codebase Profiler, Supply Chain Skill Assessor, Finding Deep Verifier, and Report Generator.
-* The `supply-chain-security` skill and the `security-reviewer-formats` skill for the assessment references and report templates.
-* For `diff` mode: the `pr-reference` skill to resolve the changed files for a pull request.
+* The SSSC Reviewer agent installed and enabled through the complete `hve-core` identity.
+* The three pipeline subagents available: Codebase Profiler, Supply Chain Skill Assessor, and Finding Deep Verifier.
+* The `supply-chain-security` skill and the `security-reviewer-formats` skill for the assessment references and finding formats.
+* For VEX work: the `vex` skill and the `CVE Analyzer` subagent.
 
 ## Quick Start
 
-1. Open the agent picker and select **Supply Chain Reviewer**.
+1. Open the agent picker and select **SSSC Reviewer**.
 2. Run it with no arguments for a full `audit`, or specify a mode (`diff` or `plan`) and any optional focus.
 3. For `diff` mode, ensure the change is available as a pull request reference; for `plan` mode, provide the plan document path.
-4. Review the generated report under `.copilot-tracking/security/{{YYYY-MM-DD}}/` and act on the severity-grouped findings.
+4. Review the generated report under `.copilot-tracking/sssc-reviews/{{YYYY-MM-DD}}/` and act on the severity-grouped findings.
 
 > [!IMPORTANT]
-> The report is an AI-assisted assessment. Treat the professional review disclaimer in the completion output as a prompt for qualified human review before relying on the findings.
+> The report is an AI-assisted assessment. Treat the professional review disclaimer in the completion output as a prompt for qualified human review before relying on the findings. The human-review checkboxes in the report are never marked complete by the agent.
 
 ## Next Steps
 
+* [VEX Capability](vex-capability.md) for dependency vulnerability triage and OpenVEX drafting.
 * [Security Planning](README.md) for structured threat modeling and backlog generation.
 * [Why Security Planning?](why-security-planning.md) for the reasoning behind the security workflow.
 

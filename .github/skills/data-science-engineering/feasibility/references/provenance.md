@@ -1,5 +1,5 @@
 ---
-title: ds-feasibility provenance and licensing posture
+title: feasibility provenance and licensing posture
 description: Source mapping, independent authorship, licensing, and non-conformance statement for the feasibility profile
 ---
 

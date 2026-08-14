@@ -107,4 +107,4 @@ Stated benefits: model performance, code quality, collaboration, reproducibility
 
 The model-evaluation points overlap closely with the Evaluation and Metrics section of the ML Fundamentals Checklist. Cite one and cross-reference rather than restating both. See [ml-checklists.md](ml-checklists.md).
 
-Unit-testing evaluation code is a testing concern; technique and mocking boundaries live in the `ds-dataops` skill.
+Unit-testing evaluation code is a testing concern; technique and mocking boundaries live in the `dataops` skill.

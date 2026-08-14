@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/microsoft/hve-core/ds-feasibility/feasibility-study-interchange-1.0.0.schema.json",
+  "$id": "https://github.com/microsoft/hve-core/feasibility/feasibility-study-interchange-1.0.0.schema.json",
   "title": "Feasibility Study Interchange Profile 1.0.0",
   "type": "object",
   "additionalProperties": false,

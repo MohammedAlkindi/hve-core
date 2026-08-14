@@ -1,6 +1,6 @@
 ---
-name: data-workstream-foundation
-description: "State, resume, reconstruction, job-lifecycle, transition, and flow-state mechanics for the Data Workstream Coach. Loaded by the coach; not a user entry point."
+name: data-science-engineering-foundation
+description: "State, resume, reconstruction, job-lifecycle, transition, and flow-state mechanics for the Data Science and Engineering Coach. Loaded by the coach; not a user entry point."
 license: CC-BY-4.0
 user-invocable: false
 metadata:
@@ -13,7 +13,7 @@ metadata:
 
 ## Goal
 
-Keep Data Workstream Coach orchestration consistent across job changes and
+Keep Data Science and Engineering Coach orchestration consistent across job changes and
 sessions without duplicating job-specific guidance. The coach loads this index
 at initialization and resume, then reads the reference for the current
 coaching moment.
@@ -36,11 +36,11 @@ coaching moment.
 
 ## Constraints
 
-* Keep catalog guidance in `ds-catalog`, the durable data-catalog workflow for
+* Keep catalog guidance in `data-catalog`, the durable data-catalog workflow for
   entities, declared relationships, lineage, and ERD-ready model semantics.
-* Keep feasibility guidance in `ds-feasibility`, the evidence-led data and ML
+* Keep feasibility guidance in `feasibility`, the evidence-led data and ML
   feasibility-study workflow with lifecycle and interchange traceability.
-* Keep pipeline and testing guidance in `ds-dataops`, the DataOps reference for
+* Keep pipeline and testing guidance in `dataops`, the DataOps reference for
   tier behavior, pipeline invariants, validation placement, tests, drift, and
   operational signals.
 * Keep general experiment guidance in `experiment-design`, the reusable
@@ -49,10 +49,10 @@ coaching moment.
 * Keep ML-specific experiment guidance in `ml-experimentation`, the reference
   for ML environments, reproducibility, tracking, evaluation, abstractions,
   and production readiness.
-* Keep notebook and dashboard guidance in `ds-analysis-authoring`, the
+* Keep notebook and dashboard guidance in `analysis-authoring`, the
   reference for EDA notebook and analytical dashboard composition,
   visualization selection, and dashboard validation.
-* Keep AI-system evaluation guidance in `ds-evaluation-design`, the reference
+* Keep AI-system evaluation guidance in `evaluation-design`, the reference
   for evaluation dataset design, difficulty balance, metric selection, and
   tooling fit.
 * Treat this package as internal foundation knowledge, not a user-selectable

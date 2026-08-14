@@ -1,5 +1,5 @@
 ---
-name: ds-feasibility
+name: feasibility
 description: "Author and validate durable data and ML feasibility studies using the Feasibility Study Interchange Profile, constrained YAML authority, UUID URN identity, lifecycle lineage, and evidence traceability. Use when assessing whether available data and technical evidence support a proposed outcome."
 license: CC-BY-4.0
 user-invocable: false

@@ -8,7 +8,7 @@ keywords:
   - fuzz
   - corpus
   - atheris
-  - ds-feasibility
+  - feasibility
 estimated_reading_time: 1
 ---
 

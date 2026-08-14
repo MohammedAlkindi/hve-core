@@ -1,5 +1,5 @@
 ---
-name: ds-evaluation-design
+name: evaluation-design
 description: "Design evaluation datasets and supporting documentation for AI systems and agents, covering the scoping interview, difficulty distribution, dataset contract, sample review, and metric and tooling selection. Use when building or reviewing an evaluation set for a conversational agent, assistant, or retrieval-grounded AI system."
 license: CC-BY-4.0
 user-invocable: false
@@ -59,9 +59,9 @@ Produce an evaluation dataset and its supporting documentation that measure whet
 |-------------------------------------------------------------------------------|------------------------------|
 | Trained-model evaluation, tracking, reproducibility, and production readiness | `ml-experimentation`         |
 | Responsible AI assessment, risk classification, and approval                  | `rai-planner`                |
-| Session state, job lifecycle, and durable-write gating                        | `data-workstream-foundation` |
-| Notebook and dashboard authoring conventions                                  | `ds-analysis-authoring`      |
-| Dataset entity semantics and profile contracts                                | `ds-catalog`                 |
+| Session state, job lifecycle, and durable-write gating                        | `data-science-engineering-foundation` |
+| Notebook and dashboard authoring conventions                                  | `analysis-authoring`      |
+| Dataset entity semantics and profile contracts                                | `data-catalog`                 |
 
 This skill covers evaluation of AI systems whose output is a response: assistants, conversational agents, and retrieval-grounded applications. Evaluating a trained model's predictive performance is a different concern and belongs to `ml-experimentation`.
 

@@ -7,7 +7,7 @@ description: Section sequence, visualization selection thresholds, modularity ex
 
 These are HVE Core authoring conventions for exploratory notebooks. They describe editorial judgment: what sections belong, in what order, which figure answers which question, and when scale forces a different treatment. Notebook creation, cell editing, execution, and output inspection are native tool capabilities and are not described here.
 
-Column semantics and profile contracts belong to `ds-catalog`. Persistence format and dataset versioning belong to `ds-dataops`.
+Column semantics and profile contracts belong to `data-catalog`. Persistence format and dataset versioning belong to `dataops`.
 
 ## Section sequence
 

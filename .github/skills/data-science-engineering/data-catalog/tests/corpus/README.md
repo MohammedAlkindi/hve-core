@@ -8,7 +8,7 @@ keywords:
   - fuzz
   - corpus
   - atheris
-  - ds-catalog
+  - data-catalog
 estimated_reading_time: 1
 ---
 

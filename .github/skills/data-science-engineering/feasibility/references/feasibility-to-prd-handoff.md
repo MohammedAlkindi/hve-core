@@ -10,7 +10,7 @@ The handoff is a short, derived summary that carries a confirmed feasibility ver
 
 The durable study remains the authority for every machine fact. The handoff never redefines a study fact, and a disagreement between the two is always resolved in favor of the study.
 
-`ds-feasibility` owns this producer contract. The PRD consumer rules live in the `requirements-author` skill.
+`feasibility` owns this producer contract. The PRD consumer rules live in the `requirements-author` skill.
 
 ## Recognition
 

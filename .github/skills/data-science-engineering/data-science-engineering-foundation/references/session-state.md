@@ -7,7 +7,7 @@ description: Authoritative path, YAML-in-Markdown schema, project identity valid
 
 ## Purpose
 
-This reference is the sole authority for Data Workstream Coach state location,
+This reference is the sole authority for Data Science and Engineering Coach state location,
 schema, mutation, resume, and reconstruction. Other artifacts refer to this
 protocol instead of declaring another state location or schema.
 
@@ -103,7 +103,7 @@ silently dropping the job.
 `current.disclaimerShownAt` is the single disclaimer-display timestamp.
 
 * Initialize it to `null`.
-* When it is `null`, display the Data-Science Coaching disclaimer before
+* When it is `null`, display the Data Science and Engineering Coaching disclaimer before
   coaching questions or analysis, then set it to the current ISO 8601
   timestamp.
 * Once non-null, do not overwrite or refresh it.

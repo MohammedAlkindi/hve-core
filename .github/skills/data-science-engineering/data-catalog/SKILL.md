@@ -1,5 +1,5 @@
 ---
-name: ds-catalog
+name: data-catalog
 description: "Create and enrich durable data catalogs using the native DS_CATALOG_V1 Markdown contract, declared entity relationships, privacy citation fields, and stable relationship IDs. Use when inventorying engagement data, recording semantic relationships, or preparing a catalog for ERD rendering."
 license: CC-BY-4.0
 user-invocable: false
@@ -22,7 +22,7 @@ Produce a customer-readable Markdown catalog whose YAML frontmatter is a valid `
 2. Inventory entities at business grain. Record source access, tier, volume, profile pointer, classification, lineage, and open questions without copying column-level profile data.
 3. Assign every relationship a stable `rel-*` identifier. Record endpoints, maximum cardinality, both endpoint minimums, one or more paired join-key fields, confidence, and evidence basis.
 4. Reconcile coverage counts with the entity and relationship records.
-5. Render the human-readable sections from the YAML facts, ending with the canonical Data-Science Coaching disclaimer footer. Narrative can explain facts but cannot redefine them.
+5. Render the human-readable sections from the YAML facts, ending with the canonical Data Science and Engineering Coaching disclaimer footer. Narrative can explain facts but cannot redefine them.
 6. Validate the artifact with `scripts/validate_catalog.py` before treating it as ready for review.
 
 ## Inputs
@@ -42,16 +42,16 @@ Produce a customer-readable Markdown catalog whose YAML frontmatter is a valid `
 * Relationship confidence is one of `confirmed`, `inferred`, or `assumed`, and every relationship records its basis.
 * Classification uses the `privacy-standards` citation-field names. The catalog does not invent standards identifiers.
 * Column statistics and feature metadata remain behind `profile_ref` rather than being copied into the catalog.
-* Every customer-facing catalog ends with the canonical Data-Science Coaching disclaimer footer.
+* Every customer-facing catalog ends with the canonical Data Science and Engineering Coaching disclaimer footer.
 
 ## Constraints
 
 * Treat catalog enrichment as user-driven. Offer enrichment when a source is missing, but do not change the catalog silently.
 * Record source locations as paths or connection references, never embedded credentials.
 * Keep DCAT alignment non-binding. The catalog is native YAML, not RDF, and makes no DCAT conformance claim.
-* Keep tier recording separate from tier behavior. `ds-catalog` records the tier; `ds-dataops` owns what that tier means.
+* Keep tier recording separate from tier behavior. `data-catalog` records the tier; `dataops` owns what that tier means.
 * Keep rendering separate from semantic authority. Diagram tools consume declared relationships and do not infer new ones.
-* End every customer-facing catalog with the canonical Data-Science Coaching disclaimer from `disclaimer-language.instructions.md`.
+* End every customer-facing catalog with the canonical Data Science and Engineering Coaching disclaimer from `disclaimer-language.instructions.md`.
 
 ## Stop rules
 

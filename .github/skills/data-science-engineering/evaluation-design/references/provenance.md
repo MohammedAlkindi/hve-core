@@ -1,5 +1,5 @@
 ---
-title: ds-evaluation-design provenance and licensing posture
+title: evaluation-design provenance and licensing posture
 description: Source map, licensing determination, and currency posture for external evaluator vocabulary referenced by this skill
 ---
 

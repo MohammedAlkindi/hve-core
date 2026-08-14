@@ -1,11 +1,11 @@
 ---
-title: ds-dataops provenance and attribution
-description: Source map, reproduction scope, HVE Core derivation labels, and upstream silences for the ds-dataops reference pack
+title: dataops provenance and attribution
+description: Source map, reproduction scope, HVE Core derivation labels, and upstream silences for the dataops reference pack
 ---
 
 ## Purpose
 
-This file records where each part of `ds-dataops` comes from, what may be reproduced, and what is not upstream guidance at all. Consult it before treating any statement in this pack as a playbook rule.
+This file records where each part of `dataops` comes from, what may be reproduced, and what is not upstream guidance at all. Consult it before treating any statement in this pack as a playbook rule.
 
 ## Licensing posture
 

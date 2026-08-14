@@ -7,7 +7,7 @@ description: Default component set, caching and interaction-state conventions, a
 
 These are HVE Core authoring and validation conventions for multi-page analytical dashboards built over an explored dataset. They describe composition and validation judgment. Application launch, browser navigation, element interaction, screenshot capture, and scripted browser automation are native tool capabilities and are not described here.
 
-Column semantics belong to `ds-catalog`. Persistence and versioning belong to `ds-dataops`. Accessibility conformance criteria belong to the `accessibility` skill.
+Column semantics belong to `data-catalog`. Persistence and versioning belong to `dataops`. Accessibility conformance criteria belong to the `accessibility` skill.
 
 ## Default component set
 
