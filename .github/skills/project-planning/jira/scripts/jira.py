@@ -408,8 +408,15 @@ def _audit_write(event: dict[str, Any]) -> bool:
     path = os.environ.get("JIRA_AUDIT_LOG", "").strip()
     if not path:
         return False
+    # Redact per value rather than trusting each call site to redact its own
+    # fields. Redacting the serialized line instead would corrupt the JSON,
+    # because the bare form-shape rule consumes the closing quote and comma.
+    record = {
+        key: _redact(value) if isinstance(value, str) else value
+        for key, value in _sanitize_structured(event).items()
+    }
     with open(path, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event) + "\n")
+        handle.write(json.dumps(record) + "\n")
     return True
 
 

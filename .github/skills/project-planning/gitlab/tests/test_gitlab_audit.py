@@ -227,3 +227,34 @@ def test_oauth_attempt_failure_blocks_egress(
         )
 
     opener.assert_not_called()
+
+
+def test_audit_write_redacts_unsanitized_fields_and_stays_valid_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The sink redacts fields no call site sanitized, without breaking JSON.
+
+    Redacting the serialized line instead of each value would corrupt the
+    record, because the bare form-shape rule consumes the closing quote and
+    the comma that follow the matched value.
+    """
+    log = tmp_path / "audit.jsonl"
+    monkeypatch.setenv("GITLAB_AUDIT_LOG", str(log))
+    secret = "SUPERSECRET123"
+
+    gitlab._audit_write(
+        {
+            "ts": "x",
+            "future_field": f"access_token={secret}",
+            "password": secret,
+            "note": "after",
+            "status": 403,
+        }
+    )
+
+    line = log.read_text(encoding="utf-8").strip()
+    record = json.loads(line)
+
+    assert secret not in line
+    assert record["note"] == "after"
+    assert record["status"] == 403

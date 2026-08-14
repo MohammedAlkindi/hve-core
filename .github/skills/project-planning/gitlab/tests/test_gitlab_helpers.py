@@ -148,8 +148,7 @@ class TestRedact:
 
         redacted = gitlab._redact(url)
 
-        assert SECRET not in redacted
-        assert "acct.blob.core.windows.net" in redacted
+        assert redacted == "https://acct.blob.core.windows.net/c/b?[REDACTED]"
 
     def test_masks_basic_authorization_header(self) -> None:
         """Basic credentials are base64(user:token) and must not survive."""

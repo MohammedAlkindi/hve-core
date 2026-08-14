@@ -116,8 +116,7 @@ def test_redact_masks_azure_sas_query_string() -> None:
 
     redacted = jira._redact(url)
 
-    assert SECRET not in redacted
-    assert "acct.blob.core.windows.net" in redacted
+    assert redacted == "https://acct.blob.core.windows.net/c/b?[REDACTED]"
 
 
 def test_redact_masks_every_secret_in_a_multi_secret_line() -> None:
