@@ -211,10 +211,6 @@ agents:
     path: '.github/agents/security/sssc-reviewer.agent.md'
     class: unknown
     cost_tier: light
-  - slug: supply-chain-reviewer
-    path: '.github/agents/security/supply-chain-reviewer.agent.md'
-    class: unknown
-    cost_tier: light
   - slug: supply-chain-skill-assessor
     path: '.github/agents/security/subagents/supply-chain-skill-assessor.agent.md'
     class: unknown

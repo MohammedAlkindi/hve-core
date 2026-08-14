@@ -130,7 +130,7 @@ Agents that investigate topics, analyze data, or produce structured documents as
 
 Agents that analyze code, diffs, or artifacts and surface issues, risks, or recommendations.
 
-**Members (8):** code-review, dependency-reviewer, rai-reviewer, accessibility-reviewer, privacy-reviewer, security-reviewer, supply-chain-reviewer, sssc-reviewer
+**Members (7):** code-review, dependency-reviewer, rai-reviewer, accessibility-reviewer, privacy-reviewer, security-reviewer, sssc-reviewer
 
 **Required Graders:**
 
@@ -278,11 +278,10 @@ The inventory lists every user-invocable hve-core parent agent and its class ass
 | security-reviewer            | code-reviewer    | light     | [.github/agents/security/security-reviewer.agent.md](../../.github/agents/security/security-reviewer.agent.md)                                       |
 | sssc-planner                 | planner-coach    | light     | [.github/agents/security/sssc-planner.agent.md](../../.github/agents/security/sssc-planner.agent.md)                                                 |
 | sssc-reviewer                | code-reviewer    | light     | [.github/agents/security/sssc-reviewer.agent.md](../../.github/agents/security/sssc-reviewer.agent.md)                                               |
-| supply-chain-reviewer        | code-reviewer    | light     | [.github/agents/security/supply-chain-reviewer.agent.md](../../.github/agents/security/supply-chain-reviewer.agent.md)                               |
 | system-architecture-reviewer | research-writer  | light     | [.github/agents/project-planning/system-architecture-reviewer.agent.md](../../.github/agents/project-planning/system-architecture-reviewer.agent.md) |
 | ux-ui-designer               | research-writer  | light     | [.github/agents/project-planning/ux-ui-designer.agent.md](../../.github/agents/project-planning/ux-ui-designer.agent.md)                             |
 
-The maintained stimulus inventory totals 58 agents: 36 parent agents plus 22 enrolled subagents whose stimulus partials exist in [stimuli/](stimuli/). Subagents without a matching stimulus partial remain excluded from the matrix run set and are documented separately in the inventory generator and related eval research. [AGENTS.yml](AGENTS.yml) remains generator-owned and is refreshed in the generation phase.
+The maintained stimulus inventory totals 57 agents: 35 parent agents plus 22 enrolled subagents whose stimulus partials exist in [stimuli/](stimuli/). Subagents without a matching stimulus partial remain excluded from the matrix run set and are documented separately in the inventory generator and related eval research. [AGENTS.yml](AGENTS.yml) remains generator-owned and is refreshed in the generation phase.
 
 ## Related Suites
 

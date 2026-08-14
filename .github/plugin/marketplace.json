@@ -595,8 +595,7 @@
         "agents/security/subagents/finding-deep-verifier.agent.md",
         "agents/security/subagents/report-generator.agent.md",
         "agents/security/subagents/skill-assessor.agent.md",
-        "agents/security/subagents/supply-chain-skill-assessor.agent.md",
-        "agents/security/supply-chain-reviewer.agent.md"
+        "agents/security/subagents/supply-chain-skill-assessor.agent.md"
       ],
       "commands": [
         "prompts/accessibility/accessibility-coverage-matrix.prompt.md",
@@ -818,7 +817,6 @@
           "agents/security/subagents/report-generator.agent.md": "experimental",
           "agents/security/subagents/skill-assessor.agent.md": "experimental",
           "agents/security/subagents/supply-chain-skill-assessor.agent.md": "experimental",
-          "agents/security/supply-chain-reviewer.agent.md": "experimental",
           "prompts/accessibility/accessibility-coverage-matrix.prompt.md": "experimental",
           "prompts/data-science/synth-data-generate.prompt.md": "experimental",
           "prompts/design-thinking/dt-canonical-deck.prompt.md": "preview",
@@ -1055,7 +1053,11 @@
         "agents/rai-planning/subagents/rai-skill-assessor.agent.md",
         "agents/security/security-planner.agent.md",
         "agents/security/sssc-planner.agent.md",
-        "agents/security/sssc-reviewer.agent.md"
+        "agents/security/sssc-reviewer.agent.md",
+        "agents/security/subagents/codebase-profiler.agent.md",
+        "agents/security/subagents/cve-analyzer.agent.md",
+        "agents/security/subagents/finding-deep-verifier.agent.md",
+        "agents/security/subagents/supply-chain-skill-assessor.agent.md"
       ],
       "commands": [
         "prompts/accessibility/accessibility-coverage-matrix.prompt.md",
@@ -1128,6 +1130,7 @@
         "skills/rpi/rpi-quick",
         "skills/rpi/rpi-research",
         "skills/rpi/rpi-review",
+        "skills/security/security-reviewer-formats",
         "skills/security/supply-chain-security",
         "skills/shared/backlog-templates",
         "skills/shared/telemetry-foundations"
@@ -1144,6 +1147,10 @@
           "agents/security/security-planner.agent.md": "experimental",
           "agents/security/sssc-planner.agent.md": "experimental",
           "agents/security/sssc-reviewer.agent.md": "experimental",
+          "agents/security/subagents/codebase-profiler.agent.md": "experimental",
+          "agents/security/subagents/cve-analyzer.agent.md": "experimental",
+          "agents/security/subagents/finding-deep-verifier.agent.md": "experimental",
+          "agents/security/subagents/supply-chain-skill-assessor.agent.md": "experimental",
           "prompts/accessibility/accessibility-coverage-matrix.prompt.md": "experimental",
           "prompts/rai-planning/rai-capture.prompt.md": "experimental",
           "prompts/rai-planning/rai-plan-from-prd.prompt.md": "experimental",
@@ -1188,6 +1195,7 @@
           "skills/project-planning/rai-planner": "experimental",
           "skills/project-planning/security-planning": "experimental",
           "skills/rai/rai-standards": "experimental",
+          "skills/security/security-reviewer-formats": "experimental",
           "skills/security/supply-chain-security": "experimental",
           "skills/shared/backlog-templates": "experimental"
         },
@@ -1283,8 +1291,7 @@
         "agents/security/subagents/finding-deep-verifier.agent.md",
         "agents/security/subagents/report-generator.agent.md",
         "agents/security/subagents/skill-assessor.agent.md",
-        "agents/security/subagents/supply-chain-skill-assessor.agent.md",
-        "agents/security/supply-chain-reviewer.agent.md"
+        "agents/security/subagents/supply-chain-skill-assessor.agent.md"
       ],
       "commands": [
         "prompts/rai-planning/rai-capture.prompt.md",
@@ -1357,7 +1364,6 @@
           "agents/security/subagents/report-generator.agent.md": "experimental",
           "agents/security/subagents/skill-assessor.agent.md": "experimental",
           "agents/security/subagents/supply-chain-skill-assessor.agent.md": "experimental",
-          "agents/security/supply-chain-reviewer.agent.md": "experimental",
           "prompts/rai-planning/rai-capture.prompt.md": "experimental",
           "prompts/rai-planning/rai-plan-from-prd.prompt.md": "experimental",
           "prompts/rai-planning/rai-plan-from-security-plan.prompt.md": "experimental",
