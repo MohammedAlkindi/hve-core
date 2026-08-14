@@ -123,6 +123,48 @@ BeforeAll {
         & $SummarySink $sanitizedReport
     }
 
+    function Merge-GroomingShardResults {
+        param(
+            [Parameter(Mandatory)] [int[]]$CandidateIds,
+            [Parameter(Mandatory)] [int]$PriorCursor,
+            [Parameter(Mandatory)] [object[]]$Results
+        )
+
+        $rowsByIssue = @{}
+        $inventoryCounts = [System.Collections.Generic.HashSet[int]]::new()
+        foreach ($shardId in @('shard-01', 'shard-02')) {
+            $shardResults = @($Results | Where-Object ShardId -EQ $shardId)
+            if ($shardResults.Count -ne 1) {
+                throw "$shardId expected exactly one result, found $($shardResults.Count)"
+            }
+            $null = $inventoryCounts.Add($shardResults[0].Inventory)
+            foreach ($row in $shardResults[0].Rows) {
+                if ($rowsByIssue.ContainsKey($row.Issue)) {
+                    throw "duplicate aggregate issue $($row.Issue)"
+                }
+                $rowsByIssue[$row.Issue] = $row
+            }
+        }
+        if ($inventoryCounts.Count -ne 1) {
+            throw 'shard inventory counts disagree'
+        }
+
+        $orderedRows = @($CandidateIds | ForEach-Object { $rowsByIssue[$_] })
+        if ($orderedRows.Count -ne $CandidateIds.Count -or @($orderedRows | Where-Object { $null -eq $_ }).Count -gt 0) {
+            throw 'aggregate issue coverage is incomplete'
+        }
+        $assessedRows = @($orderedRows | Where-Object Status -EQ 'Assessed')
+        $deferredRows = @($orderedRows | Where-Object Status -EQ 'Deferred')
+
+        return [ordered]@{
+            Inventory = @($inventoryCounts)[0]
+            Assessed = $assessedRows.Count
+            Deferred = $deferredRows.Count
+            NextCursor = if ($assessedRows.Count -gt 0) { $assessedRows[-1].Issue } else { $PriorCursor }
+            Issues = @($orderedRows.Issue)
+        }
+    }
+
     $script:Source = Read-RepoFile '.github/workflows/backlog-groom.md'
     $script:Lock = Read-RepoFile '.github/workflows/backlog-groom.lock.yml'
     $script:Orchestrator = Read-RepoFile '.github/workflows/backlog-groom-orchestrator.yml'
@@ -314,6 +356,79 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         $script:Orchestrator | Should -Match 'expected exactly one result, found \$\{shardResults\.length\}'
         $script:Orchestrator | Should -Match 'Proof result validation failed'
         $script:Orchestrator | Should -Not -Match '(?m)^\s+issues: write$'
+    }
+}
+
+Describe 'Backlog grooming deterministic fan-in behavior' -Tag 'Unit' {
+    BeforeAll {
+        $script:ShardOne = [pscustomobject]@{
+            ShardId = 'shard-01'
+            Inventory = 50
+            Rows = @(
+                [pscustomobject]@{ Issue = 1; Status = 'Assessed' },
+                [pscustomobject]@{ Issue = 3; Status = 'Deferred' }
+            )
+        }
+        $script:ShardTwo = [pscustomobject]@{
+            ShardId = 'shard-02'
+            Inventory = 50
+            Rows = @(
+                [pscustomobject]@{ Issue = 2; Status = 'Assessed' },
+                [pscustomobject]@{ Issue = 4; Status = 'Assessed' }
+            )
+        }
+    }
+
+    It 'produces byte-equivalent normalized data for permuted result arrival' {
+        $forward = Merge-GroomingShardResults -CandidateIds @(1, 2, 3, 4) -PriorCursor 0 -Results @($script:ShardOne, $script:ShardTwo)
+        $reverse = Merge-GroomingShardResults -CandidateIds @(1, 2, 3, 4) -PriorCursor 0 -Results @($script:ShardTwo, $script:ShardOne)
+
+        ($forward | ConvertTo-Json -Compress) | Should -Be ($reverse | ConvertTo-Json -Compress)
+        $forward.Issues | Should -Be @(1, 2, 3, 4)
+    }
+
+    It 'reconciles global counts and advances to the final assessed issue' {
+        $aggregate = Merge-GroomingShardResults -CandidateIds @(1, 2, 3, 4) -PriorCursor 0 -Results @($script:ShardOne, $script:ShardTwo)
+
+        $aggregate.Assessed | Should -Be 3
+        $aggregate.Deferred | Should -Be 1
+        $aggregate.NextCursor | Should -Be 4
+    }
+
+    It 'retains the prior cursor when every planned issue is deferred' {
+        $deferredOne = [pscustomobject]@{ ShardId = 'shard-01'; Inventory = 50; Rows = @([pscustomobject]@{ Issue = 1; Status = 'Deferred' }) }
+        $deferredTwo = [pscustomobject]@{ ShardId = 'shard-02'; Inventory = 50; Rows = @([pscustomobject]@{ Issue = 2; Status = 'Deferred' }) }
+
+        $aggregate = Merge-GroomingShardResults -CandidateIds @(1, 2) -PriorCursor 19 -Results @($deferredOne, $deferredTwo)
+
+        $aggregate.NextCursor | Should -Be 19
+    }
+
+    It 'rejects a missing planned shard result' {
+        { Merge-GroomingShardResults -CandidateIds @(1, 3) -PriorCursor 0 -Results @($script:ShardOne) } |
+            Should -Throw '*shard-02 expected exactly one result, found 0*'
+    }
+
+    It 'rejects a second result for one planned shard' {
+        { Merge-GroomingShardResults -CandidateIds @(1, 2, 3, 4) -PriorCursor 0 -Results @($script:ShardOne, $script:ShardOne, $script:ShardTwo) } |
+            Should -Throw '*shard-01 expected exactly one result, found 2*'
+    }
+
+    It 'rejects inconsistent inventory snapshots' {
+        $mismatched = [pscustomobject]@{ ShardId = 'shard-02'; Inventory = 51; Rows = $script:ShardTwo.Rows }
+
+        { Merge-GroomingShardResults -CandidateIds @(1, 2, 3, 4) -PriorCursor 0 -Results @($script:ShardOne, $mismatched) } |
+            Should -Throw '*shard inventory counts disagree*'
+    }
+
+    It 'enforces selected planner ceilings and aggregate construction after validation' {
+        $script:Orchestrator | Should -Match 'parseInteger\("shard-count", process\.env\.SHARD_COUNT, 1, 2\)'
+        $script:Orchestrator | Should -Match 'parseInteger\("shard-width", process\.env\.SHARD_WIDTH, 1, 5\)'
+        $script:Orchestrator | Should -Match 'parseInteger\("max-parallel", process\.env\.MAX_PARALLEL, 1, 2\)'
+        $script:Orchestrator | Should -Match '"aggregate-ai-credit-cap",\s+process\.env\.AGGREGATE_AI_CREDIT_CAP,\s+1000,\s+2000'
+        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-aggregate/v1"'
+        $script:Orchestrator | Should -Match 'next_cursor: assessedRows\.length > 0\s+\? assessedRows\.at\(-1\)\.issue\s+: manifest\.prior_cursor'
+        $script:Orchestrator | Should -Match 'Upload deterministic proof aggregate'
     }
 }
 
