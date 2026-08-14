@@ -486,7 +486,6 @@
         "skills/shared/pr-reference",
         "skills/shared/telemetry-foundations"
       ],
-      "hooks": "hooks/shared/telemetry.json",
       "x-hve": {
         "componentMaturity": {
           "agents/coding-standards/code-review.agent.md": "experimental",
@@ -502,7 +501,6 @@
           "prompts/hve-core/evals-import.prompt.md": "experimental",
           "prompts/hve-core/pr-review.prompt.md": "experimental",
           "prompts/hve-core/vally-test-write.prompt.md": "experimental",
-          "hooks/shared/telemetry.json": "experimental",
           "instructions/coding-standards/code-review/diff-computation.instructions.md": "experimental",
           "instructions/coding-standards/code-review/review-artifacts.instructions.md": "experimental",
           "instructions/experimental/mural/mural-bootstrap.instructions.md": "experimental",
@@ -779,7 +777,6 @@
         "skills/shared/pr-reference",
         "skills/shared/telemetry-foundations"
       ],
-      "hooks": "hooks/shared/telemetry.json",
       "x-hve": {
         "componentMaturity": {
           "agents/accessibility/accessibility-planner.agent.md": "experimental",
@@ -859,7 +856,6 @@
           "prompts/security/vex-implement.prompt.md": "experimental",
           "prompts/security/vex-scan.prompt.md": "experimental",
           "prompts/security/vex-triage.prompt.md": "experimental",
-          "hooks/shared/telemetry.json": "experimental",
           "instructions/accessibility/accessibility-identity.instructions.md": "experimental",
           "instructions/accessibility/accessibility-license-posture.instructions.md": "experimental",
           "instructions/coding-standards/code-review/diff-computation.instructions.md": "experimental",

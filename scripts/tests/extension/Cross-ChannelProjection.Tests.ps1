@@ -109,29 +109,57 @@ Describe 'Cross-channel canonical projection' -Tag 'Unit' {
 
 Describe 'Cross-channel hook exclusion' -Tag 'Unit' {
     BeforeAll {
-        $script:HookProjections = @($script:Projections | Where-Object { @($_.HookSources).Count -gt 0 })
+        # Hook components are plugin-only and the catalog may declare none, so the
+        # exclusion is proven against a fixture recipe rather than live membership.
+        $script:HookFixtureSource = '.github/hooks/sample/sample-hook.json'
+        $script:HookFixtureRecipe = @(
+            @{ Kind = 'hook'; Field = 'hooks'; PackagePath = 'hooks/sample/sample-hook.json'; SourcePath = $script:HookFixtureSource }
+            @{ Kind = 'agent'; Field = 'agents'; PackagePath = 'agents/sample/sample.agent.md'; SourcePath = '.github/agents/sample/sample.agent.md' }
+        )
+        $script:HookFixtureSources = @($script:HookFixtureRecipe | Where-Object { $_.Kind -eq 'hook' } | ForEach-Object { $_.SourcePath })
     }
 
     It 'Resolves a non-empty hook component set before asserting the exclusion' {
-        @($script:HookProjections).Count | Should -BeGreaterThan 0
-        @($script:HookProjections | ForEach-Object { $_.HookSources } | Sort-Object -Unique).Count | Should -BeGreaterThan 0
+        @($script:HookFixtureSources).Count | Should -BeGreaterThan 0
     }
 
     It 'Keeps hooks out of every VS Code contribution bucket' {
-        foreach ($projection in $script:HookProjections) {
+        $contributions = Get-ExtensionContributions -Items $script:HookFixtureRecipe
+        $extensionSources = Get-ExtensionCanonicalSource -Contribution $contributions
+        foreach ($hookSource in $script:HookFixtureSources) {
+            $extensionSources | Should -Not -Contain $hookSource
+        }
+    }
+
+    It 'Keeps hook sources under the hooks root only' {
+        foreach ($hookSource in $script:HookFixtureSources) {
+            $hookSource | Should -BeLike '.github/hooks/*'
+        }
+    }
+
+    It 'Excludes every catalog-declared hook source when the catalog declares one' {
+        $catalogHookSources = @($script:Projections | ForEach-Object { $_.HookSources } | Sort-Object -Unique)
+        $withHooks = @($script:Projections | Where-Object { @($_.HookSources).Count -gt 0 })
+
+        # The catalog may declare no hook components at all. Iterating an empty
+        # set proves nothing, so the current end state is asserted explicitly:
+        # either the catalog declares hooks and each is excluded, or it declares
+        # none and this states that as a fact rather than passing silently.
+        if ($withHooks.Count -eq 0) {
+            @($catalogHookSources).Count |
+                Should -Be 0 -Because 'no catalog package declares a hook component today'
+            return
+        }
+
+        foreach ($projection in $withHooks) {
             $contributions = Get-ExtensionContributions -Items $projection.Recipe
             $extensionSources = Get-ExtensionCanonicalSource -Contribution $contributions
             foreach ($hookSource in $projection.HookSources) {
                 $extensionSources | Should -Not -Contain $hookSource
             }
         }
-    }
-
-    It 'Keeps hook sources under the hooks root only' {
-        foreach ($projection in $script:HookProjections) {
-            foreach ($hookSource in $projection.HookSources) {
-                $hookSource | Should -BeLike '.github/hooks/*'
-            }
+        foreach ($hookSource in $catalogHookSources) {
+            $hookSource | Should -BeLike '.github/hooks/*'
         }
     }
 }

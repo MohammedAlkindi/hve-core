@@ -401,32 +401,49 @@ Describe 'Write-PluginDirectory' -Tag 'Unit' {
 
 Describe 'Hook plugin root fallback' -Tag 'Unit' {
     BeforeAll {
-        $script:hookRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
-        $script:hookSourceText = Get-Content -LiteralPath (Join-Path $script:hookRepoRoot '.github/hooks/shared/telemetry.json') -Raw -Encoding utf8
-
         $script:hookRootExpression = '[string]::IsNullOrWhiteSpace($env:CLAUDE_PLUGIN_ROOT) ? ''.github'' : $env:CLAUDE_PLUGIN_ROOT'
-        $script:hookRepositoryBash = '${CLAUDE_PLUGIN_ROOT:-.github}/hooks/shared/telemetry/telemetry-collector.sh'
-        $script:hookRepositoryPwsh = "& (Join-Path ($script:hookRootExpression) 'hooks/shared/telemetry/Invoke-TelemetryCollector.ps1')"
-        $script:hookInstalledBash = '${CLAUDE_PLUGIN_ROOT}/hooks/shared/telemetry/telemetry-collector.sh'
-        $script:hookInstalledPwsh = '& (Join-Path $env:CLAUDE_PLUGIN_ROOT ''hooks/shared/telemetry/Invoke-TelemetryCollector.ps1'')'
+        $script:hookRepositoryBash = '${CLAUDE_PLUGIN_ROOT:-.github}/hooks/sample/sample-hook/sample-hook.sh'
+        $script:hookRepositoryPwsh = "& (Join-Path ($script:hookRootExpression) 'hooks/sample/sample-hook/Invoke-SampleHook.ps1')"
+        $script:hookInstalledBash = '${CLAUDE_PLUGIN_ROOT}/hooks/sample/sample-hook/sample-hook.sh'
+        $script:hookInstalledPwsh = '& (Join-Path $env:CLAUDE_PLUGIN_ROOT ''hooks/sample/sample-hook/Invoke-SampleHook.ps1'')'
         $script:hookEventNames = @(
             'sessionStart', 'userPromptSubmitted', 'userPromptSubmit', 'preToolUse', 'postToolUse',
             'subagentStart', 'subagentStop', 'sessionEnd', 'stop', 'agentStop', 'preCompact'
         )
 
+        # Synthesize the repository-form manifest so the transform under test is
+        # exercised against the generic hook contract rather than any one package.
+        $hookEventMap = [ordered]@{}
+        foreach ($eventName in $script:hookEventNames) {
+            $hookEventMap[$eventName] = @(
+                [ordered]@{
+                    type       = 'command'
+                    bash       = $script:hookRepositoryBash
+                    powershell = $script:hookRepositoryPwsh
+                    timeoutSec = 10
+                }
+            )
+        }
+        $script:hookSourceText = [ordered]@{
+            version     = 1
+            description = 'Sample lifecycle hook used to exercise plugin materialization.'
+            hooks       = $hookEventMap
+        } | ConvertTo-Json -Depth 10
+
         # Produce the installed form through the production writer so the
         # transform under test is exercised rather than a hand-written copy.
         $hookRepo = Join-Path $TestDrive 'hook-fallback'
         New-PluginFixtureRepository -Path $hookRepo -Version '9.9.9' | Out-Null
-        Add-PluginFixtureFile -RepoRoot $hookRepo -RelativePath '.github/hooks/shared/telemetry.json' -Content $script:hookSourceText | Out-Null
-        Add-PluginFixtureFile -RepoRoot $hookRepo -RelativePath '.github/hooks/shared/telemetry/telemetry-collector.sh' -Content "#!/usr/bin/env bash`nexit 0`n" | Out-Null
-        Add-PluginFixtureFile -RepoRoot $hookRepo -RelativePath '.github/hooks/shared/telemetry/Invoke-TelemetryCollector.ps1' -Content "exit 0`n" | Out-Null
+        Add-PluginFixtureFile -RepoRoot $hookRepo -RelativePath '.github/hooks/sample/sample-hook.json' -Content $script:hookSourceText | Out-Null
+        Add-PluginFixtureFile -RepoRoot $hookRepo -RelativePath '.github/hooks/sample/sample-hook/sample-hook.sh' -Content "#!/usr/bin/env bash`nexit 0`n" | Out-Null
+        Add-PluginFixtureFile -RepoRoot $hookRepo -RelativePath '.github/hooks/sample/sample-hook/Invoke-SampleHook.ps1' -Content "exit 0`n" | Out-Null
 
-        Write-PluginDirectory -Entry ([ordered]@{ name = 'shared'; description = 'Shared telemetry package'; version = '9.9.9'; license = 'MIT' }) `
-            -Items @(@{ Kind = 'hook'; Field = 'hooks'; PackagePath = 'hooks/shared/telemetry.json'; SourcePath = '.github/hooks/shared/telemetry.json' }) `
+        Write-PluginDirectory -Entry ([ordered]@{ name = 'sample'; description = 'Sample hook package'; version = '9.9.9'; license = 'MIT' }) `
+            -Items @(@{ Kind = 'hook'; Field = 'hooks'; PackagePath = 'hooks/sample/sample-hook.json'; SourcePath = '.github/hooks/sample/sample-hook.json' }) `
             -PluginsDir (Join-Path $hookRepo 'plugins') -RepoRoot $hookRepo -Version '9.9.9' | Out-Null
 
-        $script:hookInstalledText = Get-Content -LiteralPath (Join-Path $hookRepo 'plugins/shared/hooks/shared/telemetry.json') -Raw -Encoding utf8
+        $script:hookRepoRoot = $hookRepo
+        $script:hookInstalledText = Get-Content -LiteralPath (Join-Path $hookRepo 'plugins/sample/hooks/sample/sample-hook.json') -Raw -Encoding utf8
         $script:hookRepositoryEvents = (ConvertFrom-Json $script:hookSourceText -AsHashtable)['hooks']
         $script:hookInstalledEvents = (ConvertFrom-Json $script:hookInstalledText -AsHashtable)['hooks']
     }
@@ -448,8 +465,8 @@ Describe 'Hook plugin root fallback' -Tag 'Unit' {
         }
 
         It 'Resolves the fallback root to tracked collector scripts' {
-            Test-Path -LiteralPath (Join-Path $script:hookRepoRoot '.github/hooks/shared/telemetry/telemetry-collector.sh') -PathType Leaf | Should -BeTrue
-            Test-Path -LiteralPath (Join-Path $script:hookRepoRoot '.github/hooks/shared/telemetry/Invoke-TelemetryCollector.ps1') -PathType Leaf | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $script:hookRepoRoot '.github/hooks/sample/sample-hook/sample-hook.sh') -PathType Leaf | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $script:hookRepoRoot '.github/hooks/sample/sample-hook/Invoke-SampleHook.ps1') -PathType Leaf | Should -BeTrue
         }
 
         It 'Resolves the same root as bash for <Case>' -ForEach @(
@@ -485,7 +502,7 @@ Describe 'Hook plugin root fallback' -Tag 'Unit' {
     }
 
     Context 'when the manifest is materialized into a plugin' {
-        It 'Preserves every lifecycle event and its telemetry contract' {
+        It 'Preserves every lifecycle event and its hook contract' {
             @($script:hookInstalledEvents.Keys | Sort-Object) | Should -Be @($script:hookEventNames | Sort-Object)
             foreach ($eventName in $script:hookInstalledEvents.Keys) {
                 @($script:hookInstalledEvents[$eventName]) | Should -HaveCount @($script:hookRepositoryEvents[$eventName]).Count

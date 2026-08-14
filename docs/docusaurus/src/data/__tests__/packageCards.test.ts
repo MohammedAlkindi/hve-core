@@ -78,7 +78,7 @@ describe("loadPackageCards against the canonical catalog", () => {
 describe("countMarketplaceComponents", () => {
   it("counts a string component field as one component", () => {
     expect(
-      countMarketplaceComponents({ hooks: "hooks/shared/telemetry.json" }),
+      countMarketplaceComponents({ hooks: "hooks/sample/sample-hook.json" }),
     ).toBe(1);
   });
 
@@ -95,7 +95,7 @@ describe("countMarketplaceComponents", () => {
         commands: ["c.md"],
         rules: [],
         skills: ["s"],
-        hooks: "hooks/shared/telemetry.json",
+        hooks: "hooks/sample/sample-hook.json",
       }),
     ).toBe(5);
   });
@@ -110,11 +110,21 @@ describe("countMarketplaceComponents", () => {
     expect(countMarketplaceComponents({ name: "empty" })).toBe(0);
   });
 
-  it("counts a catalog package that declares hooks as a single string", () => {
+  it("counts every catalog package that declares hooks as a single string", () => {
     const withStringHooks = catalog.plugins.filter(
       (entry) => typeof entry.hooks === "string",
     );
-    expect(withStringHooks.length).toBeGreaterThan(0);
+
+    // No catalog package declares hooks as a bare string today, so iterating
+    // the filtered set alone cannot fail. The synthetic entry keeps the rule
+    // under test, and asserting the current count states the end state
+    // explicitly instead of quietly passing over an empty list.
+    expect(withStringHooks).toHaveLength(0);
+
+    const synthetic = { name: "synthetic", agents: ["a.md"], hooks: "h.json" };
+    expect(countMarketplaceComponents(synthetic)).toBe(
+      countMarketplaceComponents({ ...synthetic, hooks: undefined }) + 1,
+    );
 
     for (const entry of withStringHooks) {
       const withoutHooks = { ...entry, hooks: undefined };
