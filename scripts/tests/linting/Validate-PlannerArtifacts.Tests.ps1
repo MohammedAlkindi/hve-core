@@ -708,9 +708,9 @@ Describe 'Backlog handoff classification' -Tag 'Unit' {
 
         $script:HandoffRoot = Join-Path $script:TempTestDir 'handoff-scope'
         $script:HandoffScopes = @(
-            '.copilot-tracking/workitems/execution/2026-08-11'
-            '.copilot-tracking/github-issues/execution/2026-08-11'
-            '.copilot-tracking/jira-issues/execution/2026-08-11'
+            '.copilot-tracking/workitems/execution/test-scope'
+            '.copilot-tracking/github-issues/execution/test-scope'
+            '.copilot-tracking/jira-issues/execution/test-scope'
         )
         foreach ($scope in $script:HandoffScopes) {
             New-Item -ItemType Directory -Path (Join-Path $script:HandoffRoot $scope) -Force | Out-Null
@@ -728,9 +728,9 @@ Describe 'Backlog handoff classification' -Tag 'Unit' {
     }
 
     It 'Classifies a scoped handoff.md as human-facing under <_>' -ForEach @(
-        '.copilot-tracking/workitems/execution/2026-08-11'
-        '.copilot-tracking/github-issues/execution/2026-08-11'
-        '.copilot-tracking/jira-issues/execution/2026-08-11'
+        '.copilot-tracking/workitems/execution/test-scope'
+        '.copilot-tracking/github-issues/execution/test-scope'
+        '.copilot-tracking/jira-issues/execution/test-scope'
     ) {
         $refs = Find-ArtifactReferences `
             -ArtifactClassification $script:RealFooterConfig.'artifact-classification' `
@@ -742,7 +742,7 @@ Describe 'Backlog handoff classification' -Tag 'Unit' {
     }
 
     It 'Fails a scoped handoff.md that omits the human review checkbox' {
-        $filePath = Join-Path $script:HandoffRoot '.copilot-tracking/github-issues/execution/2026-08-11/handoff.md'
+        $filePath = Join-Path $script:HandoffRoot '.copilot-tracking/github-issues/execution/test-scope/handoff.md'
         $content = "# Handoff - Scope`n`n## Planned Operations`n`n* [ ] GH001 - Create - ``{{TEMP-1}}`` - Summary`n`n$($script:RealNoteText)`n"
         Set-Content -Path $filePath -Value $content -Encoding utf8
 
@@ -752,7 +752,7 @@ Describe 'Backlog handoff classification' -Tag 'Unit' {
     }
 
     It 'Passes a scoped handoff.md that carries both required footers' {
-        $filePath = Join-Path $script:HandoffRoot '.copilot-tracking/github-issues/execution/2026-08-11/handoff.md'
+        $filePath = Join-Path $script:HandoffRoot '.copilot-tracking/github-issues/execution/test-scope/handoff.md'
         $content = "# Handoff - Scope`n`n## Planned Operations`n`n* [ ] GH001 - Create - ``{{TEMP-1}}`` - Summary`n`n## Human Review`n`n$($script:RealNoteText)`n`n$($script:RealCheckboxText)`n"
         Set-Content -Path $filePath -Value $content -Encoding utf8
 
@@ -762,7 +762,7 @@ Describe 'Backlog handoff classification' -Tag 'Unit' {
     }
 
     It 'Discovers a generated handoff.md, which does not use the .instructions.md suffix' {
-        $filePath = Join-Path $script:HandoffRoot '.copilot-tracking/github-issues/execution/2026-08-11/handoff.md'
+        $filePath = Join-Path $script:HandoffRoot '.copilot-tracking/github-issues/execution/test-scope/handoff.md'
         $content = "# Handoff - Scope`n`n## Planned Operations`n`n* [ ] GH001 - Create - ``{{TEMP-1}}`` - Summary`n`n$($script:RealNoteText)`n"
         Set-Content -Path $filePath -Value $content -Encoding utf8
 

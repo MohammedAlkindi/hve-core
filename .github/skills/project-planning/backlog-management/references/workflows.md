@@ -202,6 +202,7 @@ Binding runs after contract validation and before the first mutation, including 
 Dry run is a full simulation with zero platform mutations. When the caller enables `dryRun`:
 
 * Resolve, validate, and sanitize every payload exactly as a live run would, including the Content Sanitization Guards and the Destination Binding check. Record the verified binding in `handoff-dryrun.md`, not in `handoff-logs.md`.
+* In `handoff-dryrun.md`, record a `## Destination Binding` section with `Confirmed destination`, `Verified`, and `Covered items` fields matching the live record shape.
 * Do not call any create, update, transition, close, comment, or link operation. Read-only calls used for validation remain permitted.
 * Assign a simulated key of the form `{{TEMP-N}} -> (dry-run)` and mark every dependent operation that would have consumed a real key. Hold the simulated keys in the dry-run record only. Never write a simulated key to the Temporary ID Mapping section of `handoff-logs.md`.
 * Record each operation in `handoff-dryrun.md`, beside `handoff.md`, with the payload summary that would have been sent. Never write a dry-run entry to `handoff-logs.md`, because that file is the resume authority for live runs and must contain no simulated result.
@@ -523,6 +524,12 @@ Written only by a dry run, overwritten on each dry run, and never read by a live
 * **Status**: Simulated. Nothing was created, changed, or closed.
 * **Simulated**: 0
 * **Would fail validation**: 0
+
+## Destination Binding
+
+* **Confirmed destination**: [normalized destination]
+* **Verified**: [YYYY-MM-DD HH:MM UTC]
+* **Covered items**: `ITEM-2`, `ITEM-3`
 
 ## Simulated Operations
 
