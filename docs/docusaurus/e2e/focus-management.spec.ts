@@ -52,7 +52,10 @@ async function expectNextTabEntersMain(page: Page, context: string): Promise<voi
     const main = document.querySelector('main, [role="main"]');
     const active = document.activeElement as HTMLElement | null;
     return {
-      insideMain: Boolean(main && active && main.contains(active)),
+      // Require focus to move strictly *inside* main. `contains` is true for
+      // main itself, so without the identity check this would also pass when
+      // Tab moved focus nowhere at all.
+      insideMain: Boolean(main && active && active !== main && main.contains(active)),
       activeDescription: active
         ? `${active.tagName.toLowerCase()}${active.getAttribute('href') ? ` href=${active.getAttribute('href')}` : ''}`
         : 'null',
@@ -288,13 +291,26 @@ test.describe('Focus management', () => {
   // Layout instance and already focuses main content. The remount fix widens
   // when the route-change effect runs, so this path must not regress.
   test('navigating between docs pages moves focus to main content', async ({ page }) => {
-    await page.goto('/hve-core/docs/getting-started/');
+    const startPath = '/hve-core/docs/getting-started/';
+    await page.goto(startPath);
 
-    const sidebarLink = page.locator('a.menu__link[href$="/getting-started/install"]').first();
-    if ((await sidebarLink.count()) === 0) {
-      test.skip(true, 'No sibling docs sidebar link is configured for this build.');
-      return;
-    }
+    // Resolve any sidebar link that leaves the current page rather than naming
+    // one slug. A hard-coded slug turns a renamed page into a silent skip,
+    // which would leave this guard permanently green while never running.
+    const sidebarLink = page
+      .locator('a.menu__link')
+      .filter({ hasNot: page.locator(`[href="${startPath}"]`) })
+      .first();
+
+    const target = await sidebarLink.getAttribute('href');
+    expect(
+      target,
+      'The docs sidebar should expose a sibling page link for the intra-layout focus guard',
+    ).toBeTruthy();
+    expect(
+      target,
+      'The intra-layout focus guard needs a sidebar link that navigates away from the starting page',
+    ).not.toBe(startPath);
 
     await sidebarLink.click();
     await page.waitForLoadState('networkidle');
