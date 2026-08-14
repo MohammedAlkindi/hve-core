@@ -263,10 +263,12 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         }
 
         $script:Source | Should -Match '(?m)^max-ai-credits: 1000$'
+        $script:Source | Should -Match '(?m)^  group: gh-aw-backlog-groom-\$\{\{ inputs\.shard_id \|\| github\.run_id \}\}$'
         $script:Source | Should -Match '(?m)^  job-discriminator: \$\{\{ inputs\.shard_id \|\| github\.run_id \}\}$'
         $script:Source | Should -Match '`ordered_candidate_ids`:\s+`\$\{\{ inputs\.ordered_candidate_ids \}\}`'
         $script:Lock | Should -Match 'gh-aw-copilot-backlog-groom-\$\{\{ inputs\.shard_id \|\| github\.run_id \}\}'
         $script:Lock | Should -Match 'gh-aw-conclusion-backlog-groom-\$\{\{ inputs\.shard_id \|\| github\.run_id \}\}'
+        $script:Lock | Should -Match '(?ms)^concurrency:\s+group: gh-aw-backlog-groom-\$\{\{ inputs\.shard_id \|\| github\.run_id \}\}'
 
         foreach ($field in @(
                 'schema_version', 'run_id', 'attempt', 'shard_id', 'manifest_digest',
