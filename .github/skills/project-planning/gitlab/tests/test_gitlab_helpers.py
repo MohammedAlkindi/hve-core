@@ -4,8 +4,83 @@
 
 from __future__ import annotations
 
+import ast
+import dataclasses
+import json
+import logging
+import pathlib
+
 import gitlab
 import pytest
+from pytest_mock import MockerFixture
+from test_constants import TEST_API_URL
+
+SOURCE = pathlib.Path(gitlab.__file__).read_text(encoding="utf-8")
+SOURCE_TREE = ast.parse(SOURCE)
+SCRIPTS_ROOT = pathlib.Path(gitlab.__file__).parent
+SECRET = "s3cr3t-Value_123"
+EXPECTED_REDACT_KEYS = (
+    "access_token",
+    "refresh_token",
+    "code_verifier",
+    "client_secret",
+    "id_token",
+    "assertion",
+    "client_assertion",
+    "device_code",
+    "password",
+    "private_token",
+    "oauth_token",
+    "deploy_token",
+    "job_token",
+)
+
+
+class _NetworkInvocationVisitor(ast.NodeVisitor):
+    """Collect credentialed network invocations with their owning function."""
+
+    def __init__(self, module: str) -> None:
+        self.module = module
+        self.function = "<module>"
+        self.invocations: list[tuple[str, str, str]] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        previous = self.function
+        self.function = node.name
+        self.generic_visit(node)
+        self.function = previous
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Call(self, node: ast.Call) -> None:
+        function = node.func
+        if (
+            isinstance(function, ast.Attribute)
+            and function.attr == "open"
+            and isinstance(function.value, ast.Name)
+            and function.value.id == "_OPENER"
+        ):
+            self.invocations.append((self.module, self.function, "_OPENER.open"))
+        elif isinstance(function, ast.Name) and function.id == "opener":
+            self.invocations.append((self.module, self.function, "opener"))
+        elif (
+            isinstance(function, ast.Attribute)
+            and function.attr == "urlopen"
+            and isinstance(function.value, ast.Attribute)
+            and isinstance(function.value.value, ast.Name)
+            and function.value.value.id == "urllib"
+            and function.value.attr == "request"
+        ):
+            self.invocations.append(
+                (self.module, self.function, "urllib.request.urlopen")
+            )
+        self.generic_visit(node)
+
+
+def _network_invocations(source: str, module: str) -> list[tuple[str, str, str]]:
+    visitor = _NetworkInvocationVisitor(module)
+    visitor.visit(ast.parse(source))
+    return visitor.invocations
 
 
 class TestDie:
@@ -44,6 +119,154 @@ class TestRedact:
         assert "secret=[REDACTED]" in redacted
         assert "secret123" not in redacted
         assert "abc" not in redacted
+
+    def test_masks_oauth_secrets_in_escaped_and_encoded_forms(self) -> None:
+        payload = (
+            '{"Access_Token":"mixed-secret"} '
+            r"{\"refresh_token\":\"escaped-secret\"} "
+            "access_token%3Dencoded-secret"
+        )
+
+        redacted = gitlab._redact(payload)
+
+        assert "mixed-secret" not in redacted
+        assert "escaped-secret" not in redacted
+        assert "encoded-secret" not in redacted
+
+    @pytest.mark.parametrize("key", EXPECTED_REDACT_KEYS)
+    def test_masks_all_pinned_json_and_form_keys(self, key: str) -> None:
+        payload = f'{{"{key}": "{SECRET}"}} {key}={SECRET}'
+
+        redacted = gitlab._redact(payload)
+
+        assert SECRET not in redacted
+        assert "[REDACTED]" in redacted
+
+    def test_pinned_keyset_excludes_public_pkce_challenge(self) -> None:
+        assert gitlab._REDACT_KEYS == EXPECTED_REDACT_KEYS
+        assert "code_challenge" not in gitlab._REDACT_KEYS
+
+
+class TestCredentialExposureContracts:
+    """Tests for credential-safe objects, errors, and output sinks."""
+
+    def test_credential_is_not_a_module_level_global(self) -> None:
+        """The PAT lives only on AuthContext, never in mutable module state."""
+        assert not hasattr(gitlab, "gitlab_token")
+        assert "gitlab_token" not in SOURCE
+
+    def test_auth_context_is_immutable_and_secret_free(self) -> None:
+        context = gitlab.AuthContext(
+            mode="legacy-token",
+            issuer="https://gitlab.example.com",
+            token=SECRET,
+        )
+
+        assert SECRET not in repr(context)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            context.token = "replacement"  # type: ignore[misc]
+
+    def test_api_error_excludes_message_from_repr_and_redacts_str(self) -> None:
+        error = gitlab.GitLabAPIError(
+            status=403,
+            method="GET",
+            resource=f"{TEST_API_URL}/projects/1",
+            message=f"private_token={SECRET}",
+        )
+
+        assert SECRET not in str(error)
+        assert SECRET not in repr(error)
+
+    def test_emit_and_debug_traceback_redact(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("GITLAB_DEBUG", "1")
+        error = gitlab.GitLabAPIError(message=f"private_token={SECRET}")
+        with caplog.at_level(logging.ERROR, logger="gitlab"):
+            gitlab._emit(f"private_token={SECRET}")
+        gitlab._emit_debug_traceback(error)
+
+        captured = capsys.readouterr()
+        assert SECRET not in captured.err
+        assert SECRET not in caplog.text
+
+
+class TestSourceContracts:
+    """Structural guards for redacted output and hardened transport ownership."""
+
+    def test_print_calls_remain_in_emit_helpers(self) -> None:
+        owners: list[str] = []
+        for node in ast.walk(SOURCE_TREE):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if any(
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id == "print"
+                for child in ast.walk(node)
+            ):
+                owners.append(node.name)
+
+        assert set(owners) <= {
+            "_emit",
+            "_emit_stdout",
+            "_emit_structured_stdout",
+            "_emit_debug_traceback",
+        }
+        assert "LOGGER.exception(" not in SOURCE
+
+    def test_credentialed_egress_has_exactly_two_owners(self) -> None:
+        invocations: list[tuple[str, str, str]] = []
+        for path in SCRIPTS_ROOT.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            invocations.extend(
+                _network_invocations(path.read_text(encoding="utf-8"), path.name)
+            )
+
+        assert set(invocations) == {
+            ("_gitlab_oauth.py", "post_form", "opener"),
+            ("gitlab.py", "_request_bytes", "_OPENER.open"),
+        }
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            (
+                "def bypass():\n    return urllib.request.urlopen('https://x')\n",
+                "bypass",
+            ),
+            ("def other():\n    return _OPENER.open('https://x')\n", "other"),
+            ("def other(opener):\n    return opener('https://x')\n", "other"),
+        ],
+    )
+    def test_source_contract_detects_non_owner_invocations(
+        self, source: str, expected: str
+    ) -> None:
+        invocations = _network_invocations(source, "unexpected.py")
+
+        assert invocations
+        assert invocations[0][1] == expected
+
+    def test_job_log_output_is_redacted(
+        self,
+        configured_gitlab: object,
+        capsys: pytest.CaptureFixture[str],
+        mocker: MockerFixture,
+    ) -> None:
+        del configured_gitlab
+        mocker.patch("gitlab.project", return_value="group%2Fproject")
+        mocker.patch(
+            "gitlab._request_bytes",
+            return_value=f"access_token={SECRET}".encode(),
+        )
+
+        gitlab.cmd_job_log(["7"])
+
+        assert SECRET not in capsys.readouterr().out
 
 
 class TestStripGitSuffix:
@@ -206,6 +429,38 @@ class TestPrintFields:
             "iid: 9",
             "author.name: Grace",
         ]
+
+    def test_preserves_tsv_arity_and_ordinary_credential_words(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        gitlab.selected_fields = ["first", "title", "last"]
+
+        gitlab.print_fields(
+            [{"first": "", "title": "fix secret token password", "last": ""}]
+        )
+
+        lines = capsys.readouterr().out.splitlines()
+        assert lines[1].split("\t") == ["", "fix secret token password", ""]
+
+
+def test_sanitize_structured_preserves_containers_and_redacts_descendants() -> None:
+    payload = {
+        "title": "fix secret",
+        "access_token": {"value": SECRET, "nested": [SECRET, {"x": SECRET}]},
+        "items": [{"password": [SECRET]}, "unchanged"],
+    }
+
+    sanitized = gitlab._sanitize_structured(payload)
+
+    assert sanitized == {
+        "title": "fix secret",
+        "access_token": {
+            "value": "[REDACTED]",
+            "nested": ["[REDACTED]", {"x": "[REDACTED]"}],
+        },
+        "items": [{"password": ["[REDACTED]"]}, "unchanged"],
+    }
+    assert json.loads(json.dumps(sanitized)) == sanitized
 
 
 class TestLoadJsonPayload:

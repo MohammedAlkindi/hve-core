@@ -12,6 +12,8 @@ import io
 import sys
 from contextlib import redirect_stderr, suppress
 
+import _gitlab_credentials as credentials
+import _gitlab_oauth as oauth
 import gitlab
 import pytest
 
@@ -105,6 +107,50 @@ def fuzz_parse_fields(data: bytes) -> None:
         gitlab.parse_fields(args)
 
 
+def fuzz_token_profile(data: bytes) -> None:
+    """Fuzz OAuth token-profile response validation."""
+    fdp = atheris.FuzzedDataProvider(data)
+    payload = {
+        "access_token": fdp.ConsumeUnicodeNoSurrogates(64),
+        "refresh_token": fdp.ConsumeUnicodeNoSurrogates(64),
+        "expires_in": fdp.ConsumeIntInRange(-1, 100_000),
+        "scope": fdp.ConsumeUnicodeNoSurrogates(32),
+    }
+    with suppress(oauth.OAuthError):
+        oauth.token_profile(
+            payload,
+            issuer="https://gitlab.example.com",
+            client_id="client",
+            now=0.0,
+        )
+
+
+def fuzz_validate_profile_name(data: bytes) -> None:
+    """Fuzz profile-name validation."""
+    fdp = atheris.FuzzedDataProvider(data)
+    name = fdp.ConsumeUnicodeNoSurrogates(fdp.remaining_bytes())
+    with suppress(ValueError):
+        credentials.validate_profile_name(name)
+
+
+def fuzz_validate_profile(data: bytes) -> None:
+    """Fuzz persisted profile validation."""
+    fdp = atheris.FuzzedDataProvider(data)
+    profile = {
+        "issuer": fdp.ConsumeUnicodeNoSurrogates(32),
+        "client_id": fdp.ConsumeUnicodeNoSurrogates(32),
+        "access_token": fdp.ConsumeUnicodeNoSurrogates(32),
+        "refresh_token": fdp.ConsumeUnicodeNoSurrogates(32),
+        "token_type": fdp.ConsumeUnicodeNoSurrogates(16),
+        "obtained_at": fdp.ConsumeInt(8),
+        "expires_at": fdp.ConsumeInt(8),
+        "scopes": [fdp.ConsumeUnicodeNoSurrogates(16)],
+        "usable": fdp.ConsumeBool(),
+    }
+    with suppress(ValueError):
+        credentials.validate_profile(profile)
+
+
 FUZZ_TARGETS = [
     fuzz_strip_git_suffix,
     fuzz_validate_numeric_id,
@@ -114,6 +160,9 @@ FUZZ_TARGETS = [
     fuzz_validate_state,
     fuzz_validate_ref,
     fuzz_parse_fields,
+    fuzz_token_profile,
+    fuzz_validate_profile_name,
+    fuzz_validate_profile,
 ]
 
 
