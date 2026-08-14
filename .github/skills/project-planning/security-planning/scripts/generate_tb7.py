@@ -16,7 +16,14 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 import yaml
-from tm7_threat_contract import UnsafeXmlError, parse_hardened_xml_bytes
+from tm7_threat_contract import (
+    UnsafeXmlError,
+    _coerce_list,
+    _local_name,
+    _make_guid,
+    _normalize_text,
+    parse_hardened_xml_bytes,
+)
 
 
 class GenerationError(Exception):
@@ -43,24 +50,8 @@ def _load_yaml_or_json(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def _make_guid(identifier: str) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, identifier))
-
-
 def _stable_type_id(source_template: Path, source_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source_template}:{source_id}"))
-
-
-def _coerce_list(value: Any) -> list[Any]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
-
-
-def _normalize_text(value: Any) -> str:
-    return "" if value is None else str(value).strip()
 
 
 def _build_generation_filters() -> ET.Element:
@@ -310,10 +301,6 @@ def copy_element(element: ET.Element) -> ET.Element:
     clone.text = element.text
     clone.tail = element.tail
     return clone
-
-
-def _local_name(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1]
 
 
 def create_parser() -> argparse.ArgumentParser:

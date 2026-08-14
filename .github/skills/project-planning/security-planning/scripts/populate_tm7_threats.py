@@ -23,6 +23,8 @@ from tm7_threat_contract import (
     XSD_NS,
     ThreatContractError,
     UnsafeXmlError,
+    _local_name,
+    _normalize_text,
     build_custom_threat_type_id,
     build_entry_key,
     build_interaction_key,
@@ -47,14 +49,6 @@ __all__ = ["KNOWLEDGE_NS", "MODEL_NS", "XSD_NS"]
 
 class GenerationError(Exception):
     """Raised when input validation or population fails."""
-
-
-def _local_name(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1]
-
-
-def _normalize_text(value: Any) -> str:
-    return "" if value is None else str(value).strip()
 
 
 def _load_yaml_or_json(path: Path) -> dict[str, Any]:

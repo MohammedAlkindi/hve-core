@@ -1012,11 +1012,21 @@ def test_given_exception_during_serialization_then_registry_is_still_restored(
     root = ET.Element("ThreatModel")
 
     # Act
-    with pytest.raises(RuntimeError, match="write failed"):
+    # The exception is captured explicitly rather than through a
+    # `pytest.raises` context manager wrapping the `raise`. Static analysis
+    # cannot see that `pytest.raises.__exit__` suppresses the exception, so
+    # that shape makes every following assertion look unreachable. Capturing
+    # it here keeps the control flow analyzable and asserts the same contract.
+    raised: RuntimeError | None = None
+    try:
         with tm7_threat_contract.tm7_serialization_namespaces(root):
             raise RuntimeError("write failed")
+    except RuntimeError as exc:
+        raised = exc
 
     # Assert
+    assert raised is not None
+    assert str(raised) == "write failed"
     assert dict(ET._namespace_map) == caller_namespace_registry
     assert "xmlns:c" not in root.attrib
 
@@ -1027,13 +1037,16 @@ def test_given_concurrent_serializations_when_run_then_bytes_and_registry_are_st
     # Arrange
     expected = _serialize_probe_root()
     outputs: list[str] = []
-    failures: list[BaseException] = []
+    failures: list[Exception] = []
 
     def worker() -> None:
         try:
             for _ in range(25):
                 outputs.append(_serialize_probe_root())
-        except BaseException as exc:  # pragma: no cover - reported below
+        except Exception as exc:  # pragma: no cover - reported below
+            # `Exception` rather than `BaseException`: a worker thread is never
+            # delivered KeyboardInterrupt or SystemExit, so the wider catch
+            # bought nothing and masked the intent.
             failures.append(exc)
 
     threads = [threading.Thread(target=worker) for _ in range(8)]

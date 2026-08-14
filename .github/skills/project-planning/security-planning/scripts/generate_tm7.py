@@ -14,7 +14,6 @@ import re
 import sys
 import tempfile
 import textwrap
-import uuid
 from collections import deque
 from datetime import date, datetime
 from pathlib import Path
@@ -29,6 +28,9 @@ from tm7_threat_contract import (
     InputTooLargeError,
     ThreatContractError,
     UnsafeXmlError,
+    _coerce_list,
+    _local_name,
+    _make_guid,
     build_custom_threat_type_id,
     build_entry_key,
     build_interaction_key,
@@ -499,19 +501,6 @@ def emit_warnings(spec: dict[str, Any]) -> None:
         )
 
 
-def _make_guid(identifier: str) -> str:
-    """Create a deterministic GUID from a stable identifier."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, identifier))
-
-
-def _coerce_list(value: Any) -> list[Any]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
-
-
 def _coerce_bool(value: Any, *, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -781,31 +770,17 @@ def build_model_from_spec(
         ]
         element_ids = {str(element.get("id", "")) for element in elements}
 
+        # Membership in the post-suppression id set is the test, because the
+        # role lookup this replaces read from `elements` after suppressed
+        # entries had already been removed from it. That lookup returned an
+        # empty role rather than "suppressed", so its guard never fired and
+        # every flow survived. `flow_refs` already required both endpoints to
+        # exist before suppression, so an id missing here was suppressed.
         filtered_flows = []
         for flow in flow_refs:
             source_id = str(flow.get("source_ref", ""))
             target_id = str(flow.get("target_ref", ""))
-            source_role = str(
-                next(
-                    (
-                        element.get("layout_role")
-                        for element in elements
-                        if str(element.get("id", "")) == source_id
-                    ),
-                    "",
-                )
-            ).lower()
-            target_role = str(
-                next(
-                    (
-                        element.get("layout_role")
-                        for element in elements
-                        if str(element.get("id", "")) == target_id
-                    ),
-                    "",
-                )
-            ).lower()
-            if source_role == "suppressed" or target_role == "suppressed":
+            if source_id not in element_ids or target_id not in element_ids:
                 continue
             filtered_flows.append(flow)
 
@@ -3809,59 +3784,37 @@ def _assign_zone_regions(
                 available_height,
                 max(required_height, 220.0 + max(0, subtree_nodes - 1) * 36.0),
             )
-            edge_inset = max(24.0, inner_padding)
-            inner_left = parent_rect["left"] + edge_inset
-            inner_top = parent_rect["top"] + edge_inset
-            inner_right = parent_rect["left"] + parent_rect["width"] - edge_inset
-            inner_bottom = parent_rect["top"] + parent_rect["height"] - edge_inset
-            if parent_rect is not None:
-                outer_rect = {
-                    "left": parent_rect["left"],
-                    "top": parent_rect["top"],
-                    "width": max(
-                        120.0,
-                        min(
-                            parent_rect["width"],
-                            compact_width,
-                        ),
+            # This branch is already the "parent_rect is not None" case, so the
+            # rectangle is derived from the parent directly. An earlier revision
+            # nested a second parent_rect check here with a viewport-inset
+            # fallback; that fallback could never run, and the inset bounds it
+            # computed were dead with it.
+            outer_rect = {
+                "left": parent_rect["left"],
+                "top": parent_rect["top"],
+                "width": max(
+                    120.0,
+                    min(
+                        parent_rect["width"],
+                        compact_width,
                     ),
-                    "height": max(
-                        120.0,
-                        min(
-                            parent_rect["height"],
-                            compact_height,
-                        ),
+                ),
+                "height": max(
+                    120.0,
+                    min(
+                        parent_rect["height"],
+                        compact_height,
                     ),
-                }
-                outer_rect["width"] = min(
-                    outer_rect["width"],
-                    max(120.0, parent_rect["width"]),
-                )
-                outer_rect["height"] = min(
-                    outer_rect["height"],
-                    max(120.0, parent_rect["height"]),
-                )
-            else:
-                outer_rect = {
-                    "left": inner_left,
-                    "top": inner_top,
-                    "width": max(
-                        120.0,
-                        min(compact_width, max(120.0, inner_right - inner_left)),
-                    ),
-                    "height": max(
-                        120.0,
-                        min(compact_height, max(120.0, inner_bottom - inner_top)),
-                    ),
-                }
-                outer_rect["width"] = min(
-                    outer_rect["width"],
-                    max(120.0, inner_right - outer_rect["left"]),
-                )
-                outer_rect["height"] = min(
-                    outer_rect["height"],
-                    max(120.0, inner_bottom - outer_rect["top"]),
-                )
+                ),
+            }
+            outer_rect["width"] = min(
+                outer_rect["width"],
+                max(120.0, parent_rect["width"]),
+            )
+            outer_rect["height"] = min(
+                outer_rect["height"],
+                max(120.0, parent_rect["height"]),
+            )
 
         zone_rects[zone_id] = outer_rect
         # The content box is what the zone actually has left after its label
@@ -4860,24 +4813,10 @@ def apply_layout(
             source_center_y = source_top + (source_height / 2.0)
             target_center_x = target_left + (target_width / 2.0)
             target_center_y = target_top + (target_height / 2.0)
-            source_anchor = _rect_anchor(
-                {
-                    "left": float(source_left),
-                    "top": float(source_top),
-                    "width": float(source_width),
-                    "height": float(source_height),
-                },
-                (target_center_x, target_center_y),
-            )
-            target_anchor = _rect_anchor(
-                {
-                    "left": float(target_left),
-                    "top": float(target_top),
-                    "width": float(target_width),
-                    "height": float(target_height),
-                },
-                (source_center_x, source_center_y),
-            )
+            # The anchors are resolved further down through _resolve_port_point,
+            # which honours an overlay port declaration and falls back to the
+            # same rectangle anchoring. A pair of _rect_anchor assignments used
+            # to sit here and was overwritten before either value was read.
             other_rects = []
             boundary_rects_by_zone: dict[str, dict[str, float]] = {}
             for other_element in surface["elements"]:
@@ -6437,11 +6376,6 @@ def parse_hardened_xml(path: Path) -> dict[str, Any]:
         ]
 
     return parsed_model
-
-
-def _local_name(tag: str) -> str:
-    """Return the namespace-local part of an XML tag."""
-    return tag.rpartition("}")[2]
 
 
 def _find_child_text(parent: ET.Element, child_name: str) -> str | None:

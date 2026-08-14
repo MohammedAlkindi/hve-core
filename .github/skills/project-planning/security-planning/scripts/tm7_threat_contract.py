@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
+import uuid
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -324,6 +325,17 @@ def build_threat_instance_properties(
         ("Priority", _normalize_text(supplied.get("Priority")) or "High"),
         ("SDLPhase", _normalize_text(supplied.get("SDLPhase")) or "Design"),
     ]
+
+
+def _make_guid(identifier: str) -> str:
+    """Create a deterministic GUID from a stable identifier.
+
+    Lives here alongside the other identity builders because both generators
+    mint GUIDs that must agree for the same identifier. Two independent copies
+    of a deterministic identity function is a correctness hazard, not just
+    duplication: a divergence would silently renumber every element.
+    """
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, identifier))
 
 
 def build_custom_threat_type_id(source_id: str) -> str:

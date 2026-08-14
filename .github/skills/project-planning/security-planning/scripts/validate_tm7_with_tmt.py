@@ -1258,6 +1258,9 @@ def capture_window_screenshot(window: Any, output_path: Path) -> None:
                 try:
                     focuser()
                 except Exception:
+                    # Focus is best effort. A window that refuses focus can
+                    # still be captured, and failing the capture here would
+                    # lose evidence over a cosmetic precondition.
                     pass
             image = ImageGrab.grab(window=handle)
             image.save(output_path)
@@ -1314,18 +1317,13 @@ def _capture_or_skip(
         bundle.write_action_log(str(exc))
 
 
-def _local_name(tag: str) -> str:
-    """Return a tag name without its XML namespace prefix."""
-    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
-
-
 def _find_child_text(element: Any, name: str) -> str:
     """Return the trimmed text for the first child element with the supplied name."""
     for child in list(getattr(element, "iter", lambda: [])()):
-        if _local_name(child.tag) == name:
+        if tm7_threat_contract._local_name(child.tag) == name:
             return (child.text or "").strip()
     for child in list(element):
-        if _local_name(child.tag) == name:
+        if tm7_threat_contract._local_name(child.tag) == name:
             return (child.text or "").strip()
     return ""
 
@@ -1464,7 +1462,7 @@ def read_expected_surfaces(model_path: Path) -> list[SurfaceDescriptor]:
     surface_elements = [
         element
         for element in root.iter()
-        if _local_name(element.tag) == "DrawingSurfaceModel"
+        if tm7_threat_contract._local_name(element.tag) == "DrawingSurfaceModel"
     ]
     for index, element in enumerate(surface_elements):
         surface_name = _find_child_text(element, "Header")
@@ -1625,6 +1623,9 @@ def _collapse_menu(menu: Any) -> None:
         if callable(collapse):
             collapse()
     except Exception:
+        # Collapsing is housekeeping so the next interaction starts from a
+        # known state. A menu that will not collapse does not invalidate the
+        # work already done, and the caller has no recovery to offer.
         pass
 
 
@@ -1650,6 +1651,9 @@ def activate_surface_via_document_menu(
                 _invoke_control(entry)
                 return True
     except Exception:
+        # Any failure walking or invoking the menu means this activation route
+        # did not work. The caller falls back to another route on False, so a
+        # raise here would remove that fallback.
         pass
     _collapse_menu(menu)
     return False
@@ -1685,6 +1689,8 @@ def activate_surface_tab(
             selector()
             return
         except Exception:
+            # This control does not support selection, so fall through to the
+            # click path below rather than failing the interaction.
             pass
     control.click_input()
 
@@ -1941,7 +1947,10 @@ def capture_surface_evidence(
             try:
                 from PIL import Image
             except Exception:
-                crop = crop
+                # Without Pillow the screenshot stays uncropped. The measured
+                # crop rectangle is still reported, so downstream geometry is
+                # unaffected by the missing crop.
+                pass
             else:
                 try:
                     image = Image.open(screenshot_path)
@@ -1950,7 +1959,9 @@ def capture_surface_evidence(
                     )
                     cropped.save(screenshot_path)
                 except Exception:
-                    crop = crop
+                    # A crop failure leaves the full-frame capture in place,
+                    # which is still valid evidence.
+                    pass
         else:
             crop = None
 
@@ -4403,6 +4414,9 @@ def _build_agent_review_request(
                         "y": float(handle[1]),
                     }
                 except (TypeError, ValueError):
+                    # A handle that is not a numeric pair carries no geometry.
+                    # The flow is omitted from the review request rather than
+                    # published with a fabricated coordinate.
                     pass
         viewport_raw = geometry.get("viewport_target")
         viewport_target = (
@@ -5954,6 +5968,10 @@ def run_feedback_loop(
                                     evidence_dir=evidence_dir,
                                 )
                             except (ValueError, TypeError, KeyError):
+                                # The seed is a convenience shape for a run
+                                # that found no correction. If it cannot be
+                                # built, the already-valid overlay payload
+                                # stands and the run still reports normally.
                                 pass
                         overlay_payload["applies_to"] = [
                             {
@@ -6328,7 +6346,6 @@ def run_feedback_loop(
                 "Native TMT UI automation is complete/stopped and you may "
                 "resume using the computer."
             )
-            release_emitted = True
 
 
 def run_harness(

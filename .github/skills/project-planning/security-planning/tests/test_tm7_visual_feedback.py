@@ -40,6 +40,24 @@ def test_given_schema_documents_when_inspected_then_require_v2_strict_shape() ->
     assert manifest_schema["additionalProperties"] is False
 
 
+def test_given_manifest_schema_when_compared_then_allow_list_matches() -> None:
+    # Arrange
+    manifest_schema_path = SCHEMAS_DIR / "tm7-visual-feedback-manifest.schema.json"
+
+    # Act
+    manifest_schema = json.loads(manifest_schema_path.read_text(encoding="utf-8"))
+
+    # Assert
+    # The schema is the published contract and the constant is the runtime
+    # guard, so a key added to one and not the other either rejects a valid
+    # manifest or lets an invalid one through. The allow-list was written
+    # without layout_calibration_v1 and sat unused, so the divergence was
+    # invisible until the guard was wired up.
+    assert set(manifest_schema["properties"]) == (
+        feedback.ALLOWED_MANIFEST_TOP_LEVEL_KEYS
+    )
+
+
 def test_given_valid_overlay_when_validating_then_accepts_and_normalizes() -> None:
     # Arrange
     overlay = feedback.load_layout_overlay(FIXTURES_DIR / "valid-overlay.yaml")

@@ -119,6 +119,9 @@ ALLOWED_INVALIDATION_KEYS = {
     "surface_zone_identity_fingerprint",
     "surface_flow_identity_fingerprint",
 }
+# Mirrors the `properties` set of tm7-visual-feedback-manifest.schema.json,
+# which declares additionalProperties false. The two must stay in step: this
+# constant is the runtime guard and the schema is the published contract.
 ALLOWED_MANIFEST_TOP_LEVEL_KEYS = {
     "schema_version",
     "manifest_type",
@@ -133,6 +136,9 @@ ALLOWED_MANIFEST_TOP_LEVEL_KEYS = {
     "created_at",
     "surfaces",
     "convergence",
+    # Emitted only when a layout calibration contract is supplied, which is why
+    # it was missed when this list was first written.
+    "layout_calibration_v1",
 }
 
 
@@ -1075,6 +1081,12 @@ def validate_feedback_manifest(manifest: dict[str, Any]) -> None:
 
     if not isinstance(manifest, dict):
         raise ValueError("manifest must be a mapping")
+    # Mirrors the overlay path, which rejects unknown top-level keys against
+    # its own allow-list. The manifest allow-list was declared alongside it but
+    # never consulted, so a typo or a stale key reached evidence unchallenged.
+    unknown_keys = set(manifest) - ALLOWED_MANIFEST_TOP_LEVEL_KEYS
+    if unknown_keys:
+        raise ValueError(f"unknown manifest keys: {', '.join(sorted(unknown_keys))}")
     if manifest.get("schema_version") != FEEDBACK_MANIFEST_SCHEMA_VERSION:
         raise ValueError(f"schema_version must be {FEEDBACK_MANIFEST_SCHEMA_VERSION}")
     candidate_sha256 = manifest.get("candidate_sha256")
@@ -1137,10 +1149,6 @@ def _union_area_of_rectangles(
 
     if not rectangles:
         return 0.0
-    x_coords = sorted(
-        {left for left, _, _, _ in rectangles}
-        | {right for _, _, right, _ in rectangles}
-    )
     x_coords = sorted({x for rect in rectangles for x in (rect[0], rect[2])})
     if len(x_coords) < 2:
         return 0.0
@@ -3030,7 +3038,10 @@ def evaluate_convergence(
 __all__ = [
     "ConvergenceResult",
     "IterationResult",
+    "MAX_SURFACE_REFINEMENT_CANDIDATES",
+    "MIN_SURFACE_REFINEMENT_CANDIDATES",
     "OverlayContext",
+    "SURFACE_REFINEMENT_ZONE_ROTATION_CAP",
     "SurfaceGeometry",
     "ViewportBounds",
     "build_feedback_manifest",
@@ -3042,5 +3053,8 @@ __all__ = [
     "load_layout_overlay",
     "rank_overlay_candidates",
     "score_surface_layout_candidate",
+    "select_surface_refinement",
+    "surface_semantic_fingerprint",
+    "validate_feedback_manifest",
     "validate_layout_overlay",
 ]

@@ -5511,4 +5511,8 @@ def test_given_alias_expansion_payload_when_loaded_then_no_uncaught_exception(
     try:
         generate_tm7.load_spec(spec_path)
     except generate_tm7.GenerationError:
+        # Either outcome passes. The contract under test is that an alias
+        # expansion bomb terminates through the declared error type instead of
+        # exhausting memory or raising something uncaught, so a clean load and
+        # a GenerationError are both correct.
         pass
