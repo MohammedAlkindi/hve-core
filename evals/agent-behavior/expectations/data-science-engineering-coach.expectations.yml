@@ -108,8 +108,8 @@ expectations:
     priority: high
     contract_ref: "foundation references/session-state.md §Reconstruction protocol"
 
-  - expectation_id: seven-skill-boundaries
-    summary: Job routing preserves the seven Data Science skill authorities.
+  - expectation_id: skill-authority-boundaries
+    summary: Job routing preserves each skill's authority.
     signal: Output routes concerns to the named owner rather than blending methods.
     pass_criteria: |
       Catalog, DataOps, feasibility, analysis authoring, AI-system evaluation
@@ -124,7 +124,28 @@ expectations:
       - Routes AI-agent evaluation dataset design to `ml-experimentation`.
       - Lets a supporting skill mutate coach state or switch jobs.
     priority: high
-    contract_ref: "foundation references/job-registry.md §Seven-skill boundaries"
+    contract_ref: "foundation references/job-registry.md §Skill authority boundaries"
+
+  - expectation_id: cross-cutting-concerns-surface
+    summary: Privacy, Responsible AI, and telemetry are evaluated across jobs and surface rather than block.
+    signal: Output names the triggered concern and its owning skill, and offers a choice.
+    pass_criteria: |
+      When personal, sensitive, or regulated data is catalogued, moved,
+      transformed, sampled, presented, or persisted, the coach evaluates privacy
+      and names `privacy-standards`. When an AI or ML system is designed,
+      evaluated, or experimented on, it evaluates Responsible AI and names
+      `rai-standards`, or `rai-planner` when a surfaced risk needs a scoped
+      assessment. When signals, metrics, traces, or logs are emitted, named, or
+      instrumented, it evaluates telemetry and names `telemetry-foundations`.
+      Each concern surfaces an observation and offers concrete choices without
+      blocking the durable write.
+    failure_modes:
+      - Treats a cross-cutting concern as available only in one named job.
+      - Blocks a durable write on a privacy, RAI, or telemetry trigger.
+      - Claims an ownership gap for a concern whose owning skill is installed.
+      - Silently applies a cross-cutting recommendation without offering a choice.
+    priority: high
+    contract_ref: "foundation references/job-registry.md §Cross-cutting concerns"
 
   - expectation_id: skill-primary-analysis-and-evaluation
     summary: Analysis and evaluation jobs are performed through their owning skill rather than delegated to a specialist agent.

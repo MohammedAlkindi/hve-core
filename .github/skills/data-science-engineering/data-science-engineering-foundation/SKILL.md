@@ -57,7 +57,8 @@ coaching moment.
   tooling fit.
 * Treat this package as internal foundation knowledge, not a user-selectable
   workflow.
-* Preserve the seven Data Science skill boundaries defined in the job registry.
+* Preserve the skill authority boundaries and cross-cutting concerns defined in
+  the job registry.
 
 ## Stop rules
 

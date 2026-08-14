@@ -15,19 +15,47 @@ it does not duplicate the methods owned by a skill.
 
 | Job             | Class        | Primary route                                                                                | Optional supporting route                                                                                                                | Durable output or completion evidence                           |
 |-----------------|--------------|----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| `catalog`       | `continuous` | `data-catalog`: durable catalog entities, declared relationships, lineage, and model semantics | `analysis-authoring` when a presented dataset profile is the requested output; `privacy-standards` for classification citation fields | Caller-approved data catalog                                    |
+| `catalog`       | `continuous` | `data-catalog`: durable catalog entities, declared relationships, lineage, and model semantics | `analysis-authoring` when a presented dataset profile is the requested output                                                            | Caller-approved data catalog                                    |
 | `model-diagram` | `episodic`   | `data-catalog`: authoritative declared entities and relationships                              | `architecture-diagrams`: render the declared model without becoming semantic authority                                                   | Mermaid or ASCII diagram                                        |
-| `feasibility`   | `bounded`    | `feasibility`: evidence-led feasibility studies with durable traceability                 | None                                                                                                                                     | Caller-approved feasibility study                               |
-| `pipeline`      | `episodic`   | `dataops`: tier behavior, pipeline invariants, validation, tests, and drift               | `privacy-standards` for sensitivity classification and DPIA thresholds                                                                   | Transformation, validation, or pipeline code                    |
-| `analysis`      | `episodic`   | `analysis-authoring`: EDA notebook and analytical dashboard authoring and validation      | `data-catalog` for column semantics; `dataops` for derived-dataset persistence                                                          | Notebook, dashboard, or analysis deliverable                    |
-| `evaluation`    | `episodic`   | `evaluation-design`: AI-system evaluation dataset design, metrics, and tooling            | `rai-planner` when a surfaced risk needs assessment rather than a test case                                                              | Evaluation dataset with curation, metric, and tooling documents |
-| `experiment`    | `episodic`   | `experiment-design`: experiment selection, hypotheses, vetting, scope, and evaluation        | `ml-experimentation`: ML reproducibility, tracking, evaluation, abstractions, and production readiness                                   | Hypothesis, experiment assets, and result disposition           |
-| `testing`       | `episodic`   | `dataops`: DataOps and DS/MLOps test techniques                                           | `analysis-authoring` for dashboard validation technique                                                                               | Test code and assertions                                        |
-| `observability` | `episodic`   | `dataops`: data/model signals and validation-versus-drift guidance                        | `telemetry-foundations`: metric names, instruments, units, cardinality, and PII-safe telemetry conventions                               | Instrumentation code and signal recommendations                 |
+| `feasibility`   | `bounded`    | `feasibility`: evidence-led feasibility studies with durable traceability                      | None                                                                                                                                     | Caller-approved feasibility study                               |
+| `pipeline`      | `episodic`   | `dataops`: tier behavior, pipeline invariants, validation, tests, and drift                    | None                                                                                                                                     | Transformation, validation, or pipeline code                    |
+| `analysis`      | `episodic`   | `analysis-authoring`: EDA notebook and analytical dashboard authoring and validation           | `data-catalog` for column semantics; `dataops` for derived-dataset persistence                                                           | Notebook, dashboard, or analysis deliverable                    |
+| `evaluation`    | `episodic`   | `evaluation-design`: AI-system evaluation dataset design, metrics, and tooling                 | None                                                                                                                                     | Evaluation dataset with curation, metric, and tooling documents |
+| `experiment`    | `episodic`   | `experiment-design`: experiment selection, hypotheses, vetting, scope, and evaluation          | `ml-experimentation`: ML reproducibility, tracking, evaluation, abstractions, and production readiness                                   | Hypothesis, experiment assets, and result disposition           |
+| `testing`       | `episodic`   | `dataops`: DataOps and DS/MLOps test techniques                                                 | `analysis-authoring` for dashboard validation technique                                                                                  | Test code and assertions                                        |
+| `observability` | `episodic`   | `dataops`: data/model signals and validation-versus-drift guidance                              | None                                                                                                                                     | Instrumentation code and signal recommendations                 |
 
-## Seven-skill boundaries
+The cross-cutting concerns below are evaluated in addition to the routes in this
+table. They are not listed per job, because they apply by trigger rather than by
+job name.
 
-The Data Science and Engineering Coach routes to seven Data Science skills. Keep their
+## Cross-cutting concerns
+
+Privacy, Responsible AI, and telemetry are evaluated across every job rather
+than being optional per-job routes. Evaluate each concern whenever its trigger
+is present, name the concern to the user, and route to its owning skill for the
+contribution that skill owns.
+
+| Concern         | Trigger to evaluate                                                                                                                          | Owning skill                                                | Contribution                                                                                                    |
+|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| Privacy         | Personal, sensitive, or regulated data is catalogued, moved, transformed, sampled, analyzed, presented, or persisted                           | `privacy-standards`                                         | Sensitivity classification, citation fields, DPIA thresholds, and data-flow reasoning                            |
+| Responsible AI  | An AI or ML system is designed, evaluated, or experimented on                                                                                  | `rai-standards`, then `rai-planner` when a risk surfaces    | Risk framing and standards mapping, plus a scoped assessment when a surfaced risk warrants one                   |
+| Telemetry       | Signals, metrics, traces, or logs are emitted, named, or instrumented, including drift and pipeline health signals                              | `telemetry-foundations`                                     | Metric names, instruments, units, cardinality limits, and PII-safe telemetry conventions                         |
+
+A cross-cutting concern always surfaces an observation and offers concrete
+choices. It never blocks a durable write, never edits an artifact silently, and
+never decides for the user. The durable-write scan gate remains the only
+condition that blocks a write.
+
+When a concern triggers, state which concern applies and why, name its owning
+skill, offer the contribution that skill can make, and let the user choose
+whether to take it. When the owning skill is unavailable in the installed
+collection, say so and continue without improvising its authority.
+
+## Skill authority boundaries
+
+The Data Science and Engineering Coach routes to the data science and
+engineering skills below, plus the cross-cutting skills above. Keep their
 authority separate even when one job loads more than one skill.
 
 | Exact skill name        | Capability description                                                                                          | Does not own                                                                                  |
@@ -39,6 +67,16 @@ authority separate even when one job loads more than one skill.
 | `evaluation-design`  | AI-system evaluation dataset design, difficulty balance, metric selection, and tooling fit                      | Trained-model evaluation, Responsible AI approval, or session and durable-write mechanics     |
 | `experiment-design`     | Experiment selection, hypotheses, vetting, minimum scope, and result evaluation                                 | ML infrastructure, production implementation, or pipeline mechanics                           |
 | `ml-experimentation`    | ML environments, reproducibility, tracking, abstractions, evaluation, and readiness                             | General hypothesis framing, pipeline replay, or Responsible AI approval                       |
+| `privacy-standards`     | Sensitivity classification, data-flow reasoning, standards mapping, and DPIA thresholds                        | Catalog semantics, pipeline mechanics, or durable-write authority                             |
+| `rai-standards`         | Responsible AI standards, risk framing, and standards mapping                                                  | Evaluation dataset design, model performance, or approval authority                           |
+| `rai-planner`           | Scoped Responsible AI assessment when a surfaced risk warrants one                                             | Data science method authority, session mechanics, or approval authority                       |
+| `telemetry-foundations` | Metric names, instruments, units, cardinality, and PII-safe telemetry conventions                              | Signal selection intent, pipeline behavior, or drift interpretation                           |
+
+The two Responsible AI authorities are sequential, not alternatives.
+`rai-standards` provides risk framing and standards alignment and is evaluated
+first whenever an AI or ML system is in scope. `rai-planner` provides a scoped
+assessment of one surfaced risk and is reached only after that risk is
+identified.
 
 The two evaluation authorities are adjacent and must not be blended.
 `evaluation-design` covers systems whose output is a response, such as
