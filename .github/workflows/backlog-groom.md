@@ -237,6 +237,9 @@ trusted tracker and remove it from the others.
    issue-number order from the prior cursor, wrapping at the end.
 5. Reserve enough time and AI-credit budget to render the final report. Record
    every selected but incomplete issue as deferred with a reason.
+  Set the next cursor to the last assessed issue number regardless of whether
+  it came from the priority or round-robin cohort. Retain the prior cursor when
+  no issue was assessed.
 6. For each hydrated issue, extract its requested outcomes and acceptance
   signals, then search default-branch code, configuration, and documentation;
   open, merged, and closed pull requests; and open and closed issues.

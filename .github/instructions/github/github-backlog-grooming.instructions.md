@@ -49,10 +49,11 @@ Select the run cohort in this order:
    report publication.
 
 Do not impose an age threshold or fixed semantic issue-count limit. Record the
-run's stop reason and the next issue-number cursor. Advance the cursor only
-after a successful run publishes its report state. Under finite backlog growth
-and continued successful runs, every continuously open issue must eventually
-enter an assessment cohort.
+run's stop reason and the next issue-number cursor. Set the cursor to the last
+assessed issue number regardless of cohort, or retain the previous cursor when
+no issue was assessed. Advance the cursor only after a successful run publishes
+its report state. Under finite backlog growth and continued successful runs,
+every continuously open issue must eventually enter an assessment cohort.
 
 ## Grooming Assessment
 

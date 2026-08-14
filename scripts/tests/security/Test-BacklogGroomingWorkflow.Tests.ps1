@@ -48,8 +48,8 @@ BeforeAll {
             }
         }
 
-        $nextCursor = if ($roundRobinNumbers.Count -gt 0) {
-            $roundRobinNumbers[-1]
+        $nextCursor = if ($selected.Count -gt 0) {
+            $selected[-1].Number
         }
         else {
             $PreviousCursor
@@ -425,6 +425,15 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
         $secondRun.Selected.Number | Should -Be @(104, 105, 1, 2)
         $secondRun.RoundRobin | Should -Be @(104, 105, 1, 2)
         $secondRun.NextCursor | Should -Be 2
+    }
+
+    It 'uses the last assessed priority issue as the cursor when capacity is exhausted' {
+        $run = Select-GroomingCohort -Issues $script:Inventory -PreviousCursor 100 -PreviousRun $script:Baseline -Capacity 1
+
+        $run.Selected.Number | Should -Be @(105)
+        $run.Priority | Should -Be @(105)
+        $run.RoundRobin | Should -Be @()
+        $run.NextCursor | Should -Be 105
     }
 
     It 'creates the fixed-title tracker when no non-pull-request match exists' {
