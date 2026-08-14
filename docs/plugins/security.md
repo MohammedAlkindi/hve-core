@@ -34,7 +34,6 @@ Lifecycle labels are disclosure metadata. In the channel model, Stable and PreRe
 | **skill-assessor**              | experimental | Assesses a single security skill against the codebase and returns structured findings                                                                                       |
 | **sssc-planner**                | experimental | Six-phase repository supply chain security assessment against OpenSSF Scorecard, SLSA, Sigstore, and SBOM standards, producing a prioritized backlog of reusable workflows. |
 | **sssc-reviewer**               | experimental | Evidence-based reviewer for repository supply-chain security posture with audit, diff, and plan review modes                                                                |
-| **supply-chain-reviewer**       | experimental | Supply-chain posture assessment orchestrator for codebase profiling and reporting                                                                                           |
 | **supply-chain-skill-assessor** | experimental | Assesses supply-chain posture against the supply-chain skill and returns structured findings                                                                                |
 
 ### Prompts

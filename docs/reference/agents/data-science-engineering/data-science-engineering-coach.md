@@ -1,28 +1,28 @@
 ---
-title: Data Workstream Coach
-description: "Coach a persistent data-science and data-engineering workstream through explicit jobs, durable state, routed skill authority, and safe customer-artifact writes."
+title: Data Science and Engineering Coach
+description: "Coach a persistent data science and data engineering workstream through explicit jobs, durable state, routed skill authority, and safe customer-artifact writes."
 sidebar_position: 1
-ms.date: 2026-08-05
+ms.date: 2026-08-14
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                                          |
-|-------------|----------------------------------------------------------------|
-| Kind        | agent                                                          |
-| Source      | `.github/agents/data-science/data-workstream-coach.agent.md`   |
-| Invocation  | Selected from the chat agent picker as `Data Workstream Coach` |
-| Interactive | Yes                                                            |
+| Field       | Value                                                                             |
+|-------------|-----------------------------------------------------------------------------------|
+| Kind        | agent                                                                             |
+| Source      | `.github/agents/data-science-engineering/data-science-engineering-coach.agent.md` |
+| Invocation  | Selected from the chat agent picker as `Data Science and Engineering Coach`       |
+| Interactive | Yes                                                                               |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-Coach a persistent data-science and data-engineering workstream through explicit jobs, durable state, routed skill authority, and safe customer-artifact writes.
+Coach a persistent data science and data engineering workstream through explicit jobs, durable state, routed skill authority, and safe customer-artifact writes.
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it
 
-Use Data Workstream Coach when a data scientist or data engineer needs one
+Use Data Science and Engineering Coach when a data scientist or data engineer needs one
 persistent engagement context across cataloging, feasibility, pipelines,
 analysis, experiments, tests, and observability. It is especially useful when
 work will pause, detour into another job, or resume in a later session without
@@ -34,7 +34,7 @@ durable customer-artifact safety gates.
 
 ## How to use it
 
-1. Select **Data Workstream Coach** from the agent picker.
+1. Select **Data Science and Engineering Coach** from the agent picker.
 2. Provide a kebab-case project slug. The coach creates or resumes the
    project-scoped session state.
 3. Choose a job from the offered registry. The coach never selects one

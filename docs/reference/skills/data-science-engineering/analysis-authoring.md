@@ -1,17 +1,17 @@
 ---
-title: ds-analysis-authoring
+title: analysis-authoring
 description: "Authoring conventions for exploratory data analysis notebooks and analytical dashboards, covering section sequence, visualization selection, scale thresholds, caching and state, and dashboard validation budgets. Use when composing or reviewing an EDA notebook, an analytical dashboard, or a dashboard test pass."
-sidebar_position: 2
-ms.date: 2026-08-05
+sidebar_position: 1
+ms.date: 2026-08-14
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                               |
-|-------------|-----------------------------------------------------|
-| Kind        | skill                                               |
-| Source      | `.github/skills/data-science/ds-analysis-authoring` |
-| Invocation  | Loaded on demand by referencing agents              |
-| Interactive | No                                                  |
+| Field       | Value                                                        |
+|-------------|--------------------------------------------------------------|
+| Kind        | skill                                                        |
+| Source      | `.github/skills/data-science-engineering/analysis-authoring` |
+| Invocation  | Loaded on demand by referencing agents                       |
+| Interactive | No                                                           |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does
@@ -24,9 +24,9 @@ Authoring conventions for exploratory data analysis notebooks and analytical das
 
 Use this skill when composing or reviewing an exploratory data analysis notebook, an analytical dashboard, or a dashboard validation pass. It supplies the editorial judgment that generic tooling does not carry: which sections belong and in what order, which figure answers which question, how to handle dense or high-cardinality data, and what responsiveness budgets to hold a dashboard to.
 
-Reach for a different asset when the question is about column meaning or entity relationships, which `ds-catalog` owns; about persistence format or dataset versioning, which `ds-dataops` owns; about accessibility conformance criteria, which the `accessibility` skill owns; or about evaluating an AI system, which `ds-evaluation-design` owns.
+Reach for a different asset when the question is about column meaning or entity relationships, which `data-catalog` owns; about persistence format or dataset versioning, which `dataops` owns; about accessibility conformance criteria, which the `accessibility` skill owns; or about evaluating an AI system, which `evaluation-design` owns.
 
-The Data Workstream Coach loads this skill automatically when the user confirms the analysis job.
+The Data Science and Engineering Coach loads this skill automatically when the user confirms the analysis job.
 
 ## Example usage
 

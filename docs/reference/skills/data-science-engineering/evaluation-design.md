@@ -1,17 +1,17 @@
 ---
-title: ds-evaluation-design
+title: evaluation-design
 description: "Design evaluation datasets and supporting documentation for AI systems and agents, covering the scoping interview, difficulty distribution, dataset contract, sample review, and metric and tooling selection. Use when building or reviewing an evaluation set for a conversational agent, assistant, or retrieval-grounded AI system."
 sidebar_position: 5
-ms.date: 2026-08-08
+ms.date: 2026-08-14
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                              |
-|-------------|----------------------------------------------------|
-| Kind        | skill                                              |
-| Source      | `.github/skills/data-science/ds-evaluation-design` |
-| Invocation  | Loaded on demand by referencing agents             |
-| Interactive | No                                                 |
+| Field       | Value                                                       |
+|-------------|-------------------------------------------------------------|
+| Kind        | skill                                                       |
+| Source      | `.github/skills/data-science-engineering/evaluation-design` |
+| Invocation  | Loaded on demand by referencing agents                      |
+| Interactive | No                                                          |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does
@@ -26,7 +26,7 @@ Use this skill when building or reviewing an evaluation dataset for a system who
 
 Reach for `ml-experimentation` instead when the subject is a trained model's predictive performance, which is a different measurement problem. Route to `rai-planner` when the interview surfaces a risk that needs assessment rather than a test case.
 
-The Data Workstream Coach loads this skill automatically when the user confirms the evaluation job, which also places any durable write behind the workstream's sensitive-content scan gate.
+The Data Science and Engineering Coach loads this skill automatically when the user confirms the evaluation job, which also places any durable write behind the workstream's sensitive-content scan gate.
 
 ## Example usage
 

@@ -2,16 +2,16 @@
 title: Synth Data Generate
 description: Generate synthetic data for any subject with realistic patterns and relationships
 sidebar_position: 1
-ms.date: 2026-07-03
+ms.date: 2026-08-14
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
-| Field       | Value                                                        |
-|-------------|--------------------------------------------------------------|
-| Kind        | prompt                                                       |
-| Source      | `.github/prompts/data-science/synth-data-generate.prompt.md` |
-| Invocation  | Slash command `/synth-data-generate`                         |
-| Interactive | Yes                                                          |
+| Field       | Value                                                                    |
+|-------------|--------------------------------------------------------------------------|
+| Kind        | prompt                                                                   |
+| Source      | `.github/prompts/data-science-engineering/synth-data-generate.prompt.md` |
+| Invocation  | Slash command `/synth-data-generate`                                     |
+| Interactive | Yes                                                                      |
 <!-- END AUTO-GENERATED: metadata -->
 
 ## What it does
