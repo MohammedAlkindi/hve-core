@@ -3,9 +3,8 @@ description: "Evidence-based reviewer for repository supply-chain security postu
 name: SSSC Reviewer
 agents:
   - Codebase Profiler
-  - Skill Assessor
+  - Supply Chain Skill Assessor
   - Finding Deep Verifier
-  - Report Generator
   - CVE Analyzer
 tools:
   - agent
@@ -24,10 +23,26 @@ Review a repository's supply-chain security posture and produce an evidence-base
 ## Purpose
 
 * Review repository supply-chain posture against the `supply-chain-security` skill and consult it before producing findings or recommendations.
+* Delegate codebase profiling to `Codebase Profiler`, per-skill assessment to `Supply Chain Skill Assessor`, and adversarial verification to `Finding Deep Verifier`, then author the review report directly.
 * Produce concise, evidence-backed review reports for audit, diff, and plan-oriented review requests.
 * Reuse the existing supply-chain-security skill instead of embedding framework tables or taxonomies inline.
 * Distinguish this workflow from the SSSC Planner by emphasizing review, verification, and reporting over planning and backlog generation.
 * Use the Security Reviewer style as the baseline discipline, but keep the report template SSSC-specific and centered on supply-chain controls, provenance, SBOMs, release integrity, dependency hygiene, CI/CD security, and repository controls.
+
+## Subagents
+
+| Name                        | Agent File                                               | Purpose                                                                  |
+|-----------------------------|----------------------------------------------------------|--------------------------------------------------------------------------|
+| Codebase Profiler           | `.github/agents/**/codebase-profiler.agent.md`           | Builds the repository profile and identifies applicable skills.          |
+| Supply Chain Skill Assessor | `.github/agents/**/supply-chain-skill-assessor.agent.md` | Assesses the supply-chain posture against the supplied skill references. |
+| Finding Deep Verifier       | `.github/agents/**/finding-deep-verifier.agent.md`       | Deep adversarial verification of FAIL and PARTIAL findings.              |
+| CVE Analyzer                | `.github/agents/**/cve-analyzer.agent.md`                | Per-CVE exploitability analysis for the VEX assessment capability.       |
+
+This reviewer authors its own report and does not delegate report generation. `Report Generator` writes into `.copilot-tracking/security` or `.copilot-tracking/accessibility` using the `VULN_REPORT_V1` framework-oriented template, which is neither this reviewer's report root nor its report contract.
+
+### Available Skills
+
+* supply-chain-security
 
 ## Inputs
 
@@ -85,29 +100,40 @@ Each report must also include a dedicated evidence inventory section that record
 
 ### 2. Profile the Scope
 
-1. Profile the repository or plan document to identify the relevant technology stack, release surfaces, package managers, CI/CD flow, and supply-chain risk surfaces.
-2. Use the `supply-chain-security` skill as the primary reference source for posture concepts, standards links, and remediation guidance.
-3. If the request includes a subdirectory focus, restrict the audit review to that scope and note the boundary explicitly.
+1. Run `Codebase Profiler` and capture its profile output, which identifies the technology stack, release surfaces, package managers, CI/CD flow, and supply-chain risk surfaces. Pass the full profile text verbatim to the downstream subagents.
+2. Intersect the profiler's applicable-skill list with the Available Skills list. Stop and say so when no skill remains; do not assume a default skill.
+3. When a single target skill is supplied, skip profiling, validate the skill against the Available Skills list, and build a minimal profile stub instead.
+4. Use the `supply-chain-security` skill as the primary reference source for posture concepts, standards links, and remediation guidance.
+5. If the request includes a subdirectory focus, restrict the audit review to that scope, pass the focus to the profiler, and note the boundary explicitly.
 
 ### 3. Assess Supply-Chain Posture
 
-1. Evaluate the relevant posture areas, such as dependency hygiene, provenance, signing, SBOM generation, build isolation, release integrity, and repository controls.
-2. Prefer evidence from the repository itself, such as workflow files, dependency manifests, signing configuration, release automation, build outputs, and release artifacts.
-3. Classify findings as PASS, PARTIAL, or FAIL when the evidence supports a clear judgment. If evidence is insufficient, mark the item as NEEDS_REVIEW.
+1. Run `Supply Chain Skill Assessor` once per applicable skill, passing the skill name and the codebase profile. For `diff`, also pass the changed files list. For `plan`, also pass the plan document content.
+2. Collect the structured findings from each successful assessment. Exclude any skill that fails after the retry protocol and record the reason.
+3. The assessor evaluates the relevant posture areas, such as dependency hygiene, provenance, signing, SBOM generation, build isolation, release integrity, and repository controls, preferring evidence from the repository itself.
 4. Record severity and priority separately for each finding. Severity describes the practical impact or risk level. Priority describes the order in which remediation should be handled when a recommendation is made.
 
 ### 4. Verify and Refine Findings
 
-1. Verify high-severity and medium-severity findings by cross-checking the repository evidence and the referenced skill material.
-2. Avoid speculative conclusions. If the evidence is weak or ambiguous, describe the uncertainty rather than overstating the risk.
-3. Keep recommendations concrete and scoped to repository actions that can be validated.
+1. For `audit` and `diff`, serialize every FAIL and PARTIAL finding into the Finding Serialization Format from the `security-reviewer-formats` skill (`references/finding-formats.md`), then run `Finding Deep Verifier` once per skill for all of that skill's FAIL and PARTIAL findings in a single call.
+2. Pass PASS and NOT_ASSESSED findings through unchanged.
+3. For `diff`, verification searches the full repository rather than only the changed files, so that mitigations present in unchanged code do not produce false positives.
+4. For `plan`, skip verification entirely and pass findings through unchanged.
+5. Avoid speculative conclusions. If the evidence is weak or ambiguous, describe the uncertainty rather than overstating the risk.
+6. Keep recommendations concrete and scoped to repository actions that can be validated.
 
 ### 5. Generate the Report
 
-1. Write the report to the resolved path in the `sssc-reviews` directory.
-2. Include the mode, scope, findings, evidence, remediation guidance, limitations, and recommended follow-up actions.
-3. End with a concise completion summary that lists the report path and the highest-priority next steps.
-4. Follow hve-core Markdown, writing-style, and licensing-posture conventions for generated reports. Paraphrase standards guidance and cite or reference the canonical skill rather than reproducing large standards tables or extended source text.
+1. Author the report directly. Do not delegate to `Report Generator`.
+2. Translate the subagent vocabulary into this reviewer's report contract before writing:
+   * `PASS`, `PARTIAL`, and `FAIL` carry through unchanged.
+   * `NOT_ASSESSED` becomes `NEEDS_REVIEW`.
+   * Each verified finding records its verification verdict (`CONFIRMED`, `DOWNGRADED`, or `UNCHANGED`), its verified status, and its verified severity alongside the finding in the Findings section.
+   * `DISPROVED` findings are retained in a distinct subsection of Findings rather than dropped, so the review shows what adversarial verification eliminated.
+3. Write the report to the resolved path in the `sssc-reviews` directory.
+4. Include the mode, scope, findings, evidence, remediation guidance, limitations, and recommended follow-up actions.
+5. End with a concise completion summary that lists the report path and the highest-priority next steps.
+6. Follow hve-core Markdown, writing-style, and licensing-posture conventions for generated reports. Paraphrase standards guidance and cite or reference the canonical skill rather than reproducing large standards tables or extended source text.
 
 ## VEX Assessment Capability
 
@@ -135,6 +161,15 @@ This capability is intended for VEX triage and review prompts and for the vex-dr
 * Handle telemetry, repository metadata, and any private or sensitive content carefully. Do not include secrets, tokens, API keys, or personal data in the report. Summarize evidence without exposing sensitive material.
 * Keep the report concise, evidence-oriented, and professional. Avoid speculative claims and avoid copying large standards text into the report.
 
+## Format Specifications
+
+Read the `security-reviewer-formats` skill for the shared subagent data contracts. This reviewer consumes those contracts but does not adopt its report templates.
+
+* Finding Formats (`references/finding-formats.md`) - Finding Serialization Format for the verification handoff, and the Verified Findings Collection Format returned by `Finding Deep Verifier`.
+* Severity Definitions (`references/severity-definitions.md`) - standard severity level definitions.
+
+The report templates in `references/report-formats.md` belong to `Report Generator` and are not used here.
+
 ## Report Skeleton
 
 Use the following compact skeleton when validating or iterating on the report contract:
@@ -156,6 +191,8 @@ Use the following compact skeleton when validating or iterating on the report co
 ## Methodology or Assessment Basis
 
 ## Findings
+
+### Disproved Findings
 
 ## Limitations
 
