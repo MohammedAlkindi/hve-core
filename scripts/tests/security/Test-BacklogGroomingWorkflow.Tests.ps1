@@ -319,6 +319,9 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
             $script:Source | Should -Match ([regex]::Escape("``$field``"))
         }
         $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-proof-manifest/v1"'
+        $script:Orchestrator | Should -Match 'selectionMode = "production-inventory"'
+        $script:Orchestrator | Should -Match 'cursorCandidateIds = selectedIssues\.map'
+        $script:Orchestrator | Should -Match 'plannedShards = populatedShards\.length > 0 \? populatedShards : \[shards\[0\]\]'
         $script:Orchestrator | Should -Match 'createHash\("sha256"\)'
         $script:Orchestrator | Should -Match 'backlog-grooming-proof-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-manifest'
         $script:Orchestrator | Should -Match 'plannedAiCredits = shardCount \* perWorkerAiCredits'
@@ -332,7 +335,7 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         $script:Orchestrator | Should -Not -Match '(?ms)^  assess:.*?shard_id: shard-01'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?permissions:\s+actions: write\s+contents: read\s+issues: read'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?secrets: inherit'
-        $script:Orchestrator | Should -Not -Match '(?m)^\s+issues: write$'
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 1
         $script:Orchestrator | Should -Match 'terminal_rule: "exactly-one-current-run-result-per-planned-shard"'
         foreach ($rejection in @('missing', 'malformed', 'stale', 'unexpected', 'duplicate', 'conflicting', 'manifest-mismatched')) {
             $script:Orchestrator | Should -Match ([regex]::Escape("`"$rejection`""))
@@ -355,7 +358,9 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         $script:Orchestrator | Should -Match 'result digest mismatch'
         $script:Orchestrator | Should -Match 'expected exactly one result, found \$\{shardResults\.length\}'
         $script:Orchestrator | Should -Match 'Proof result validation failed'
-        $script:Orchestrator | Should -Not -Match '(?m)^\s+issues: write$'
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 1
+        $script:Orchestrator | Should -Match '(?ms)^  publish:\s+.*?needs: validate-results'
+        $script:Orchestrator | Should -Match "needs\.validate-results\.result == 'success' && inputs\.publish-report"
     }
 }
 
@@ -427,8 +432,55 @@ Describe 'Backlog grooming deterministic fan-in behavior' -Tag 'Unit' {
         $script:Orchestrator | Should -Match 'parseInteger\("max-parallel", process\.env\.MAX_PARALLEL, 1, 2\)'
         $script:Orchestrator | Should -Match '"aggregate-ai-credit-cap",\s+process\.env\.AGGREGATE_AI_CREDIT_CAP,\s+1000,\s+2000'
         $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-aggregate/v1"'
-        $script:Orchestrator | Should -Match 'next_cursor: assessedRows\.length > 0\s+\? assessedRows\.at\(-1\)\.issue\s+: manifest\.prior_cursor'
+        $script:Orchestrator | Should -Match 'next_cursor: assessedCursorRows\.length > 0\s+\? assessedCursorRows\.at\(-1\)\.issue\s+: manifest\.prior_cursor'
         $script:Orchestrator | Should -Match 'Upload deterministic proof aggregate'
+    }
+}
+
+Describe 'Backlog grooming production publisher' -Tag 'Unit' {
+    It 'isolates the sole issue-write permission behind complete fan-in' {
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 1
+        $script:Orchestrator | Should -Match '(?ms)^  publish:\s+.*?needs: validate-results\s+if:.*?needs\.validate-results\.result == ''success'''
+        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?permissions:\s+actions: write\s+contents: read\s+issues: read'
+        $script:Source | Should -Not -Match '(?m)^\s+issues: write$'
+        $script:Lock | Should -Not -Match '(?m)^\s+issues: write$'
+    }
+
+    It 'keeps publication and scheduling disabled by default' {
+        $script:Orchestrator | Should -Match '(?ms)^      publish-report:\s+.*?type: boolean\s+default: false'
+        $script:Orchestrator | Should -Not -Match '(?m)^  schedule:$'
+        $script:Source | Should -Match '(?m)^  workflow_call:$'
+        $script:Source | Should -Not -Match '(?m)^  (schedule|workflow_dispatch):$'
+    }
+
+    It 'revalidates aggregate identity, digest, counts, and cursor before writing' {
+        $script:Orchestrator | Should -Match 'Aggregate does not match the trusted publication schema'
+        $script:Orchestrator | Should -Match 'Aggregate digest mismatch'
+        $script:Orchestrator | Should -Match 'Aggregate run counts, timestamp, or stop reason are invalid'
+        $script:Orchestrator | Should -Match 'Aggregate issue data does not match the canonical row schema'
+        $script:Orchestrator | Should -Match 'Aggregate row statuses or cursor do not match the run summary'
+        $script:Orchestrator | Should -Match 'expectedCursor = assessedCursorRows\.length > 0'
+        $script:Orchestrator | Should -Match 'Aggregate cursor order does not match the issue inventory'
+    }
+
+    It 're-resolves only the trusted bot-owned marker tracker before one create or update' {
+        $script:Orchestrator | Should -Match 'const marker = "<!-- gh-aw:backlog-grooming-tracker -->"'
+        $script:Orchestrator | Should -Match 'github\.rest\.issues\.listForRepo'
+        $script:Orchestrator | Should -Match 'issue\.user\?\.login === "github-actions\[bot\]"'
+        $script:Orchestrator | Should -Match 'issue\.user\?\.type === "Bot"'
+        $script:Orchestrator | Should -Match 'Expected at most one trusted marker-bearing tracker'
+        [regex]::Matches($script:Orchestrator, 'github\.rest\.issues\.create\(').Count | Should -Be 1
+        [regex]::Matches($script:Orchestrator, 'github\.rest\.issues\.update\(').Count | Should -Be 1
+        $script:Orchestrator | Should -Match 'title: "Backlog grooming tracker"'
+    }
+
+    It 'has no candidate mutation or comment path and writes summary after persistence' {
+        $script:Orchestrator | Should -Not -Match 'github\.rest\.issues\.(createComment|addLabels|removeLabel|lock|unlock)'
+        $script:Orchestrator | Should -Not -Match 'issue_number: row\.issue'
+        $updateIndex = $script:Orchestrator.IndexOf('await github.rest.issues.update({')
+        $summaryIndex = $script:Orchestrator.IndexOf('await core.summary.addRaw(report).write();')
+        $updateIndex | Should -BeGreaterThan -1
+        $summaryIndex | Should -BeGreaterThan $updateIndex
     }
 }
 
