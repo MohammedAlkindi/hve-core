@@ -125,6 +125,7 @@ BeforeAll {
 
     $script:Source = Read-RepoFile '.github/workflows/backlog-groom.md'
     $script:Lock = Read-RepoFile '.github/workflows/backlog-groom.lock.yml'
+    $script:Orchestrator = Read-RepoFile '.github/workflows/backlog-groom-orchestrator.yml'
     $script:Policy = Read-RepoFile '.github/instructions/github/github-backlog-grooming.instructions.md'
     $script:Agent = Read-RepoFile '.github/agents/github/backlog-grooming.agent.md'
     $script:Manager = Read-RepoFile '.github/agents/github/github-backlog-manager.agent.md'
@@ -132,10 +133,11 @@ BeforeAll {
 }
 
 Describe 'Backlog grooming workflow source' -Tag 'Unit' {
-    It 'declares weekly and manual triggers with the dedicated agent import' {
-        $script:Source | Should -Match '(?m)^  schedule:$'
-        $script:Source | Should -Match '(?m)^    - cron: "23 9 \* \* 3"$'
-        $script:Source | Should -Match '(?m)^  workflow_dispatch:$'
+    It 'declares only a reusable worker trigger with the dedicated agent import' {
+        $script:Source | Should -Match '(?m)^  workflow_call:$'
+        $script:Source | Should -Not -Match '(?m)^  schedule:$'
+        $script:Source | Should -Not -Match '(?m)^  workflow_dispatch:$'
+        $script:Orchestrator | Should -Match '(?m)^  workflow_dispatch:$'
         $script:Source | Should -Match '(?m)^  - \.\./agents/github/backlog-grooming\.agent\.md$'
         $script:Source | Should -Match '(?m)^  - \.\./instructions/github/github-backlog-grooming\.instructions\.md$'
     }
@@ -143,8 +145,9 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
     It 'keeps model permissions read-only and safe outputs bounded' {
         $script:Source | Should -Match '(?ms)^permissions:\s+contents: read\s+issues: read$'
         $script:Source | Should -Match '(?ms)^  noop:\s+max: 1\s+report-as-issue: false'
-        $script:Source | Should -Match '(?m)^    publish-backlog-grooming-report:$'
-        $script:Source | Should -Match '(?ms)^      permissions:\s+issues: write$'
+        $script:Source | Should -Match '(?m)^    publish-backlog-grooming-result:$'
+        $script:Source | Should -Match '(?ms)^    publish-backlog-grooming-result:.*?permissions: \{\}'
+        $script:Source | Should -Not -Match '(?m)^\s+issues: write$'
         $script:Source | Should -Not -Match '(?m)^\s+target: "\*"$'
         $script:Source | Should -Match '(?m)^  report-failure-as-issue: false$'
         $script:Source | Should -Match '(?m)^  report-incomplete: false$'
@@ -158,32 +161,27 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
         $script:Source | Should -Not -Match '(?i)upload.*sarif'
     }
 
-    It 'accepts absent or sole tracker state and fails closed for ambiguity' {
-        $script:Source | Should -Match '<!-- gh-aw:backlog-grooming-tracker -->'
-        $script:Source | Should -Match 'When no trusted matching issue exists'
-        $script:Source | Should -Match 'When exactly one trusted matching issue exists'
-        $script:Source | Should -Match 'When multiple trusted matching issues'
-        $script:Source | Should -Match 'issue\.user\?\.login === "github-actions\[bot\]"'
-        $script:Source | Should -Match 'issue\.user\?\.type === "Bot"'
-        $script:Source | Should -Match 'they remain ordinary candidate issues'
-        $script:Source | Should -Match 'state: "all"'
+    It 'binds assessment to the planned open non-pull-request candidate set' {
+        $script:Source | Should -Match 'retrieve only the listed open issues'
+        $script:Source | Should -Match 'missing, closed, or a pull request'
+        $script:Source | Should -Match 'Report issue IDs do not match the planned shard candidates'
+        $script:Source | Should -Match 'Worker candidate IDs must be unique positive integers in ascending order'
+        $script:Source | Should -Match 'The orchestrator, not the worker,\s+owns inventory selection'
+        $script:Source | Should -Not -Match '<!-- gh-aw:backlog-grooming-tracker -->'
     }
 
-    It 'persists every successful assessment through an independently resolved tracker lifecycle' {
-        $script:Source | Should -Match 'After every successful assessment, call `publish-backlog-grooming-report` once'
-        $script:Source | Should -Match 'This includes runs\s+where no assessed issue'
-        $script:Source | Should -Match 'issue\.body\?\.includes\(marker\)'
-        $script:Source | Should -Match 'trackers\.length > 1'
-        $script:Source | Should -Match 'github\.rest\.issues\.create\('
-        $script:Source | Should -Match '"title": "Backlog grooming tracker"'
-        $script:Source | Should -Match 'github\.rest\.issues\.update\('
-        $script:Source | Should -Match 'issue_number: trackers\[0\]\.number'
-        $script:Source | Should -Match 'state: "open"'
-        $script:Source | Should -Not -Match 'issues\.createComment'
-        $script:Source | Should -Match 'safe-output job independently revalidates tracker state'
+    It 'emits one independently validated immutable shard result' {
+        $script:Source | Should -Match 'call `publish-backlog-grooming-result` exactly once'
+        $script:Source | Should -Match 'const requests = agentOutput\.items\.filter'
+        $script:Source | Should -Match 'item\.type === "publish_backlog_grooming_result"'
+        $script:Source | Should -Match 'Expected one report publication request, found \$\{requests\.length\}'
+        $script:Source | Should -Match 'fs\.writeFileSync\('
+        $script:Source | Should -Match '(?m)^        - name: Upload immutable shard result$'
+        $script:Source | Should -Match 'backlog-grooming-proof-\$\{\{ inputs\.orchestrator_run_id \}\}-\$\{\{ inputs\.orchestrator_attempt \}\}-\$\{\{ inputs\.shard_id \}\}'
+        $script:Source | Should -Not -Match 'github\.rest\.issues\.(create|update|createComment)'
     }
 
-    It 'validates structured report data and renders escaped Markdown before persistence' {
+    It 'validates structured report data and computes deterministic result provenance' {
         $script:Source | Should -Match 'JSON\.parse\(String\(requests\[0\]\["report-data"\]'
         $script:Source | Should -Match 'exactKeys\(payload, \["run", "issues"\]\)'
         $script:Source | Should -Match 'const similarities = new Set\(\["Match", "Similar", "Distinct", "Uncertain"\]\)'
@@ -191,15 +189,13 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
         $script:Source | Should -Match 'row\.acceptance_signals'
         $script:Source | Should -Match 'const lineageKeys = \["original_delivery", "replacement_or_removal"\]'
         $script:Source | Should -Match 'Superseded requires distinct original-delivery and replacement-or-removal evidence'
-        $script:Source | Should -Match 'Original delivery: \$\{item\}'
-        $script:Source | Should -Match 'Replacement or removal: \$\{item\}'
-        $script:Source | Should -Match 'evidence\.map\(escapeCell\)'
         $script:Source | Should -Match 'assessedRows !== run\.assessed \|\| deferredRows !== run\.deferred'
         $script:Source | Should -Match 'Report row statuses do not match the run counts'
-        $script:Source | Should -Match '\.replace\(/\\\|/g, "\\\\\|"\)'
-        $script:Source | Should -Match 'const body = `\$\{marker\}\\n\\n\$\{report\}`;'
-        $script:Source | Should -Match 'await core\.summary\.addRaw\(report\)\.write\(\);'
-        $script:Source | Should -Match '(?s)issues\.create\(.*issues\.update\(.*core\.summary\.addRaw\(report\)'
+        $script:Source | Should -Match 'const canonicalize = \(value\) =>'
+        $script:Source | Should -Match '\.createHash\("sha256"\)'
+        $script:Source | Should -Match '\.update\(canonicalize\(result\)\)'
+        $script:Source | Should -Match 'result_digest: resultDigest'
+        $script:Source | Should -Match 'Shard timestamps must be valid and completion cannot precede start'
     }
 
     It 'reads the hyphenated report-data field from the safe-output envelope' {
@@ -223,33 +219,71 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
 }
 
 Describe 'Compiled backlog grooming workflow' -Tag 'Unit' {
-    It 'is compiler-owned and preserves triggers and read-only model access' {
+    It 'is compiler-owned and preserves the reusable trigger and read-only model access' {
         $script:Lock | Should -Match '^# gh-aw-metadata:'
-        $script:Lock | Should -Match '(?m)^  schedule:$'
-        $script:Lock | Should -Match '(?m)^  workflow_dispatch:$'
+        $script:Lock | Should -Match '(?m)^  workflow_call:$'
+        $script:Lock | Should -Not -Match '(?m)^  schedule:$'
+        $script:Lock | Should -Not -Match '(?m)^  workflow_dispatch:$'
         $script:Lock | Should -Match '(?m)^      issues: read$'
         $script:Lock | Should -Match 'runtime-import \.github/instructions/github/github-backlog-grooming\.instructions\.md'
     }
 
-    It 'allows only the tracker-bound publisher and noop from agent output' {
-        $script:Lock | Should -Match 'publish_backlog_grooming_report'
+    It 'allows only the artifact-bound result job and noop from agent output' {
+        $script:Lock | Should -Match 'publish_backlog_grooming_result'
         $script:Lock | Should -Match '"noop":\{"max":1,"report-as-issue":"false"\}'
-        $script:Lock | Should -Match 'issue\.user\?\.login === "github-actions\[bot\]"'
-        $script:Lock | Should -Match 'issue\.user\?\.type === "Bot"'
+        $script:Lock | Should -Match 'Upload immutable shard result'
+        $script:Lock | Should -Match 'producer: "backlog-groom/result-job"'
         $script:Lock | Should -Not -Match '"add_comment"'
         $script:Lock | Should -Not -Match '"(create_issue|update_issue|close_issue|add_labels|remove_labels)"'
         $script:Lock | Should -Not -Match 'GH_AW_\w*CREATE_ISSUE'
         $script:Lock | Should -Not -Match 'issues\.createComment'
     }
 
-    It 'publishes the validated report to the step summary without SARIF permissions' {
-        $script:Lock | Should -Match 'Append agent step summary'
+    It 'uploads the validated result without issue-write or SARIF permissions' {
         $script:Lock | Should -Match 'JSON\.parse\(String\(requests\[0\]\["report-data"\]'
         $script:Lock | Should -Match 'Possible duplicate requires a Match or Similar outcome'
         $script:Lock | Should -Match 'Superseded requires distinct original-delivery and replacement-or-removal evidence'
-        $script:Lock | Should -Match 'await core\.summary\.addRaw\(report\)\.write\(\);'
+        $script:Lock | Should -Match 'result-output/shard-result\.json'
+        $script:Lock | Should -Match 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'
+        $script:Lock | Should -Not -Match '(?m)^\s*issues: write$'
         $script:Lock | Should -Not -Match '(?m)^\s*security-events: write$'
         $script:Lock | Should -Not -Match 'create_code_scanning_alert'
+    }
+}
+
+Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
+    It 'defines typed worker identity, manifest envelopes, and shard-specific generated concurrency' {
+        foreach ($inputName in @('shard_id', 'manifest_digest', 'ordered_candidate_ids', 'orchestrator_run_id')) {
+            $script:Source | Should -Match "(?ms)^      ${inputName}:\s+.*?required: true\s+type: string"
+            $script:Lock | Should -Match "(?ms)^      ${inputName}:\s+.*?required: true\s+type: string"
+        }
+        foreach ($inputName in @('orchestrator_attempt', 'worker_timeout_minutes')) {
+            $script:Source | Should -Match "(?ms)^      ${inputName}:\s+.*?type: number"
+            $script:Lock | Should -Match "(?ms)^      ${inputName}:\s+.*?type: number"
+        }
+
+        $script:Source | Should -Match '(?m)^max-ai-credits: 1000$'
+        $script:Source | Should -Match '(?m)^  job-discriminator: \$\{\{ inputs\.shard_id \|\| github\.run_id \}\}$'
+        $script:Lock | Should -Match 'gh-aw-copilot-backlog-groom-\$\{\{ inputs\.shard_id \|\| github\.run_id \}\}'
+        $script:Lock | Should -Match 'gh-aw-conclusion-backlog-groom-\$\{\{ inputs\.shard_id \|\| github\.run_id \}\}'
+
+        foreach ($field in @(
+                'schema_version', 'run_id', 'attempt', 'shard_id', 'manifest_digest',
+                'ordered_candidate_ids', 'result_digest', 'producer', 'started_at', 'completed_at'
+            )) {
+            $script:Source | Should -Match ([regex]::Escape("``$field``"))
+        }
+        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-proof-manifest/v1"'
+        $script:Orchestrator | Should -Match 'createHash\("sha256"\)'
+        $script:Orchestrator | Should -Match 'backlog-grooming-proof-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-manifest'
+        $script:Orchestrator | Should -Match 'plannedAiCredits = shardCount \* perWorkerAiCredits'
+        $script:Orchestrator | Should -Match 'planned AI Credits \$\{plannedAiCredits\} exceed cap'
+        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?permissions:\s+actions: write\s+contents: read\s+issues: read'
+        $script:Orchestrator | Should -Not -Match '(?m)^\s+issues: write$'
+        $script:Orchestrator | Should -Match 'terminal_rule: "exactly-one-current-run-result-per-planned-shard"'
+        foreach ($rejection in @('missing', 'malformed', 'stale', 'unexpected', 'duplicate', 'conflicting', 'manifest-mismatched')) {
+            $script:Orchestrator | Should -Match ([regex]::Escape("`"$rejection`""))
+        }
     }
 }
 

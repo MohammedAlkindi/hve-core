@@ -39,6 +39,9 @@ paths:
       # gh aw compile emits `concurrency.queue`, a gh-aw extension that is not
       # part of the official GitHub Actions concurrency schema actionlint checks.
       - "unexpected key \"queue\" for \"concurrency\" section"
+      # gh-aw reusable workflows use runner-provided job activation metadata
+      # that is newer than actionlint's job context model.
+      - 'property "workflow_(repository|sha|ref|file_path)" is not defined in object type'
       - "shellcheck reported issue in this script: SC2015:.+"
       - "shellcheck reported issue in this script: SC2016:.+"
       - "shellcheck reported issue in this script: SC2086:.+"
