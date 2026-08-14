@@ -148,6 +148,7 @@
         "instructions/coding-standards/uv-projects.instructions.md",
         "instructions/rai-planning/rai-identity.instructions.md",
         "instructions/rai-planning/rai-license-posture.instructions.md",
+        "instructions/security/tm7-generation-workflow.instructions.md",
         "instructions/shared/disclaimer-language.instructions.md",
         "instructions/shared/hve-core-location.instructions.md",
         "instructions/shared/untrusted-content-boundary.instructions.md"
@@ -193,7 +194,8 @@
           "skills/project-planning/experiment-design": "experimental",
           "skills/project-planning/privacy-standards": "experimental",
           "skills/project-planning/rai-planner": "experimental",
-          "skills/rai/rai-standards": "experimental"
+          "skills/rai/rai-standards": "experimental",
+          "instructions/security/tm7-generation-workflow.instructions.md": "experimental"
         },
         "displayName": "HVE Core - Data Science and Engineering",
         "documentation": "docs/plugins/data-science-engineering.md"
@@ -696,6 +698,7 @@
         "instructions/security/identity.instructions.md",
         "instructions/security/sssc-planner.instructions.md",
         "instructions/security/standards-mapping.instructions.md",
+        "instructions/security/tm7-generation-workflow.instructions.md",
         "instructions/security/vex-generation.instructions.md",
         "instructions/security/vex-standards.instructions.md",
         "instructions/shared/coaching-patterns.instructions.md",
@@ -933,7 +936,8 @@
           "skills/security/security-reviewer-formats": "experimental",
           "skills/security/supply-chain-security": "experimental",
           "skills/security/vex": "experimental",
-          "skills/shared/backlog-templates": "experimental"
+          "skills/shared/backlog-templates": "experimental",
+          "instructions/security/tm7-generation-workflow.instructions.md": "experimental"
         },
         "displayName": "HVE Core - All",
         "documentation": "docs/plugins/hve-core-all.md",
@@ -1098,6 +1102,7 @@
         "instructions/security/identity.instructions.md",
         "instructions/security/sssc-planner.instructions.md",
         "instructions/security/standards-mapping.instructions.md",
+        "instructions/security/tm7-generation-workflow.instructions.md",
         "instructions/shared/coaching-patterns.instructions.md",
         "instructions/shared/disclaimer-language.instructions.md",
         "instructions/shared/hve-core-location.instructions.md",
@@ -1198,7 +1203,8 @@
           "skills/rai/rai-standards": "experimental",
           "skills/security/security-reviewer-formats": "experimental",
           "skills/security/supply-chain-security": "experimental",
-          "skills/shared/backlog-templates": "experimental"
+          "skills/shared/backlog-templates": "experimental",
+          "instructions/security/tm7-generation-workflow.instructions.md": "experimental"
         },
         "displayName": "HVE Core - Project Planning",
         "documentation": "docs/plugins/project-planning.md"
@@ -1320,6 +1326,7 @@
         "instructions/security/identity.instructions.md",
         "instructions/security/sssc-planner.instructions.md",
         "instructions/security/standards-mapping.instructions.md",
+        "instructions/security/tm7-generation-workflow.instructions.md",
         "instructions/security/vex-generation.instructions.md",
         "instructions/security/vex-standards.instructions.md",
         "instructions/shared/coaching-patterns.instructions.md",
@@ -1407,7 +1414,8 @@
           "skills/security/security-reviewer-formats": "experimental",
           "skills/security/supply-chain-security": "experimental",
           "skills/security/vex": "experimental",
-          "skills/shared/backlog-templates": "experimental"
+          "skills/shared/backlog-templates": "experimental",
+          "instructions/security/tm7-generation-workflow.instructions.md": "experimental"
         },
         "displayName": "HVE Core - Security",
         "documentation": "docs/plugins/security.md"
