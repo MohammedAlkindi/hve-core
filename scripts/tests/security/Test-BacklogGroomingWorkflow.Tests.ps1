@@ -280,6 +280,12 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         $script:Orchestrator | Should -Match 'plannedAiCredits = shardCount \* perWorkerAiCredits'
         $script:Orchestrator | Should -Match 'planned AI Credits \$\{plannedAiCredits\} exceed cap'
         $script:Orchestrator | Should -Match 'prior_cursor: priorCursor'
+        $script:Orchestrator | Should -Match 'core\.setOutput\("shard-matrix", JSON\.stringify\(matrix\)\)'
+        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?max-parallel: \$\{\{ fromJSON\(inputs\.max-parallel\) \}\}'
+        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?shard: \$\{\{ fromJSON\(needs\.plan\.outputs\.shard-matrix\) \}\}'
+        $script:Orchestrator | Should -Match 'shard_id: \$\{\{ matrix\.shard\.shard_id \}\}'
+        $script:Orchestrator | Should -Match 'ordered_candidate_ids: \$\{\{ toJSON\(matrix\.shard\.ordered_candidate_ids\) \}\}'
+        $script:Orchestrator | Should -Not -Match '(?ms)^  assess:.*?shard_id: shard-01'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?permissions:\s+actions: write\s+contents: read\s+issues: read'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?secrets: inherit'
         $script:Orchestrator | Should -Not -Match '(?m)^\s+issues: write$'
@@ -287,6 +293,25 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         foreach ($rejection in @('missing', 'malformed', 'stale', 'unexpected', 'duplicate', 'conflicting', 'manifest-mismatched')) {
             $script:Orchestrator | Should -Match ([regex]::Escape("`"$rejection`""))
         }
+    }
+
+    It 'fails closed on injected or invalid shard artifact sets without issue-write access' {
+        $script:Orchestrator | Should -Match '(?m)^  inject:$'
+        $script:Orchestrator | Should -Match '(?m)^  validate-results:$'
+        $script:Orchestrator | Should -Match 'inputs\.failure-injection != ''none'''
+        $script:Orchestrator | Should -Match 'Authorized conflicting artifact injection'
+        $script:Orchestrator | Should -Match 'result\.result_digest = crypto'
+        $script:Orchestrator | Should -Match 'missing fields \$\{missingFields\.join'
+        $script:Orchestrator | Should -Match 'result schema mismatch'
+        $script:Orchestrator | Should -Match 'producer mismatch'
+        $script:Orchestrator | Should -Match 'stale run identity'
+        $script:Orchestrator | Should -Match 'unexpected shard \$\{result\.shard_id\}'
+        $script:Orchestrator | Should -Match 'manifest digest mismatch'
+        $script:Orchestrator | Should -Match 'shard candidate mismatch'
+        $script:Orchestrator | Should -Match 'result digest mismatch'
+        $script:Orchestrator | Should -Match 'expected exactly one result, found \$\{shardResults\.length\}'
+        $script:Orchestrator | Should -Match 'Proof result validation failed'
+        $script:Orchestrator | Should -Not -Match '(?m)^\s+issues: write$'
     }
 }
 
