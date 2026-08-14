@@ -98,15 +98,15 @@ granularity, and GDPR privacy constraints for EU customer data.
 
 ## Key Agents and Workflows
 
-| Agent or skill            | Purpose                                             | Docs                       |
-|---------------------------|-----------------------------------------------------|----------------------------|
+| Agent or skill                         | Purpose                                                          | Docs                       |
+|----------------------------------------|------------------------------------------------------------------|----------------------------|
 | **Data Science and Engineering Coach** | Persistent data science and engineering coaching and job routing | Agent file                 |
-| **analysis-authoring** | Notebook and dashboard authoring and validation     | Skill file                 |
-| **data-catalog**            | Catalog entities, relationships, and profiles       | Skill file                 |
-| **dataops**            | Pipeline invariants, validation, and testing        | Skill file                 |
-| **evaluation-design**  | AI-system evaluation dataset design                 | Skill file                 |
-| **rpi-research**          | Data source and pattern research                    | [RPI workflow](../../rpi/) |
-| **rpi-plan**              | Analytics pipeline planning                         | [RPI workflow](../../rpi/) |
+| **analysis-authoring**                 | Notebook and dashboard authoring and validation                  | Skill file                 |
+| **data-catalog**                       | Catalog entities, relationships, and profiles                    | Skill file                 |
+| **dataops**                            | Pipeline invariants, validation, and testing                     | Skill file                 |
+| **evaluation-design**                  | AI-system evaluation dataset design                              | Skill file                 |
+| **rpi-research**                       | Data source and pattern research                                 | [RPI workflow](../../rpi/) |
+| **rpi-plan**                           | Analytics pipeline planning                                      | [RPI workflow](../../rpi/) |
 
 Prompts complement the agents for cross-cutting workflows:
 

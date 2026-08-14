@@ -109,7 +109,7 @@
         "path": ".github"
       },
       "description": "Persistent data science and data engineering coaching with routed catalog, DataOps, feasibility, analysis-authoring, and AI-evaluation-design capabilities",
-      "version": "4.0.0",
+      "version": "3.2.2",
       "author": {
         "name": "Microsoft",
         "url": "https://www.microsoft.com"

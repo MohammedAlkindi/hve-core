@@ -66,11 +66,11 @@ The upstream checklist works through the question of whether a model will behave
 
 Some items are owned elsewhere.
 
-| Items                                                                          | Route to                                                                                           |
-|--------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| Items                                                                          | Route to                                                                                        |
+|--------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
 | Incoming data quality monitoring, drift monitoring, and performance monitoring | `dataops`, which carries the validation-versus-drift distinction and its asymmetric remediation |
-| Ethical concerns                                                               | `rai-planner`                                                                                      |
-| Experiment setup, tracking, and evaluation flow                                | [model-experimentation.md](model-experimentation.md)                                               |
+| Ethical concerns                                                               | `rai-planner`                                                                                   |
+| Experiment setup, tracking, and evaluation flow                                | [model-experimentation.md](model-experimentation.md)                                            |
 
 ## A distinction worth preserving
 

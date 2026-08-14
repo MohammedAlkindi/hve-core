@@ -56,8 +56,8 @@ Read only the reference that matches the active concern.
 | Concern                                                                         | Owner                                           |
 |---------------------------------------------------------------------------------|-------------------------------------------------|
 | Experiment framing, hypothesis formation, vetting criteria, and red flags       | `experiment-design`                             |
-| Pipeline mechanics, data tiering, replay semantics, and DS/MLOps test technique | `dataops`                                    |
-| Data validation, drift detection, and their asymmetric remediation              | `dataops`                                    |
+| Pipeline mechanics, data tiering, replay semantics, and DS/MLOps test technique | `dataops`                                       |
+| Data validation, drift detection, and their asymmetric remediation              | `dataops`                                       |
 | Ethical and Responsible AI review                                               | `rai-planner`                                   |
 | Telemetry naming and data sensitivity classification                            | `telemetry-foundations` and `privacy-standards` |
 

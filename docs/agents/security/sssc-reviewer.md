@@ -30,11 +30,11 @@ It also owns HVE Core's [VEX assessment capability](vex-capability.md) for triag
 
 HVE Core includes three complementary security agents. Pick the one matched to your goal.
 
-| Use this             | When you want to…                                                                                                           |
-|----------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Use this             | When you want to…                                                                                                             |
+|----------------------|-------------------------------------------------------------------------------------------------------------------------------|
 | 🔎 SSSC Reviewer     | Run an automated, evidence-verified posture review of the current codebase (or a PR diff, or a plan) and get a written report |
-| 🛡️ Security Planner | Walk a structured six-phase threat-modeling interview that produces backlog items across seven operational buckets          |
-| 🔗 SSSC Planner      | Hold a conversational supply-chain planning session that maps OpenSSF Scorecard, SLSA, Sigstore, and SBOM gaps to a backlog |
+| 🛡️ Security Planner | Walk a structured six-phase threat-modeling interview that produces backlog items across seven operational buckets            |
+| 🔗 SSSC Planner      | Hold a conversational supply-chain planning session that maps OpenSSF Scorecard, SLSA, Sigstore, and SBOM gaps to a backlog   |
 
 In short: reach for the **SSSC Reviewer** when you need an assessment report now, the **Security Planner** for broad threat modeling and backlog generation, and the **SSSC Planner** when you want a guided, conversational supply-chain plan with handoff-ready work items.
 
@@ -42,11 +42,11 @@ In short: reach for the **SSSC Reviewer** when you need an assessment report now
 
 The reviewer runs in one of three modes. When no mode is supplied, it defaults to `audit`.
 
-| Mode    | Scope                                      | Report artifact                |
-|---------|--------------------------------------------|--------------------------------|
-| `audit` | Full repository                            | `sssc-review-{{NNN}}.md`       |
-| `diff`  | Changed files in a PR (full-repo verifies) | `sssc-review-diff-{{NNN}}.md`  |
-| `plan`  | An implementation plan document            | `sssc-plan-review-{{NNN}}.md`  |
+| Mode    | Scope                                      | Report artifact               |
+|---------|--------------------------------------------|-------------------------------|
+| `audit` | Full repository                            | `sssc-review-{{NNN}}.md`      |
+| `diff`  | Changed files in a PR (full-repo verifies) | `sssc-review-diff-{{NNN}}.md` |
+| `plan`  | An implementation plan document            | `sssc-plan-review-{{NNN}}.md` |
 
 * **audit** profiles and assesses the entire codebase.
 * **diff** resolves the changed files, scopes the assessment to them, and keeps supply-chain-relevant configuration (CI/CD workflows, dependency manifests, lockfiles, SBOM documents, signing or provenance configuration) in scope. Verification still searches the full repository so mitigations in unchanged code do not produce false positives.

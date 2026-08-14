@@ -53,13 +53,13 @@ Produce exploratory notebooks and analytical dashboards whose structure, visuali
 
 ## Ownership boundaries
 
-| Concern                                                                   | Owner                  |
-|---------------------------------------------------------------------------|------------------------|
-| Column semantics, semantic roles, profile and objectives contracts        | `data-catalog`           |
-| Persistence format, dataset versioning, pipeline and validation placement | `dataops`           |
-| Accessibility conformance criteria and assistive-technology review        | `accessibility`        |
-| Evaluation dataset design for AI systems                                  | `evaluation-design` |
-| Trained-model evaluation, tracking, and readiness                         | `ml-experimentation`   |
+| Concern                                                                   | Owner                |
+|---------------------------------------------------------------------------|----------------------|
+| Column semantics, semantic roles, profile and objectives contracts        | `data-catalog`       |
+| Persistence format, dataset versioning, pipeline and validation placement | `dataops`            |
+| Accessibility conformance criteria and assistive-technology review        | `accessibility`      |
+| Evaluation dataset design for AI systems                                  | `evaluation-design`  |
+| Trained-model evaluation, tracking, and readiness                         | `ml-experimentation` |
 
 ## Stop rules
 
