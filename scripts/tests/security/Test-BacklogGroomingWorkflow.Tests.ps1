@@ -279,6 +279,7 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         $script:Orchestrator | Should -Match 'plannedAiCredits = shardCount \* perWorkerAiCredits'
         $script:Orchestrator | Should -Match 'planned AI Credits \$\{plannedAiCredits\} exceed cap'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?permissions:\s+actions: write\s+contents: read\s+issues: read'
+        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?secrets: inherit'
         $script:Orchestrator | Should -Not -Match '(?m)^\s+issues: write$'
         $script:Orchestrator | Should -Match 'terminal_rule: "exactly-one-current-run-result-per-planned-shard"'
         foreach ($rejection in @('missing', 'malformed', 'stale', 'unexpected', 'duplicate', 'conflicting', 'manifest-mismatched')) {
