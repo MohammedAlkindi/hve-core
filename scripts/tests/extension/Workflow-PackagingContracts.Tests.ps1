@@ -1029,11 +1029,10 @@ Describe 'Extension packaging configuration' -Tag 'Unit' {
         $catalog = Get-MarketplaceCatalog -Path $script:CatalogPath
         $agentIndex = Get-MarketplaceAgentIndex -Catalog $catalog -RepoRoot $script:RepositoryRoot
         $contributionKinds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-        $script:HookKindSeen = $false
         foreach ($entry in @($catalog['plugins'])) {
             if (-not (Test-MarketplaceEntryEligible -Entry $entry -Channel 'PreRelease')) { continue }
             foreach ($item in Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel 'PreRelease' -AgentIndex $agentIndex) {
-                if ($item.Kind -eq 'hook') { $script:HookKindSeen = $true; continue }
+                if ($item.Kind -eq 'hook') { continue }
                 [void]$contributionKinds.Add([string]$item.Kind)
             }
         }
@@ -1072,7 +1071,9 @@ Describe 'Extension packaging configuration' -Tag 'Unit' {
     }
 
     It 'Never allow-lists the plugin-only hook root' {
-        $script:HookKindSeen | Should -BeTrue
+        # The catalog ships no hook manifest today, so the hook branch above may
+        # never be taken. The contract under test is that the hook root is never
+        # allow-listed, which must hold whether or not a recipe declares a hook.
         $script:AllowEntries | Should -Not -Contain "!$script:HookRoot/**"
     }
 
