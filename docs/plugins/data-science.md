@@ -5,6 +5,10 @@ sidebar_position: 3
 author: Microsoft
 ms.date: 2026-08-07
 ms.topic: reference
+keywords:
+  - package
+  - data science
+  - notebooks
 ---
 
 Choose this package for data practitioners running a persistent data workstream: cataloging data assets, planning pipelines, assessing feasibility, authoring exploratory notebooks and dashboards, or designing evaluation datasets for AI systems.

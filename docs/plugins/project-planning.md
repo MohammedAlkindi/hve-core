@@ -5,6 +5,10 @@ sidebar_position: 12
 author: Microsoft
 ms.date: 2026-08-06
 ms.topic: reference
+keywords:
+  - package
+  - project planning
+  - requirements
 ---
 
 Choose this package for product, architecture, and delivery teams creating PRDs, BRDs, ADRs, and architecture diagrams, and for teams that manage backlogs, sprints, and issue or work-item operations in Azure DevOps, GitHub, or Jira.
