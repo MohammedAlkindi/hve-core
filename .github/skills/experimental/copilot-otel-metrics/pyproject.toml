@@ -7,10 +7,12 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest>=9.0",
+    "pytest-cov>=7.0",
     "pyyaml>=6.0",
     "ruff>=0.15",
 ]
 fuzz = [
+    # Atheris ships manylinux-only wheels; keep separate from dev so uv sync works on macOS.
     "atheris>=3.0",
 ]
 
