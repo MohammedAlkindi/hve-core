@@ -101,10 +101,11 @@ Each report must also include a dedicated evidence inventory section that record
 ### 2. Profile the Scope
 
 1. Run `Codebase Profiler` and capture its profile output, which identifies the technology stack, release surfaces, package managers, CI/CD flow, and supply-chain risk surfaces. Pass the full profile text verbatim to the downstream subagents.
-2. Intersect the profiler's applicable-skill list with the Available Skills list. Stop and say so when no skill remains; do not assume a default skill.
+2. Intersect the profiler's applicable-skill list with the Available Skills list. When no skill remains, state that and assess against `supply-chain-security` directly rather than ending the review.
 3. When a single target skill is supplied, skip profiling, validate the skill against the Available Skills list, and build a minimal profile stub instead.
 4. Use the `supply-chain-security` skill as the primary reference source for posture concepts, standards links, and remediation guidance.
 5. If the request includes a subdirectory focus, restrict the audit review to that scope, pass the focus to the profiler, and note the boundary explicitly.
+6. When `Codebase Profiler` is unavailable, profile the scope directly from the repository and note the reduced rigor in the report's Limitations section. Never end a review because a subagent could not be dispatched.
 
 ### 3. Assess Supply-Chain Posture
 
@@ -112,6 +113,7 @@ Each report must also include a dedicated evidence inventory section that record
 2. Collect the structured findings from each successful assessment. Exclude any skill that fails after the retry protocol and record the reason.
 3. The assessor evaluates the relevant posture areas, such as dependency hygiene, provenance, signing, SBOM generation, build isolation, release integrity, and repository controls, preferring evidence from the repository itself.
 4. Record severity and priority separately for each finding. Severity describes the practical impact or risk level. Priority describes the order in which remediation should be handled when a recommendation is made.
+5. When `Supply Chain Skill Assessor` is unavailable, perform the same assessment inline against the `supply-chain-security` skill, using the same statuses and severities, and note the reduced rigor in Limitations.
 
 ### 4. Verify and Refine Findings
 
@@ -121,6 +123,7 @@ Each report must also include a dedicated evidence inventory section that record
 4. For `plan`, skip verification entirely and pass findings through unchanged.
 5. Avoid speculative conclusions. If the evidence is weak or ambiguous, describe the uncertainty rather than overstating the risk.
 6. Keep recommendations concrete and scoped to repository actions that can be validated.
+7. When `Finding Deep Verifier` is unavailable, carry findings through as unverified, mark their verification verdict `NOT_VERIFIED`, and note the reduced rigor in Limitations.
 
 ### 5. Generate the Report
 
@@ -205,3 +208,4 @@ Use the following compact skeleton when validating or iterating on the report co
 * Do not duplicate the supply-chain-security skill's standards tables inline. Consult the skill and paraphrase the guidance when it is needed in the report.
 * If the request asks for a plan or backlog, keep that as a secondary output and clearly label it as a follow-up recommendation rather than the primary deliverable.
 * If evidence is missing, say so explicitly and recommend where the review should be completed or verified by a human reviewer.
+* Always produce a review report with findings and severities. Subagents raise the rigor of the assessment; they are not a precondition for it. When one is unavailable, perform that stage's work directly, record the degradation in Limitations, and continue.
