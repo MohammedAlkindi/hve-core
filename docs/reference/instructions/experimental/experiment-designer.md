@@ -1,6 +1,6 @@
 ---
 title: Experimental/Experiment Designer
-description: MVE domain knowledge and coaching conventions for the Experiment Designer agent
+description: "MVE tracking-artifact conventions for session directories, artifact names, and file hygiene; routes MVE methodology to the experiment-design skill"
 sidebar_position: 1
 author: Microsoft
 ms.date: 2026-08-12
@@ -23,7 +23,7 @@ keywords:
 ## What it does
 
 <!-- BEGIN AUTO-GENERATED: overview -->
-MVE domain knowledge and coaching conventions for the Experiment Designer agent
+MVE tracking-artifact conventions for session directories, artifact names, and file hygiene; routes MVE methodology to the experiment-design skill
 <!-- END AUTO-GENERATED: overview -->
 
 ## When to use it
