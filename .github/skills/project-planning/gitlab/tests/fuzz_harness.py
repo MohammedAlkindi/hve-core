@@ -26,6 +26,12 @@ else:
     FUZZING = True
 
 
+# A CLI failure surfaces as SystemExit from the dispatch-layer die() helper
+# or as GitLabError from a library-level helper that promises a return
+# value. Both are expected refusals, not fuzz findings.
+_EXPECTED_CLI_ERRORS = (SystemExit, gitlab.GitLabError)
+
+
 def fuzz_strip_git_suffix(data: bytes) -> None:
     """Fuzz trimming of trailing .git suffixes."""
     provider = atheris.FuzzedDataProvider(data)
@@ -37,7 +43,7 @@ def fuzz_validate_numeric_id(data: bytes) -> None:
     """Fuzz numeric identifier validation."""
     provider = atheris.FuzzedDataProvider(data)
     value = provider.ConsumeUnicodeNoSurrogates(40)
-    with redirect_stderr(io.StringIO()), suppress(SystemExit):
+    with redirect_stderr(io.StringIO()), suppress(*_EXPECTED_CLI_ERRORS):
         gitlab.validate_numeric_id(value)
 
 
@@ -67,7 +73,7 @@ def fuzz_load_json_payload(data: bytes) -> None:
     """Fuzz JSON payload parsing."""
     provider = atheris.FuzzedDataProvider(data)
     raw_payload = provider.ConsumeUnicodeNoSurrogates(100)
-    with redirect_stderr(io.StringIO()), suppress(SystemExit):
+    with redirect_stderr(io.StringIO()), suppress(*_EXPECTED_CLI_ERRORS):
         gitlab.load_json_payload(raw_payload, "usage: gitlab")
 
 
@@ -75,7 +81,7 @@ def fuzz_validate_positive_int(data: bytes) -> None:
     """Fuzz validate_positive_int with arbitrary byte strings."""
     fdp = atheris.FuzzedDataProvider(data)
     text = fdp.ConsumeUnicodeNoSurrogates(fdp.remaining_bytes())
-    with redirect_stderr(io.StringIO()), suppress(SystemExit):
+    with redirect_stderr(io.StringIO()), suppress(*_EXPECTED_CLI_ERRORS):
         gitlab.validate_positive_int(text, "test-field")
 
 
@@ -83,7 +89,7 @@ def fuzz_validate_state(data: bytes) -> None:
     """Fuzz MR state validation with arbitrary byte strings."""
     fdp = atheris.FuzzedDataProvider(data)
     text = fdp.ConsumeUnicodeNoSurrogates(fdp.remaining_bytes())
-    with redirect_stderr(io.StringIO()), suppress(SystemExit):
+    with redirect_stderr(io.StringIO()), suppress(*_EXPECTED_CLI_ERRORS):
         gitlab.validate_state(text)
 
 
@@ -91,7 +97,7 @@ def fuzz_validate_ref(data: bytes) -> None:
     """Fuzz ref validation with arbitrary byte strings."""
     fdp = atheris.FuzzedDataProvider(data)
     text = fdp.ConsumeUnicodeNoSurrogates(fdp.remaining_bytes())
-    with redirect_stderr(io.StringIO()), suppress(SystemExit):
+    with redirect_stderr(io.StringIO()), suppress(*_EXPECTED_CLI_ERRORS):
         gitlab.validate_ref(text)
 
 
@@ -103,7 +109,7 @@ def fuzz_parse_fields(data: bytes) -> None:
         fdp.ConsumeUnicodeNoSurrogates(fdp.ConsumeIntInRange(0, 64))
         for _ in range(count)
     ]
-    with redirect_stderr(io.StringIO()), suppress(SystemExit):
+    with redirect_stderr(io.StringIO()), suppress(*_EXPECTED_CLI_ERRORS):
         gitlab.parse_fields(args)
 
 
