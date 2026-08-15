@@ -264,8 +264,7 @@ CARRIERS: tuple[Carrier, ...] = (
         "CARRIERMARKERMETRICNAME",
         PASSED_THROUGH,
         NO_MECHANISM,
-        note="Preserved: every Prometheus query in the shipped dashboard "
-        "selects by metric name.",
+        note="Preserved: every Prometheus query in the shipped dashboard selects by metric name.",
     ),
     Carrier("metric description", "CARRIERMARKERMETRICDESCRIPTION", PASSED_THROUGH, NO_MECHANISM),
     Carrier("metric unit", "CARRIERMARKERMETRICUNIT", PASSED_THROUGH, NO_MECHANISM),
@@ -301,10 +300,7 @@ def traces_payload() -> dict:
                     "attributes": [
                         _attr("service.name", "copilot-chat"),
                         _attr("probe.resource.attr", "CARRIERMARKERRESOURCEATTR"),
-                        *(
-                            _attr(key, marker)
-                            for key, marker in RESTORED_DETECTION_KEYS.items()
-                        ),
+                        *(_attr(key, marker) for key, marker in RESTORED_DETECTION_KEYS.items()),
                     ]
                 },
                 "schemaUrl": "https://example.invalid/CARRIERMARKERRESOURCESCHEMAURL",
@@ -313,9 +309,7 @@ def traces_payload() -> dict:
                         "scope": {
                             "name": "CARRIERMARKERSCOPENAME",
                             "version": "CARRIERMARKERSCOPEVERSION",
-                            "attributes": [
-                                _attr("probe.scope.attr", "CARRIERMARKERSCOPEATTR")
-                            ],
+                            "attributes": [_attr("probe.scope.attr", "CARRIERMARKERSCOPEATTR")],
                         },
                         "schemaUrl": "https://example.invalid/CARRIERMARKERSCOPESCHEMAURL",
                         "spans": [
@@ -359,9 +353,7 @@ def traces_payload() -> dict:
                                         "spanId": "bbbbbbbbbbbbbbbb",
                                         "traceState": "probe=CARRIERMARKERLINKTRACESTATE",
                                         "attributes": [
-                                            _attr(
-                                                "probe.link.attr", "CARRIERMARKERLINKATTR"
-                                            )
+                                            _attr("probe.link.attr", "CARRIERMARKERLINKATTR")
                                         ],
                                     }
                                 ],
@@ -390,9 +382,7 @@ def logs_payload() -> dict:
                                 "severityText": "CARRIERMARKERLOGSEVERITYTEXT",
                                 "eventName": "CARRIERMARKERLOGEVENTNAME",
                                 "body": {"stringValue": "CARRIERMARKERLOGBODYSCALAR"},
-                                "attributes": [
-                                    _attr("probe.log.attr", "CARRIERMARKERLOGATTR")
-                                ],
+                                "attributes": [_attr("probe.log.attr", "CARRIERMARKERLOGATTR")],
                             },
                             {
                                 "timeUnixNano": "1700000000000000000",
@@ -411,9 +401,7 @@ def logs_payload() -> dict:
                                 "timeUnixNano": "1700000000000000000",
                                 "body": {
                                     "arrayValue": {
-                                        "values": [
-                                            {"stringValue": "CARRIERMARKERLOGBODYARRAY"}
-                                        ]
+                                        "values": [{"stringValue": "CARRIERMARKERLOGBODYARRAY"}]
                                     }
                                 },
                             },
@@ -423,9 +411,7 @@ def logs_payload() -> dict:
                             },
                             {
                                 "timeUnixNano": "1700000000000000000",
-                                "body": {
-                                    "stringValue": "password=CARRIERMARKERMASKLOGBODY"
-                                },
+                                "body": {"stringValue": "password=CARRIERMARKERMASKLOGBODY"},
                             },
                         ],
                     }
@@ -467,9 +453,7 @@ def metrics_payload() -> dict:
                                                 {
                                                     "timeUnixNano": "1700000001000000000",
                                                     "asInt": "1",
-                                                    "traceId": (
-                                                        "5b8efff798038103d269b633813fc60c"
-                                                    ),
+                                                    "traceId": ("5b8efff798038103d269b633813fc60c"),
                                                     "spanId": "eee19b7ec3c1b174",
                                                     "filteredAttributes": [
                                                         _attr(
@@ -723,8 +707,11 @@ def run_probe(runtime: ContainerRuntime, *, remove_content_processors: bool) -> 
 
 def _await_all_signals(runtime: ContainerRuntime, container: str, *, timeout: float) -> str:
     """Wait until the exporter has rendered all three signals, then return them."""
-    expected = ('"otelcol.signal": "traces"', '"otelcol.signal": "logs"',
-                '"otelcol.signal": "metrics"')
+    expected = (
+        '"otelcol.signal": "traces"',
+        '"otelcol.signal": "logs"',
+        '"otelcol.signal": "metrics"',
+    )
     deadline = time.monotonic() + timeout
     output = ""
     while time.monotonic() < deadline:
@@ -799,9 +786,7 @@ class TestMarkerInventory:
     def test_a_passed_through_carrier_declares_no_mechanism(self) -> None:
         """A carrier cannot claim a control and pass through at the same time."""
         contradictory = [
-            c.name
-            for c in CARRIERS
-            if c.expected == PASSED_THROUGH and c.mechanism != NO_MECHANISM
+            c.name for c in CARRIERS if c.expected == PASSED_THROUGH and c.mechanism != NO_MECHANISM
         ]
         assert contradictory == []
 

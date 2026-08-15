@@ -131,9 +131,7 @@ def shipped_consumers() -> ShippedConsumers:
         for label in labels
         if not label.startswith("$") and label not in PROMETHEUS_RESERVED_LABELS
     }
-    trace_fields = {
-        field for field in ("rootTraceName", "durationMs") if field in baseline_source
-    }
+    trace_fields = {field for field in ("rootTraceName", "durationMs") if field in baseline_source}
 
     return ShippedConsumers(
         metric_names=frozenset(metric_names),
@@ -497,9 +495,7 @@ def statement_target(statement: str) -> str:
 # Intrinsics a shipped consumer reads directly. `span.name` is here because
 # three TraceQL queries match on it; the metric intrinsics are here because
 # every Prometheus query selects by metric name.
-PROTECTED_INTRINSICS = frozenset(
-    {"span.name", "metric.name", "metric.description", "metric.unit"}
-)
+PROTECTED_INTRINSICS = frozenset({"span.name", "metric.name", "metric.description", "metric.unit"})
 
 ATTRIBUTE_TARGET = re.compile(r"attributes\[\"([^\"]+)\"\]")
 
@@ -534,9 +530,7 @@ class TestScrubStaysInsideTheInventory:
     def test_the_scrub_processor_declares_statements(self, collector: dict[str, Any]) -> None:
         assert scrub_statements(collector), "the content scrub declares no statements"
 
-    def test_no_scrub_statement_targets_a_shipped_consumer(
-        self, collector: dict[str, Any]
-    ) -> None:
+    def test_no_scrub_statement_targets_a_shipped_consumer(self, collector: dict[str, Any]) -> None:
         findings = overreaching_statements(scrub_statements(collector), shipped_consumers())
         assert findings == [], f"a scrub rule targets telemetry a shipped panel reads: {findings}"
 
@@ -561,9 +555,7 @@ class TestScrubStaysInsideTheInventory:
 class TestExporterAlias:
     """The exporter uses the alias the pinned Collector asks for."""
 
-    def test_no_pipeline_references_the_deprecated_alias(
-        self, collector: dict[str, Any]
-    ) -> None:
+    def test_no_pipeline_references_the_deprecated_alias(self, collector: dict[str, Any]) -> None:
         exporters = set(collector["exporters"])
         assert not any(name == "otlp" or name.startswith("otlp/") for name in exporters), (
             "the pinned Collector logs a deprecation warning once per signal for "
@@ -572,9 +564,7 @@ class TestExporterAlias:
         for name, pipeline in collector["service"]["pipelines"].items():
             assert set(pipeline["exporters"]) <= exporters, f"{name} names an undeclared exporter"
 
-    def test_the_internal_hop_is_unchanged_by_the_rename(
-        self, collector: dict[str, Any]
-    ) -> None:
+    def test_the_internal_hop_is_unchanged_by_the_rename(self, collector: dict[str, Any]) -> None:
         exporter = collector["exporters"]["otlp_grpc/lgtm"]
         assert exporter["endpoint"] == "lgtm:4317"
         assert exporter["tls"]["insecure"] is True

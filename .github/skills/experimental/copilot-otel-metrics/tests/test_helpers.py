@@ -373,8 +373,7 @@ class TestGrafanaCredentialScope:
         authorized = [r for r in sent if "Authorization" in r.headers]
         assert len(sent) > 1, "the dashboard walk issued no store queries"
         assert len(authorized) == 1, (
-            "exactly one request may carry the Grafana credential; "
-            f"{len(authorized)} did"
+            f"exactly one request may carry the Grafana credential; {len(authorized)} did"
         )
         assert authorized[0].full_url.startswith("http://localhost:3000/")
         for request in sent:
@@ -388,9 +387,7 @@ class TestGrafanaCredentialScope:
 class TestRedirectCredentialHandling:
     """A redirect may not carry a credential to an origin it was not issued for."""
 
-    def _handler(
-        self, *, allow_remote: bool = False
-    ) -> urllib.request.HTTPRedirectHandler:
+    def _handler(self, *, allow_remote: bool = False) -> urllib.request.HTTPRedirectHandler:
         handler = open_url.__globals__["_PolicyRedirectHandler"]
         return handler(allow_remote=allow_remote, allowed_ports=DEFAULT_ALLOWED_PORTS)
 
@@ -509,4 +506,3 @@ class TestPolicyRoutedHelpers:
             f"{name} opens a URL directly; every helper must go through open_url "
             "so scheme, authority, port, redirect, and remote-opt-in rules apply"
         )
-

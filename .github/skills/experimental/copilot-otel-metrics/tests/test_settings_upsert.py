@@ -175,12 +175,7 @@ class TestJsoncHandling:
         break silently under a later change: the write would land in a
         `"[python]"` block and the user's real setting would stay unchanged.
         """
-        nested = (
-            "{\n"
-            '  "[python]": { "' + ENABLED + '": false },\n'
-            '  "' + ENABLED + '": false\n'
-            "}\n"
-        )
+        nested = '{\n  "[python]": { "' + ENABLED + '": false },\n  "' + ENABLED + '": false\n}\n'
         assert set(top_level_spans(nested)) == {"[python]", ENABLED}
 
         parsed = json.loads(strip_jsonc(upsert(nested, {ENABLED: True})))

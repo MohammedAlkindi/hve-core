@@ -173,8 +173,7 @@ def validate_panels(
                     n = len(rows)
                 except urllib.error.HTTPError as exc:
                     print(
-                        f"   [ERROR] {title:<44} {label:<28} "
-                        f"{exc.code} {exc.read().decode()[:70]}"
+                        f"   [ERROR] {title:<44} {label:<28} {exc.code} {exc.read().decode()[:70]}"
                     )
                     continue
                 except Exception as exc:  # noqa: BLE001
@@ -236,8 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         ("localhost", "127.", "::1")
     ):
         print(
-            f"warning: importing into {grafana_url} overwrites any dashboard "
-            "sharing the same uid.",
+            f"warning: importing into {grafana_url} overwrites any dashboard sharing the same uid.",
             file=sys.stderr,
         )
 
@@ -285,4 +283,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
