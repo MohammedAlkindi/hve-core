@@ -576,8 +576,8 @@ Describe 'Production focused package closure' -Tag 'Unit' {
         }
     }
 
-    It 'Declares the data-science security handoff cycle explicitly' {
-        $entry = @($script:FocusedCatalog['plugins'] | Where-Object { $_['name'] -eq 'data-science' })[0]
+    It 'Declares the data-science-engineering security handoff cycle explicitly' {
+        $entry = @($script:FocusedCatalog['plugins'] | Where-Object { $_['name'] -eq 'data-science-engineering' })[0]
         $declared = @(Get-MarketplacePackageRecipe -Entry $entry -Channel PreRelease | ForEach-Object { $_.PackagePath })
         $declared | Should -Contain 'agents/security/security-planner.md'
         $declared | Should -Contain 'agents/security/sssc-planner.md'
@@ -586,13 +586,13 @@ Describe 'Production focused package closure' -Tag 'Unit' {
         @($script:FocusedAgentIndex.Lookup['sssc-planner'].Handoffs) | Should -Contain 'Security Planner'
     }
 
-    It 'Resolves data-science <PackagePath> as experimental on <Channel>' -ForEach @(
+    It 'Resolves data-science-engineering <PackagePath> as experimental on <Channel>' -ForEach @(
         @{ PackagePath = 'agents/security/security-planner.md'; Channel = 'Stable' }
         @{ PackagePath = 'agents/security/security-planner.md'; Channel = 'PreRelease' }
         @{ PackagePath = 'agents/security/sssc-planner.md'; Channel = 'Stable' }
         @{ PackagePath = 'agents/security/sssc-planner.md'; Channel = 'PreRelease' }
     ) {
-        $entry = @($script:FocusedCatalog['plugins'] | Where-Object { $_['name'] -eq 'data-science' })[0]
+        $entry = @($script:FocusedCatalog['plugins'] | Where-Object { $_['name'] -eq 'data-science-engineering' })[0]
         $recipe = @(Get-MarketplaceResolvedPackageRecipe -Entry $entry -Channel $Channel -AgentIndex $script:FocusedAgentIndex)
         $item = @($recipe | Where-Object { $_.PackagePath -eq $PackagePath })
         $item.Count | Should -Be 1

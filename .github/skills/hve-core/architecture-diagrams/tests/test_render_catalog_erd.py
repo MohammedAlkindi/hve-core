@@ -34,7 +34,7 @@ CATALOG_FIXTURE = (
     REPO_ROOT
     / ".github"
     / "skills"
-    / "data-science"
+    / "data-science-engineering"
     / "data-catalog"
     / "examples"
     / "northwind-catalog.md"
