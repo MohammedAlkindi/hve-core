@@ -432,3 +432,23 @@ def test_print_result_prints_string_and_json(
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == "plain text"
     assert json.loads("\n".join(lines[1:])) == {"key": TEST_ISSUE_KEY}
+
+
+def test_emit_writes_exactly_one_stderr_line() -> None:
+    """_emit prints once; logging's lastResort must not echo the record.
+
+    _emit both logs at ERROR and prints to stderr. A logger with no handler
+    falls back to logging.lastResort, which writes WARNING-or-above records to
+    stderr as well, so every CLI error would appear twice.
+    """
+    assert any(isinstance(h, logging.NullHandler) for h in jira.LOGGER.handlers)
+
+
+def test_emit_is_not_duplicated_by_last_resort(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    jira._emit("single line")
+
+    lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]
+
+    assert lines == ["single line"]

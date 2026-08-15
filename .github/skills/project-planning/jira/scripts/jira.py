@@ -43,6 +43,11 @@ MAX_CLOUD_ID_BYTES = 1024
 _AUDIT_OP = ""
 
 LOGGER = logging.getLogger("jira")
+# _emit prints to stderr itself and logs at ERROR. Without a handler, logging's
+# lastResort fallback would also write every ERROR record to stderr, printing
+# each message twice. The NullHandler suppresses that while leaving the logger
+# available to an embedder that configures its own handlers.
+LOGGER.addHandler(logging.NullHandler())
 
 # Credential-bearing key names scrubbed from any string routed through
 # ``_redact``. The first nine mirror the mural skill's OAuth/OIDC baseline and

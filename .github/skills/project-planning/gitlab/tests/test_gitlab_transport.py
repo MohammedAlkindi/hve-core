@@ -429,7 +429,7 @@ class TestRequest:
             ),
         )
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(gitlab.GitLabError):
             gitlab._oauth_profile(context)
 
         stored = gitlab.credentials.get_profile(
@@ -465,7 +465,7 @@ class TestRequest:
             ),
         )
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(gitlab.GitLabError):
             gitlab._oauth_profile(context)
 
         stored = gitlab.credentials.get_profile(
@@ -500,7 +500,7 @@ class TestRequest:
             ),
         )
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(gitlab.GitLabError):
             gitlab._oauth_profile(context)
 
         stored = gitlab.credentials.get_profile(
@@ -536,7 +536,7 @@ class TestRequest:
         )
         refresh = mocker.patch("gitlab.oauth.refresh_profile")
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(gitlab.GitLabError):
             gitlab._oauth_profile(context)
 
         refresh.assert_not_called()

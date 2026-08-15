@@ -518,11 +518,29 @@ class TestLoadJsonPayload:
     def test_parses_valid_json(self, raw_payload: str, expected: object) -> None:
         assert gitlab.load_json_payload(raw_payload, "usage: gitlab") == expected
 
-    def test_raises_usage_error_for_invalid_json(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        with pytest.raises(SystemExit) as exc_info:
+    def test_raises_usage_error_for_invalid_json(self) -> None:
+        with pytest.raises(gitlab.GitLabError) as exc_info:
             gitlab.load_json_payload("{bad json}", "usage: gitlab mr-create <json>")
 
-        assert exc_info.value.code == gitlab.EXIT_USAGE
-        assert "invalid JSON payload" in capsys.readouterr().err
+        assert exc_info.value.exit_code == gitlab.EXIT_USAGE
+        assert "invalid JSON payload" in str(exc_info.value)
+
+
+def test_emit_writes_exactly_one_stderr_line() -> None:
+    """_emit prints once; logging's lastResort must not echo the record.
+
+    _emit both logs at ERROR and prints to stderr. A logger with no handler
+    falls back to logging.lastResort, which writes WARNING-or-above records to
+    stderr as well, so every CLI error would appear twice.
+    """
+    assert any(isinstance(h, logging.NullHandler) for h in gitlab.LOGGER.handlers)
+
+
+def test_emit_is_not_duplicated_by_last_resort(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    gitlab._emit("single line")
+
+    lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]
+
+    assert lines == ["single line"]

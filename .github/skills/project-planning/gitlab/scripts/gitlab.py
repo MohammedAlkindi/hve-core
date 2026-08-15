@@ -78,6 +78,11 @@ _OAUTH_FAILURE_KINDS = {
 }
 
 LOGGER = logging.getLogger("gitlab")
+# _emit prints to stderr itself and logs at ERROR. Without a handler, logging's
+# lastResort fallback would also write every ERROR record to stderr, printing
+# each message twice. The NullHandler suppresses that while leaving the logger
+# available to an embedder that configures its own handlers.
+LOGGER.addHandler(logging.NullHandler())
 
 # Credential-bearing key names scrubbed from any string routed through
 # ``_redact``. The first nine mirror the mural skill's OAuth/OIDC baseline and
@@ -188,7 +193,27 @@ class AuthContext:
     client_id: str | None = None
 
 
-class GitLabAPIError(Exception):
+class GitLabError(Exception):
+    """Base CLI failure carrying an exit code and a redacted string form.
+
+    Library-level helpers raise this instead of calling :func:`die`. A helper
+    that promises a return value must end every path in an explicit ``return``
+    or ``raise``; relying on ``die`` never returning makes the contract
+    unverifiable by static analysis and turns a future change to ``die`` into a
+    silent ``None`` return. :func:`die` stays for the argument-parsing and
+    command-dispatch layer, where no value is promised.
+    """
+
+    def __init__(self, message: str = "", exit_code: int = EXIT_FAILURE) -> None:
+        super().__init__(message)
+        self.message = message
+        self.exit_code = exit_code
+
+    def __str__(self) -> str:
+        return _redact(self.message)
+
+
+class GitLabAPIError(GitLabError):
     """GitLab API failure with a controlled, secret-free string form.
 
     Only the status, method, query-stripped resource, redacted summary, and
@@ -206,13 +231,11 @@ class GitLabAPIError(Exception):
         request_id: str = "",
         exit_code: int = EXIT_FAILURE,
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, exit_code)
         self.status = status
         self.method = method
         self.resource = resource
-        self.message = message
         self.request_id = request_id
-        self.exit_code = exit_code
 
     def __str__(self) -> str:
         head = "GitLab API request failed"
@@ -620,7 +643,7 @@ def require_environment() -> None:
 def _oauth_profile(context: AuthContext) -> credentials.Profile:
     """Return a current OAuth profile, refreshing within the expiry leeway."""
     if context.store_path is None or context.profile_name is None:
-        die("GitLab OAuth context is incomplete", EXIT_FAILURE)
+        raise GitLabError("GitLab OAuth context is incomplete", EXIT_FAILURE)
     try:
         with credentials.store_lock(context.store_path):
             store = credentials.load_store(context.store_path)
@@ -633,7 +656,7 @@ def _oauth_profile(context: AuthContext) -> credentials.Profile:
                     profile["usable"] = False
                     credentials.set_profile(store, context.profile_name, profile)
                     credentials.save_store(context.store_path, store)
-                    die(
+                    raise GitLabError(
                         "GitLab device access token expired; run auth device-login",
                         EXIT_FAILURE,
                     )
@@ -660,24 +683,24 @@ def _oauth_profile(context: AuthContext) -> credentials.Profile:
                             previous_profile,
                         )
                         credentials.save_store(context.store_path, store)
-                        die(
+                        raise GitLabError(
                             "GitLab OAuth refresh could not complete; the stored "
                             f"credential remains available for retry: {exc}",
                             EXIT_FAILURE,
-                        )
+                        ) from exc
                     profile["usable"] = False
                     credentials.set_profile(store, context.profile_name, profile)
                     credentials.save_store(context.store_path, store)
-                    die(
+                    raise GitLabError(
                         f"GitLab OAuth refresh failed; re-login required: {exc}",
                         EXIT_FAILURE,
-                    )
+                    ) from exc
                 credentials.set_profile(store, context.profile_name, replacement)
                 credentials.save_store(context.store_path, store)
                 profile = replacement
             return profile
     except credentials.CredentialError as exc:
-        die(str(exc), EXIT_FAILURE)
+        raise GitLabError(str(exc), EXIT_FAILURE) from exc
 
 
 def _auth_headers() -> dict[str, str]:
@@ -705,7 +728,7 @@ def _assert_profile_binding(
     if profile["issuer"] != context.issuer or profile[
         "client_id"
     ] != _required_oauth_client_id(context):
-        die(
+        raise GitLabError(
             "GitLab OAuth profile changed and no longer matches this instance",
             EXIT_FAILURE,
         )
@@ -719,7 +742,7 @@ def _refresh_error_can_restore_profile(error: oauth.OAuthError) -> bool:
 def _force_oauth_refresh(context: AuthContext) -> credentials.Profile:
     """Refresh one OAuth profile after a safe API request returns 401."""
     if context.store_path is None or context.profile_name is None:
-        die("GitLab OAuth context is incomplete", EXIT_FAILURE)
+        raise GitLabError("GitLab OAuth context is incomplete", EXIT_FAILURE)
     try:
         with credentials.store_lock(context.store_path):
             store = credentials.load_store(context.store_path)
@@ -729,7 +752,9 @@ def _force_oauth_refresh(context: AuthContext) -> credentials.Profile:
                 profile["usable"] = False
                 credentials.set_profile(store, context.profile_name, profile)
                 credentials.save_store(context.store_path, store)
-                die("GitLab OAuth profile cannot refresh; re-login required")
+                raise GitLabError(
+                    "GitLab OAuth profile cannot refresh; re-login required"
+                )
             previous_profile = credentials.Profile(**profile)
             profile["usable"] = False
             credentials.set_profile(store, context.profile_name, profile)
@@ -753,23 +778,23 @@ def _force_oauth_refresh(context: AuthContext) -> credentials.Profile:
                         previous_profile,
                     )
                     credentials.save_store(context.store_path, store)
-                    die(
+                    raise GitLabError(
                         "GitLab OAuth refresh could not complete; the stored "
                         f"credential remains available for retry: {exc}",
                         EXIT_FAILURE,
-                    )
+                    ) from exc
                 profile["usable"] = False
                 credentials.set_profile(store, context.profile_name, profile)
                 credentials.save_store(context.store_path, store)
-                die(
+                raise GitLabError(
                     f"GitLab OAuth refresh failed; re-login required: {exc}",
                     EXIT_FAILURE,
-                )
+                ) from exc
             credentials.set_profile(store, context.profile_name, replacement)
             credentials.save_store(context.store_path, store)
             return replacement
     except credentials.CredentialError as exc:
-        die(str(exc), EXIT_FAILURE)
+        raise GitLabError(str(exc), EXIT_FAILURE) from exc
 
 
 def strip_git_suffix(path: str) -> str:
@@ -1062,7 +1087,9 @@ def load_json_payload(raw_payload: str, usage: str) -> object:
     try:
         return json.loads(raw_payload)
     except json.JSONDecodeError as error:
-        die(f"invalid JSON payload: {error.msg}. {usage}", EXIT_USAGE)
+        raise GitLabError(
+            f"invalid JSON payload: {error.msg}. {usage}", EXIT_USAGE
+        ) from error
 
 
 def cmd_mr_list(args: list[str]) -> None:
@@ -1412,7 +1439,7 @@ def main() -> int:
         _AUDIT_OP = arguments[0]
         COMMANDS[arguments[0]](arguments[1:])
         return EXIT_SUCCESS
-    except GitLabAPIError as exc:
+    except GitLabError as exc:
         _emit_debug_traceback(exc)
         _emit(f"error: {exc}")
         return exc.exit_code

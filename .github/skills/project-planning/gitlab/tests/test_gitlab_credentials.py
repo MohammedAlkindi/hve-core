@@ -111,15 +111,23 @@ def test_windows_store_fails_closed_before_filesystem_access(
     assert opened == []
 
 
+def _raise_inside_store_lock(path: pathlib.Path) -> None:
+    """Raise from inside a held store lock so the caller can assert release."""
+    with credentials.store_lock(path):
+        raise RuntimeError("boom")
+
+
 def test_store_lock_releases_after_body_error(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "gitlab" / "gitlab-token.json"
 
     with pytest.raises(RuntimeError, match="boom"):
-        with credentials.store_lock(path):
-            raise RuntimeError("boom")
+        _raise_inside_store_lock(path)
 
+    reacquired = False
     with credentials.store_lock(path):
-        pass
+        reacquired = True
+
+    assert reacquired, "store_lock must be re-acquirable after its body raised"
 
 
 def test_store_lock_serializes_threads(tmp_path: pathlib.Path) -> None:
