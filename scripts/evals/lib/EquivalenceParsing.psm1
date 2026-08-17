@@ -302,7 +302,7 @@ function Measure-AgentInvocationEvidence {
         requires one successful structured read per expected stimulus and trial. The
         tool call must target the exact staged agent path, the correlated result must
         succeed, and returned content must identify the RPI Agent artifact. The tool
-        name is not restricted because Vally 0.12 can satisfy the same read through
+        name is not restricted because Vally can satisfy the same read through
         view, shell readers, search tools, or a delegated tool.
 
         Missing, duplicate, failed, wrong-path, and malformed evidence is counted so
