@@ -7,7 +7,7 @@
 # Author: HVE Core Team
 #
 # This script validates:
-# - Required frontmatter fields (title, description, author, ms.date)
+# - Required frontmatter fields (docs/**: title, description, author, ms.date, ms.topic, keywords)
 # - Date format (ISO 8601: YYYY-MM-DD)
 # - Standard Copilot attribution footer (excludes Microsoft template files)
 # - Content structure by file type (GitHub configs, DevContainer docs, etc.)
@@ -36,7 +36,6 @@ param(
         'extension/README.*.md',
         'extension/templates/README.template.md',
         'scripts/docs/templates/**',
-        'docs/reference/**',
         'docs/docusaurus/playwright-report/**',
         'docs/docusaurus/test-results/**',
         'pr.md',
@@ -62,7 +61,8 @@ param(
     [string[]]$FooterExcludePaths = @(
         'CHANGELOG.md',
         'dependency-pinning-artifacts/**',
-        '.github/ISSUE_TEMPLATE/**'
+        '.github/ISSUE_TEMPLATE/**',
+        'docs/reference/**'
     ),
 
     [Parameter(Mandatory = $false)]
