@@ -2,7 +2,13 @@
 title: ml-experimentation
 description: "Machine learning experimentation reference for model-experimentation conventions, experiment tracking and reproducibility, dataset and model abstractions, ML engagement fundamentals, and model-production readiness. Use when standing up ML experimentation infrastructure or assessing whether a trained model is ready for production."
 sidebar_position: 7
-ms.date: 2026-08-14
+author: Microsoft
+ms.date: 2026-08-17
+ms.topic: reference
+keywords:
+  - skill
+  - data-science-engineering
+  - ml-experimentation
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -32,8 +38,8 @@ Reach for this skill when machine learning experimentation needs structure, or w
 Choose a different asset when:
 
 * The question is whether an experiment is worth running at all, or how to turn an unknown into a falsifiable hypothesis. Use the `experiment-design` skill.
-* The question is about data tiering, pipeline invariants, replay semantics, or data test suites. Use the `dataops` skill.
-* The question is about data validation versus drift detection and their remediation paths. That distinction lives in `dataops`.
+* The question is about data tiering, pipeline invariants, replay semantics, or data test suites. Use the `ds-dataops` skill.
+* The question is about data validation versus drift detection and their remediation paths. That distinction lives in `ds-dataops`.
 * The question is about ethical or Responsible AI review. Use the `rai-planner` skill.
 
 ## Example usage

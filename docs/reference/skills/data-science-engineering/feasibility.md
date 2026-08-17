@@ -2,7 +2,13 @@
 title: feasibility
 description: "Author and validate durable data and ML feasibility studies using the Feasibility Study Interchange Profile, constrained YAML authority, UUID URN identity, lifecycle lineage, and evidence traceability. Use when assessing whether available data and technical evidence support a proposed outcome."
 sidebar_position: 6
-ms.date: 2026-08-14
+author: Microsoft
+ms.date: 2026-08-17
+ms.topic: reference
+keywords:
+  - skill
+  - data-science-engineering
+  - feasibility
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -22,7 +28,7 @@ Author and validate durable data and ML feasibility studies using the Feasibilit
 
 ## When to use it
 
-Use `feasibility` when a proposed data or ML outcome needs an evidence-led
+Use `ds-feasibility` when a proposed data or ML outcome needs an evidence-led
 recommendation that remains durable and machine-consumable. It preserves
 capability candidates, findings, risks, gaps, criteria state, provenance, and
 lifecycle lineage in one Markdown study.

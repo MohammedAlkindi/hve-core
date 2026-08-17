@@ -2,7 +2,13 @@
 title: data-catalog
 description: "Create and enrich durable data catalogs using the native DS_CATALOG_V1 Markdown contract, declared entity relationships, privacy citation fields, and stable relationship IDs. Use when inventorying engagement data, recording semantic relationships, or preparing a catalog for ERD rendering."
 sidebar_position: 2
-ms.date: 2026-08-14
+author: Microsoft
+ms.date: 2026-08-17
+ms.topic: reference
+keywords:
+  - skill
+  - data-science-engineering
+  - data-catalog
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -22,17 +28,17 @@ Create and enrich durable data catalogs using the native DS_CATALOG_V1 Markdown 
 
 ## When to use it
 
-Use `data-catalog` when an engagement needs a durable inventory of business
+Use `ds-catalog` when an engagement needs a durable inventory of business
 entities, declared relationships, lineage, data tiers, access state, and
 privacy citations. It is the source authority for catalog-driven ERD rendering.
 
-Use `dataops` for pipeline tier behavior and validation rules, and use
+Use `ds-dataops` for pipeline tier behavior and validation rules, and use
 `privacy-standards` when sensitivity or privacy mappings need interpretation.
 The catalog records those decisions but does not make them.
 
 ## Example usage
 
-Ask the Data Science and Engineering Coach to catalog a CRM customer entity and an ERP order
+Ask the Data Workstream Coach to catalog a CRM customer entity and an ERP order
 entity. The skill writes `DS_CATALOG_V1` frontmatter with stable entity and
 relationship IDs, paired join keys, confidence, basis, and reconciled coverage.
 The same declared relationship can then be rendered without inferring semantics

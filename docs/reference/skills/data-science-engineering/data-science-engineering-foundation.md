@@ -2,7 +2,13 @@
 title: data-science-engineering-foundation
 description: "State, resume, reconstruction, job-lifecycle, transition, and flow-state mechanics for the Data Science and Engineering Coach. Loaded by the coach; not a user entry point."
 sidebar_position: 3
-ms.date: 2026-08-14
+author: Microsoft
+ms.date: 2026-08-17
+ms.topic: reference
+keywords:
+  - skill
+  - data-science-engineering
+  - data-science-engineering-foundation
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
@@ -22,13 +28,13 @@ State, resume, reconstruction, job-lifecycle, transition, and flow-state mechani
 
 ## When to use it
 
-This internal skill is loaded by Data Science and Engineering Coach at initialization and
+This internal skill is loaded by Data Workstream Coach at initialization and
 resume. Its references govern job selection, lifecycle classes, confirmed
 transitions, YAML-in-Markdown session state, artifact-based reconstruction,
 and flow-preserving interruption gates.
 
-Do not invoke it as a standalone data-science workflow. Load `data-catalog`,
-`dataops`, `feasibility`, `experiment-design`, or `ml-experimentation`
+Do not invoke it as a standalone data-science workflow. Load `ds-catalog`,
+`ds-dataops`, `ds-feasibility`, `experiment-design`, or `ml-experimentation`
 for job-specific methods and outputs.
 
 ## Example usage
