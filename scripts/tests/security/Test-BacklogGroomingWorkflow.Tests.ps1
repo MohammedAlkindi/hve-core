@@ -206,10 +206,10 @@ BeforeAll {
     $script:Publisher = Read-RepoFile '.github/workflows/backlog-groom-publisher.yml'
     $script:WaveValidator = Read-RepoFile '.github/actions/backlog-groom-wave-validator/validate.js'
     $script:WorkflowReadme = Read-RepoFile '.github/workflows/README.md'
-    $script:Policy = Read-RepoFile '.github/instructions/github/github-backlog-grooming.instructions.md'
+    $script:Policy = Read-RepoFile '.github/instructions/project-planning/github-backlog-grooming.instructions.md'
     $script:Agent = Read-RepoFile '.github/agents/github/backlog-grooming.agent.md'
-    $script:Manager = Read-RepoFile '.github/agents/github/github-backlog-manager.agent.md'
-    $script:Executor = Read-RepoFile '.github/instructions/github/github-backlog-update.instructions.md'
+    $script:Manager = Read-RepoFile '.github/agents/project-planning/backlog-manager.agent.md'
+    $script:Executor = Read-RepoFile '.github/agents/project-planning/subagents/github-backlog-executor.agent.md'
 }
 
 Describe 'Backlog grooming workflow source' -Tag 'Unit' {
@@ -219,7 +219,7 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
         $script:Source | Should -Not -Match '(?m)^  workflow_dispatch:$'
         $script:Orchestrator | Should -Match '(?m)^  workflow_dispatch:$'
         $script:Source | Should -Match '(?m)^  - \.\./agents/github/backlog-grooming\.agent\.md$'
-        $script:Source | Should -Match '(?m)^  - \.\./instructions/github/github-backlog-grooming\.instructions\.md$'
+        $script:Source | Should -Match '(?m)^  - \.\./instructions/project-planning/github-backlog-grooming\.instructions\.md$'
     }
 
     It 'keeps model permissions read-only and safe outputs bounded' {
@@ -308,7 +308,7 @@ Describe 'Compiled backlog grooming workflow' -Tag 'Unit' {
         $script:Lock | Should -Not -Match '(?m)^  schedule:$'
         $script:Lock | Should -Not -Match '(?m)^  workflow_dispatch:$'
         $script:Lock | Should -Match '(?m)^      issues: read$'
-        $script:Lock | Should -Match 'runtime-import \.github/instructions/github/github-backlog-grooming\.instructions\.md'
+        $script:Lock | Should -Match 'runtime-import \.github/instructions/project-planning/github-backlog-grooming\.instructions\.md'
     }
 
     It 'allows only the artifact-bound result job and noop from agent output' {
@@ -650,8 +650,8 @@ Describe 'Interactive grooming route and fresh-state execution' -Tag 'Unit' {
         foreach ($signal in @('groom', 'grooming', 'staleness', 'backlog health')) {
             $script:Manager | Should -Match ([regex]::Escape($signal))
         }
-        $script:Manager | Should -Match 'needs-triage` always indicates Triage'
-        $script:Manager | Should -Match 'explicit issue number scopes the request to Single Issue unless the request explicitly reviews a grooming digest'
+        $script:Manager | Should -Match '`needs-triage` indicates Triage'
+        $script:Manager | Should -Match 'explicit item key or single-entity phrasing scopes the request to Single Item unless the request explicitly reviews a grooming digest'
     }
 
     It 'limits grooming handoffs to one approved non-closing operation per issue' {

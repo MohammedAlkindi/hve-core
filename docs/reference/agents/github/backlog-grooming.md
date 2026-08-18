@@ -2,7 +2,13 @@
 title: Backlog Grooming
 description: Assesses open GitHub issues for backlog health and returns bounded advisory reports without mutating candidate issues
 sidebar_position: 1
-ms.date: 2026-07-29
+author: Microsoft
+ms.date: 2026-08-18
+ms.topic: reference
+keywords:
+  - agent
+  - github
+  - backlog-grooming
 ---
 
 <!-- BEGIN AUTO-GENERATED: metadata -->
