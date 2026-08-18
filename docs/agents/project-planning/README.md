@@ -5,6 +5,10 @@ sidebar_position: 1
 author: Microsoft
 ms.date: 2026-08-12
 ms.topic: concept
+keywords:
+  - project planning
+  - agents
+  - requirements
 ---
 
 Nine agents and **four** portable skills support structured project planning across requirements, architecture, backlog management, security, proposal response work, **and performance**. Each agent follows a guided workflow to produce specific deliverables, from business requirements documents to security assessment plans and reliability targets.
