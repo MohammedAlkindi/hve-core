@@ -2,7 +2,7 @@
 title: GitHub Actions Workflows
 description: Modular CI/CD workflow architecture for validation, security scanning, and automated maintenance
 author: HVE Core Team
-ms.date: 2026-08-06
+ms.date: 2026-08-18
 ms.topic: reference
 keywords:
   - github actions
@@ -47,13 +47,16 @@ Modular reusable workflows following Single Responsibility Principle. Each workf
 
 Compose multiple reusable workflows for comprehensive validation and security scanning.
 
-| Workflow                          | Triggers                                | Mode                       | Purpose                                                                              |
-|-----------------------------------|-----------------------------------------|----------------------------|--------------------------------------------------------------------------------------|
-| `pr-validation.yml`               | PR to main/develop (open, push, reopen) | Strict validation          | Pre-merge quality gate with security                                                 |
-| `release-stable.yml`              | Push to main                            | Strict mode, SARIF uploads | Validate `main` and open the reviewed Stable promotion                               |
-| `release-stable-publish.yml`      | Merged PR to `release/stable`           | Managed Stable release     | Run release-please, build immutable evidence, publish, and open the metadata sync PR |
-| `weekly-security-maintenance.yml` | Schedule (Sun 2AM UTC)                  | Soft-fail warnings         | Weekly security posture                                                              |
-| `scorecard.yml`                   | Push to main, Schedule (Sun 3AM UTC)    | SARIF upload               | OpenSSF Scorecard security posture                                                   |
+| Workflow                             | Triggers                                | Mode                       | Purpose                                                                              |
+|--------------------------------------|-----------------------------------------|----------------------------|--------------------------------------------------------------------------------------|
+| `pr-validation.yml`                  | PR to main/develop (open, push, reopen) | Strict validation          | Pre-merge quality gate with security                                                 |
+| `release-stable.yml`                 | Push to main                            | Strict mode, SARIF uploads | Validate `main` and open the reviewed Stable promotion                               |
+| `release-stable-publish.yml`         | Merged PR to `release/stable`           | Managed Stable release     | Run release-please, build immutable evidence, publish, and open the metadata sync PR |
+| `backlog-groom-orchestrator.yml`     | Manual dispatch                         | Advisory multi-run sweep   | Assess one immutable backlog snapshot and retain a complete final aggregate          |
+| `backlog-groom-multi-wave-proof.yml` | Manual dispatch                         | Zero-model hosted proof    | Exercise bounded continuation, duplicate no-op, and failed-wave recovery             |
+| `backlog-groom-publisher.yml`        | Manual dispatch                         | Approval-gated publication | Revalidate one exact final aggregate and update the compact trusted tracker          |
+| `weekly-security-maintenance.yml`    | Schedule (Sun 2AM UTC)                  | Soft-fail warnings         | Weekly security posture                                                              |
+| `scorecard.yml`                      | Push to main, Schedule (Sun 3AM UTC)    | SARIF upload               | OpenSSF Scorecard security posture                                                   |
 
 The validation jobs in `pr-validation.yml` feed the `pr-validation-success` aggregator, which is the required merge signal. The `gate-completeness-check` job verifies that every validation job appears in that gate's `needs:` list.
 
@@ -66,6 +69,201 @@ release-stable-publish.yml jobs: release-please, sync-release-pr, validate-relea
 When the managed PR merges, the workflow validates the released commit, builds and attests artifacts, publishes the immutable `plugins-v<version>` snapshot, finalizes the draft, and opens a non-auto-merged `release/stable` to `main` metadata synchronization PR.
 
 release-prerelease.yml packages an explicit commit on `main` with an ephemeral odd-minor version. It does not create or reset a prerelease source branch.
+
+## Backlog Grooming Sweep
+
+`backlog-groom-orchestrator.yml` runs a dispatcher-managed sweep over one
+immutable snapshot of the open issue inventory. An initiation captures the
+ordered issue IDs, cursor order, capacity constants, source revision, and
+content digest. Each nonempty run assesses one wave through at most two
+read-only worker shards, invokes the shared wave validator, and uploads one
+immutable aggregate and checkpoint. An empty snapshot skips model workers and
+still produces a validated empty aggregate. A successful nonterminal
+checkpoint dispatches only the next wave. The terminal run authenticates the
+snapshot, every checkpoint, each manifest, and every aggregate against GitHub
+artifact and workflow-run metadata before reconstructing the complete snapshot
+in capture order.
+
+The reducer retains detailed JSON and Markdown for 30 days and writes the exact
+publisher inputs to its job summary. It does not mutate the tracker. A human
+must separately dispatch `backlog-groom-publisher.yml` with the final run,
+artifact, digest, sweep, snapshot, and source revision identifiers. The
+publisher downloads that exact artifact ID, authenticates its successful
+orchestrator run, revalidates the final aggregate, and only then updates or
+reopens the trusted bot-owned tracker. The snapshot records the trusted
+tracker's aggregate digest at capture time. Publication is a compare-and-swap:
+the publisher permits an idempotent replay of the same final digest, otherwise
+the current tracker digest must equal the final aggregate's predecessor digest.
+A stale or ambiguous aggregate fails before tracker mutation.
+
+The production workflow is manual-only. Its `workflow_dispatch` inputs form a
+versioned continuation protocol; operators leave the continuation fields at
+their defaults when initiating a sweep. The coordinator passes only artifact
+identities, digests, run identities, the sweep identity, and the next wave
+number between runs. Candidate issue IDs remain inside retained artifacts.
+Failure injection is available only through the separate manual-only
+`backlog-groom-proof.yml` workflow. Production and proof both execute
+`.github/actions/backlog-groom-wave-validator`; the proof treats expected
+validator rejection as success and cannot create a checkpoint, successor, or
+tracker update.
+
+`backlog-groom-multi-wave-proof.yml` is a separate manual-only, non-production
+hosted harness. It creates an immutable synthetic snapshot of issue IDs 1001
+through 1025, partitions them into three waves with capacity 10, and generates
+deterministic shard-result fixtures without invoking gh-aw, a model, or issue
+APIs. Its planned AIC is explicitly labeled `synthetic/planned`, and observed
+model use is zero. Every accepted fixture set passes through the same production
+wave validator before checkpoint creation. The selectable scenarios prove a
+three-run completion, an accepted duplicate no-op, and a rejected wave followed
+by a separately dispatched recovery of only that wave. Terminal evidence binds
+artifact IDs, producer runs, source revision, predecessor identities, schemas,
+and content digests for 30 days.
+
+### Production inputs
+
+Initial dispatch leaves every continuation identity empty and keeps
+`wave-number` at `1`. Continuation inputs are an all-or-none internal tuple;
+only `github-actions[bot]` may supply it. Partial tuples, human-supplied
+continuation state, unknown protocol versions, and moved source refs fail before
+worker execution.
+
+| Orchestrator input       | Type     | Default                     | Valid value or range                         | Applies to   | Permission effect             |
+|--------------------------|----------|-----------------------------|----------------------------------------------|--------------|-------------------------------|
+| `protocol-version`       | `string` | `backlog-grooming-sweep/v1` | Exact supported version                      | Both         | None                          |
+| `sweep-id`               | `string` | Empty                       | Empty initially; 64 lowercase hex characters | Continuation | Binds artifact discovery      |
+| `wave-number`            | `number` | `1`                         | `1` initially; `2..required_waves` afterward | Both         | Controls one bounded wave     |
+| `snapshot-run-id`        | `string` | Empty                       | Positive run ID from the accepted snapshot   | Continuation | Requires plan `actions: read` |
+| `snapshot-artifact-id`   | `string` | Empty                       | Positive immutable artifact ID               | Continuation | Requires plan `actions: read` |
+| `snapshot-digest`        | `string` | Empty                       | 64 lowercase hex characters                  | Continuation | No added permission           |
+| `checkpoint-run-id`      | `string` | Empty                       | Positive predecessor run ID                  | Continuation | Requires plan `actions: read` |
+| `checkpoint-artifact-id` | `string` | Empty                       | Positive immutable artifact ID               | Continuation | Requires plan `actions: read` |
+| `checkpoint-digest`      | `string` | Empty                       | 64 lowercase hex characters                  | Continuation | No added permission           |
+
+The approval-gated publisher has no defaults. All six values are required from
+the terminal reducer summary.
+
+| Publisher input     | Type     | Valid value or range                   | Permission effect              |
+|---------------------|----------|----------------------------------------|--------------------------------|
+| `final-run-id`      | `string` | Positive terminal orchestrator run ID  | Requires `actions: read`       |
+| `final-artifact-id` | `string` | Exact immutable final artifact ID      | Requires `actions: read`       |
+| `final-digest`      | `string` | 64 lowercase hex characters            | No added permission            |
+| `sweep-id`          | `string` | 64 lowercase hex characters            | No added permission            |
+| `snapshot-digest`   | `string` | 64 lowercase hex characters            | No added permission            |
+| `source-sha`        | `string` | 40 lowercase hex Git commit identifier | Authenticates the producer run |
+
+### Permissions
+
+| Job or workflow     | Permissions                                        | Responsibility                                              |
+|---------------------|----------------------------------------------------|-------------------------------------------------------------|
+| Plan                | `actions: read`, `issues: read`                    | Capture or recover the snapshot and plan one wave           |
+| Assess              | `actions: write`, `contents: read`, `issues: read` | Run the bounded workers and upload shard evidence           |
+| Validate and reduce | `actions: read`                                    | Validate immutable artifacts and reconstruct results        |
+| Checkpoint          | `actions: read`                                    | Persist one accepted checkpoint after exact wave validation |
+| Continue            | `actions: write`, `contents: read`                 | Dispatch exactly one authenticated successor                |
+| Publisher workflow  | `actions: read`, `issues: write`                   | Update the tracker after a separate manual approval         |
+| Conflict proof      | No repository scopes                               | Exercise shared rejection logic without issue writes        |
+| Multi-wave proof    | `actions: read`, `contents: read`                  | Validate synthetic artifacts and reduce terminal evidence   |
+| Proof dispatch      | `actions: write`                                   | Dispatch one bounded ordinary or recovery continuation      |
+
+No job combines `actions: write` with `issues: write`. Candidate issues are
+read-only throughout assessment. The separately dispatched publisher is the
+only issue-write surface. Neither an initial sweep nor an automatic
+continuation can reach it.
+
+### Capacity and cost
+
+The fixed wave capacity is:
+
+```text
+wave_capacity = shard_count * shard_width = 2 * 5 = 10 issues
+required_waves = max(1, ceil(total_snapshot_count / wave_capacity))
+planned_aic_per_wave = shard_count * per_worker_aic = 2 * 1,000 = 2,000
+planned_sweep_aic = required_waves * planned_aic_per_wave
+```
+
+The workflow rejects capacity or AIC values that exceed safe integer
+arithmetic. `max-parallel: 2` bounds concurrent model workers. gh-aw is pinned
+at `v0.83.4`; its worker uses the Copilot engine, a 20-minute timeout, and at
+most 1,000 AIC. The 2,000 planned AIC per nonempty wave is the sum of two
+per-worker ceilings. gh-aw does not provide one shared runtime AIC pool across
+the matrix. Planned AIC is a configuration ceiling, not measured use or a
+currency estimate.
+
+The worker artifact contract does not expose authoritative model usage. The
+final aggregate and tracker report planned AIC only; they do not label a
+synthetic zero as observed usage. Use provider billing telemetry for actual
+consumption until measured usage is added to the signed shard envelope.
+
+Artifacts needed to resume a sweep are retained for 30 days. The approximate
+retention-limited inventory ceiling is:
+
+```text
+N_max ≈ retention_days * 24 * 60 / T_wave_minutes * wave_capacity
+```
+
+At an assumed 20 minutes per completed wave, 30-day retention and a capacity of
+10 yield approximately 21,600 issues. Replace that assumption with measured
+end-to-end wave time, including queue, worker, upload, and dispatch latency,
+for operational planning. This is not a guaranteed limit. Throttling, failed
+attempts, and artifact expiry reduce reachable inventory.
+
+Actions minutes, artifact storage, API requests, and model usage all grow with
+snapshot size. A nonempty wave creates one manifest, one or two shard results,
+one aggregate, and one checkpoint. The sweep also creates one snapshot and one
+terminal final artifact. Reruns and proof runs add artifacts and billed runner
+time. Review repository and account billing before approving a large snapshot.
+
+### Platform limits
+
+| Limit group         | Current bound and operational effect                                                                                                                           |
+|---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Matrix jobs         | GitHub permits 256 jobs per matrix; this workflow creates at most two worker jobs per wave                                                                     |
+| Job duration        | A GitHub-hosted job may run for six hours; the model worker is further bounded to 20 minutes                                                                   |
+| Workflow duration   | A workflow run may last 35 days, but this design starts one sequential run per wave                                                                            |
+| Event rate          | GitHub limits workflow-triggering events to 1,500 per 10 seconds per repository                                                                                |
+| Queued runs         | GitHub limits queued workflow runs to 500 per 10 seconds; account concurrency and larger-runner limits also apply                                              |
+| Sweep concurrency   | One repository/ref concurrency group runs at a time with `cancel-in-progress: false`                                                                           |
+| Primary REST rate   | `GITHUB_TOKEN` normally receives 1,000 requests per hour per repository; qualifying Enterprise Cloud resources may receive 15,000                              |
+| Secondary REST rate | GitHub documents 100 concurrent requests and 900 REST points per minute, plus content-creation limits                                                          |
+| Discovery metadata  | At most 500 snapshot and checkpoint candidates are authenticated by producer metadata per discovery pass                                                       |
+| Discovery downloads | Only producer-authenticated snapshot and checkpoint candidates consume the shared 50-download budget per discovery pass                                        |
+| Artifact retrieval  | Cross-run download requires an authenticated token and exact run ID; artifact ID, name, producer workflow, run, source SHA, schema, and digest are revalidated |
+| Artifact retention  | All sweep-critical and proof artifacts use 30-day retention; expiry blocks resume or publication                                                               |
+| Artifact storage    | Stored bytes count against repository or account quotas; artifact count grows per wave and with reruns                                                         |
+| Dispatch inputs     | GitHub allows 25 top-level `workflow_dispatch` inputs and 65,535 characters; the orchestrator uses nine and the publisher uses six                             |
+| Report size         | The tracker has a 65,000-character guard and excludes per-issue rows; detailed evidence remains in artifacts                                                   |
+
+See GitHub's [Actions limits](https://docs.github.com/en/actions/reference/limits),
+[REST API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api),
+[workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event),
+and [artifact storage guidance](https://docs.github.com/en/actions/using-workflows/storing-workflow-data-as-artifacts)
+for current platform and account-specific values. Any finite snapshot can be
+partitioned without a fixed issue-count rejection, but completion still depends
+on finite retention time, API capacity, runner availability, model capacity,
+account concurrency, and billing limits.
+
+### Failure and recovery
+
+| Condition                                                               | Detection                                                       | Tracker and cursor | Automatic behavior                                            | Operator recovery                                                             | Reassessment                              |
+|-------------------------------------------------------------------------|-----------------------------------------------------------------|--------------------|---------------------------------------------------------------|-------------------------------------------------------------------------------|-------------------------------------------|
+| Worker timeout or missing shard                                         | Shared validator cannot find the exact result set               | Unchanged          | No aggregate, checkpoint, or successor                        | Rerun the bound wave                                                          | The failed wave may run again             |
+| Malformed, stale, duplicate, conflicting, or manifest-mismatched result | Shared schema, identity, digest, and coverage checks fail       | Unchanged          | Fails before checkpoint upload                                | Correct the producer or rerun the wave                                        | The rejected wave may run again           |
+| Aggregate or checkpoint upload fails                                    | Required upload step fails                                      | Unchanged          | No successor dispatch                                         | Rerun the same wave; accepted duplicate detection prevents two checkpoints    | The unaccepted wave may run again         |
+| Duplicate wave dispatch                                                 | One valid checkpoint already exists for the wave                | Unchanged          | Worker-free no-op                                             | Resume from that accepted checkpoint                                          | No accepted issue is reassessed           |
+| Continuation API request fails                                          | Dispatch step fails after checkpoint persistence                | Unchanged          | No successor starts                                           | Manually dispatch the exact next tuple from the checkpoint                    | Accepted waves are not reassessed         |
+| Run stops after checkpoint and before dispatch                          | Later initiation discovers a nonterminal contiguous chain       | Unchanged          | Active sweep resumes at the first missing wave                | Initiate the coordinator on the same ref                                      | Accepted waves are not reassessed         |
+| Active sweep is found by a later initiation                             | One valid nonterminal snapshot and chain are discovered         | Unchanged          | Coordinator resumes instead of capturing another snapshot     | Let the resumed wave continue                                                 | Accepted waves are not reassessed         |
+| Snapshot or checkpoint expires                                          | Artifact metadata reports expiry or download fails              | Unchanged          | Resume and publication fail closed                            | Start a new snapshot after reviewing abandoned evidence                       | A new snapshot reassesses eligible issues |
+| API or concurrency throttling                                           | GitHub rejects or delays metadata, download, or dispatch calls  | Unchanged          | Current job fails or remains queued; no partial tracker write | Wait for limits to reset, then resume from the last accepted checkpoint       | Only an unaccepted wave may repeat        |
+| Multiple trusted trackers                                               | Publisher re-resolves more than one trusted bot-owned marker    | Unchanged          | No issue write                                                | Resolve tracker ambiguity manually, then redispatch the exact publisher tuple | No assessment rerun required              |
+| Final reducer fails                                                     | Chain, manifest, aggregate, or exact-set validation fails       | Unchanged          | No final accepted artifact or publication summary             | Repair or rerun the first invalid or missing wave                             | Only unaccepted work should repeat        |
+| Publisher fails                                                         | Metadata, digest, compact report, or issue API validation fails | Unchanged          | Final artifacts remain retained; tracker is not advanced      | Correct the publication blocker and redispatch the same exact tuple           | No assessment rerun required              |
+
+The production schedule remains disabled. The hosted zero-model multi-wave
+proof was executed on 2026-08-18 in the dedicated test repository. No
+model-backed production coordinator sweep or successful tracker publication
+has occurred. Both proof and publisher workflows remain manual-only. The proof
+cannot publish; the publisher cannot start or continue a sweep.
 
 ## Reusable Workflows
 
@@ -122,7 +320,9 @@ All workflows in this repository follow security best practices:
 ### Credential Protection
 
 * `persist-credentials: false` used in checkouts to prevent credential leakage
-* Secrets inherited explicitly with `secrets: inherit`
+* The reusable backlog worker receives only `COPILOT_GITHUB_TOKEN`,
+  `GH_AW_GITHUB_MCP_SERVER_TOKEN`, and `GH_AW_GITHUB_TOKEN`; it does not inherit
+  the caller's complete secret set
 * No hardcoded tokens or credentials
 
 ## Maintenance

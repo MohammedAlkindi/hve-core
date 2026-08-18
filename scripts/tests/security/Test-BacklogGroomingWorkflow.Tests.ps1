@@ -165,9 +165,47 @@ BeforeAll {
         }
     }
 
+    function Get-SweepSlices {
+        param(
+            [AllowNull()] [int[]]$IssueIds,
+            [Parameter(Mandatory)] [int]$WaveCapacity
+        )
+
+        $slices = [System.Collections.Generic.List[object]]::new()
+        $requiredWaves = [Math]::Max(1, [Math]::Ceiling($IssueIds.Count / $WaveCapacity))
+        foreach ($waveNumber in 1..$requiredWaves) {
+            $start = ($waveNumber - 1) * $WaveCapacity
+            $end = [Math]::Min($start + $WaveCapacity - 1, $IssueIds.Count - 1)
+            $slice = if ($start -ge $IssueIds.Count) { @() } else { @($IssueIds[$start..$end]) }
+            $slices.Add($slice)
+        }
+        return @($slices)
+    }
+
+    function Get-SweepCursor {
+        param(
+            [Parameter(Mandatory)] [int[]]$CursorCandidateIds,
+            [Parameter(Mandatory)] [object[]]$Rows,
+            [Parameter(Mandatory)] [int]$PriorCursor
+        )
+
+        $rowsByIssue = @{}
+        foreach ($row in $Rows) { $rowsByIssue[$row.Issue] = $row }
+        $assessed = @($CursorCandidateIds | Where-Object { $rowsByIssue[$_].Status -eq 'Assessed' })
+        if ($assessed.Count -gt 0) { return $assessed[-1] }
+        return $PriorCursor
+    }
+
     $script:Source = Read-RepoFile '.github/workflows/backlog-groom.md'
     $script:Lock = Read-RepoFile '.github/workflows/backlog-groom.lock.yml'
     $script:Orchestrator = Read-RepoFile '.github/workflows/backlog-groom-orchestrator.yml'
+    $script:Proof = Read-RepoFile '.github/workflows/backlog-groom-proof.yml'
+    $script:MultiWaveProof = Read-RepoFile '.github/workflows/backlog-groom-multi-wave-proof.yml'
+    $script:MultiWaveProofAction = Read-RepoFile '.github/actions/backlog-groom-multi-wave-proof/action.yml'
+    $script:MultiWaveProofHelper = Read-RepoFile '.github/actions/backlog-groom-multi-wave-proof/proof.js'
+    $script:Publisher = Read-RepoFile '.github/workflows/backlog-groom-publisher.yml'
+    $script:WaveValidator = Read-RepoFile '.github/actions/backlog-groom-wave-validator/validate.js'
+    $script:WorkflowReadme = Read-RepoFile '.github/workflows/README.md'
     $script:Policy = Read-RepoFile '.github/instructions/github/github-backlog-grooming.instructions.md'
     $script:Agent = Read-RepoFile '.github/agents/github/backlog-grooming.agent.md'
     $script:Manager = Read-RepoFile '.github/agents/github/github-backlog-manager.agent.md'
@@ -204,8 +242,11 @@ Describe 'Backlog grooming workflow source' -Tag 'Unit' {
     }
 
     It 'binds assessment to the planned open non-pull-request candidate set' {
-        $script:Source | Should -Match 'retrieve only the listed open issues'
-        $script:Source | Should -Match 'missing, closed, or a pull request'
+        $script:Source | Should -Match 'retrieve every listed issue by number'
+        $script:Source | Should -Match '(?s)missing,\s+closed, or has become a pull request'
+        $script:Source | Should -Match 'emit one canonical `Deferred` row for that number'
+        $script:Source | Should -Match '(?s)Do not omit the\s+row or call `noop` for an individual post-capture state change'
+        $script:Source | Should -Match '(?s)Call `noop` only when shard input validation fails or a repository-wide access'
         $script:Source | Should -Match 'Report issue IDs do not match the planned shard candidates'
         $script:Source | Should -Match 'Worker candidate IDs must be unique positive integers in ascending order'
         $script:Source | Should -Match 'The orchestrator, not the worker,\s+owns inventory selection'
@@ -318,49 +359,51 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
             )) {
             $script:Source | Should -Match ([regex]::Escape("``$field``"))
         }
-        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-proof-manifest/v1"'
-        $script:Orchestrator | Should -Match 'selectionMode = "production-inventory"'
-        $script:Orchestrator | Should -Match 'cursorCandidateIds = selectedIssues\.map'
-        $script:Orchestrator | Should -Match 'plannedShards = populatedShards\.length > 0 \? populatedShards : \[shards\[0\]\]'
+        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-sweep-snapshot/v1"'
+        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-wave-manifest/v1"'
+        $script:Orchestrator | Should -Match 'cursor_candidate_ids: cursorIds'
+        $script:Orchestrator | Should -Match 'requiredWaves = Math\.max\(1, Math\.ceil\(openIssues\.length / waveCapacity\)\)'
         $script:Orchestrator | Should -Match 'createHash\("sha256"\)'
-        $script:Orchestrator | Should -Match 'backlog-grooming-proof-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-manifest'
-        $script:Orchestrator | Should -Match 'plannedAiCredits = shardCount \* perWorkerAiCredits'
-        $script:Orchestrator | Should -Match 'planned AI Credits \$\{plannedAiCredits\} exceed cap'
+        $script:Orchestrator | Should -Match 'backlog-grooming-sweep-v1-\$\{\{ github\.repository_id \}\}-snapshot-'
+        $script:Orchestrator | Should -Match 'plannedSweepAic = requiredWaves \* plannedAicPerWave'
+        $script:Orchestrator | Should -Match 'Sweep capacity or AIC exceeds safe integer arithmetic'
         $script:Orchestrator | Should -Match 'prior_cursor: priorCursor'
         $script:Orchestrator | Should -Match 'core\.setOutput\("shard-matrix", JSON\.stringify\(matrix\)\)'
-        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?max-parallel: \$\{\{ fromJSON\(inputs\.max-parallel\) \}\}'
+        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?max-parallel: 2'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?shard: \$\{\{ fromJSON\(needs\.plan\.outputs\.shard-matrix\) \}\}'
         $script:Orchestrator | Should -Match 'shard_id: \$\{\{ matrix\.shard\.shard_id \}\}'
         $script:Orchestrator | Should -Match 'ordered_candidate_ids: \$\{\{ toJSON\(matrix\.shard\.ordered_candidate_ids\) \}\}'
         $script:Orchestrator | Should -Not -Match '(?ms)^  assess:.*?shard_id: shard-01'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?permissions:\s+actions: write\s+contents: read\s+issues: read'
-        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?secrets: inherit'
-        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 1
-        $script:Orchestrator | Should -Match 'terminal_rule: "exactly-one-current-run-result-per-planned-shard"'
-        foreach ($rejection in @('missing', 'malformed', 'stale', 'unexpected', 'duplicate', 'conflicting', 'manifest-mismatched')) {
-            $script:Orchestrator | Should -Match ([regex]::Escape("`"$rejection`""))
+        $script:Orchestrator | Should -Match '(?ms)^  assess:.*?secrets:\s+COPILOT_GITHUB_TOKEN: \$\{\{ secrets\.COPILOT_GITHUB_TOKEN \}\}\s+GH_AW_GITHUB_MCP_SERVER_TOKEN: \$\{\{ secrets\.GH_AW_GITHUB_MCP_SERVER_TOKEN \}\}\s+GH_AW_GITHUB_TOKEN: \$\{\{ secrets\.GH_AW_GITHUB_TOKEN \}\}'
+        $script:Orchestrator | Should -Not -Match '(?ms)^  assess:.*?secrets: inherit'
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 0
+        [regex]::Matches($script:Publisher, '(?m)^\s+issues: write$').Count | Should -Be 1
+        $script:WaveValidator | Should -Match 'byShard\.size !== manifest\.shards\.length'
+        $script:WaveValidator | Should -Match 'Wave result set is incomplete'
+        foreach ($rejection in @('missing', 'stale', 'unexpected', 'duplicate', 'conflicting', 'manifest-mismatched')) {
+            "$script:WaveValidator`n$script:Proof" | Should -Match ([regex]::Escape($rejection))
         }
+        $script:WaveValidator | Should -Match 'exactKeys\(result, \['
     }
 
     It 'fails closed on injected or invalid shard artifact sets without issue-write access' {
-        $script:Orchestrator | Should -Match '(?m)^  inject:$'
-        $script:Orchestrator | Should -Match '(?m)^  validate-results:$'
-        $script:Orchestrator | Should -Match 'inputs\.failure-injection != ''none'''
-        $script:Orchestrator | Should -Match 'Authorized conflicting artifact injection'
-        $script:Orchestrator | Should -Match 'result\.result_digest = crypto'
-        $script:Orchestrator | Should -Match 'missing fields \$\{missingFields\.join'
-        $script:Orchestrator | Should -Match 'result schema mismatch'
-        $script:Orchestrator | Should -Match 'producer mismatch'
-        $script:Orchestrator | Should -Match 'stale run identity'
-        $script:Orchestrator | Should -Match 'unexpected shard \$\{result\.shard_id\}'
-        $script:Orchestrator | Should -Match 'manifest digest mismatch'
-        $script:Orchestrator | Should -Match 'shard candidate mismatch'
-        $script:Orchestrator | Should -Match 'result digest mismatch'
-        $script:Orchestrator | Should -Match 'expected exactly one result, found \$\{shardResults\.length\}'
-        $script:Orchestrator | Should -Match 'Proof result validation failed'
-        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 1
-        $script:Orchestrator | Should -Match '(?ms)^  publish:\s+.*?needs: validate-results'
-        $script:Orchestrator | Should -Match "needs\.validate-results\.result == 'success' && inputs\.publish-report"
+        $script:Orchestrator | Should -Not -Match '(?m)^  inject:$'
+        $script:Orchestrator | Should -Not -Match '(?m)^      failure-injection:$'
+        $script:Proof | Should -Match '(?m)^  inject:$'
+        $script:Proof | Should -Match '(?m)^      failure-injection:$'
+        $script:Proof | Should -Match 'Authorized conflicting artifact injection'
+        $script:Proof | Should -Match 'uses: \./\.github/actions/backlog-groom-wave-validator'
+        $script:Proof | Should -Match 'Production validator did not fail closed before aggregate creation'
+        $script:Orchestrator | Should -Match '(?m)^  validate-wave:$'
+        $script:Orchestrator | Should -Match 'uses: \./\.github/actions/backlog-groom-wave-validator'
+        $script:WaveValidator | Should -Match 'Wave manifest digest mismatch'
+        $script:WaveValidator | Should -Match 'Missing, duplicate, stale, unexpected, or manifest-mismatched shard result'
+        $script:WaveValidator | Should -Match 'Shard result digest mismatch'
+        $script:WaveValidator | Should -Match 'Wave result set is incomplete'
+        $script:WaveValidator | Should -Match 'Wave issue coverage is incomplete or out of snapshot'
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 0
+        $script:Publisher | Should -Match '(?m)^  workflow_dispatch:$'
     }
 }
 
@@ -427,58 +470,71 @@ Describe 'Backlog grooming deterministic fan-in behavior' -Tag 'Unit' {
     }
 
     It 'enforces selected planner ceilings and aggregate construction after validation' {
-        $script:Orchestrator | Should -Match 'parseInteger\("shard-count", process\.env\.SHARD_COUNT, 1, 2\)'
-        $script:Orchestrator | Should -Match 'parseInteger\("shard-width", process\.env\.SHARD_WIDTH, 1, 5\)'
-        $script:Orchestrator | Should -Match 'parseInteger\("max-parallel", process\.env\.MAX_PARALLEL, 1, 2\)'
-        $script:Orchestrator | Should -Match '"aggregate-ai-credit-cap",\s+process\.env\.AGGREGATE_AI_CREDIT_CAP,\s+1000,\s+2000'
-        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-aggregate/v1"'
-        $script:Orchestrator | Should -Match 'next_cursor: assessedCursorRows\.length > 0\s+\? assessedCursorRows\.at\(-1\)\.issue\s+: manifest\.prior_cursor'
-        $script:Orchestrator | Should -Match 'Upload deterministic proof aggregate'
+        $script:Orchestrator | Should -Match '(?m)^  SWEEP_SHARD_COUNT: 2$'
+        $script:Orchestrator | Should -Match '(?m)^  SWEEP_SHARD_WIDTH: 5$'
+        $script:Orchestrator | Should -Match '(?m)^  SWEEP_MAX_PARALLEL: 2$'
+        $script:Orchestrator | Should -Match '(?m)^  SWEEP_PER_WORKER_AIC: 1000$'
+        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-sweep-aggregate/v1"'
+        $script:Orchestrator | Should -Match 'next_cursor: cursorRows\.length > 0 \? cursorRows\.at\(-1\)\.issue : snapshot\.prior_cursor'
+        $script:Orchestrator | Should -Match 'Upload final detailed sweep evidence'
     }
 }
 
 Describe 'Backlog grooming production publisher' -Tag 'Unit' {
     It 'isolates the sole issue-write permission behind complete fan-in' {
-        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 1
-        $script:Orchestrator | Should -Match '(?ms)^  publish:\s+.*?needs: validate-results\s+if:.*?needs\.validate-results\.result == ''success'''
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 0
+        [regex]::Matches($script:Publisher, '(?m)^\s+issues: write$').Count | Should -Be 1
+        $script:Publisher | Should -Match '(?m)^  workflow_dispatch:$'
+        $script:Publisher | Should -Match '(?m)^          artifact-ids: \$\{\{ inputs\.final-artifact-id \}\}$'
+        $script:Publisher | Should -Match 'run\.path !== "\.github/workflows/backlog-groom-orchestrator\.yml"'
         $script:Orchestrator | Should -Match '(?ms)^  assess:.*?permissions:\s+actions: write\s+contents: read\s+issues: read'
         $script:Source | Should -Not -Match '(?m)^\s+issues: write$'
         $script:Lock | Should -Not -Match '(?m)^\s+issues: write$'
     }
 
     It 'keeps publication and scheduling disabled by default' {
-        $script:Orchestrator | Should -Match '(?ms)^      publish-report:\s+.*?type: boolean\s+default: false'
+        $script:Orchestrator | Should -Not -Match '(?m)^      publish-report:$'
+        $script:Orchestrator | Should -Not -Match '(?m)^      failure-injection:$'
+        $script:Proof | Should -Match '(?m)^  workflow_dispatch:$'
+        $script:Proof | Should -Not -Match '(?m)^  schedule:$'
+        $script:Publisher | Should -Not -Match '(?m)^  schedule:$'
         $script:Orchestrator | Should -Not -Match '(?m)^  schedule:$'
         $script:Source | Should -Match '(?m)^  workflow_call:$'
         $script:Source | Should -Not -Match '(?m)^  (schedule|workflow_dispatch):$'
     }
 
     It 'revalidates aggregate identity, digest, counts, and cursor before writing' {
-        $script:Orchestrator | Should -Match 'Aggregate does not match the trusted publication schema'
-        $script:Orchestrator | Should -Match 'Aggregate digest mismatch'
-        $script:Orchestrator | Should -Match 'Aggregate run counts, timestamp, or stop reason are invalid'
-        $script:Orchestrator | Should -Match 'Aggregate issue data does not match the canonical row schema'
-        $script:Orchestrator | Should -Match 'Aggregate row statuses or cursor do not match the run summary'
-        $script:Orchestrator | Should -Match 'expectedCursor = assessedCursorRows\.length > 0'
-        $script:Orchestrator | Should -Match 'Aggregate cursor order does not match the issue inventory'
+        $script:Publisher | Should -Match 'Final sweep aggregate failed trusted publication validation'
+        $script:Publisher | Should -Match 'digest\(material\) !== recordedDigest'
+        $script:Publisher | Should -Match 'aggregate\.assessed \+ aggregate\.deferred !== aggregate\.total_snapshot_count'
+        $script:Publisher | Should -Match 'aggregate\.checkpoint_digests\.length !== aggregate\.completed_waves'
+        $script:Publisher | Should -Match 'artifact\.workflow_run\?\.id !== finalRunId'
+        $script:Orchestrator | Should -Match 'Final result set does not exactly equal the snapshot'
+        $script:Orchestrator | Should -Match 'snapshot\.cursor_candidate_ids\.map'
+        $script:Orchestrator | Should -Match 'predecessor_aggregate_digest: snapshot\.prior_published_aggregate_digest'
+        $script:Publisher | Should -Not -Match 'observed_aic|Observed AIC'
     }
 
     It 're-resolves only the trusted bot-owned marker tracker before one create or update' {
-        $script:Orchestrator | Should -Match 'const marker = "<!-- gh-aw:backlog-grooming-tracker -->"'
-        $script:Orchestrator | Should -Match 'github\.rest\.issues\.listForRepo'
-        $script:Orchestrator | Should -Match 'issue\.user\?\.login === "github-actions\[bot\]"'
-        $script:Orchestrator | Should -Match 'issue\.user\?\.type === "Bot"'
-        $script:Orchestrator | Should -Match 'Expected at most one trusted marker-bearing tracker'
-        [regex]::Matches($script:Orchestrator, 'github\.rest\.issues\.create\(').Count | Should -Be 1
-        [regex]::Matches($script:Orchestrator, 'github\.rest\.issues\.update\(').Count | Should -Be 1
-        $script:Orchestrator | Should -Match 'title: "Backlog grooming tracker"'
+        $script:Publisher | Should -Match 'const marker = "<!-- gh-aw:backlog-grooming-tracker -->"'
+        $script:Publisher | Should -Match 'github\.rest\.issues\.listForRepo'
+        $script:Publisher | Should -Match 'issue\.user\?\.login === "github-actions\[bot\]"'
+        $script:Publisher | Should -Match 'issue\.user\?\.type === "Bot"'
+        $script:Publisher | Should -Match 'Multiple trusted backlog grooming trackers are ambiguous'
+        $script:Publisher | Should -Match 'currentAggregateDigest === aggregate\.aggregate_digest'
+        $script:Publisher | Should -Match 'publication is idempotent'
+        $script:Publisher | Should -Match 'currentAggregateDigest !== aggregate\.predecessor_aggregate_digest'
+        $script:Publisher | Should -Match 'tracker changed after this sweep snapshot was captured'
+        [regex]::Matches($script:Publisher, 'github\.rest\.issues\.create\(').Count | Should -Be 1
+        [regex]::Matches($script:Publisher, 'github\.rest\.issues\.update\(').Count | Should -Be 1
+        $script:Publisher | Should -Match 'title: "Backlog grooming tracker"'
     }
 
     It 'has no candidate mutation or comment path and writes summary after persistence' {
-        $script:Orchestrator | Should -Not -Match 'github\.rest\.issues\.(createComment|addLabels|removeLabel|lock|unlock)'
-        $script:Orchestrator | Should -Not -Match 'issue_number: row\.issue'
-        $updateIndex = $script:Orchestrator.IndexOf('await github.rest.issues.update({')
-        $summaryIndex = $script:Orchestrator.IndexOf('await core.summary.addRaw(report).write();')
+        $script:Publisher | Should -Not -Match 'github\.rest\.issues\.(createComment|addLabels|removeLabel|lock|unlock)'
+        $script:Publisher | Should -Not -Match 'issue_number: row\.issue'
+        $updateIndex = $script:Publisher.IndexOf('await github.rest.issues.update({')
+        $summaryIndex = $script:Publisher.LastIndexOf('await core.summary.addRaw(report).write();')
         $updateIndex | Should -BeGreaterThan -1
         $summaryIndex | Should -BeGreaterThan $updateIndex
     }
@@ -941,5 +997,224 @@ Describe 'Backlog grooming continuation behavior' -Tag 'Unit' {
         $trackerBodies[0] | Should -Match ([regex]::Escape($summaryReports[0]))
         $trackerBodies[0] | Should -Match 'No issues assessed'
         $trackerBodies[0] | Should -Match 'No maintainer action'
+    }
+}
+
+Describe 'Backlog grooming sweep snapshot and checkpoint contracts' -Tag 'Unit' {
+    It 'S01 emits a deterministic versioned snapshot schema and canonical digest' {
+        $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-sweep-snapshot/v1"'
+        $script:Orchestrator | Should -Match 'snapshot_digest: digest\(material\)'
+        $script:Orchestrator | Should -Match 'validateSnapshot\(snapshot\)'
+        $script:Orchestrator | Should -Match 'Sweep snapshot digest mismatch'
+    }
+
+    It 'S02 derives finite wave counts across matrix boundaries without a cardinality rejection' {
+        $expectedWaves = @{ 0 = 1; 1 = 1; 10 = 1; 11 = 2; 2560 = 256; 2561 = 257 }
+        foreach ($count in $expectedWaves.Keys) {
+            [Math]::Max(1, [Math]::Ceiling($count / 10)) | Should -Be $expectedWaves[$count]
+        }
+        $script:Orchestrator | Should -Match 'requiredWaves = Math\.max\(1, Math\.ceil\(openIssues\.length / waveCapacity\)\)'
+        $script:Orchestrator | Should -Not -Match 'max-waves|max-issues|candidate-ids exceed'
+    }
+
+    It 'S03 partitions snapshot IDs into exhaustive ordered disjoint wave slices' {
+        $ids = @(1..27)
+        $slices = Get-SweepSlices -IssueIds $ids -WaveCapacity 10
+        @($slices | ForEach-Object { $_ }) | Should -Be $ids
+        @($slices | ForEach-Object { $_ } | Select-Object -Unique) | Should -HaveCount 27
+        $slices[0] | Should -Be @(1..10)
+        $slices[2] | Should -Be @(21..27)
+    }
+
+    It 'S04 computes planned sweep AIC with safe finite arithmetic' {
+        $script:Orchestrator | Should -Match 'plannedSweepAic = requiredWaves \* plannedAicPerWave'
+        $script:Orchestrator | Should -Match '\[waveCapacity, requiredWaves, plannedAicPerWave, plannedSweepAic\]\.every\(Number\.isSafeInteger\)'
+        $script:Orchestrator | Should -Match 'planned_sweep_aic: plannedSweepAic'
+    }
+
+    It 'S05 binds checkpoint provenance and applies 30-day retention to every sweep artifact' {
+        foreach ($field in @(
+                'snapshot_digest', 'source_manifest_artifact_id', 'source_manifest_digest',
+                'source_aggregate_artifact_id', 'source_aggregate_digest', 'prior_checkpoint_digest',
+                'cumulative_digest', 'checkpoint_digest'
+            )) {
+            $script:Orchestrator | Should -Match ([regex]::Escape($field))
+        }
+        $script:Orchestrator | Should -Not -Match 'retention-days: 7'
+        $script:Source | Should -Match '(?ms)Upload immutable shard result.*?retention-days: 30'
+        $script:Lock | Should -Match '(?ms)Upload immutable shard result.*?retention-days: 30'
+    }
+
+    It 'S06 accepts only a contiguous digest-bound checkpoint chain' {
+        $script:Orchestrator | Should -Match 'prior\.checkpoint_digest !== process\.env\.PRIOR_CHECKPOINT_DIGEST'
+        $script:Orchestrator | Should -Match 'prior\.wave_number \+ 1 !== waveNumber'
+        $script:Orchestrator | Should -Match 'checkpoint\.prior_checkpoint_digest !== priorCheckpoint\.checkpoint_digest'
+        $script:Orchestrator | Should -Match 'chain\.some\(\(item, index\) => item\.wave_number !== index \+ 1\)'
+        $script:Orchestrator | Should -Match 'Active sweep checkpoint chain is missing, reordered, duplicated, or broken'
+        $script:Orchestrator | Should -Match 'getArtifactMetadata'
+    }
+}
+
+Describe 'Backlog grooming sweep dispatch and recovery contracts' -Tag 'Unit' {
+    It 'S07 rejects broken reordered stale and expired state' {
+        foreach ($guard in @(
+                'Sweep checkpoint digest mismatch', 'Checkpoint predecessor link failed',
+                'Complete checkpoint chain is missing or reordered', 'artifact.expired',
+                'Continuation tuple does not match the accepted predecessor'
+            )) {
+            $script:Orchestrator | Should -Match ([regex]::Escape($guard))
+        }
+    }
+
+    It 'S08 makes an accepted duplicate dispatch a worker-free no-op' {
+        $script:Orchestrator | Should -Match 'already has an accepted checkpoint; duplicate dispatch is a no-op'
+        $script:Orchestrator | Should -Match 'core\.setOutput\("mode", "complete-noop"\)'
+        $script:Orchestrator | Should -Match 'core\.setOutput\("shard-matrix", "\[\]"\)'
+        $script:Orchestrator | Should -Match 'Multiple accepted checkpoints for one sweep wave are ambiguous'
+        $script:Orchestrator | Should -Match 'const matrix = shards\.filter\(\(shard\) => shard\.ordered_candidate_ids\.length > 0\)'
+        $script:Orchestrator | Should -Match "needs\.assess\.result == 'skipped'.*needs\.plan\.outputs\.shard-matrix == '\[\]'"
+    }
+
+    It 'S09 dispatches no successor when wave validation or checkpoint upload fails' {
+        $script:Orchestrator | Should -Match '(?ms)^  checkpoint:.*?if:.*?needs\.validate-wave\.result == ''success'''
+        $script:Orchestrator | Should -Match '(?ms)^  continue:.*?if:.*?needs\.checkpoint\.result == ''success''.*?sweep-complete == ''false'''
+        $script:Orchestrator | Should -Match '(?ms)^  validate-wave:.*?permissions:\s+actions: read\s+outputs:'
+    }
+
+    It 'S10 narrows paginated discovery and resumes the first missing wave within a download limit' {
+        $script:Orchestrator | Should -Match 'github\.paginate\(\s+github\.rest\.actions\.listArtifactsForRepo'
+        $script:Orchestrator | Should -Match 'artifact\.name\.startsWith\(snapshotPrefix\)'
+        $script:Orchestrator | Should -Match 'SWEEP_DISCOVERY_DOWNLOAD_LIMIT: 50'
+        $script:Orchestrator | Should -Match 'SWEEP_DISCOVERY_METADATA_LIMIT: 500'
+        $script:Orchestrator | Should -Match 'Active sweep discovery candidate download limit exceeded'
+        $script:Orchestrator | Should -Match 'Active sweep discovery metadata candidate limit exceeded'
+        $metadataIndex = $script:Orchestrator.IndexOf('snapshotMetadata = await getArtifactMetadata(artifact.id)')
+        $downloadIndex = $script:Orchestrator.IndexOf('await downloadArtifact(artifact.id, destination, snapshotMetadata)')
+        $metadataIndex | Should -BeGreaterThan -1
+        $downloadIndex | Should -BeGreaterThan $metadataIndex
+        $script:Orchestrator | Should -Match 'consumeDiscoveryDownload\(\)'
+        $script:Orchestrator | Should -Match 'candidateSnapshot\.source_ref !== process\.env\.GITHUB_REF'
+        $script:Orchestrator | Should -Match 'candidateSnapshot\.source_sha !== process\.env\.GITHUB_SHA'
+        $script:Orchestrator | Should -Match 'current\.prior_checkpoint_artifact_id !=='
+        $script:Orchestrator | Should -Match 'waveNumber = priorCheckpoint \? priorCheckpoint\.wave_number \+ 1 : 1'
+    }
+
+    It 'S11 sends only the bounded protocol-versioned continuation allowlist' {
+        foreach ($inputName in @(
+                'protocol-version', 'sweep-id', 'wave-number', 'snapshot-run-id',
+                'snapshot-artifact-id', 'snapshot-digest', 'checkpoint-run-id',
+                'checkpoint-artifact-id', 'checkpoint-digest'
+            )) {
+            $script:Orchestrator | Should -Match ([regex]::Escape("`"$inputName`""))
+        }
+        $script:Orchestrator | Should -Not -Match 'candidate-ids|publish-report|failure-injection'
+    }
+
+    It 'S12 isolates lifecycle dispatch and publisher write scopes' {
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+issues: write$').Count | Should -Be 0
+        [regex]::Matches($script:Publisher, '(?m)^\s+issues: write$').Count | Should -Be 1
+        [regex]::Matches($script:Orchestrator, '(?m)^\s+actions: write$').Count | Should -Be 2
+        $script:Orchestrator | Should -Match '(?ms)^  continue:.*?permissions:\s+actions: write\s+contents: read'
+        $script:Publisher | Should -Match '(?ms)^  publish:.*?permissions:\s+actions: read\s+issues: write'
+        $script:Publisher | Should -Not -Match '(?ms)^  publish:.*?permissions:.*?actions: write'
+    }
+}
+
+Describe 'Backlog grooming sweep reduction publication and documentation contracts' -Tag 'Unit' {
+    It 'S13 rejects missing duplicate and out-of-snapshot final rows' {
+        $script:Orchestrator | Should -Match 'Duplicate or out-of-snapshot result \$\{row\.issue\}'
+        $script:Orchestrator | Should -Match 'Final result set does not exactly equal the snapshot'
+        $script:Orchestrator | Should -Match 'rowsByIssue\.size !== snapshot\.total_snapshot_count'
+    }
+
+    It 'S14 preserves report order and derives the cursor from full-snapshot cursor order' {
+        $rows = @(
+            [pscustomobject]@{ Issue = 1; Status = 'Assessed' },
+            [pscustomobject]@{ Issue = 2; Status = 'Deferred' },
+            [pscustomobject]@{ Issue = 3; Status = 'Assessed' }
+        )
+        Get-SweepCursor -CursorCandidateIds @(3, 1, 2) -Rows $rows -PriorCursor 9 | Should -Be 1
+        $script:Orchestrator | Should -Match 'const rows = snapshot\.ordered_issue_ids\.map'
+    }
+
+    It 'S15 counts deferred and closed-after-capture rows exactly once with a reason' {
+        $script:Orchestrator | Should -Match 'deferredRows = rows\.filter\(\(row\) => row\.assessment_status === "Deferred"\)'
+        $script:WaveValidator | Should -Match 'assessedIds\.length \+ deferredIds\.length !== rows\.length'
+        $script:Agent | Should -Match 'missing, closed, or pull-request entries'
+        $script:Source | Should -Match '(?s)Individual\s+candidate retrieval or evidence gaps produce canonical `Deferred` rows'
+    }
+
+    It 'S16 keeps the trusted tracker compact and inventory-independent' {
+        $script:Publisher | Should -Match 'Compact trusted tracker exceeds 65,000 characters'
+        $script:Publisher | Should -Match 'Detailed per-issue evidence is retained in the final workflow artifact'
+        $publishSection = $script:Publisher.Substring($script:Publisher.IndexOf("`n  publish:"))
+        $publishSection | Should -Not -Match 'for \(const row of aggregate\.rows\)'
+    }
+
+    It 'S17 removes injection from production and retains a finite manual proof' {
+        $proofNodeTest = Join-Path $script:RepoRoot '.github/actions/backlog-groom-multi-wave-proof/proof.test.js'
+        $nodeOutput = & node --test $proofNodeTest 2>&1
+        $nodeExitCode = $LASTEXITCODE
+        $nodeOutput | Out-Host
+        $nodeExitCode | Should -Be 0
+
+        $script:Orchestrator | Should -Not -Match 'failure-injection|(?m)^  inject:$|complete-three-wave|duplicate-dispatch|failed-wave-resume'
+        $script:Proof | Should -Match '(?m)^  workflow_dispatch:$'
+        $script:Proof | Should -Not -Match '(?m)^  schedule:$|issues: write'
+        $script:Proof | Should -Match 'duplicate-artifact'
+        $script:Proof | Should -Match 'conflicting-artifact'
+        $script:Proof | Should -Match 'uses: \./\.github/actions/backlog-groom-wave-validator'
+        $script:Proof | Should -Match 'VALIDATION_OUTCOME'
+
+        $script:MultiWaveProof | Should -Match '(?m)^  workflow_dispatch:$'
+        $script:MultiWaveProof | Should -Not -Match '(?m)^  (schedule|push|pull_request|workflow_call):$|issues: write'
+        $script:MultiWaveProof | Should -Not -Match 'COPILOT_GITHUB_TOKEN|GH_AW_|backlog-groom\.lock\.yml|secrets\.'
+        foreach ($scenario in @('complete-three-wave', 'duplicate-dispatch', 'failed-wave-resume')) {
+            $script:MultiWaveProof | Should -Match ([regex]::Escape($scenario))
+        }
+        $script:MultiWaveProof | Should -Match 'uses: \./\.github/actions/backlog-groom-wave-validator'
+        $script:MultiWaveProof | Should -Match 'uses: \./\.github/actions/backlog-groom-multi-wave-proof'
+        [regex]::Matches($script:MultiWaveProof, '(?m)^\s+actions: write$').Count | Should -Be 1
+        $script:MultiWaveProof | Should -Match '(?ms)^  dispatch:.*?permissions:\s+actions: write'
+        $script:MultiWaveProof | Should -Match 'github\.rest\.actions\.createWorkflowDispatch'
+        $script:MultiWaveProof | Should -Match "dispatch-kind: \$\{\{ steps\.accept\.outputs\.dispatch-kind \|\| steps\.gate\.outputs\.dispatch-kind \|\| 'none' \}\}"
+        $script:MultiWaveProof | Should -Match 'artifact\.digest !== uploadedArtifactDigest'
+        $script:MultiWaveProof | Should -Match 'Dispatch proof recovery'
+        $script:MultiWaveProof | Should -Match 'command: wait-duplicate-noop'
+        $script:MultiWaveProof | Should -Match 'observed_noop_artifact_digest'
+        $script:MultiWaveProof | Should -Match 'observed_noop_digest'
+        $script:MultiWaveProof | Should -Not -Match 'listArtifactsForRepo'
+        $script:MultiWaveProof | Should -Match 'retention-days: 30'
+        $script:MultiWaveProof | Should -Not -Match 'retention-days: (?:[0-9]|1[0-9]|2[0-9])$'
+        $script:MultiWaveProofAction | Should -Match 'run: node "\$GITHUB_ACTION_PATH/proof\.js"'
+        $script:MultiWaveProofHelper | Should -Match 'Array\.from\(\{ length: 25 \}'
+        $script:MultiWaveProofHelper | Should -Match 'wave_capacity: 10'
+        $script:MultiWaveProofHelper | Should -Match 'classification: "synthetic/planned"'
+        $script:MultiWaveProofHelper | Should -Match 'observed_model_use: 0'
+        $script:MultiWaveProofHelper | Should -Match 'GITHUB_ACTOR !== "github-actions\[bot\]"'
+        $script:MultiWaveProofHelper | Should -Match 'integer\("wave-number".*1, 3\)'
+        $script:MultiWaveProofHelper | Should -Match 'fixture_created: false'
+        $script:MultiWaveProofHelper | Should -Match 'validator_invoked: false'
+        $script:MultiWaveProofHelper | Should -Match 'aggregate_created: false'
+        $script:MultiWaveProofHelper | Should -Match 'ordinary_successor_dispatched: false'
+        $script:MultiWaveProofHelper | Should -Match 'AUTHENTICATED_CONFLICTING_SHARD_RESULT'
+        $script:MultiWaveProofHelper | Should -Match 'baseline_control_accepted: true'
+        $script:MultiWaveProofHelper | Should -Match 'injected_conflict_authenticated: true'
+        $script:MultiWaveProofHelper | Should -Match 'runProductionControl'
+        $script:MultiWaveProofHelper | Should -Match 'require\.main === module'
+        $script:MultiWaveProofHelper | Should -Match 'Terminal proof reduction is not the exact immutable 25-ID snapshot'
+        $script:MultiWaveProofHelper | Should -Match 'actions/workflows/backlog-groom-multi-wave-proof\.yml/runs'
+        $script:MultiWaveProofHelper | Should -Match 'event=workflow_dispatch&head_sha='
+        $script:MultiWaveProofHelper | Should -Match 'Proof workflow run discovery reached its finite source-SHA limit'
+    }
+
+    It 'S18 documents source-accurate sweep operations limits recovery and rollout state' {
+        foreach ($content in @(
+                'Backlog Grooming Sweep', 'wave_capacity', 'required_waves',
+                'N_max \u2248 retention_days \* 24 \* 60 / T_wave_minutes \* wave_capacity',
+                '30 days', '2,000', '65,000', 'Recovery', 'manual-only'
+            )) {
+            $script:WorkflowReadme | Should -Match $content
+        }
     }
 }
