@@ -362,6 +362,8 @@ Describe 'Backlog grooming sharded orchestration contracts' -Tag 'Unit' {
         $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-sweep-snapshot/v1"'
         $script:Orchestrator | Should -Match 'schema_version: "backlog-grooming-wave-manifest/v1"'
         $script:Orchestrator | Should -Match 'cursor_candidate_ids: cursorIds'
+        $script:Orchestrator | Should -Match 'if \(!seen\.has\(issue\.number\)\)'
+        $script:Orchestrator | Should -Not -Match 'if \(seen\.add\(issue\.number\)\)'
         $script:Orchestrator | Should -Match 'requiredWaves = Math\.max\(1, Math\.ceil\(openIssues\.length / waveCapacity\)\)'
         $script:Orchestrator | Should -Match 'createHash\("sha256"\)'
         $script:Orchestrator | Should -Match 'backlog-grooming-sweep-v1-\$\{\{ github\.repository_id \}\}-snapshot-'
