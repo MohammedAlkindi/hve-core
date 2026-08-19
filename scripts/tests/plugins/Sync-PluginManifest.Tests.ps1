@@ -374,6 +374,17 @@ Describe 'Invoke-PluginManifestSync write mode' -Tag 'Unit' {
 }
 
 Describe 'Invoke-PluginManifestSync failure atomicity' -Tag 'Unit' {
+    It 'Stops before manifest derivation when required root metadata is invalid' {
+        $root = New-PluginFixture -Root (Join-Path $TestDrive 'invalid-metadata')
+        Remove-Item -LiteralPath (Join-Path $root 'README.md') -Force
+
+        $result = Invoke-PluginManifestSync -RepoRoot $root
+
+        $result.Changed | Should -BeFalse
+        $result.Violations -join "`n" | Should -Match 'missing or not a regular file: README\.md'
+        $result.Manifest | Should -BeNullOrEmpty
+    }
+
     It 'Leaves a drifted manifest unchanged when catalog validation fails' {
         $root = New-PluginFixture -Root (Join-Path $TestDrive 'atomicity')
         Set-FixtureCatalog -Root $root -Transform {
@@ -616,6 +627,28 @@ Describe 'Get-PluginCatalogViolations' -Tag 'Unit' {
 
         (Get-PluginCatalogViolations -RepoRoot $script:CatalogRoot -Manifest $manifest) -join "`n" |
             Should -Match 'agents path resolves outside the plugin root'
+    }
+
+    It 'Reports a declared hook that does not exist' {
+        $root = New-PluginFixture -Root (Join-Path $TestDrive 'missing-hook')
+        $manifest = (Invoke-PluginManifestSync -RepoRoot $root).Manifest
+        Remove-Item -LiteralPath (Join-Path $root '.github/hooks/shared/telemetry.json') -Force
+
+        (Get-PluginCatalogViolations -RepoRoot $root -Manifest $manifest) -join "`n" |
+            Should -Match 'hooks path does not exist'
+    }
+
+    It 'Reports a declared hook that resolves outside the plugin root' {
+        $root = New-PluginFixture -Root (Join-Path $TestDrive 'outside-hook')
+        $manifest = (Invoke-PluginManifestSync -RepoRoot $root).Manifest
+        $outsidePath = Join-Path $TestDrive 'outside-hook.json'
+        Set-Content -LiteralPath $outsidePath -Value '{}' -Encoding UTF8
+        $hookPath = Join-Path $root '.github/hooks/shared/telemetry.json'
+        Remove-Item -LiteralPath $hookPath -Force
+        New-Item -ItemType SymbolicLink -Path $hookPath -Target $outsidePath | Out-Null
+
+        (Get-PluginCatalogViolations -RepoRoot $root -Manifest $manifest) -join "`n" |
+            Should -Match 'hooks path resolves outside the plugin root'
     }
 }
 
