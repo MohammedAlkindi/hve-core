@@ -8,6 +8,7 @@ VS Code settings file.
 
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
 
@@ -602,6 +603,28 @@ class TestBackupRetention:
             candidate.write_text("taken", encoding="utf-8")
             names.append(candidate.name)
         assert names == sorted(names)
+
+    def test_a_pruned_index_is_not_reused_within_the_same_second(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Retention frees a low index; reusing it would invert creation order.
+
+        Every name here shares one timestamp, which is what happens when
+        several applies land inside the same second.
+        """
+        settings = tmp_path / "settings.json"
+        settings.write_text("{}\n", encoding="utf-8")
+        stamp = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+        first = backup_path_for(settings, now=stamp)
+        first.write_text("oldest", encoding="utf-8")
+        second = backup_path_for(settings, now=stamp)
+        second.write_text("newer", encoding="utf-8")
+        first.unlink()
+
+        third = backup_path_for(settings, now=stamp)
+
+        assert third.name != first.name
+        assert third.name > second.name
 
     def test_the_backup_sits_beside_the_settings_file(self, tmp_path: pathlib.Path) -> None:
         settings = tmp_path / "settings.json"

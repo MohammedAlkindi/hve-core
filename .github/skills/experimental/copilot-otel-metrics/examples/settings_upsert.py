@@ -392,18 +392,26 @@ def write_audit(audit_path: pathlib.Path, record: dict[str, object]) -> None:
 def backup_path_for(
     settings_path: pathlib.Path, *, now: datetime.datetime | None = None
 ) -> pathlib.Path:
-    """Return a backup path that cannot overwrite an existing backup.
+    """Return a backup path that sorts after every existing backup.
 
-    The timestamp is to the second, so repeated runs accumulate. The counter is
-    always present and zero-padded: an optional suffix would sort `...Z-1.bak`
-    before `...Z.bak`, and retention reads name order to decide what to delete.
+    The timestamp is to the second and the counter is always present and
+    zero-padded, so name order is creation order. The counter resumes after the
+    highest index already used for this second rather than filling the lowest
+    free slot: retention can delete a low index, and reusing it would place a
+    newer backup ahead of an older one in the order retention reads.
     """
     stamp = (now or datetime.datetime.now(datetime.UTC)).strftime("%Y%m%dT%H%M%SZ")
-    collision = 0
-    candidate = settings_path.with_name(f"{settings_path.name}.{stamp}-{collision:03d}.bak")
+    prefix = f"{settings_path.name}.{stamp}-"
+    used = []
+    for sibling in settings_path.parent.glob(f"{prefix}*.bak"):
+        index = sibling.name[len(prefix) : -len(".bak")]
+        if index.isdigit():
+            used.append(int(index))
+    collision = max(used) + 1 if used else 0
+    candidate = settings_path.with_name(f"{prefix}{collision:03d}.bak")
     while candidate.exists():
         collision += 1
-        candidate = settings_path.with_name(f"{settings_path.name}.{stamp}-{collision:03d}.bak")
+        candidate = settings_path.with_name(f"{prefix}{collision:03d}.bak")
     return candidate
 
 
