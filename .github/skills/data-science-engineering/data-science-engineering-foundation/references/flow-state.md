@@ -1,9 +1,9 @@
 ---
-title: Data Workstream Flow-State Protocol
+title: Data Science and Engineering Flow-State Protocol
 description: Interruption gates, durable-write scanning, resume announcements, and completion choices for focused data science and engineering coaching
 ---
 
-# Data Workstream Flow-State Protocol
+# Data Science and Engineering Flow-State Protocol
 
 ## Purpose
 

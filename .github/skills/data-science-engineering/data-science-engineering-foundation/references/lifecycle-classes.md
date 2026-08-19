@@ -1,9 +1,9 @@
 ---
-title: Data Workstream Lifecycle Classes
+title: Data Science and Engineering Lifecycle Classes
 description: Discriminated lifecycle semantics for episodic, bounded, and continuous jobs in a persistent coaching session
 ---
 
-# Data Workstream Lifecycle Classes
+# Data Science and Engineering Lifecycle Classes
 
 ## Purpose
 

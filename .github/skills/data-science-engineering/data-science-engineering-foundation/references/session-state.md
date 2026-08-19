@@ -1,9 +1,9 @@
 ---
-title: Data Workstream Session State Protocol
+title: Data Science and Engineering Session State Protocol
 description: Authoritative path, YAML-in-Markdown schema, project identity validation, mutation, resume, and artifact reconstruction rules
 ---
 
-# Data Workstream Session State Protocol
+# Data Science and Engineering Session State Protocol
 
 ## Purpose
 

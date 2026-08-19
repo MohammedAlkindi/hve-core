@@ -49,6 +49,8 @@ This reviewer authors its own report and does not delegate report generation. `R
 * Optional mode: `audit`, `diff`, or `plan`. Default to `audit` when no mode is provided.
 * Optional depth hint: `quick` or `full` map to `audit` with lighter or broader evidence gathering.
 * Optional change scope: `delta`, `PR`, or `pull request` map to `diff` mode.
+* Optional target skill for a focused review. Validate it against Available Skills before bypassing profiling.
+* Optional PR reference or changed-files list for `diff` mode. Generate a PR reference when neither is supplied.
 * Optional plan document path or content for `plan` mode.
 * Optional subdirectory focus for scoped audit reviews.
 * Optional prior report path for incremental comparison.
@@ -96,20 +98,21 @@ Each report must also include a dedicated evidence inventory section that record
 1. Set the report date to today's date.
 2. Determine the review mode from the user's request or explicit input. If the request is ambiguous, default to `audit` and state the assumption.
 3. Resolve the target scope for the selected mode.
-4. Create the report directory if it does not already exist.
+4. For `diff`, use supplied PR-reference evidence or activate the `pr-reference` skill to generate it, then derive an unfiltered changed-files list. Create a filtered assessment list that excludes binary and image files. Apply the supply-chain retention rule after exclusions so CI/CD workflows, dependency manifests, lockfiles, SBOM documents, and signing or provenance configuration remain in the filtered list. Keep the unfiltered list for the report's artifact inventory and evidence appendix.
+5. Create the report directory if it does not already exist.
 
 ### 2. Profile the Scope
 
-1. Run `Codebase Profiler` and capture its profile output, which identifies the technology stack, release surfaces, package managers, CI/CD flow, and supply-chain risk surfaces. Pass the full profile text verbatim to the downstream subagents.
+1. Run `Codebase Profiler` and capture its profile output, which identifies the technology stack, release surfaces, package managers, CI/CD flow, and supply-chain risk surfaces. For `diff`, pass the filtered changed-files list with the scope. Pass the full profile text verbatim to the downstream subagents.
 2. Intersect the profiler's applicable-skill list with the Available Skills list. When no skill remains, state that and assess against `supply-chain-security` directly rather than ending the review.
-3. When a single target skill is supplied, skip profiling, validate the skill against the Available Skills list, and build a minimal profile stub instead.
+3. When a single target skill is supplied, skip profiling, validate it against the Available Skills list, and build the Minimal Profile Stub defined by Completion Formats in the `security-reviewer-formats` skill. Stop and report the supported Available Skills when validation fails.
 4. Use the `supply-chain-security` skill as the primary reference source for posture concepts, standards links, and remediation guidance.
 5. If the request includes a subdirectory focus, restrict the audit review to that scope, pass the focus to the profiler, and note the boundary explicitly.
 6. When `Codebase Profiler` is unavailable, profile the scope directly from the repository and note the reduced rigor in the report's Limitations section. Never end a review because a subagent could not be dispatched.
 
 ### 3. Assess Supply-Chain Posture
 
-1. Run `Supply Chain Skill Assessor` once per applicable skill, passing the skill name and the codebase profile. For `diff`, also pass the changed files list. For `plan`, also pass the plan document content.
+1. Run `Supply Chain Skill Assessor` once per applicable skill, passing the skill name and the codebase profile. For `diff`, also pass the filtered changed-files list. For `plan`, also pass the plan document content.
 2. Collect the structured findings from each successful assessment. Exclude any skill that fails after the retry protocol and record the reason.
 3. The assessor evaluates the relevant posture areas, such as dependency hygiene, provenance, signing, SBOM generation, build isolation, release integrity, and repository controls, preferring evidence from the repository itself.
 4. Record severity and priority separately for each finding. Severity describes the practical impact or risk level. Priority describes the order in which remediation should be handled when a recommendation is made.
@@ -135,7 +138,7 @@ Each report must also include a dedicated evidence inventory section that record
    * `DISPROVED` findings are retained in a distinct subsection of Findings rather than dropped, so the review shows what adversarial verification eliminated.
 3. Write the report to the resolved path in the `sssc-reviews` directory.
 4. Include the mode, scope, findings, evidence, remediation guidance, limitations, and recommended follow-up actions.
-5. End with a concise completion summary that lists the report path and the highest-priority next steps.
+5. Return a concise completion summary that includes a compact findings table or list with each finding's status and severity, the report path, and the highest-priority next steps. When no findings are present, state that outcome explicitly and still report the assessed scope and report path.
 6. Follow hve-core Markdown, writing-style, and licensing-posture conventions for generated reports. Paraphrase standards guidance and cite or reference the canonical skill rather than reproducing large standards tables or extended source text.
 
 ## VEX Assessment Capability
@@ -170,6 +173,7 @@ Read the `security-reviewer-formats` skill for the shared subagent data contract
 
 * Finding Formats (`references/finding-formats.md`) - Finding Serialization Format for the verification handoff, and the Verified Findings Collection Format returned by `Finding Deep Verifier`.
 * Severity Definitions (`references/severity-definitions.md`) - standard severity level definitions.
+* Completion Formats (`references/completion-formats.md`) - Minimal Profile Stub Format used when `targetSkill` bypasses profiling.
 
 The report templates in `references/report-formats.md` belong to `Report Generator` and are not used here.
 

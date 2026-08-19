@@ -1,9 +1,9 @@
 ---
-title: Data Workstream Job Registry
+title: Data Science and Engineering Job Registry
 description: Authoritative job names, lifecycle classes, skill and specialist routes, and durable outputs for Data Science and Engineering Coach sessions
 ---
 
-# Data Workstream Job Registry
+# Data Science and Engineering Job Registry
 
 ## Purpose
 

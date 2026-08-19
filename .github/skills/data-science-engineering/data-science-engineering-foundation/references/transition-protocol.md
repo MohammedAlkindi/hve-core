@@ -1,9 +1,9 @@
 ---
-title: Data Workstream Transition Protocol
-description: User-confirmed job transition, outgoing disposition, state mutation, and routing rules for Data Workstream Coach sessions
+title: Data Science and Engineering Transition Protocol
+description: User-confirmed job transition, outgoing disposition, state mutation, and routing rules for Data Science and Engineering Coach sessions
 ---
 
-# Data Workstream Transition Protocol
+# Data Science and Engineering Transition Protocol
 
 ## Purpose
 

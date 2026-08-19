@@ -9,7 +9,7 @@ metadata:
   last_updated: "2026-08-03"
 ---
 
-# Data Workstream Foundation
+# Data Science and Engineering Foundation
 
 ## Goal
 
