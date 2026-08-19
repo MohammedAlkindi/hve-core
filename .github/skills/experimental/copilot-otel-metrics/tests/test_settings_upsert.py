@@ -13,6 +13,10 @@ import pathlib
 
 import pytest
 from settings_upsert import (
+    BACKUP_RETENTION,
+    EXIT_INTERRUPTED,
+    EXIT_OK,
+    EXIT_REFUSED,
     SCHEMA,
     SCHEMA_SOURCE,
     SettingsError,
@@ -21,6 +25,9 @@ from settings_upsert import (
     check_policy,
     main,
     parse_assignment,
+    prune_backups,
+    read_settings,
+    resolve_audit_path,
     strip_jsonc,
     summarize,
     top_level_spans,
@@ -120,16 +127,83 @@ class TestPolicy:
     def test_the_local_collector_endpoint_is_allowed(self) -> None:
         check_policy({ENDPOINT: "http://localhost:4318"})
 
-    def test_outfile_with_an_otlp_exporter_is_refused(self) -> None:
+    def test_outfile_with_an_otlp_exporter_is_refused(self, tmp_path: pathlib.Path) -> None:
+        outfile = str(tmp_path / "spans.jsonl")
         with pytest.raises(SettingsError, match="outfile"):
-            check_policy({OUTFILE: "/tmp/spans.jsonl", EXPORTER: "otlp-http"})
+            check_policy({OUTFILE: outfile, EXPORTER: "otlp-http"})
 
-    def test_outfile_with_the_file_exporter_is_allowed(self) -> None:
-        check_policy({OUTFILE: "/tmp/spans.jsonl", EXPORTER: "file"})
+    def test_outfile_with_the_file_exporter_is_allowed(self, tmp_path: pathlib.Path) -> None:
+        check_policy({OUTFILE: str(tmp_path / "spans.jsonl"), EXPORTER: "file"})
 
     def test_a_negative_truncation_limit_is_refused(self) -> None:
         with pytest.raises(SettingsError, match="negative"):
             check_policy({MAXSIZE: -1})
+
+
+class TestMergedStatePolicy:
+    """Cross-setting rules are judged on the file that would result.
+
+    Checking only this invocation's arguments let a contradiction be assembled
+    across two runs: set `outfile` once, set `exporterType` later, and each run
+    passes while the resulting file says both.
+    """
+
+    def test_an_exporter_that_contradicts_an_existing_outfile_is_refused(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        existing = {OUTFILE: str(tmp_path / "spans.jsonl")}
+        with pytest.raises(SettingsError, match="outfile"):
+            check_policy({EXPORTER: "otlp-http"}, existing=existing)
+
+    def test_an_outfile_that_contradicts_an_existing_exporter_is_refused(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        with pytest.raises(SettingsError, match="outfile"):
+            check_policy({OUTFILE: str(tmp_path / "spans.jsonl")}, existing={EXPORTER: "otlp-http"})
+
+    def test_replacing_the_conflicting_setting_in_the_same_run_is_allowed(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        check_policy(
+            {OUTFILE: str(tmp_path / "spans.jsonl"), EXPORTER: "file"},
+            existing={EXPORTER: "otlp-http"},
+        )
+
+    def test_an_existing_unknown_exporter_is_reported(self) -> None:
+        with pytest.raises(SettingsError, match="exporterType"):
+            check_policy({ENABLED: True}, existing={EXPORTER: "otlp-quic"})
+
+
+class TestOutfilePolicy:
+    """Captured spans may not land somewhere nobody chose."""
+
+    def test_a_relative_outfile_is_refused(self) -> None:
+        with pytest.raises(SettingsError, match="absolute"):
+            check_policy({OUTFILE: "spans.jsonl", EXPORTER: "file"})
+
+    def test_an_outfile_inside_this_repository_is_refused(self) -> None:
+        inside = str(pathlib.Path(__file__).resolve().parent / "spans.jsonl")
+        with pytest.raises(SettingsError, match="inside this repository"):
+            check_policy({OUTFILE: inside, EXPORTER: "file"})
+
+    def test_a_foreign_platform_absolute_path_is_accepted(self) -> None:
+        """A settings file is routinely authored on one platform for another."""
+        check_policy({OUTFILE: "/var/log/copilot/spans.jsonl", EXPORTER: "file"})
+
+
+class TestRemoteEndpointOptIn:
+    """A remote endpoint is a deliberate choice, not a default."""
+
+    def test_a_remote_endpoint_is_refused_by_default(self) -> None:
+        with pytest.raises(SettingsError, match="otlpEndpoint"):
+            check_policy({ENDPOINT: "https://93.184.216.34:4318"})
+
+    def test_a_remote_endpoint_is_allowed_with_the_opt_in(self) -> None:
+        check_policy({ENDPOINT: "https://93.184.216.34:4318"}, allow_remote_endpoint=True)
+
+    def test_the_opt_in_does_not_permit_plaintext(self) -> None:
+        with pytest.raises(SettingsError, match="otlpEndpoint"):
+            check_policy({ENDPOINT: "http://93.184.216.34:4318"}, allow_remote_endpoint=True)
 
 
 class TestJsoncHandling:
@@ -198,12 +272,68 @@ class TestCommandLine:
                 "--apply",
             ]
         )
-        assert code == 1
+        assert code == EXIT_REFUSED
         assert settings_file.read_text(encoding="utf-8") == EXISTING
 
     def test_no_assignment_is_refused(self, settings_file: pathlib.Path) -> None:
-        assert main(["--settings", str(settings_file)]) == 1
+        assert main(["--settings", str(settings_file)]) == EXIT_REFUSED
         assert settings_file.read_text(encoding="utf-8") == EXISTING
+
+
+class TestExitConventions:
+    """The exit code distinguishes a refusal from a crash and from an interrupt."""
+
+    def test_a_successful_dry_run_exits_zero(self, settings_file: pathlib.Path) -> None:
+        assert main(["--settings", str(settings_file), "--set", f"{ENABLED}=true"]) == EXIT_OK
+
+    def test_a_refusal_exits_two(self, settings_file: pathlib.Path) -> None:
+        code = main(["--settings", str(settings_file), "--set", f"{CAPTURE}=true", "--apply"])
+        assert code == EXIT_REFUSED
+
+    def test_an_interrupt_exits_one_hundred_thirty(
+        self, settings_file: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def interrupt(*args: object, **kwargs: object) -> str:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("settings_upsert.apply_changes", interrupt)
+        code = main(["--settings", str(settings_file), "--set", f"{ENABLED}=true"])
+        assert code == EXIT_INTERRUPTED
+
+    def test_the_entry_point_passes_the_code_to_sys_exit(self) -> None:
+        """`raise SystemExit(main())` and `sys.exit(main())` differ to a reader."""
+        source = (
+            pathlib.Path(__file__).resolve().parents[1] / "examples" / "settings_upsert.py"
+        ).read_text(encoding="utf-8")
+        assert "sys.exit(main())" in source
+
+    def test_diagnostics_use_a_module_logger(self) -> None:
+        source = (
+            pathlib.Path(__file__).resolve().parents[1] / "examples" / "settings_upsert.py"
+        ).read_text(encoding="utf-8")
+        assert 'LOGGER = logging.getLogger("settings_upsert")' in source
+        assert "def configure_logging(" in source
+
+    def test_a_closed_reader_is_not_an_error(
+        self, settings_file: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A quit pager is the reader leaving, not the edit failing.
+
+        The real redirect replaces this process's stdout descriptor, which
+        would take the test runner's capture with it, so the handler's effect
+        is recorded rather than performed.
+        """
+        silenced: list[str] = []
+
+        def broken(*args: object, **kwargs: object) -> None:
+            raise BrokenPipeError
+
+        monkeypatch.setattr("builtins.print", broken)
+        monkeypatch.setattr(
+            "settings_upsert.silence_broken_pipe", lambda: silenced.append("silenced")
+        )
+        assert main(["--settings", str(settings_file), "--set", f"{ENABLED}=true"]) == EXIT_OK
+        assert silenced == ["silenced"]
 
 
 class TestApply:
@@ -269,7 +399,7 @@ class TestAudit:
     def test_an_ordinary_value_is_recorded_directly(self) -> None:
         assert summarize(ENABLED, True) is True
 
-    def test_an_endpoint_keeps_its_authority_and_loses_its_path(self) -> None:
+    def test_an_endpoint_keeps_its_host_and_loses_everything_else(self) -> None:
         """A path or query on an OTLP endpoint is operator-supplied.
 
         It is where a tenant identifier or a token would sit, and it is not
@@ -280,6 +410,13 @@ class TestAudit:
         assert "token" not in str(summarized)
         assert "v1/traces" not in str(summarized)
 
+    def test_endpoint_userinfo_is_not_copied_into_the_record(self) -> None:
+        """The netloc carries the credential; the host and port do not."""
+        summarized = summarize(ENDPOINT, "https://someone:s3cret@ingest.example.com:4318/v1")
+        assert summarized == "https://ingest.example.com:4318"
+        assert "s3cret" not in str(summarized)
+        assert "someone" not in str(summarized)
+
     def test_a_loopback_endpoint_is_still_recognizable(self) -> None:
         assert summarize(ENDPOINT, "http://localhost:4318/v1/traces") == "http://localhost:4318"
 
@@ -289,6 +426,136 @@ class TestAudit:
 
     def test_an_absent_value_records_as_absent(self) -> None:
         assert summarize(ENDPOINT, None) is None
+
+
+class TestDocumentShapes:
+    """A settings file a person can reasonably have is editable.
+
+    Refusing an empty or comments-only document meant the tool could not make
+    the first edit to a settings file that had never held a setting, which is
+    exactly when it is most useful.
+    """
+
+    @pytest.mark.parametrize("content", ["", "   \n\n", "// nothing set yet\n"])
+    def test_an_effectively_empty_document_is_editable(
+        self, tmp_path: pathlib.Path, content: str
+    ) -> None:
+        target = tmp_path / "settings.json"
+        target.write_text(content, encoding="utf-8")
+        apply_changes(target, {ENABLED: True}, apply=True)
+        assert json.loads(strip_jsonc(target.read_text(encoding="utf-8-sig")))[ENABLED] is True
+
+    def test_a_comments_only_document_keeps_its_comments(self, tmp_path: pathlib.Path) -> None:
+        target = tmp_path / "settings.json"
+        target.write_text("// a note the operator left\n", encoding="utf-8")
+        apply_changes(target, {ENABLED: True}, apply=True)
+        assert "a note the operator left" in target.read_text(encoding="utf-8")
+
+    def test_a_byte_order_mark_is_preserved(self, tmp_path: pathlib.Path) -> None:
+        """VS Code wrote it; removing it is an unrelated change to the file."""
+        target = tmp_path / "settings.json"
+        target.write_bytes(b"\xef\xbb\xbf" + EXISTING.encode("utf-8"))
+        apply_changes(target, {ENABLED: True}, apply=True)
+        assert target.read_bytes().startswith(b"\xef\xbb\xbf")
+        assert json.loads(strip_jsonc(target.read_text(encoding="utf-8-sig")))[ENABLED] is True
+
+    def test_a_document_without_a_mark_does_not_gain_one(self, settings_file: pathlib.Path) -> None:
+        apply_changes(settings_file, {ENABLED: True}, apply=True)
+        assert not settings_file.read_bytes().startswith(b"\xef\xbb\xbf")
+
+    def test_read_settings_reports_the_mark_separately(self, tmp_path: pathlib.Path) -> None:
+        target = tmp_path / "settings.json"
+        target.write_bytes(b"\xef\xbb\xbf{}\n")
+        bom, text = read_settings(target)
+        assert bom == "\ufeff"
+        assert not text.startswith("\ufeff")
+
+
+class TestAtomicWrite:
+    """An interrupted write may not leave a truncated settings file.
+
+    Writing in place truncates before it writes, so a failure at the wrong
+    moment destroys the document. Staging beside the target and replacing means
+    the file is either the old one or the new one.
+    """
+
+    def test_a_failed_write_leaves_the_original_intact(
+        self, settings_file: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail(*args: object, **kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("settings_upsert.os.replace", fail)
+        with pytest.raises(OSError, match="disk full"):
+            apply_changes(settings_file, {ENABLED: True}, apply=True)
+        assert settings_file.read_text(encoding="utf-8") == EXISTING
+
+    def test_a_failed_write_leaves_no_staged_file_behind(
+        self, settings_file: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail(*args: object, **kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("settings_upsert.os.replace", fail)
+        with pytest.raises(OSError):
+            apply_changes(settings_file, {ENABLED: True}, apply=True)
+        assert list(settings_file.parent.glob("*.staged")) == []
+
+    def test_a_new_settings_file_is_not_created_by_a_failed_write(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        target = tmp_path / "settings.json"
+
+        def fail(*args: object, **kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("settings_upsert.os.replace", fail)
+        with pytest.raises(OSError):
+            apply_changes(target, {ENABLED: True}, apply=True)
+        assert not target.exists()
+
+
+class TestAuditPathAliases:
+    """An audit path may not be an alias for the file being protected.
+
+    Containing the path to the settings directory was worse than useless: it
+    silently moved the operator's chosen path into the one directory where an
+    appended JSON line destroys the settings file or its backup.
+    """
+
+    def test_the_settings_file_itself_is_refused(self, settings_file: pathlib.Path) -> None:
+        with pytest.raises(SettingsError, match="settings file itself"):
+            resolve_audit_path(str(settings_file), settings_file)
+
+    def test_a_backup_beside_the_settings_file_is_refused(
+        self, settings_file: pathlib.Path
+    ) -> None:
+        backup = backup_path_for(settings_file)
+        with pytest.raises(SettingsError, match="settings backup"):
+            resolve_audit_path(str(backup), settings_file)
+
+    def test_a_directory_is_refused(
+        self, settings_file: pathlib.Path, tmp_path: pathlib.Path
+    ) -> None:
+        with pytest.raises(SettingsError, match="directory"):
+            resolve_audit_path(str(tmp_path), settings_file)
+
+    def test_an_operator_chosen_path_elsewhere_is_kept(
+        self, settings_file: pathlib.Path, tmp_path: pathlib.Path
+    ) -> None:
+        chosen = tmp_path.parent / "audit-elsewhere.jsonl"
+        assert resolve_audit_path(str(chosen), settings_file) == chosen.resolve()
+
+    def test_a_relative_path_resolves_against_the_caller(
+        self, settings_file: pathlib.Path, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        elsewhere = tmp_path / "cwd"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        assert (
+            resolve_audit_path("audit.jsonl", settings_file)
+            == (elsewhere / "audit.jsonl").resolve()
+        )
 
 
 class TestBackupRetention:
@@ -321,11 +588,56 @@ class TestBackupRetention:
         assert second != first
         assert not second.exists()
 
+    def test_a_later_backup_sorts_after_an_earlier_one(self, tmp_path: pathlib.Path) -> None:
+        """Retention reads name order to decide what to delete.
+
+        An optional collision suffix put `...Z-1.bak` before `...Z.bak`, which
+        would have made pruning remove the newest backups and keep the oldest.
+        """
+        settings = tmp_path / "settings.json"
+        settings.write_text("{}\n", encoding="utf-8")
+        names = []
+        for _ in range(3):
+            candidate = backup_path_for(settings)
+            candidate.write_text("taken", encoding="utf-8")
+            names.append(candidate.name)
+        assert names == sorted(names)
+
     def test_the_backup_sits_beside_the_settings_file(self, tmp_path: pathlib.Path) -> None:
         settings = tmp_path / "settings.json"
         assert backup_path_for(settings).parent == tmp_path
         assert backup_path_for(settings).name.startswith("settings.json.")
         assert backup_path_for(settings).name.endswith(".bak")
+
+    def test_only_the_newest_backups_are_kept(self, settings_file: pathlib.Path) -> None:
+        """Each backup is a full copy of a file naming an endpoint and an output path.
+
+        Unbounded retention left a growing pile of them beside the settings
+        file, which is a disclosure surface that grows with ordinary use.
+        """
+        for index in range(BACKUP_RETENTION + 3):
+            apply_changes(settings_file, {MAXSIZE: index + 1}, apply=True)
+        backups = sorted(settings_file.parent.glob(f"{settings_file.name}.*.bak"))
+        assert len(backups) == BACKUP_RETENTION
+
+    def test_pruning_reports_what_it_removed(self, tmp_path: pathlib.Path) -> None:
+        settings = tmp_path / "settings.json"
+        settings.write_text("{}\n", encoding="utf-8")
+        created = []
+        for index in range(BACKUP_RETENTION + 2):
+            backup = settings.with_name(f"{settings.name}.2026010{index}T000000Z-000.bak")
+            backup.write_text("{}\n", encoding="utf-8")
+            created.append(backup)
+        removed = prune_backups(settings)
+        assert removed == created[:2]
+        assert all(not path.exists() for path in removed)
+
+    def test_pruning_keeps_the_newest_backup(self, settings_file: pathlib.Path) -> None:
+        for index in range(BACKUP_RETENTION + 2):
+            apply_changes(settings_file, {MAXSIZE: index + 1}, apply=True)
+        backups = sorted(settings_file.parent.glob(f"{settings_file.name}.*.bak"))
+        newest = json.loads(strip_jsonc(backups[-1].read_text(encoding="utf-8-sig")))
+        assert newest[MAXSIZE] == BACKUP_RETENTION + 1
 
 
 class TestTrailingCommas:

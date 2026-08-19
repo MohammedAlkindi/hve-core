@@ -10,6 +10,7 @@ side effect is not a guard.
 from __future__ import annotations
 
 import io
+import ipaddress
 import json
 import os
 import pathlib
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import urllib.request
 
+import _input_policy
 import inspect_metrics
 import pytest
 import validate_dashboard
@@ -26,12 +28,44 @@ from _input_policy import (
     PolicyError,
     check_url,
     contain_path,
+    is_loopback_host,
     open_url,
     origin_of,
     require_credentials,
 )
 
 EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / "examples"
+
+# Address literals, so these tests exercise the policy rather than whatever
+# DNS answers on the machine running them. 93.184.216.34 is globally routable
+# and 10.0.0.7 is not; no test opens a connection to either.
+GLOBAL_ADDRESS = "93.184.216.34"
+PRIVATE_ADDRESS = "10.0.0.7"
+
+
+@pytest.fixture
+def resolves(monkeypatch: pytest.MonkeyPatch):
+    """Pin what each name resolves to, so the rule under test is the policy.
+
+    Resolution is the thing this policy now depends on, which makes real DNS a
+    dependency of the test rather than a subject of it. An unroutable name and
+    a name that answers with a routable address are both failures worth
+    asserting, and neither is reliably reproducible against a real resolver.
+    """
+
+    def apply(mapping: dict[str, list[str]]) -> None:
+        def fake(host: str) -> tuple:
+            try:
+                return (ipaddress.ip_address(host.strip("[]")),)
+            except ValueError:
+                pass
+            if host not in mapping:
+                raise PolicyError(f"refusing '{host}': it does not resolve")
+            return tuple(ipaddress.ip_address(value) for value in mapping[host])
+
+        monkeypatch.setattr(_input_policy, "resolve_addresses", fake)
+
+    return apply
 
 
 class TestScheme:
@@ -93,18 +127,55 @@ class TestPorts:
 
 
 class TestRemoteOptIn:
-    """A remote target needs an explicit opt-in and TLS."""
+    """A remote target needs an explicit opt-in, TLS, and a globally routable address."""
 
-    def test_a_remote_host_is_refused_without_opt_in(self) -> None:
+    def test_a_remote_host_is_refused_without_opt_in(self, resolves) -> None:
+        resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
         with pytest.raises(PolicyError, match="non-loopback"):
             check_url("https://grafana.example.com/")
 
-    def test_a_remote_host_is_allowed_with_opt_in(self) -> None:
+    def test_a_remote_host_is_allowed_with_opt_in(self, resolves) -> None:
+        resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
         assert check_url("https://grafana.example.com/", allow_remote=True).scheme == "https"
 
-    def test_plaintext_remote_is_refused_even_with_opt_in(self) -> None:
+    def test_plaintext_remote_is_refused_even_with_opt_in(self, resolves) -> None:
+        resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
         with pytest.raises(PolicyError, match="plaintext"):
             check_url("http://grafana.example.com/", allow_remote=True)
+
+    def test_an_opted_in_remote_name_resolving_inside_the_network_is_refused(
+        self, resolves
+    ) -> None:
+        """The opt-in permits a remote target, not a route back into the network."""
+        resolves({"grafana.example.com": [PRIVATE_ADDRESS]})
+        with pytest.raises(PolicyError, match="non-global"):
+            check_url("https://grafana.example.com/", allow_remote=True)
+
+
+class TestHostResolution:
+    """A name is classified by where it resolves, not by how it is spelled."""
+
+    def test_a_local_looking_name_that_resolves_off_machine_is_not_local(self, resolves) -> None:
+        resolves({"localhost": [GLOBAL_ADDRESS]})
+        assert is_loopback_host("localhost") is False
+        with pytest.raises(PolicyError, match="non-loopback"):
+            check_url("http://localhost:3000/")
+
+    def test_a_name_resolving_to_both_is_refused(self, resolves) -> None:
+        """Treating a mixed answer as local would permit a connection off machine."""
+        resolves({"split.example": ["127.0.0.1", GLOBAL_ADDRESS]})
+        assert is_loopback_host("split.example") is False
+        with pytest.raises(PolicyError, match="loopback and non-loopback"):
+            check_url("http://split.example:3000/")
+
+    def test_a_name_that_does_not_resolve_is_refused(self, resolves) -> None:
+        resolves({})
+        with pytest.raises(PolicyError, match="does not resolve"):
+            check_url("http://nowhere.invalid:3000/")
+
+    @pytest.mark.parametrize("literal", ["127.0.0.1", "[::1]"])
+    def test_an_address_literal_needs_no_resolver(self, literal: str) -> None:
+        assert is_loopback_host(literal) is True
 
 
 class TestRedirects:
@@ -118,7 +189,7 @@ class TestRedirects:
         request = urllib.request.Request("http://localhost:3000/api")
         with pytest.raises(PolicyError, match="non-loopback"):
             self._handler().redirect_request(
-                request, None, 302, "Found", {}, "http://evil.example.com/"
+                request, None, 302, "Found", {}, f"http://{GLOBAL_ADDRESS}/"
             )
 
     def test_a_redirect_to_a_file_url_is_refused(self) -> None:
@@ -254,28 +325,30 @@ class TestHelperWiring:
         assert result.returncode != 0
         assert "refusing a path outside" in (result.stderr + result.stdout)
 
-    def test_validate_dashboard_refuses_a_dashboard_outside_the_examples_directory(
+    def test_validate_dashboard_reports_a_malformed_dashboard_without_a_traceback(
         self, tmp_path: pathlib.Path
     ) -> None:
-        outside = tmp_path / "someone-elses-dashboard.json"
-        outside.write_text("{}", encoding="utf-8")
+        broken = tmp_path / "generated-dashboard.json"
+        broken.write_text("{not json", encoding="utf-8")
         result = run_helper(
             "validate_dashboard.py",
-            [str(outside)],
+            [str(broken)],
             {
                 "COPILOT_OTEL_GRAFANA_USER": "operator",
                 "COPILOT_OTEL_GRAFANA_PASSWORD": "chosen-by-the-user",
             },
         )
-        assert result.returncode != 0
-        assert "refusing a path outside" in (result.stderr + result.stdout)
+        assert result.returncode == 1
+        combined = result.stderr + result.stdout
+        assert "not valid JSON" in combined
+        assert "Traceback" not in combined
 
     def test_validate_dashboard_refuses_a_non_loopback_endpoint_without_opt_in(self) -> None:
         result = run_helper(
             "validate_dashboard.py",
             [],
             {
-                "COPILOT_OTEL_GRAFANA": "https://grafana.example.com",
+                "COPILOT_OTEL_GRAFANA": f"https://{GLOBAL_ADDRESS}:3000",
                 "COPILOT_OTEL_GRAFANA_USER": "operator",
                 "COPILOT_OTEL_GRAFANA_PASSWORD": "chosen-by-the-user",
             },
@@ -289,7 +362,7 @@ class TestHelperWiring:
             "validate_dashboard.py",
             [],
             {
-                "COPILOT_OTEL_PROMETHEUS": "http://evil.example.com:9090",
+                "COPILOT_OTEL_PROMETHEUS": f"http://{GLOBAL_ADDRESS}:9090",
                 "COPILOT_OTEL_GRAFANA_USER": "operator",
                 "COPILOT_OTEL_GRAFANA_PASSWORD": "chosen-by-the-user",
             },
@@ -307,6 +380,59 @@ class TestHelperWiring:
         combined = result.stderr + result.stdout
         assert "COPILOT_OTEL_GRAFANA_USER" in combined
         assert "COPILOT_OTEL_GRAFANA_PASSWORD" in combined
+
+
+class TestDashboardSelection:
+    """A generated dashboard is the normal subject, not an intrusion.
+
+    Confining the argument to the installed skill directory made the workflow
+    the README documents impossible: the dashboard worth checking is usually
+    one that was just produced somewhere else. What replaces the containment
+    check is a controlled failure for every way a selected file can be wrong.
+    """
+
+    def _dashboard(self) -> dict:
+        return {"panels": [{"title": "one", "type": "row"}]}
+
+    def test_a_generated_dashboard_outside_the_skill_is_accepted(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        generated = tmp_path / "generated.json"
+        generated.write_text(json.dumps(self._dashboard()), encoding="utf-8")
+        assert validate_dashboard.load_dashboard(str(generated)) == self._dashboard()
+
+    def test_a_relative_path_resolves_against_the_current_directory(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "generated.json").write_text(json.dumps(self._dashboard()), encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        assert validate_dashboard.load_dashboard("generated.json") == self._dashboard()
+
+    def test_the_bundled_dashboard_is_the_default(self) -> None:
+        assert validate_dashboard.load_dashboard(None)["panels"]
+
+    def test_a_missing_file_is_reported_as_a_missing_file(self, tmp_path: pathlib.Path) -> None:
+        with pytest.raises(PolicyError, match="no dashboard at"):
+            validate_dashboard.load_dashboard(str(tmp_path / "absent.json"))
+
+    def test_a_directory_is_reported_as_a_directory(self, tmp_path: pathlib.Path) -> None:
+        with pytest.raises(PolicyError, match="not a dashboard file"):
+            validate_dashboard.load_dashboard(str(tmp_path))
+
+    def test_invalid_json_is_reported_as_invalid_json(self, tmp_path: pathlib.Path) -> None:
+        broken = tmp_path / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        with pytest.raises(PolicyError, match="not valid JSON"):
+            validate_dashboard.load_dashboard(str(broken))
+
+    @pytest.mark.parametrize("content", ["[]", '{"title": "no panels"}', '{"panels": {}}'])
+    def test_json_that_is_not_a_dashboard_is_reported_as_such(
+        self, tmp_path: pathlib.Path, content: str
+    ) -> None:
+        candidate = tmp_path / "not-a-dashboard.json"
+        candidate.write_text(content, encoding="utf-8")
+        with pytest.raises(PolicyError, match="no panels array"):
+            validate_dashboard.load_dashboard(str(candidate))
 
 
 def _json_response(payload: dict) -> io.BytesIO:
@@ -414,8 +540,9 @@ class TestRedirectCredentialHandling:
         redirected = self._redirect("http://localhost:3000/api", "http://localhost:3000/other")
         assert redirected.headers["Authorization"] == "Basic issued-for-the-original-origin"
 
-    def test_an_explicit_default_port_is_the_same_origin(self) -> None:
+    def test_an_explicit_default_port_is_the_same_origin(self, resolves) -> None:
         """`https://h/x` and `https://h:443/y` are one origin, not two."""
+        resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
         redirected = self._redirect(
             "https://grafana.example.com/api",
             "https://grafana.example.com:443/other",
@@ -423,7 +550,13 @@ class TestRedirectCredentialHandling:
         )
         assert redirected.headers["Authorization"] == "Basic issued-for-the-original-origin"
 
-    def test_a_different_remote_host_drops_the_credential(self) -> None:
+    def test_a_different_remote_host_drops_the_credential(self, resolves) -> None:
+        resolves(
+            {
+                "grafana.example.com": [GLOBAL_ADDRESS],
+                "someone-else.example.com": [GLOBAL_ADDRESS],
+            }
+        )
         redirected = self._redirect(
             "https://grafana.example.com/api",
             "https://someone-else.example.com/api",
@@ -431,7 +564,8 @@ class TestRedirectCredentialHandling:
         )
         assert "Authorization" not in redirected.headers
 
-    def test_a_different_remote_port_drops_the_credential(self) -> None:
+    def test_a_different_remote_port_drops_the_credential(self, resolves) -> None:
+        resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
         redirected = self._redirect(
             "https://grafana.example.com/api",
             "https://grafana.example.com:9090/api",

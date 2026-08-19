@@ -23,12 +23,29 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import logging
+import os
 import pathlib
 import shutil
 import sys
 import urllib.parse
 
-from _input_policy import DEFAULT_ALLOWED_PORTS, PolicyError, check_url, contain_path
+from _input_policy import DEFAULT_ALLOWED_PORTS, PolicyError, check_url
+
+LOGGER = logging.getLogger("settings_upsert")
+
+# Exit codes. 2 separates "you asked for something that cannot be done" from a
+# crash, and 130 is the shell's convention for an interrupt.
+EXIT_OK = 0
+EXIT_REFUSED = 2
+EXIT_INTERRUPTED = 130
+
+# Backups accumulate on every apply. Five is enough to walk back a bad session
+# and few enough that a settings directory does not fill with copies of a file
+# that may name an output path.
+BACKUP_RETENTION = 5
+
+UTF8_BOM = "\ufeff"
 
 # Provenance for the schema below. This is the authoritative manifest that was
 # read, not a recollection of one.
@@ -95,15 +112,75 @@ def parse_assignment(raw: str) -> tuple[str, object]:
     return key, text
 
 
-def check_policy(values: dict[str, object]) -> None:
-    """Apply the local-mode rules that the schema alone cannot express."""
+def repository_root() -> pathlib.Path:
+    """The checkout this script is part of, or the skill directory if none."""
+    here = pathlib.Path(__file__).resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return here.parents[1]
+
+
+def check_outfile(outfile: str) -> None:
+    """Refuse an output path that would write telemetry somewhere unsafe.
+
+    A relative path resolves against whatever directory VS Code happened to
+    start in, which is not a location anyone chose. A path inside this checkout
+    puts captured spans where a commit would pick them up.
+
+    Absoluteness is judged under both path flavours, because a settings file is
+    routinely authored on one platform for another and `/var/log/spans.jsonl`
+    is a deliberate absolute path even when this script runs on Windows.
+    """
+    expanded = os.path.expanduser(outfile)
+    # Judged on the supplied text: constructing a `pathlib.Path` first would
+    # rewrite `/var/log/spans.jsonl` into a rootless Windows path and report a
+    # deliberate POSIX absolute path as relative.
+    if not (
+        pathlib.PurePosixPath(expanded).is_absolute()
+        or pathlib.PureWindowsPath(expanded).is_absolute()
+    ):
+        raise SettingsError(
+            f"outfile must be an absolute path, got '{outfile}'. A relative path "
+            "resolves against the editor's working directory."
+        )
+
+    candidate = pathlib.Path(expanded)
+    if not candidate.is_absolute():
+        # A path absolute only under the other platform's rules cannot name a
+        # location inside this checkout.
+        return
+    root = repository_root()
+    resolved = candidate.resolve()
+    if resolved == root or root in resolved.parents:
+        raise SettingsError(
+            f"refusing an outfile inside this repository: {resolved}. Captured "
+            "telemetry would be a commit away from being published."
+        )
+
+
+def check_policy(
+    values: dict[str, object],
+    *,
+    existing: dict[str, object] | None = None,
+    allow_remote_endpoint: bool = False,
+) -> None:
+    """Apply the rules the schema alone cannot express.
+
+    Cross-setting rules are evaluated against the settings that would result,
+    not against this invocation's arguments. Setting `exporterType` alone
+    otherwise passes while producing a file that contradicts the `outfile`
+    already written beside it.
+    """
+    merged = {**(existing or {}), **values}
+
     if values.get("github.copilot.chat.otel.captureContent") is True:
         raise SettingsError(
             "refusing to enable captureContent. It puts prompt text, responses, system "
             "instructions, and tool arguments onto spans. Set it by hand, deliberately."
         )
 
-    exporter = values.get("github.copilot.chat.otel.exporterType")
+    exporter = merged.get("github.copilot.chat.otel.exporterType")
     if exporter is not None and exporter not in EXPORTER_TYPES:
         raise SettingsError(
             f"exporterType must be one of {', '.join(sorted(EXPORTER_TYPES))}, got '{exporter}'"
@@ -112,18 +189,24 @@ def check_policy(values: dict[str, object]) -> None:
     endpoint = values.get("github.copilot.chat.otel.otlpEndpoint")
     if endpoint:
         try:
-            check_url(str(endpoint), allow_remote=False, allowed_ports=DEFAULT_ALLOWED_PORTS)
+            check_url(
+                str(endpoint),
+                allow_remote=allow_remote_endpoint,
+                allowed_ports=DEFAULT_ALLOWED_PORTS,
+            )
         except PolicyError as exc:
             raise SettingsError(f"otlpEndpoint rejected: {exc}") from exc
 
-    outfile = values.get("github.copilot.chat.otel.outfile")
-    if outfile and exporter is not None and exporter.startswith("otlp-"):
-        raise SettingsError(
-            "outfile forces the file exporter, which contradicts the requested "
-            f"exporterType '{exporter}'. Set one or the other."
-        )
+    outfile = merged.get("github.copilot.chat.otel.outfile")
+    if outfile:
+        check_outfile(str(outfile))
+        if exporter is not None and str(exporter).startswith("otlp-"):
+            raise SettingsError(
+                "outfile forces the file exporter, which contradicts the resulting "
+                f"exporterType '{exporter}'. Set one or the other."
+            )
 
-    size = values.get("github.copilot.chat.otel.maxAttributeSizeChars")
+    size = merged.get("github.copilot.chat.otel.maxAttributeSizeChars")
     if size is not None and int(size) < 0:
         raise SettingsError("maxAttributeSizeChars cannot be negative")
 
@@ -289,16 +372,23 @@ def summarize(key: str, value: object) -> object:
 
 
 def summarize_endpoint(value: str) -> str:
-    """Reduce a URL to scheme and authority.
+    """Reduce a URL to scheme, host, and port.
 
-    An OTLP endpoint's path and query are operator-supplied and can carry a
-    tenant identifier or a token. Neither is needed to answer the question the
-    record is kept for, which is where telemetry was pointed.
+    The authority is not safe to keep whole: `https://user:token@host:4318`
+    puts a credential in the netloc, and an audit record that copies it turns a
+    record of what changed into a second place the credential lives. An OTLP
+    endpoint's path and query are operator-supplied and can carry a tenant
+    identifier or a token for the same reason. Host and port answer the only
+    question the record is kept for, which is where telemetry was pointed.
     """
     parsed = urllib.parse.urlparse(value)
-    if not parsed.scheme or not parsed.netloc:
+    try:
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
         return f"<str of length {len(value)}>"
-    return f"{parsed.scheme}://{parsed.netloc}"
+    if not parsed.scheme or not host:
+        return f"<str of length {len(value)}>"
+    return f"{parsed.scheme}://{host}:{port}" if port else f"{parsed.scheme}://{host}"
 
 
 def write_audit(audit_path: pathlib.Path, record: dict[str, object]) -> None:
@@ -315,18 +405,99 @@ def backup_path_for(
 
     A fixed `.bak` name makes the second run destroy the only copy of the
     original, which is the opposite of what a backup is for. The timestamp is
-    to the second and a counter resolves same-second collisions, so repeated
-    runs accumulate rather than overwrite.
+    to the second, so repeated runs accumulate rather than overwrite.
 
-    Retention is the operator's: this tool never deletes a backup it wrote.
+    The counter is always present and zero-padded. An optional suffix would
+    sort `...Z-1.bak` before `...Z.bak`, and retention reads that order to
+    decide what to delete, so the newest backups would be the ones pruned.
     """
     stamp = (now or datetime.datetime.now(datetime.UTC)).strftime("%Y%m%dT%H%M%SZ")
-    candidate = settings_path.with_name(f"{settings_path.name}.{stamp}.bak")
-    collision = 1
+    collision = 0
+    candidate = settings_path.with_name(f"{settings_path.name}.{stamp}-{collision:03d}.bak")
     while candidate.exists():
-        candidate = settings_path.with_name(f"{settings_path.name}.{stamp}-{collision}.bak")
         collision += 1
+        candidate = settings_path.with_name(f"{settings_path.name}.{stamp}-{collision:03d}.bak")
     return candidate
+
+
+def existing_backups(settings_path: pathlib.Path) -> list[pathlib.Path]:
+    """Backups this tool wrote for one settings file, oldest first.
+
+    Sorted by name rather than by modification time, because the name carries
+    the stamp this tool assigned and a copy operation does not preserve
+    ordering the way that stamp does.
+    """
+    return sorted(settings_path.parent.glob(f"{settings_path.name}.*.bak"), key=lambda p: p.name)
+
+
+def prune_backups(
+    settings_path: pathlib.Path, *, retain: int = BACKUP_RETENTION
+) -> list[pathlib.Path]:
+    """Delete all but the newest `retain` backups and return what was removed.
+
+    Unbounded retention was the earlier behaviour, which left a growing set of
+    copies of a file whose contents include an output path and an endpoint.
+    Removals are returned so the caller can report them rather than deleting
+    silently.
+    """
+    backups = existing_backups(settings_path)
+    removed: list[pathlib.Path] = []
+    for stale in backups[: max(len(backups) - retain, 0)]:
+        try:
+            stale.unlink()
+        except OSError as exc:
+            LOGGER.warning("could not remove old backup %s: %s", stale, exc)
+            continue
+        removed.append(stale)
+    return removed
+
+
+def read_settings(settings_path: pathlib.Path) -> tuple[str, str]:
+    """Return the document's byte-order mark and its text without it.
+
+    VS Code writes `settings.json` with a BOM on some installs. Decoding with
+    `utf-8-sig` and writing back without it silently rewrites a byte the editor
+    put there; keeping the BOM as a separate value means the write puts back
+    exactly what it found.
+
+    A missing, empty, whitespace-only, or comments-only file is an editable
+    empty object. All four are documents a person can reasonably have, and
+    refusing them meant the tool could not perform the first edit on a settings
+    file that had never held a setting.
+    """
+    if not settings_path.is_file():
+        return "", "{}\n"
+
+    try:
+        raw = settings_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SettingsError(f"cannot read {settings_path}: {exc}") from exc
+
+    bom = UTF8_BOM if settings_path.read_bytes().startswith(b"\xef\xbb\xbf") else ""
+    if not strip_jsonc(raw).strip():
+        # Comments are preserved: they are the only content this document has,
+        # and discarding them would be the unrelated change this tool refuses
+        # to make everywhere else.
+        return bom, f"{raw.rstrip()}\n{{}}\n" if raw.strip() else "{}\n"
+    return bom, raw
+
+
+def write_atomically(settings_path: pathlib.Path, text: str) -> None:
+    """Stage beside the target, validate the staged bytes, then replace.
+
+    Writing in place truncates first, so an interrupted write leaves a settings
+    file that is neither the old document nor the new one. Staging in the same
+    directory keeps the replace on one filesystem, which is what makes it
+    atomic.
+    """
+    staged = settings_path.with_name(f"{settings_path.name}.{os.getpid()}.staged")
+    try:
+        staged.write_text(text, encoding="utf-8")
+        json.loads(strip_jsonc(staged.read_text(encoding="utf-8-sig")) or "{}")
+        os.replace(staged, settings_path)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
 
 
 def apply_changes(
@@ -335,15 +506,17 @@ def apply_changes(
     *,
     apply: bool,
     audit_path: pathlib.Path | None = None,
+    allow_remote_endpoint: bool = False,
 ) -> str:
-    """Validate, then optionally write, restoring the backup if the result is invalid."""
-    check_policy(values)
+    """Validate, then optionally write, leaving the original intact on any failure."""
+    bom, original = read_settings(settings_path)
 
-    original = settings_path.read_text(encoding="utf-8") if settings_path.is_file() else "{}\n"
     try:
         before = json.loads(strip_jsonc(original) or "{}")
     except json.JSONDecodeError as exc:
         raise SettingsError(f"existing settings file is not valid JSONC: {exc}") from exc
+
+    check_policy(values, existing=before, allow_remote_endpoint=allow_remote_endpoint)
 
     updated = upsert(original, values)
 
@@ -366,13 +539,10 @@ def apply_changes(
     backup_path = backup_path_for(settings_path)
     if settings_path.is_file():
         shutil.copy2(settings_path, backup_path)
-    try:
-        settings_path.write_text(updated, encoding="utf-8")
-        json.loads(strip_jsonc(settings_path.read_text(encoding="utf-8")) or "{}")
-    except Exception:
-        if backup_path.is_file():
-            shutil.copy2(backup_path, settings_path)
-        raise
+    write_atomically(settings_path, bom + updated)
+
+    for removed in prune_backups(settings_path):
+        LOGGER.info("removed old backup %s", removed)
 
     if audit_path is not None:
         write_audit(
@@ -394,13 +564,62 @@ def apply_changes(
     return updated
 
 
+def resolve_audit_path(argument: str, settings_path: pathlib.Path) -> pathlib.Path:
+    """Resolve the audit path against the caller's directory, refusing aliases.
+
+    The audit path used to be contained to the settings directory, which
+    silently relocated an operator's chosen path into the one directory where
+    an appended JSON line can destroy the file being edited. Resolving from the
+    current directory keeps the operator's choice, and the aliases that would
+    corrupt settings or a backup are refused outright instead.
+    """
+    path = pathlib.Path(argument).expanduser()
+    if not path.is_absolute():
+        path = pathlib.Path.cwd() / path
+    path = path.resolve()
+
+    if path == settings_path.resolve():
+        raise SettingsError("refusing an audit path that is the settings file itself")
+    if path.name.endswith(".bak") and path.parent == settings_path.resolve().parent:
+        raise SettingsError(f"refusing an audit path that is a settings backup: {path}")
+    if path.is_dir():
+        raise SettingsError(f"audit path is a directory: {path}")
+    return path
+
+
+def silence_broken_pipe() -> None:
+    """Point stdout at the null device after the reader has gone away.
+
+    Without this the interpreter reports the same broken pipe again while
+    flushing during shutdown, turning a pager quit into a second error message
+    and a non-zero status.
+    """
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+
+
+def configure_logging(verbose: bool = False) -> None:
+    """Send diagnostics to stderr so stdout carries only the document."""
+    logging.basicConfig(
+        stream=sys.stderr,
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--settings", required=True, help="path to the settings.json to edit")
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--apply", action="store_true", help="write; omit for a dry run")
     parser.add_argument("--audit", help="append an audit record to this path")
+    parser.add_argument(
+        "--allow-remote-endpoint",
+        action="store_true",
+        help="permit an https endpoint outside this machine; loopback is the default",
+    )
+    parser.add_argument("--verbose", action="store_true", help="log at debug level")
     args = parser.parse_args(argv)
+    configure_logging(args.verbose)
 
     try:
         values: dict[str, object] = {}
@@ -413,17 +632,31 @@ def main(argv: list[str] | None = None) -> int:
             raise SettingsError("nothing to do: pass at least one --set key=value")
 
         settings_path = pathlib.Path(args.settings).expanduser()
-        audit_path = contain_path(args.audit, settings_path.parent) if args.audit else None
-        updated = apply_changes(settings_path, values, apply=args.apply, audit_path=audit_path)
+        audit_path = resolve_audit_path(args.audit, settings_path) if args.audit else None
+        updated = apply_changes(
+            settings_path,
+            values,
+            apply=args.apply,
+            audit_path=audit_path,
+            allow_remote_endpoint=args.allow_remote_endpoint,
+        )
     except (SettingsError, PolicyError) as exc:
         print(str(exc), file=sys.stderr)
-        return 1
+        return EXIT_REFUSED
+    except KeyboardInterrupt:
+        return EXIT_INTERRUPTED
 
-    if not args.apply:
-        print(updated)
-        print("\n(dry run; pass --apply to write)", file=sys.stderr)
-    return 0
+    try:
+        if not args.apply:
+            print(updated)
+            print("\n(dry run; pass --apply to write)", file=sys.stderr)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # A closed reader is the pager quitting, not a failure of the edit.
+        silence_broken_pipe()
+        return EXIT_OK
+    return EXIT_OK
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

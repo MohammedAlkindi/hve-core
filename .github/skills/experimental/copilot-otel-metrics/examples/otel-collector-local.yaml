@@ -88,12 +88,22 @@ processors:
       # Failure triage without failure content.
       - error.type
     # Masked, not dropped, so a panel keeps its shape while the value is gone.
+    # These are recognizable shapes, not secret detection: a credential with no
+    # distinctive prefix passes, and that limit is recorded in SECURITY.md.
     blocked_values:
       - "gh[pousr]_[0-9A-Za-z]{16,}"
       - "github_pat_[0-9A-Za-z_]{20,}"
       - "xox[baprs]-[0-9A-Za-z-]{10,}"
-      - "AKIA[0-9A-Z]{16}"
-      - "eyJ[0-9A-Za-z_-]{10,}\\.[0-9A-Za-z_-]{10,}\\.[0-9A-Za-z_-]{10,}"
+      # Temporary credentials use the ASIA prefix; AKIA alone missed them.
+      - "A(?:KIA|SIA)[0-9A-Z]{16}"
+      # An unsigned token carries the same payload, so the third segment may
+      # legitimately be empty.
+      - "eyJ[0-9A-Za-z_-]{10,}\\.[0-9A-Za-z_-]{10,}\\.[0-9A-Za-z_-]*"
+      # Azure connection-string secrets.
+      - "(?i)(?:AccountKey|SharedAccessKey|SharedAccessSignature)=[0-9A-Za-z+/=%&-]{16,}"
+      # Provider API keys in the shapes most likely to be pasted into a chat.
+      - "sk-(?:ant-)?[0-9A-Za-z_-]{20,}"
+      - "AIza[0-9A-Za-z_-]{35}"
       - "(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----"
       - "(?i)\\b(?:bearer|authorization|api[_-]?key|secret|password)\\b\\s*[:=]\\s*\\S+"
     # Silent so the processor does not annotate telemetry with the names of the
@@ -122,6 +132,13 @@ processors:
   # this distribution provides no way to reach them. OTTL has no `spanlink`
   # context and refuses to index `links`, and assigning to `datapoint.exemplars`
   # parses but does nothing. Both are recorded as gaps.
+  # `error_mode: ignore` is deliberate and load-bearing. A statement that
+  # errors on one record shape is skipped for that record, which is why a
+  # map-valued log body keeps the allow-listed subset rather than being
+  # replaced wholesale. It also makes this processor fail-open per statement,
+  # unlike the allow-list above, which is fail-closed. The digest pins and the
+  # runtime carrier harness are what bound that; the residual is registered in
+  # SECURITY.md rather than left implicit.
   transform/scrub:
     error_mode: ignore
     trace_statements:

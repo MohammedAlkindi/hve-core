@@ -45,6 +45,16 @@ services:
       - ./otel-collector-local.yaml:/etc/otelcol-contrib/config.yaml:ro
     networks:
       - copilot-otel
+    # memory_limiter resolves its percentages against the container's cgroup
+    # limit when one exists and against total host memory when one does not.
+    # Without this line its stated bound is 80% of the workstation's RAM, in
+    # front of an ingress any local process can reach.
+    mem_limit: 512m
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       lgtm:
         condition: service_healthy

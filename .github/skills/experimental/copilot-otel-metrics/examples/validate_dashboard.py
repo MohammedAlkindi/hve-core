@@ -9,6 +9,12 @@ empty panel is distinguishable from a mistyped one.
 
     validate_dashboard.py [dashboard.json]
 
+The dashboard argument is resolved against the current directory, so a
+generated dashboard anywhere on this machine can be checked. Confining it to
+the installed skill directory made the documented workflow impossible: a
+dashboard worth validating is usually one that was just produced, not one that
+ships here.
+
 Handles Prometheus and Tempo panels only. There is no Azure Monitor path, so
 this cannot validate the Azure dashboard.
 
@@ -43,7 +49,13 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 
-from _input_policy import PolicyError, check_url, contain_path, open_url, require_credentials
+from _input_policy import (
+    PolicyError,
+    check_url,
+    is_loopback_host,
+    open_url,
+    require_credentials,
+)
 
 EXAMPLES_DIR = pathlib.Path(__file__).resolve().parent
 DEFAULT_GRAFANA = "http://localhost:3000"
@@ -200,6 +212,43 @@ def validate_panels(
     return ok_count, empty_count
 
 
+def load_dashboard(argument: str | None) -> dict:
+    """Read a caller-selected dashboard, or the bundled one, with reportable errors.
+
+    Every failure here is a mistyped path or a malformed file, which is a
+    message the caller can act on. A traceback would report the same thing as
+    an internal defect.
+    """
+    path = (
+        pathlib.Path(argument).expanduser()
+        if argument
+        else EXAMPLES_DIR / "dashboards" / "copilot-otel.json"
+    )
+    if not path.is_absolute():
+        path = pathlib.Path.cwd() / path
+
+    # Checked before reading because the two platforms disagree about which
+    # error a directory read raises, and the caller needs one message.
+    if path.is_dir():
+        raise PolicyError(f"{path} is a directory, not a dashboard file")
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise PolicyError(f"no dashboard at {path}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise PolicyError(f"cannot read {path}: {exc}") from exc
+
+    try:
+        dashboard = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise PolicyError(f"{path} is not valid JSON: {exc}") from exc
+
+    if not isinstance(dashboard, dict) or not isinstance(dashboard.get("panels"), list):
+        raise PolicyError(f"{path} is not a Grafana dashboard: no panels array")
+    return dashboard
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     grafana_url = os.environ.get("COPILOT_OTEL_GRAFANA", DEFAULT_GRAFANA)
@@ -220,20 +269,19 @@ def main(argv: list[str] | None = None) -> int:
         user, password = require_credentials(
             "COPILOT_OTEL_GRAFANA_USER", "COPILOT_OTEL_GRAFANA_PASSWORD"
         )
-        # The import uses overwrite semantics, so a dashboard path outside this
-        # directory is refused rather than read.
-        dash_path = (
-            contain_path(args[0], EXAMPLES_DIR)
-            if args
-            else EXAMPLES_DIR / "dashboards" / "copilot-otel.json"
+        dash = load_dashboard(args[0] if args else None)
+        # The import uses overwrite semantics, so a target that is not this
+        # machine is worth saying out loud. The same resolved-address rule the
+        # policy uses decides it; a hostname prefix comparison would call a
+        # name that merely starts with "localhost" local.
+        grafana_is_local = is_loopback_host(
+            check_url(grafana_url, allow_remote=allow_remote).hostname
         )
     except PolicyError as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
-    if not check_url(grafana_url, allow_remote=allow_remote).hostname.startswith(
-        ("localhost", "127.", "::1")
-    ):
+    if not grafana_is_local:
         print(
             f"warning: importing into {grafana_url} overwrites any dashboard sharing the same uid.",
             file=sys.stderr,
@@ -248,8 +296,6 @@ def main(argv: list[str] | None = None) -> int:
     def store(url: str) -> dict:
         """Prometheus and Tempo. No credential is in scope for this closure."""
         return fetch(url, allow_remote=allow_remote)
-
-    dash = json.loads(dash_path.read_text())
 
     # Silently falling through to Tempo for an unknown datasource would produce
     # empty results indistinguishable from a genuinely empty store, which is the

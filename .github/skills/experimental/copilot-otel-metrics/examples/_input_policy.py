@@ -20,6 +20,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import pathlib
+import socket
 import urllib.parse
 import urllib.request
 
@@ -28,9 +29,11 @@ __all__ = [
     "PolicyError",
     "check_url",
     "contain_path",
+    "is_loopback_host",
     "open_url",
     "origin_of",
     "require_credentials",
+    "resolve_addresses",
 ]
 
 
@@ -43,7 +46,6 @@ class PolicyError(ValueError):
 DEFAULT_ALLOWED_PORTS = frozenset({3000, 3200, 4317, 4318, 9090})
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
-_LOOPBACK_NAMES = frozenset({"localhost", "ip6-localhost", "ip6-loopback"})
 
 # Headers that identify the caller to the origin they were addressed to. They
 # are meaningless to a different origin and dangerous there.
@@ -70,14 +72,44 @@ def origin_of(url: str) -> tuple[str, str, int]:
     return scheme, host, port if port is not None else _DEFAULT_PORTS.get(scheme, -1)
 
 
-def _is_loopback(host: str) -> bool:
-    """Whether a hostname or address refers to this machine."""
-    if host.lower() in _LOOPBACK_NAMES:
-        return True
+def resolve_addresses(host: str) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]:
+    """Every address this host currently resolves to.
+
+    An address literal resolves to itself. A name is resolved, because a name
+    says nothing about where a connection goes: `localhost` can be redefined in
+    a hosts file, and a name that looks local can answer with a routable
+    address. Resolution failure is refused rather than treated as either
+    answer.
+    """
+    literal = host.strip("[]")
     try:
-        return ipaddress.ip_address(host.strip("[]")).is_loopback
+        return (ipaddress.ip_address(literal),)
     except ValueError:
-        return False
+        pass
+
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, ValueError) as exc:
+        raise PolicyError(f"refusing '{host}': it does not resolve ({exc})") from exc
+
+    addresses = {ipaddress.ip_address(info[4][0].split("%", 1)[0]) for info in infos}
+    if not addresses:
+        raise PolicyError(f"refusing '{host}': it resolves to no address")
+    return tuple(sorted(addresses, key=str))
+
+
+def is_loopback_host(host: str) -> bool:
+    """Whether every address this host resolves to is on this machine.
+
+    Every address, not any: a name answering with one loopback address and one
+    routable address would otherwise be treated as local while a connection
+    could still leave the machine.
+
+    This narrows where a request may go. It does not prevent DNS rebinding,
+    because the transport resolves the name again when it connects and may get
+    a different answer than this check saw.
+    """
+    return all(address.is_loopback for address in resolve_addresses(host))
 
 
 def check_url(
@@ -116,14 +148,21 @@ def check_url(
         raise PolicyError("refusing a URL with no host")
 
     resolved_port = port if port is not None else (443 if parsed.scheme == "https" else 80)
+    addresses = resolve_addresses(host)
 
-    if _is_loopback(host):
+    if all(address.is_loopback for address in addresses):
         if resolved_port not in allowed_ports:
             raise PolicyError(
                 f"refusing local port {resolved_port}: expected one of "
                 f"{', '.join(str(value) for value in sorted(allowed_ports))}"
             )
         return parsed
+
+    if any(address.is_loopback for address in addresses):
+        raise PolicyError(
+            f"refusing '{host}': it resolves to both loopback and non-loopback addresses, "
+            "so where a connection lands is not decidable here"
+        )
 
     if not allow_remote:
         raise PolicyError(
@@ -132,6 +171,16 @@ def check_url(
         )
     if parsed.scheme != "https":
         raise PolicyError(f"refusing plaintext http to remote host '{host}': use https")
+
+    # An opted-in remote target must be genuinely remote. Private, link-local,
+    # and metadata-service ranges are the addresses a redirect would choose to
+    # reach something inside the network that never expected this request.
+    internal = [address for address in addresses if not address.is_global]
+    if internal:
+        raise PolicyError(
+            f"refusing remote host '{host}': it resolves to non-global "
+            f"address(es) {', '.join(str(address) for address in internal)}"
+        )
     return parsed
 
 

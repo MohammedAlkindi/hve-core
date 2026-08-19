@@ -2,7 +2,7 @@
 title: Copilot OTel Metrics Examples
 description: Reference stack definition, dashboard, and helper scripts for capturing GitHub Copilot OpenTelemetry output locally
 author: Microsoft
-ms.date: 2026-08-13
+ms.date: 2026-08-18
 ms.topic: reference
 keywords:
   - opentelemetry
@@ -93,7 +93,7 @@ To move to a newer image, resolve the multi-architecture manifest digest for the
 
 `baseline.py` writes its snapshot to `~/.cache/copilot-otel/pre-enable-baseline.json`. Set `COPILOT_OTEL_BASELINE` to choose a different path. Capture before enabling export, diff afterwards.
 
-`validate_dashboard.py` imports with `overwrite: true`, so it replaces any dashboard sharing the uid. It refuses a Grafana that is not on loopback unless you set `COPILOT_OTEL_ALLOW_REMOTE=1`. Pass a dashboard path to check a generated dashboard instead of the bundled one, and override the target with `COPILOT_OTEL_GRAFANA`, `COPILOT_OTEL_GRAFANA_USER`, and `COPILOT_OTEL_GRAFANA_PASSWORD`.
+`validate_dashboard.py` imports with `overwrite: true`, so it replaces any dashboard sharing the uid. It refuses a Grafana that is not on loopback unless you set `COPILOT_OTEL_ALLOW_REMOTE=1`. Pass a dashboard path to check a generated dashboard instead of the bundled one; the path is resolved against the directory you run in, so a dashboard produced anywhere on this machine can be checked. Override the target with `COPILOT_OTEL_GRAFANA`, `COPILOT_OTEL_GRAFANA_USER`, and `COPILOT_OTEL_GRAFANA_PASSWORD`.
 
 `inspect_metrics.py` is the answer to "is this metric name still correct". Run it before trusting any metric name copied from documentation, including the tables in the skill itself.
 
