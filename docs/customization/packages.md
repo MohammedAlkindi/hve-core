@@ -16,7 +16,7 @@ estimated_reading_time: 6
 
 Root `plugin.json` is the operational distribution definition for the one `hve-core` plugin and VSIX. Its `agents`, `commands`, `rules`, and `skills` arrays are deterministic repository-relative outputs of tracked path and license classification under `.github`. The fixed `hooks` value includes the telemetry hook.
 
-`.github/plugin/marketplace.json` contains one `hve-core` entry with the relative source `.github`. It owns locator metadata only and must not repeat component arrays or package policy.
+`.github/plugin/marketplace.json` contains one `hve-core` entry with the relative source `.`. It owns locator metadata only and must not repeat component arrays or package policy.
 
 ## Add Or Change A Component
 
