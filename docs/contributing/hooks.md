@@ -3,7 +3,7 @@ title: Contributing Hooks
 description: How to implement, register, and validate hook artifacts in hve-core
 sidebar_position: 7
 author: Microsoft
-ms.date: 2026-08-13
+ms.date: 2026-08-18
 ms.topic: how-to
 keywords:
   - hooks
@@ -78,7 +78,7 @@ For reliability and portability, hook scripts should follow these rules:
 
 ## Manifest Schema and Validation
 
-Manifests are validated against `scripts/linting/schemas/hook-manifest.schema.json`, the authoritative contract. The schema enforces the allowed top-level keys (`version`, `description`, `hooks`), the ten CLI-lowercase event names (`sessionStart`, `sessionEnd`, `userPromptSubmit`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `preCompact`, `subagentStart`, `subagentStop`, `stop`), and the permitted command properties.
+Manifests are validated against `scripts/linting/schemas/hook-manifest.schema.json`, the authoritative contract. The schema enforces the allowed top-level keys (`version`, `description`, `hooks`), the eleven CLI-lowercase event names (`sessionStart`, `sessionEnd`, `userPromptSubmit`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `preCompact`, `subagentStart`, `subagentStop`, `stop`, `agentStop`), and the permitted command properties.
 
 Run `npm run lint:hooks` to validate every package-scoped manifest. On failure, the validator prints each error and the schema path so you can reconcile the manifest against the contract.
 

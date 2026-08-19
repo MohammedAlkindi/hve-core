@@ -2,7 +2,7 @@
 title: "Transparency Note: HVE Core"
 description: "Public Transparency Note for HVE Core, a prompt-engineering and agentic-customization framework distributed by microsoft/hve-core."
 author: HVE Core Maintainers
-ms.date: 2026-08-13
+ms.date: 2026-08-18
 ms.topic: overview
 keywords:
   - responsible-ai
@@ -20,7 +20,7 @@ This note covers HVE Core: the files in the `microsoft/hve-core` repository. It 
 
 ## The basics of HVE Core
 
-HVE Core is a collection of text files and supporting tools that shape how GitHub Copilot behaves. It ships custom agents, prompts, instructions, skills, hooks, PowerShell scripts, GitHub Actions workflows, and one complete Visual Studio Code extension and Copilot plugin identity. The point is to give engineering teams a ready-made, review-friendly starting point for AI-assisted software work.
+HVE Core is a collection of text files and supporting tools that shape how GitHub Copilot behaves. It ships custom agents, prompts, instructions, skills, PowerShell scripts, GitHub Actions workflows, and one complete Visual Studio Code extension and Copilot plugin identity. The point is to give engineering teams a ready-made, review-friendly starting point for AI-assisted software work.
 
 HVE Core does not run any AI model itself. It does not train models, host inference, call external services while you use it, or process personal data on its own. All of the AI work happens on the host platform (Copilot Chat or the Copilot CLI). That leaves three areas where HVE Core still carries Responsible AI weight:
 

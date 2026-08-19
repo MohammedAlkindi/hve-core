@@ -9,7 +9,7 @@ compatibility: 'VS Code with GitHub Copilot Chat. Docker with Compose v2 for the
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-07-27"
+  last_updated: "2026-08-18"
 ---
 
 # Copilot OpenTelemetry Metrics
@@ -120,12 +120,13 @@ Read the references. Copy or adapt the seeds. Offer the helpers to the user with
 | `examples/otel-collector-local.yaml`             | Copy alongside `compose.yaml`; carries the fail-closed local attribute allow-list and the content scrub for the carriers it cannot reach |
 | `examples/dashboards/copilot-otel.json`          | Copy as the seed for a generated local PromQL dashboard                                                                                  |
 | `examples/dashboards/copilot-otel-azure.json`    | Copy as the seed for a generated Azure KQL dashboard                                                                                     |
-| `examples/azure/`                                | Copy as the seed for the collector configuration and infrastructure templates                                                            |
+| `examples/azure/`                                | Copy as the seed for the fleet collector configuration and infrastructure templates                                                      |
+| `examples/azure/agent-host-relay/`               | Copy as the per-workstation relay every fleet deployment runs; it must be healthy before managed settings point at loopback              |
 | `examples/verify.py`                             | Offer to the user as a stored-signal check they run themselves                                                                           |
 | `examples/inspect_metrics.py`                    | Offer to the user to enumerate the metric surface their build emits                                                                      |
 | `examples/baseline.py`                           | Offer to the user to separate real telemetry from residue                                                                                |
 | `examples/validate_dashboard.py`                 | Offer to the user for a **local** PromQL or TraceQL dashboard only; it has no Azure Monitor path and it overwrites by uid                |
-| `examples/settings_upsert.py`                    | Offer to the user for the assisted settings write; it enforces the schema, backs up, and restores on a parse failure                     |
+| `examples/settings_upsert.py`                    | Offer to the user for the assisted settings write; it enforces the schema, backs up, and replaces the file atomically                    |
 | `examples/README.md`, `examples/azure/README.md` | Written for the user, not part of the agent's reading path. Point the user at them rather than summarizing them                          |
 
 ## References

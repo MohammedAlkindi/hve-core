@@ -3,7 +3,7 @@ title: Copilot OpenTelemetry Metrics
 description: Capture GitHub Copilot Chat OpenTelemetry signals on your own machine in a local Grafana stack, or across an organization through Azure
 sidebar_position: 11
 author: Microsoft
-ms.date: 2026-08-13
+ms.date: 2026-08-18
 ms.topic: how-to
 keywords:
   - opentelemetry
@@ -178,12 +178,13 @@ Several details in that file are deliberate:
 
 The filter decides what is stored. It does not change what the extension emits, so content attributes still leave the editor and still cross the loopback hop in plaintext before the Collector drops them.
 
-Everything in this guide is copy-pasteable, but the dashboard is not: it is roughly nineteen kilobytes of JSON.
-Runnable copies of the compose file, the dashboard, and the verification helpers live in the
+Two artifacts in this guide are not copy-pasteable. The dashboard is roughly nineteen kilobytes of JSON, and the Collector configuration is shown above only as an excerpt. The compose file bind-mounts `./otel-collector-local.yaml`, so the Collector cannot start without the complete file: Docker creates an empty directory at that path instead. Take both from the skill rather than from this page.
+Runnable copies of the compose file, the full Collector configuration, the dashboard, and the helper scripts live in the
 [copilot-otel-metrics skill](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/SKILL.md),
 whose [examples directory](https://github.com/microsoft/hve-core/tree/main/.github/skills/experimental/copilot-otel-metrics/examples)
-holds [the dashboard JSON](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/examples/dashboards/copilot-otel.json)
-to import into Grafana. The YAML above mirrors the file shipped there.
+holds [the Collector configuration](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/examples/otel-collector-local.yaml)
+and [the dashboard JSON](https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/copilot-otel-metrics/examples/dashboards/copilot-otel.json)
+to import into Grafana. The YAML above mirrors the files shipped there.
 
 ## Turn on export
 
@@ -373,7 +374,7 @@ Four small Python scripts sit beside the dashboard in the skill's [examples dire
 | `baseline.py`           | Is this telemetry genuinely Copilot's, or residue from something else       |
 | `validate_dashboard.py` | Does every panel in this dashboard return data                              |
 
-Download them, then run them from wherever you put them:
+All four import `_input_policy.py`, a fifth file in the same directory that holds their shared endpoint and path rules. Download it alongside them and keep it in the same directory, or every one of them fails at import:
 
 ```bash
 python3 verify.py
