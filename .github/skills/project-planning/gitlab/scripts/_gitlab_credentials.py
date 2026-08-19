@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import pathlib
@@ -19,6 +20,8 @@ from typing import Any, Iterator, TypedDict, cast
 
 SCHEMA_VERSION = 1
 DEFAULT_PROFILE = "default"
+LOCK_ACQUISITION_TIMEOUT_SECONDS = 60.0
+LOCK_RETRY_INTERVAL_SECONDS = 0.1
 _PROFILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$")
 _REQUIRED_PROFILE_KEYS = {
     "issuer",
@@ -32,6 +35,15 @@ _REQUIRED_PROFILE_KEYS = {
     "usable",
 }
 _PROCESS_LOCK = threading.RLock()
+_LOCK_CONTENTION_ERRNOS = frozenset(
+    value
+    for value in (
+        getattr(errno, "EACCES", None),
+        getattr(errno, "EAGAIN", None),
+        getattr(errno, "EWOULDBLOCK", None),
+    )
+    if value is not None
+)
 
 
 class CredentialError(ValueError):
@@ -343,7 +355,9 @@ def store_lock(path: pathlib.Path) -> Iterator[None]:
     Raises:
         CredentialSecurityError: Lock storage cannot be protected or no
             supported locking primitive exists.
-        CredentialError: Lock acquisition exceeds its bounded wait.
+        CredentialError: Cross-process lock acquisition exceeds its bounded
+            wait. The bound covers acquisition only; it does not bound waiting
+            for the in-process lock or work performed while the lock is held.
     """
     with _PROCESS_LOCK:
         _ensure_private_parent(path)
@@ -365,23 +379,24 @@ def store_lock(path: pathlib.Path) -> Iterator[None]:
         acquired = False
         try:
             _validate_descriptor(fd, label="lock")
-            if _fcntl is not None:  # pragma: no branch - one platform path
-                _fcntl.flock(fd, _fcntl.LOCK_EX)
-                acquired = True
-            elif _msvcrt is not None:  # pragma: no cover - Windows
-                deadline = time.monotonic() + 60
-                while True:
-                    try:
+            deadline = time.monotonic() + LOCK_ACQUISITION_TIMEOUT_SECONDS
+            while True:
+                try:
+                    if _fcntl is not None:  # pragma: no branch - one platform path
+                        _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+                    elif _msvcrt is not None:  # pragma: no cover - Windows
                         _msvcrt.locking(fd, _msvcrt.LK_NBLCK, 1)
-                        acquired = True
-                        break
-                    except OSError:
-                        if time.monotonic() >= deadline:
-                            raise CredentialError(
-                                "timed out waiting for the GitLab OAuth "
-                                "token store lock"
-                            ) from None
-                        time.sleep(0.1)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if _fcntl is not None and exc.errno not in _LOCK_CONTENTION_ERRNOS:
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise CredentialError(
+                            "timed out waiting for the GitLab OAuth token store lock"
+                        ) from None
+                    time.sleep(min(LOCK_RETRY_INTERVAL_SECONDS, remaining))
             yield
         finally:
             try:

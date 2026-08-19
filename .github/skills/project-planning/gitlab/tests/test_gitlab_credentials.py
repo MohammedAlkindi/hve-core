@@ -4,9 +4,13 @@
 
 from __future__ import annotations
 
+import errno
+import inspect
 import json
 import os
 import pathlib
+import subprocess
+import sys
 import threading
 import time
 
@@ -155,6 +159,153 @@ def test_store_lock_serializes_threads(tmp_path: pathlib.Path) -> None:
     second.join(timeout=1)
 
     assert entered == [1, 2]
+
+
+@pytest.mark.parametrize("contention_errno", ["EACCES", "EAGAIN", "EWOULDBLOCK"])
+def test_store_lock_retries_contention_then_acquires(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    contention_errno: str,
+) -> None:
+    if credentials._fcntl is None:
+        pytest.skip("POSIX advisory locking is unavailable")
+    path = tmp_path / "gitlab" / "gitlab-token.json"
+    operations: list[int] = []
+    sleeps: list[float] = []
+    clock = [0.0]
+
+    def flock(_fd: int, operation: int) -> None:
+        operations.append(operation)
+        if len(operations) == 1:
+            raise OSError(getattr(errno, contention_errno), "locked")
+
+    monkeypatch.setattr(credentials._fcntl, "flock", flock)
+    monkeypatch.setattr(credentials.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        credentials.time,
+        "sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    with credentials.store_lock(path):
+        pass
+
+    assert sleeps == [credentials.LOCK_RETRY_INTERVAL_SECONDS]
+    assert operations[-1] == credentials._fcntl.LOCK_UN
+
+
+def test_store_lock_times_out_under_persistent_contention(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if credentials._fcntl is None:
+        pytest.skip("POSIX advisory locking is unavailable")
+    path = tmp_path / "gitlab" / "gitlab-token.json"
+    operations: list[int] = []
+    clock = [0.0]
+
+    def flock(_fd: int, operation: int) -> None:
+        operations.append(operation)
+        raise OSError(errno.EWOULDBLOCK, "locked")
+
+    def sleep(seconds: float) -> None:
+        clock[0] += seconds
+
+    monkeypatch.setattr(credentials._fcntl, "flock", flock)
+    monkeypatch.setattr(credentials.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(credentials.time, "sleep", sleep)
+
+    with pytest.raises(credentials.CredentialError, match="timed out waiting"):
+        with credentials.store_lock(path):  # pragma: no cover - body must not run
+            pass
+
+    assert clock[0] == pytest.approx(credentials.LOCK_ACQUISITION_TIMEOUT_SECONDS)
+    assert credentials._fcntl.LOCK_UN not in operations
+
+
+def test_store_lock_propagates_non_contention_errors(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if credentials._fcntl is None:
+        pytest.skip("POSIX advisory locking is unavailable")
+    path = tmp_path / "gitlab" / "gitlab-token.json"
+    sleeps: list[float] = []
+
+    def flock(_fd: int, _operation: int) -> None:
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(credentials._fcntl, "flock", flock)
+    monkeypatch.setattr(
+        credentials.time,
+        "sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    with pytest.raises(OSError) as exc_info:
+        with credentials.store_lock(path):  # pragma: no cover - body must not run
+            pass
+
+    assert exc_info.value.errno == errno.ENOLCK
+    assert sleeps == []
+
+
+def _hold_store_lock_child(lock_path: str, ready_path: str) -> None:
+    """Hold a real advisory lock in a separate process until stdin closes."""
+    import fcntl
+    import pathlib as child_pathlib
+    import sys
+
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
+    child_pathlib.Path(ready_path).write_text("ready", encoding="utf-8")
+    sys.stdin.read()
+
+
+def test_store_lock_times_out_against_independent_process(
+    tmp_path: pathlib.Path,
+) -> None:
+    if credentials._fcntl is None or os.name == "nt":
+        pytest.skip("POSIX advisory locking is unavailable")
+    path = tmp_path / "gitlab" / "gitlab-token.json"
+    credentials._ensure_private_parent(path)
+    lock_path = path.with_name(f"{path.name}.lock")
+    ready_path = tmp_path / "child-ready"
+    source = (
+        f"{inspect.getsource(_hold_store_lock_child)}\n"
+        "import os\n"
+        f"_hold_store_lock_child({str(lock_path)!r}, {str(ready_path)!r})\n"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", source],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not ready_path.exists():
+            if time.monotonic() >= deadline:
+                pytest.fail("lock-holding child process did not signal readiness")
+            time.sleep(0.01)
+
+        original_timeout = credentials.LOCK_ACQUISITION_TIMEOUT_SECONDS
+        credentials.LOCK_ACQUISITION_TIMEOUT_SECONDS = 0.3
+        try:
+            with pytest.raises(credentials.CredentialError, match="timed out waiting"):
+                with credentials.store_lock(path):  # pragma: no cover - must not run
+                    pass
+        finally:
+            credentials.LOCK_ACQUISITION_TIMEOUT_SECONDS = original_timeout
+    finally:
+        if child.stdin is not None:
+            child.stdin.close()
+        child.wait(timeout=10)
+
+    with credentials.store_lock(path):
+        released = True
+
+    assert released, "store_lock must acquire once the other process releases it"
 
 
 def test_save_failure_preserves_existing_store(

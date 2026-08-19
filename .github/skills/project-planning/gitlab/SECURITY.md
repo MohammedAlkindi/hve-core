@@ -2,7 +2,7 @@
 title: GitLab Skill Security Model
 description: STRIDE threat model for the GitLab skill covering API egress, credentials, git project resolution, caller input, the OAuth callback listener, and profile storage
 author: microsoft/hve-core
-ms.date: 2026-08-13
+ms.date: 2026-08-18
 ms.topic: reference
 estimated_reading_time: 11
 keywords:
@@ -234,7 +234,7 @@ refresh tokens. Legacy mode reads a PAT from `GITLAB_TOKEN`.
 
 ### Denial of Service
 
-* Profile reads and writes are bounded and serialized with an advisory lock.
+* Profile reads and writes are serialized with an advisory lock whose cross-process acquisition is bounded by a finite timeout.
 
 ### Elevation of Privilege
 
@@ -350,6 +350,7 @@ The caller controls argv, environment, stdin, stdout, and stderr; the CLI treats
 
 * The callback response is minimal text and contains no token, authorization code, or profile content.
 * Token exchange uses the HTTPS no-redirect opener only after state validation.
+* Device verification instructions are validated before display. Values carrying Unicode control characters, and verification URIs with embedded credentials, raw spaces, backslashes, unparseable components, or an origin that differs from the configured issuer, are rejected instead of printed. The user code itself is preserved unchanged because its format belongs to the authorization server. This is local defense-in-depth and deliberately narrows support for deployments that publish device verification on a different host.
 
 ### Denial of Service
 
@@ -361,11 +362,12 @@ The caller controls argv, environment, stdin, stdout, and stderr; the CLI treats
 
 ### Risk Rating
 
-| Threat                               | Likelihood | Impact | Residual Risk | Status                        |
-|--------------------------------------|------------|--------|---------------|-------------------------------|
-| Forged callback or code interception | Low        | High   | Low           | Mitigated (state + PKCE)      |
-| Local callback-port denial           | Low        | Low    | Low           | Mitigated (typed device flow) |
-| Callback wait exhaustion             | Low        | Low    | Low           | Mitigated (shared deadline)   |
+| Threat                               | Likelihood | Impact | Residual Risk | Status                               |
+|--------------------------------------|------------|--------|---------------|--------------------------------------|
+| Forged callback or code interception | Low        | High   | Low           | Mitigated (state + PKCE)             |
+| Local callback-port denial           | Low        | Low    | Low           | Mitigated (typed device flow)        |
+| Callback wait exhaustion             | Low        | Low    | Low           | Mitigated (shared deadline)          |
+| Hostile device-instruction output    | Low        | Med    | Low           | Mitigated (validated before display) |
 
 ## Bucket B6: OAuth profile store and lock
 
@@ -392,6 +394,7 @@ On POSIX, OAuth profiles are stored beneath a dedicated owner-only directory wit
 ### Denial of Service
 
 * Missing locking primitives fail closed. Corrupt schemas, unsafe permissions, and symlinks fail before credential use. Windows OAuth persistence is unavailable until a protected backend exists.
+* Cross-process lock acquisition is non-blocking with a finite deadline, so a stalled lock holder surfaces a typed timeout instead of hanging the CLI. Only lock-contention errors are retried; other locking failures propagate unchanged. The bound covers acquisition, not in-process waiting or work performed while the lock is held.
 * A provider/local refresh-commit uncertainty can require re-login (G-DOS-1).
 
 ### Elevation of Privilege

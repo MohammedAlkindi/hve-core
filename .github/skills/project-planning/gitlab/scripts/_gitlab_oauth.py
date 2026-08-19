@@ -14,6 +14,7 @@ import secrets
 import socket
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -345,7 +346,10 @@ def authorization_code_login(
         issuer: Canonical GitLab origin.
         client_id: Public OAuth application identifier.
         opener: Caller-owned no-redirect transport.
-        timeout: Overall callback and exchange deadline in seconds.
+        timeout: Local budget shared by the callback wait and the decision to
+            start token exchange. The unconsumed remainder becomes the exchange
+            transport timeout, which bounds blocking operations rather than
+            guaranteeing that the exchange completes before the deadline.
         open_browser: Browser launcher.
         emit_authorize_url: Optional safe authorization-URL sink.
         now: Wall clock used for token timestamps.
@@ -418,6 +422,12 @@ def authorization_code_login(
         expected_state.encode("utf-8"),
     ):
         raise OAuthError("GitLab OAuth callback state mismatch")
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise OAuthError(
+            "GitLab OAuth deadline expired before the token exchange could start; "
+            "retry auth login"
+        )
     payload = post_form(
         issuer,
         "/oauth/token",
@@ -429,12 +439,68 @@ def authorization_code_login(
             "code_verifier": verifier,
         },
         opener=opener,
-        timeout=timeout,
+        timeout=remaining,
         operation="oauth.authorization_code.exchange",
         audit_attempt=audit_attempt,
         audit_outcome=audit_outcome,
     )
     return token_profile(payload, issuer=issuer, client_id=client_id, now=now())
+
+
+def _has_control_characters(value: str) -> bool:
+    """Return True when a value carries Unicode control characters."""
+    return any(unicodedata.category(character) == "Cc" for character in value)
+
+
+def _validate_device_instructions(
+    verification_uri: str,
+    user_code: str,
+    issuer: str,
+) -> None:
+    """Reject device instructions that are unsafe to display or misdirect the user.
+
+    Terminal safety and issuer binding are repository defense-in-depth policy.
+    RFC 8628 leaves the user-code format to the authorization server, so any
+    non-control code is preserved unchanged. Binding the verification URI to
+    the configured issuer origin deliberately narrows support for deployments
+    that publish device verification on a different host.
+
+    Raises:
+        OAuthError: The provider response cannot be displayed or trusted.
+    """
+    if _has_control_characters(user_code):
+        raise OAuthError("GitLab device response has invalid user_code")
+    if _has_control_characters(verification_uri) or any(
+        character in verification_uri for character in (" ", "\\")
+    ):
+        raise OAuthError("GitLab device response has invalid verification_uri")
+    try:
+        parsed = urllib.parse.urlsplit(verification_uri)
+        parsed_issuer = urllib.parse.urlsplit(issuer)
+        verification_port = parsed.port
+        issuer_port = parsed_issuer.port
+    except ValueError as exc:
+        raise OAuthError(
+            "GitLab device response has invalid verification_uri"
+        ) from exc
+    if (
+        parsed.scheme != parsed_issuer.scheme
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.hostname != parsed_issuer.hostname
+    ):
+        raise OAuthError("GitLab device response has invalid verification_uri")
+    default_ports = {"https": 443, "http": 80}
+    default_port = default_ports.get(parsed.scheme)
+    verification_effective_port = (
+        verification_port if verification_port is not None else default_port
+    )
+    issuer_effective_port = (
+        issuer_port if issuer_port is not None else default_port
+    )
+    if verification_effective_port != issuer_effective_port:
+        raise OAuthError("GitLab device response has invalid verification_uri")
 
 
 def device_login(
@@ -489,10 +555,9 @@ def device_login(
         raise OAuthError("GitLab device response is missing device_code")
     if not isinstance(user_code, str) or not user_code:
         raise OAuthError("GitLab device response is missing user_code")
-    if not isinstance(verification_uri, str) or not verification_uri.startswith(
-        "https://"
-    ):
+    if not isinstance(verification_uri, str) or not verification_uri:
         raise OAuthError("GitLab device response has invalid verification_uri")
+    _validate_device_instructions(verification_uri, user_code, issuer)
     if (
         not isinstance(expires_in, int)
         or isinstance(expires_in, bool)

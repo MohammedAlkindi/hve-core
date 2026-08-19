@@ -408,3 +408,207 @@ def test_device_login_uses_injected_monotonic_clock() -> None:
         )
 
     assert elapsed == [4.0]
+
+
+class _ImmediateCallbackServer:
+    """Stand in for the loopback listener with an already-received callback."""
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        self.callback_result = oauth._CallbackResult()
+        self.callback_received = threading.Event()
+        self.stop_requested = threading.Event()
+        self.expected_state = ""
+        self.timeout = 0.0
+
+    def handle_request(self) -> None:  # pragma: no cover - never serves
+        return
+
+    def server_close(self) -> None:
+        return
+
+
+@pytest.fixture()
+def immediate_callback(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+    """Replace the listener so authorization-code tests stay deterministic."""
+    servers: list[_ImmediateCallbackServer] = []
+
+    def build_server(*args: object, **kwargs: object) -> _ImmediateCallbackServer:
+        server = _ImmediateCallbackServer(*args, **kwargs)
+        servers.append(server)
+        return server
+
+    def start_thread(self: threading.Thread) -> None:
+        for server in servers:
+            server.callback_result = oauth._CallbackResult(
+                code="authorization-code",
+                state=server.expected_state,
+            )
+            server.callback_received.set()
+
+    monkeypatch.setattr(oauth, "_CallbackServer", build_server)
+    monkeypatch.setattr(threading.Thread, "start", start_thread)
+    monkeypatch.setattr(threading.Thread, "join", lambda self, timeout=None: None)
+    return servers
+
+
+def test_authorization_login_passes_remaining_budget_to_exchange(
+    immediate_callback: list[object],
+) -> None:
+    calls: list[float] = []
+    clock = [0.0]
+
+    def opener(*_args: object, **kwargs: object) -> object:
+        calls.append(float(kwargs["timeout"]))
+        clock[0] += 0.0
+        return _Response(
+            {
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "expires_in": 7200,
+            }
+        )
+
+    def monotonic() -> float:
+        value = clock[0]
+        clock[0] += 2.0
+        return value
+
+    profile = oauth.authorization_code_login(
+        "https://gitlab.example.com",
+        "client",
+        opener=opener,
+        timeout=10,
+        open_browser=lambda _url: True,
+        now=lambda: 100.0,
+        monotonic=monotonic,
+    )
+
+    assert profile["access_token"] == "access"
+    assert calls == [pytest.approx(6.0)]
+
+
+def test_authorization_login_refuses_exchange_without_remaining_budget(
+    immediate_callback: list[object],
+) -> None:
+    clock = [0.0]
+
+    def monotonic() -> float:
+        value = clock[0]
+        clock[0] += 10.0
+        return value
+
+    with pytest.raises(oauth.OAuthError, match="deadline expired"):
+        oauth.authorization_code_login(
+            "https://gitlab.example.com",
+            "client",
+            opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("exchange must not run")
+            ),
+            timeout=10,
+            open_browser=lambda _url: True,
+            now=lambda: 100.0,
+            monotonic=monotonic,
+        )
+
+
+def _device_response(verification_uri: str, user_code: str) -> "_Response":
+    return _Response(
+        {
+            "device_code": "device-secret",
+            "user_code": user_code,
+            "verification_uri": verification_uri,
+            "expires_in": 300,
+            "interval": 5,
+        }
+    )
+
+
+def _run_device_login(
+    verification_uri: str,
+    user_code: str,
+    issuer: str = "https://gitlab.example.com",
+) -> list[tuple[str, str]]:
+    emitted: list[tuple[str, str]] = []
+    responses: list[object] = [_device_response(verification_uri, user_code)]
+    times = [0.0]
+
+    def opener(*_args: object, **_kwargs: object) -> object:
+        if responses:
+            return responses.pop(0)
+        raise oauth.OAuthError("pending", code="authorization_pending")
+
+    def sleep(seconds: float) -> None:
+        times[0] += seconds
+
+    with pytest.raises(oauth.OAuthError):
+        oauth.device_login(
+            issuer,
+            "client",
+            opener=opener,
+            timeout=6,
+            emit_instructions=lambda uri, code: emitted.append((uri, code)),
+            now=lambda: times[0],
+            monotonic=lambda: times[0],
+            sleep=sleep,
+        )
+    return emitted
+
+
+@pytest.mark.parametrize(
+    "user_code",
+    ["ABCD\nEFGH", "ABCD\x1b[2JEFGH", "ABCD\x7fEFGH"],
+)
+def test_device_login_rejects_control_characters_in_user_code(user_code: str) -> None:
+    emitted = _run_device_login(
+        "https://gitlab.example.com/oauth/device",
+        user_code,
+    )
+
+    assert emitted == []
+
+
+@pytest.mark.parametrize(
+    "verification_uri",
+    [
+        "https://gitlab.example.com/oauth/de vice",
+        "https://gitlab.example.com\\oauth",
+        "https://user:pass@gitlab.example.com/oauth/device",
+        "http://gitlab.example.com/oauth/device",
+        "https://attacker.example.com/oauth/device",
+        "https://gitlab.example.com:0/oauth/device",
+        "https://gitlab.example.com:99999/oauth/device",
+    ],
+)
+def test_device_login_rejects_unsafe_verification_uri(verification_uri: str) -> None:
+    emitted = _run_device_login(verification_uri, "ABCD-EFGH")
+
+    assert emitted == []
+
+
+@pytest.mark.parametrize(
+    ("verification_uri", "user_code"),
+    [
+        ("https://gitlab.example.com/oauth/device", "ABCD-EFGH"),
+        ("https://gitlab.example.com/oauth/device?user_code=ABCD", "ABCD-EFGH"),
+        ("https://gitlab.example.com/oauth/device#frag", "ABCD EFGH"),
+        ("https://GitLab.Example.com/oauth/device", "ABCD.EFGH!"),
+        ("https://gitlab.example.com:443/oauth/device", "\u00c5\u00c4\u00d6-1234"),
+    ],
+)
+def test_device_login_preserves_compatible_instructions(
+    verification_uri: str,
+    user_code: str,
+) -> None:
+    emitted = _run_device_login(verification_uri, user_code)
+
+    assert emitted == [(verification_uri, user_code)]
+
+
+def test_device_login_accepts_loopback_development_issuer() -> None:
+    emitted = _run_device_login(
+        "http://127.0.0.1:8080/oauth/device",
+        "ABCD-EFGH",
+        issuer="http://127.0.0.1:8080",
+    )
+
+    assert emitted == [("http://127.0.0.1:8080/oauth/device", "ABCD-EFGH")]

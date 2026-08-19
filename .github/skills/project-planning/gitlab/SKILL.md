@@ -6,7 +6,7 @@ compatibility: 'Requires Python 3.11+. GitLab OAuth public-client credentials or
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-08-13"
+  last_updated: "2026-08-18"
 ---
 
 # GitLab Skill
@@ -180,19 +180,21 @@ python scripts/gitlab.py job-log 67890
 
 ## Troubleshooting
 
-| Symptom                                          | Cause                                          | Resolution                                                   |
-|--------------------------------------------------|------------------------------------------------|--------------------------------------------------------------|
-| `GITLAB_URL is not set`                          | Required environment variable missing          | Export `GITLAB_URL` before running the script                |
-| `GITLAB_TOKEN is not set for legacy-token mode`  | Explicit legacy mode has no PAT                | Export a PAT only with `GITLAB_AUTH_MODE=legacy-token`       |
-| `GITLAB_TOKEN must not be set in oauth mode`     | Legacy PAT leaked into the OAuth configuration | Remove `GITLAB_TOKEN` or explicitly select legacy-token mode |
-| OAuth persistence is unavailable on Windows      | No protected Windows profile-store backend     | Use explicit legacy-token mode or run OAuth from POSIX       |
-| `GITLAB_OAUTH_CLIENT_ID is not set`              | OAuth application is not configured            | Set the public client ID, then run `auth login`              |
-| Callback listener cannot bind                    | Port 8766 is unavailable or not forwarded      | Free the port or use `auth device-login`                     |
-| `cannot parse git remote URL`                    | Project autodetection failed                   | Set `GITLAB_PROJECT` explicitly                              |
-| `HTTP 401` or `HTTP 403`                         | Credential is invalid or lacks access          | Re-login for OAuth; rotate the PAT in explicit legacy mode   |
-| `HTTP 404`                                       | Wrong project, MR IID, pipeline ID, or job ID  | Verify `GITLAB_PROJECT` and confirm the numeric identifiers  |
-| `expected numeric ID`                            | Non-numeric value passed to an ID argument     | Use project MR IID values and numeric pipeline or job IDs    |
-| `python3 is required` or syntax errors on launch | Unsupported interpreter                        | Run the script with Python 3.11 or later                     |
+| Symptom                                                   | Cause                                                                    | Resolution                                                                |
+|-----------------------------------------------------------|--------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| `GITLAB_URL is not set`                                   | Required environment variable missing                                    | Export `GITLAB_URL` before running the script                             |
+| `GITLAB_TOKEN is not set for legacy-token mode`           | Explicit legacy mode has no PAT                                          | Export a PAT only with `GITLAB_AUTH_MODE=legacy-token`                    |
+| `GITLAB_TOKEN must not be set in oauth mode`              | Legacy PAT leaked into the OAuth configuration                           | Remove `GITLAB_TOKEN` or explicitly select legacy-token mode              |
+| OAuth persistence is unavailable on Windows               | No protected Windows profile-store backend                               | Use explicit legacy-token mode or run OAuth from POSIX                    |
+| `GITLAB_OAUTH_CLIENT_ID is not set`                       | OAuth application is not configured                                      | Set the public client ID, then run `auth login`                           |
+| Callback listener cannot bind                             | Port 8766 is unavailable or not forwarded                                | Free the port or use `auth device-login`                                  |
+| `timed out waiting for the GitLab OAuth token store lock` | Another process holds the profile-store lock                             | Wait for the other command to finish, then retry                          |
+| `GitLab device response has invalid verification_uri`     | The verification URI is unsafe to display or does not match `GITLAB_URL` | Confirm `GITLAB_URL` matches the instance that serves device verification |
+| `cannot parse git remote URL`                             | Project autodetection failed                                             | Set `GITLAB_PROJECT` explicitly                                           |
+| `HTTP 401` or `HTTP 403`                                  | Credential is invalid or lacks access                                    | Re-login for OAuth; rotate the PAT in explicit legacy mode                |
+| `HTTP 404`                                                | Wrong project, MR IID, pipeline ID, or job ID                            | Verify `GITLAB_PROJECT` and confirm the numeric identifiers               |
+| `expected numeric ID`                                     | Non-numeric value passed to an ID argument                               | Use project MR IID values and numeric pipeline or job IDs                 |
+| `python3 is required` or syntax errors on launch          | Unsupported interpreter                                                  | Run the script with Python 3.11 or later                                  |
 
 GitLab uses MR IIDs such as `!42` inside a project. This skill expects the
 numeric IID, not the global merge request ID.

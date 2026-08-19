@@ -8,7 +8,7 @@ compatibility: 'Requires Python 3.11+ and Jira credentials in environment variab
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.0"
-  last_updated: "2026-08-13"
+  last_updated: "2026-08-18"
 ---
 
 # Jira Skill
@@ -53,6 +53,42 @@ Authentication is selected automatically:
 * Otherwise, the script expects `JIRA_USER_EMAIL` and `JIRA_API_TOKEN` for Jira Cloud.
 * Scoped Cloud mode routes only to `https://api.atlassian.com/ex/jira/{cloudId}`;
   mixed Cloud and Data Center credentials fail closed.
+
+### Scoped Cloud Token Setup
+
+Scoped mode uses the same Basic authentication variables as unscoped mode and
+adds a Cloud ID. It is not the OAuth 3LO flow, so the
+`oauth/token/accessible-resources` endpoint is not a discovery or introspection
+step for these credentials.
+
+1. Create a scoped API token for your Atlassian account and select its scopes
+   during creation. See [Manage API tokens for your Atlassian account](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
+2. Choose scopes for the commands you intend to run. `read:jira-work` covers
+   `search`, `get`, `comments`, and `fields`. Add `write:jira-work` for
+   `create`, `update`, `transition`, and `comment`. Granular scopes are listed
+   in [Jira scopes for OAuth 2.0 and Forge apps](https://developer.atlassian.com/cloud/jira/platform/scopes-for-oauth-2-3LO-and-forge-apps/).
+   Jira project permissions still apply independently of token scopes.
+3. Obtain the Cloud ID for your site from a trusted Atlassian administrator or
+   your site's account record. The Cloud ID is not a secret, but it determines
+   the request destination.
+4. Confirm that the Cloud ID belongs to the same site as `JIRA_BASE_URL`. The
+   CLI cannot verify this association: in scoped mode it routes to the
+   Atlassian resource API and does not use `JIRA_BASE_URL` as a destination.
+   Treat the association as operator-maintained configuration.
+5. Set the variables, then confirm access with a read-only command:
+
+```bash
+export JIRA_BASE_URL="https://company.atlassian.net"
+export JIRA_USER_EMAIL="you@example.com"
+export JIRA_API_TOKEN="$(cat ~/.secrets/jira-token)"
+export JIRA_CLOUD_TOKEN_MODE="scoped"
+export JIRA_CLOUD_ID="your-cloud-id"
+python scripts/jira.py --fields key search "ORDER BY created DESC" --max-results 1
+```
+
+A successful read proves the token and route work together. It does not prove
+that the Cloud ID corresponds to `JIRA_BASE_URL`, so verify that separately in
+step 4.
 
 ### Operational Variables
 
