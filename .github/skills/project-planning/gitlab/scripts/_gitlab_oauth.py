@@ -480,9 +480,7 @@ def _validate_device_instructions(
         verification_port = parsed.port
         issuer_port = parsed_issuer.port
     except ValueError as exc:
-        raise OAuthError(
-            "GitLab device response has invalid verification_uri"
-        ) from exc
+        raise OAuthError("GitLab device response has invalid verification_uri") from exc
     if (
         parsed.scheme != parsed_issuer.scheme
         or not parsed.hostname
@@ -496,9 +494,7 @@ def _validate_device_instructions(
     verification_effective_port = (
         verification_port if verification_port is not None else default_port
     )
-    issuer_effective_port = (
-        issuer_port if issuer_port is not None else default_port
-    )
+    issuer_effective_port = issuer_port if issuer_port is not None else default_port
     if verification_effective_port != issuer_effective_port:
         raise OAuthError("GitLab device response has invalid verification_uri")
 

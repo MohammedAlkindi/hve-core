@@ -257,9 +257,12 @@ def _hold_store_lock_child(lock_path: str, ready_path: str) -> None:
     import sys
 
     descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-    fcntl.flock(descriptor, fcntl.LOCK_EX)
-    child_pathlib.Path(ready_path).write_text("ready", encoding="utf-8")
-    sys.stdin.read()
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        child_pathlib.Path(ready_path).write_text("ready", encoding="utf-8")
+        sys.stdin.read()
+    finally:
+        os.close(descriptor)
 
 
 def test_store_lock_times_out_against_independent_process(
