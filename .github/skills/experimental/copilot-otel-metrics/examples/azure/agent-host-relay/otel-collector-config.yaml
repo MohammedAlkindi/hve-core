@@ -1,20 +1,15 @@
 # OpenTelemetry Collector configuration for the per-workstation agent-host relay.
 #
 # Managed VS Code settings apply one telemetry endpoint to both the extension
-# and the agent host, and managed `telemetry.headers` reach only the extension.
-# Sending both to this relay removes that split: neither emitter carries the
-# fleet credential, this relay adds it on the upstream hop, and the credential
-# never enters the environment VS Code hands to agent-spawned subprocesses.
+# and the agent host, and managed telemetry.headers reach only the extension.
+# Both emitters send here without a credential; this relay adds the fleet token
+# on the upstream hop, so it never enters the environment VS Code hands to
+# agent-spawned subprocesses.
 #
-# Ingress is OTLP/HTTP only. Host exposure is decided by the loopback port
-# mapping in compose.yaml, not here, so the receiver binds the container
-# interface exactly as the local stack's Collector does. There is deliberately
-# no gRPC listener: managed settings pin `otlp-http`, and a second protocol
-# would be an unexercised ingress.
+# Ingress is OTLP/HTTP only, matching the protocol managed settings pin. Host
+# exposure is decided by the loopback port mapping in compose.yaml, not here.
 #
-# Every runtime input arrives through the environment or a read-only mount.
-# Nothing in this file is a credential, and nothing in this file is a path
-# inside the repository:
+# Every runtime input arrives through the environment or a read-only mount:
 #   COPILOT_OTEL_FLEET_ENDPOINT   https:// base URL of the fleet receiver
 #   COPILOT_OTEL_INGEST_TOKEN     the fleet ingest token
 #   COPILOT_OTEL_FLEET_CA_BUNDLE  absolute host path to the CA bundle that
@@ -23,6 +18,9 @@
 #
 # Requires the OpenTelemetry Collector Contrib distribution; the redaction
 # processor is not in the core distribution.
+#
+# Rollout, rotation, and rollback: ../README.md and
+# ../../../references/org-distribution.md.
 
 receivers:
   otlp:
@@ -38,9 +36,8 @@ processors:
     spike_limit_percentage: 20
 
   # The same fail-closed policy the local stack and the fleet Collector apply.
-  # Filtering here as well as upstream is deliberate: content is removed on the
-  # workstation that produced it, before it crosses the network, so a fleet
-  # receiver misconfiguration cannot turn this hop into the leak.
+  # Filtering here as well as upstream removes content on the workstation that
+  # produced it, before it crosses the network.
   redaction:
     allow_all_keys: false
     allowed_keys:
@@ -98,16 +95,14 @@ processors:
     # keys it removed, which would reintroduce the drift it exists to stop.
     summary: silent
 
-  # Everything the redaction processor cannot reach. redaction traverses
+  # Carriers the redaction processor cannot reach. redaction traverses
   # attribute maps only, so span status messages, span event names, trace
-  # state, and every non-map log body shape would otherwise leave the
-  # workstation verbatim.
+  # state, and non-map log bodies are overwritten here.
   #
-  # Span names, metric names, descriptions, and units are absent because
-  # shipped dashboard queries and baseline.py read them; span link attributes,
-  # span link trace state, and metric exemplar filtered attributes are absent
-  # because this distribution provides no way to reach them. Both kinds of
-  # residual are recorded in SECURITY.md.
+  # Invariant: a carrier the allow-list does not reach is scrubbed unless a
+  # shipped consumer reads it. Span names and metric metadata are therefore
+  # absent, as are carriers this distribution cannot address. Both residual
+  # kinds are registered in SECURITY.md.
   transform/scrub:
     error_mode: ignore
     trace_statements:
@@ -124,12 +119,10 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  # The upstream hop is the only place the fleet credential exists on this
-  # workstation. TLS verification is explicit: `ca_file` names the operator's
-  # bundle and there is no `insecure` flag, so a receiver presenting an
-  # untrusted certificate or a mismatched hostname is refused rather than
-  # trusted. The bundle is mounted from a host path the operator chooses; this
-  # skill ships no certificate authority.
+  # The only place the fleet credential exists on this workstation. TLS
+  # verification is explicit: ca_file names the operator's bundle and there is
+  # no insecure flag, so an untrusted certificate or mismatched hostname is
+  # refused. This skill ships no certificate authority.
   otlp_http/fleet:
     endpoint: ${env:COPILOT_OTEL_FLEET_ENDPOINT}
     auth:
@@ -141,10 +134,9 @@ extensions:
   health_check:
     endpoint: 0.0.0.0:13133
 
-  # The fleet ingest token. It authenticates the fleet rather than a person and
-  # is identical on every workstation, so holding it here narrows where it is
-  # readable without binding it to anyone. Any process running as the same
-  # operating-system user can still read the environment file that supplies it.
+  # The fleet ingest token, identical on every workstation, so it authenticates
+  # the fleet rather than a person. Residual: any process running as the same
+  # operating-system user can read the environment file that supplies it.
   bearertokenauth:
     scheme: Bearer
     token: ${env:COPILOT_OTEL_INGEST_TOKEN}

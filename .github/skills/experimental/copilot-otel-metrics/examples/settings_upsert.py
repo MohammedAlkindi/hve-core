@@ -3,12 +3,10 @@
 # SPDX-License-Identifier: MIT
 """Reversible, audited upsert of Copilot OTel settings into a JSONC settings file.
 
-The skill's written rules for this edit were strong and entirely advisory: an
-agent could describe a careful diff-and-confirm write and then perform any edit
-at all. This makes the rules executable. Every key, type, and value combination
-is checked against a schema before a byte is written, non-target bytes are
-preserved exactly, the previous file is backed up, and a failure to parse the
-result restores the backup.
+Every key, type, and value combination is checked against a schema before a
+byte is written. Non-target bytes are preserved exactly, the previous file is
+backed up, the write is staged and replaced atomically, and a result that fails
+to parse restores the backup.
 
     settings_upsert.py --settings <path> --set key=value [--set ...]      # dry run
     settings_upsert.py --settings <path> --set key=value --apply          # write
@@ -34,21 +32,19 @@ from _input_policy import DEFAULT_ALLOWED_PORTS, PolicyError, check_url
 
 LOGGER = logging.getLogger("settings_upsert")
 
-# Exit codes. 2 separates "you asked for something that cannot be done" from a
-# crash, and 130 is the shell's convention for an interrupt.
+# Exit codes. 2 marks a refused request, distinct from a crash; 130 is the
+# shell convention for an interrupt.
 EXIT_OK = 0
 EXIT_REFUSED = 2
 EXIT_INTERRUPTED = 130
 
-# Backups accumulate on every apply. Five is enough to walk back a bad session
-# and few enough that a settings directory does not fill with copies of a file
-# that may name an output path.
+# Backups accumulate on every apply. Bounded so a settings directory does not
+# fill with copies of a file that may name an output path.
 BACKUP_RETENTION = 5
 
 UTF8_BOM = "\ufeff"
 
-# Provenance for the schema below. This is the authoritative manifest that was
-# read, not a recollection of one.
+# Provenance for the schema below.
 SCHEMA_SOURCE = {
     "artifact": "GitHub Copilot Chat extension manifest (package.json)",
     "extension": "GitHub.copilot-chat",
@@ -57,11 +53,9 @@ SCHEMA_SOURCE = {
     "verified": "2026-08-13",
 }
 
-# The OTel settings this build declares, with their declared types. Seven, not
-# the eleven earlier revisions of this skill documented: protocol, headers,
-# serviceName, and resourceAttributes are absent from this manifest. A key that
-# is not here is refused rather than written, because writing a key the build
-# does not declare produces a setting that is silently inert.
+# The OTel settings this build declares, with their declared types. A key that
+# is not here is refused rather than written: writing a key the build does not
+# declare produces a setting that is silently inert.
 SCHEMA: dict[str, type | tuple[type, ...]] = {
     "github.copilot.chat.otel.enabled": bool,
     "github.copilot.chat.otel.exporterType": str,
@@ -214,15 +208,12 @@ def check_policy(
 def strip_jsonc(text: str) -> str:
     """Return the text with comments and trailing commas blanked out.
 
-    Offsets are preserved so the result can be parsed for validation while the
-    spans found by the scanner still line up with the original bytes. Nothing
-    is removed; every blanked byte becomes a space in the same position.
+    Offsets are preserved: nothing is removed, and every blanked byte becomes a
+    space in the same position, so spans found by the scanner still line up
+    with the original bytes.
 
-    Trailing commas are handled here rather than by a regex over the whole
-    document. A regex cannot tell a comma inside a string literal from a
-    structural one, and the untouched-key comparison that guards this edit
-    could not catch the difference, because both sides of that comparison would
-    be produced by the same corrupting pass.
+    Trailing commas are handled by this scanner rather than a regex, which
+    cannot distinguish a comma inside a string literal from a structural one.
     """
     out = list(text)
     index, length = 0, len(text)
@@ -403,13 +394,9 @@ def backup_path_for(
 ) -> pathlib.Path:
     """Return a backup path that cannot overwrite an existing backup.
 
-    A fixed `.bak` name makes the second run destroy the only copy of the
-    original, which is the opposite of what a backup is for. The timestamp is
-    to the second, so repeated runs accumulate rather than overwrite.
-
-    The counter is always present and zero-padded. An optional suffix would
-    sort `...Z-1.bak` before `...Z.bak`, and retention reads that order to
-    decide what to delete, so the newest backups would be the ones pruned.
+    The timestamp is to the second, so repeated runs accumulate. The counter is
+    always present and zero-padded: an optional suffix would sort `...Z-1.bak`
+    before `...Z.bak`, and retention reads name order to decide what to delete.
     """
     stamp = (now or datetime.datetime.now(datetime.UTC)).strftime("%Y%m%dT%H%M%SZ")
     collision = 0
@@ -423,9 +410,8 @@ def backup_path_for(
 def existing_backups(settings_path: pathlib.Path) -> list[pathlib.Path]:
     """Backups this tool wrote for one settings file, oldest first.
 
-    Sorted by name rather than by modification time, because the name carries
-    the stamp this tool assigned and a copy operation does not preserve
-    ordering the way that stamp does.
+    Sorted by name, which carries the stamp this tool assigned; a copy
+    operation does not preserve modification-time ordering.
     """
     return sorted(settings_path.parent.glob(f"{settings_path.name}.*.bak"), key=lambda p: p.name)
 

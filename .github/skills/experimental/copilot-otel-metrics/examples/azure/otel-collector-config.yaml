@@ -17,14 +17,10 @@
 receivers:
   otlp:
     protocols:
-      # Authentication and TLS are active, not suggested. An unauthenticated
-      # plaintext receiver reachable by a fleet accepts spans from anything that
-      # can route to it, and every span it accepts is billed and stored.
-      #
-      # If TLS is terminated by an ingress controller or load balancer in front
-      # of this collector, delete the tls blocks below and record that the
-      # terminating hop owns certificate lifecycle and cipher policy. Do not
-      # delete them merely because supplying certificates is inconvenient.
+      # Authentication and TLS are required on both protocols. If TLS is
+      # terminated by an ingress controller in front of this collector, delete
+      # the tls blocks and record that the terminating hop owns certificate
+      # lifecycle and cipher policy.
       http:
         endpoint: 0.0.0.0:4318
         auth:
@@ -47,14 +43,10 @@ processors:
     limit_percentage: 80
     spike_limit_percentage: 20
 
-  # The fleet minimization control. It is the local stack's policy verbatim,
-  # and tests/test_azure_templates.py asserts that parity: a shared, retained
-  # workspace is a stricter destination than one workstation, so this
-  # configuration may not filter less than otel-collector-local.yaml.
-  #
-  # allow_all_keys: false makes allowed_keys authoritative. An attribute a
-  # future emitter release introduces is dropped rather than stored, which a
-  # delete-list cannot do. Adding a key here stores that attribute fleet-wide.
+  # Fleet minimization. This is otel-collector-local.yaml's policy verbatim,
+  # and tests/test_azure_templates.py asserts that parity: this configuration
+  # may not filter less than the local stack. allow_all_keys: false makes
+  # allowed_keys authoritative, so adding a key here stores it fleet-wide.
   redaction:
     allow_all_keys: false
     allowed_keys:
@@ -77,8 +69,7 @@ processors:
       # Prometheus stores this as the gen_ai_token_type label; without it,
       # input and output tokens collapse into one indistinguishable series.
       - gen_ai.token.type
-      # The discriminator baseline.py reads through the session_id label. It
-      # is a detection control, not a convenience.
+      # The discriminator baseline.py reads through the session_id label.
       - session.id
       # Agent and tool identity. Names only; arguments and results are not
       # allowed and therefore cannot reach storage.
@@ -89,9 +80,8 @@ processors:
       - copilot_chat.turn_count
       - copilot_chat.copilot_usage_nano_aiu
       - github.copilot.agent.type
-      # Both spellings collapse to the copilot_chat_edit_source label and
-      # normalization is not reversible, so allow-listing both keeps a wrong
-      # single guess from silently emptying the edit-acceptance panel.
+      # Both spellings normalize to the copilot_chat_edit_source label and
+      # normalization is not reversible, so both are allowed.
       - copilot_chat.edit_source
       - copilot_chat.edit.source
       # Failure triage without failure content.
@@ -112,17 +102,14 @@ processors:
     # keys it removed, which would reintroduce the drift it exists to stop.
     summary: silent
 
-  # Everything the redaction processor cannot reach. redaction traverses
+  # Carriers the redaction processor cannot reach. redaction traverses
   # attribute maps only, so span status messages, span event names, trace
-  # state, and every non-map log body shape would otherwise reach the exporter
-  # verbatim.
+  # state, and non-map log bodies are overwritten here.
   #
-  # A carrier the allow-list does not reach is scrubbed unless a shipped
-  # consumer reads it. Span names, metric names, descriptions, and units are
-  # absent because dashboard queries and baseline.py read them; span link
-  # attributes, span link trace state, and metric exemplar filtered attributes
-  # are absent because this distribution provides no way to reach them. Both
-  # kinds of residual are recorded in SECURITY.md.
+  # Invariant: a carrier the allow-list does not reach is scrubbed unless a
+  # shipped consumer reads it. Span names and metric metadata are therefore
+  # absent, as are carriers this distribution cannot address. Both residual
+  # kinds are registered in SECURITY.md.
   transform/scrub:
     error_mode: ignore
     trace_statements:
@@ -137,11 +124,9 @@ processors:
   # Fleet dimensions for grouping. Keep these to org structure; anything that
   # identifies an individual lands on every span they produce.
   #
-  # These are labels, not boundaries. An attribute set by the collector is a
-  # grouping key that anyone with read access to this workspace can filter on;
-  # it does not stop them reading any other environment's data. Separation comes
-  # from deploying one collector and one workspace per environment, which is why
-  # the environment name is a required input rather than a default.
+  # These are grouping keys, not boundaries. Separation comes from deploying
+  # one collector and one workspace per environment, which is why the
+  # environment name is a required input rather than a default.
   resource/fleet:
     attributes:
       - key: service.namespace
@@ -163,34 +148,21 @@ extensions:
   health_check:
     endpoint: 0.0.0.0:13133
 
-  # Copilot can only send a fixed header set, so a static bearer token is the
-  # available fleet authentication mechanism, and it is active above. Be clear
-  # about what it is and is not: every workstation holds the same value, so it
-  # authenticates the fleet rather than a person, it cannot be rotated for one
-  # user, and anyone who extracts it from a workstation can write spans as the
-  # fleet. It is write-side only, and it is still worth having, because without
-  # it the receiver accepts spans from anything that can reach it.
+  # Copilot sends a fixed header set, so a static bearer token is the available
+  # fleet authentication mechanism. Every workstation holds the same value: it
+  # authenticates the fleet rather than a person, cannot be rotated for one
+  # user, and is write-side only.
   #
-  # This authentication is mandatory, and that has a consequence worth stating
-  # here rather than only in the README. Managed telemetry.headers reach the
-  # extension exporter but deliberately not the agent host, because delivering
-  # them through the environment would put this token inside every tool
-  # subprocess the agent spawns. So the agent host exports without a
-  # credential, this receiver answers 401 or UNAUTHENTICATED, and OTLP treats
-  # neither as retryable: that telemetry is dropped, not queued.
+  # Because this authenticator is mandatory and managed telemetry.headers do
+  # not reach the agent host, an agent host exporting directly receives 401 or
+  # UNAUTHENTICATED and OTLP drops that telemetry rather than queuing it. Run
+  # the loopback relay in agent-host-relay/ instead of exporting the token into
+  # the environment or removing this authenticator. See README.md.
   #
-  # Do not resolve that by exporting the token into the environment, and do not
-  # resolve it by removing this authenticator. Run a loopback relay on each
-  # workstation that accepts the unauthenticated local export and adds this
-  # credential upstream. See README.md, "Agent-host telemetry needs a relay".
-  #
-  # Mutual TLS would authenticate each workstation rather than the fleet, and
-  # this receiver can already require it: adding client_ca_file beside
-  # cert_file and key_file in the otlp receiver selects
-  # RequireAndVerifyClientCert on both protocols. It is not enabled because
-  # whether the VS Code agent host can present a client certificate is
-  # unestablished, and configuring a receiver to require one the sender cannot
-  # supply would replace a documented gap with fleet-wide data loss.
+  # Mutual TLS would authenticate each workstation instead. Adding
+  # client_ca_file beside cert_file and key_file selects
+  # RequireAndVerifyClientCert; it is not enabled because whether the agent
+  # host can present a client certificate is unestablished. See SECURITY.md.
   bearertokenauth:
     scheme: Bearer
     token: ${env:COPILOT_OTEL_INGEST_TOKEN}

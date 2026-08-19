@@ -4,12 +4,8 @@
 """Shared input policy for the bundled helper scripts.
 
 Every helper takes a configurable endpoint or path from the environment or the
-command line. Each one previously guarded itself, or did not, and the guards
-disagreed: the dashboard helper checked a hostname while the metric and trace
-endpoints were unchecked, and no helper rechecked the target after a redirect.
-
-This module is the single place those decisions are made, so a helper cannot be
-hardened by accident in one place and left open in another.
+command line. This module is the single place those decisions are made, so a
+helper cannot be hardened in one place and left open in another.
 
 Nothing here makes an arbitrary PromQL or TraceQL query safe. It constrains
 where a request may go and where a file may be written, not what is asked for.

@@ -1,29 +1,20 @@
 # Per-workstation agent-host relay for organization-managed Copilot telemetry.
 #
-# Deploy this on every workstation that reports to the fleet endpoint, and
-# verify it is healthy, before switching managed settings to the loopback
-# endpoint. After that switch this relay carries all of that workstation's
-# Copilot telemetry: if it is stopped or missing, telemetry is not queued
-# elsewhere, it is lost.
+# Deploy and verify this on a workstation before switching its managed settings
+# to the loopback endpoint. After that switch the relay carries all of that
+# workstation's Copilot telemetry: if it is stopped or missing, telemetry is
+# lost rather than queued.
 #
-# Start it independently of VS Code so it does not inherit or share the
-# editor's environment, and so `restart: unless-stopped` returns it after a
-# reboot:
-#   docker compose --env-file /absolute/path/copilot-otel-relay.env \
-#     -f /absolute/path/agent-host-relay/compose.yaml up -d
+# Start it independently of VS Code so it does not inherit the editor's
+# environment. Runtime inputs come from an env file outside this repository
+# that is readable only by the operator account:
+#   COPILOT_OTEL_FLEET_ENDPOINT, COPILOT_OTEL_INGEST_TOKEN,
+#   COPILOT_OTEL_FLEET_CA_BUNDLE
 #
-# The env file lives outside this repository, is readable only by the operator
-# account, and supplies:
-#   COPILOT_OTEL_FLEET_ENDPOINT=https://otel.example.internal
-#   COPILOT_OTEL_INGEST_TOKEN=<the fleet ingest token>
-#   COPILOT_OTEL_FLEET_CA_BUNDLE=/absolute/path/fleet-ca.pem
+# The image is pinned by manifest digest, matching the local stack.
 #
-# Rotate the token by editing that file and running the same command with
-# --force-recreate. Delete the file when decommissioning the relay; removing
-# the container does not remove it.
-#
-# The image is pinned by manifest digest rather than tag, matching the local
-# stack, so a mutable tag cannot change this relay underneath a review.
+# Exact commands, rotation, and decommissioning: ../README.md and
+# ../../../references/org-distribution.md.
 
 services:
   otel-relay:
@@ -33,21 +24,18 @@ services:
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     ports:
-      # Loopback only. The relay is reachable from this workstation and from
-      # nothing on the network; the receiver inside the container binds the
-      # container interface, and this mapping is what decides host exposure.
+      # Loopback only. The receiver binds the container interface; this mapping
+      # decides host exposure.
       - "127.0.0.1:4318:4318" # OTLP HTTP  <- both Copilot emitters export here
       - "127.0.0.1:13133:13133" # health, for the post-deployment check
     environment:
-      # Required, with no default. The :? form fails the up with this message
-      # rather than starting a relay that would drop everything it receives.
+      # Required with no default; the :? form fails the up with this message.
       COPILOT_OTEL_FLEET_ENDPOINT: ${COPILOT_OTEL_FLEET_ENDPOINT:?set COPILOT_OTEL_FLEET_ENDPOINT in the relay env file}
       COPILOT_OTEL_INGEST_TOKEN: ${COPILOT_OTEL_INGEST_TOKEN:?set COPILOT_OTEL_INGEST_TOKEN in the relay env file}
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
-      # The operator's CA bundle, read-only. An absolute host path is required
-      # because a relative one would resolve against whichever directory the
-      # up was run from.
+      # The operator's CA bundle, read-only. An absolute host path is required;
+      # a relative one would resolve against the directory the up was run from.
       - ${COPILOT_OTEL_FLEET_CA_BUNDLE:?set COPILOT_OTEL_FLEET_CA_BUNDLE to the absolute path of the fleet CA bundle}:/run/copilot-otel/fleet-ca.pem:ro
     networks:
       - copilot-otel-relay
@@ -57,11 +45,11 @@ services:
     security_opt:
       - no-new-privileges:true
     # Bounds the container so the cgroup limit and the Collector's own
-    # memory_limiter agree rather than contradicting each other.
+    # memory_limiter agree.
     mem_limit: 512m
 
 networks:
-  # Explicit and dedicated, so this relay shares no network with the local
-  # development stack or anything else running on the workstation.
+  # Dedicated, so this relay shares no network with the local development
+  # stack.
   copilot-otel-relay:
     driver: bridge

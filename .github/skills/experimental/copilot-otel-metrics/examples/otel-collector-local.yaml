@@ -1,17 +1,13 @@
 # OpenTelemetry Collector configuration for the local Copilot stack.
 #
-# This Collector is the only OTLP listener published on the host. It sits in
-# front of the LGTM container, which has no host OTLP mapping, so nothing
-# reaches storage without passing through the policy declared here.
-#
-# The policy is fail-closed: allowed_keys is an allow-list, so an attribute
-# this configuration has never heard of is dropped rather than stored. That
-# matters because the emitter's attribute set is not a stable contract. A
-# future extension release can add a new prompt-bearing attribute, and a
-# delete-list would silently pass it through while this allow-list will not.
+# The only OTLP listener published on the host. LGTM has no host OTLP mapping,
+# so nothing reaches storage without passing the policy declared here.
 #
 # Requires the OpenTelemetry Collector Contrib distribution; the redaction
 # processor is not in the core distribution.
+#
+# Policy rationale, carrier coverage, and residual gaps: SECURITY.md and
+# references/local-stack.md.
 
 receivers:
   otlp:
@@ -30,17 +26,10 @@ processors:
     limit_percentage: 80
     spike_limit_percentage: 20
 
-  # The entire minimization control for the local stack.
-  #
-  # allow_all_keys: false makes allowed_keys authoritative. Every key below
-  # exists because a shipped dashboard panel or a datasource lookup reads it.
-  # Adding a key here is a deliberate decision to store that attribute; the
-  # content attributes that were observed carrying plaintext are absent by
-  # construction rather than by enumeration.
-  #
-  # blocked_values is a second, independent pass over the values that survive.
-  # An allowed key can still carry a credential pasted into a model name or a
-  # tool argument, so recognizable secret shapes are masked rather than stored.
+  # Fail-closed attribute minimization. allow_all_keys: false makes
+  # allowed_keys authoritative, so an unlisted attribute is dropped rather
+  # than stored. blocked_values is a second pass that masks credential shapes
+  # in the values that survive.
   redaction:
     allow_all_keys: false
     allowed_keys:
@@ -64,9 +53,8 @@ processors:
       # gen_ai_token_type label; dropping it collapsed input and output tokens
       # into one indistinguishable series.
       - gen_ai.token.type
-      # Read by baseline.py through the session_id label. It is the
-      # discriminator that distinguishes injected series from real ones, so
-      # dropping it disabled a detection control the threat model credits.
+      # Read by baseline.py through the session_id label; it discriminates
+      # injected series from real ones.
       - session.id
       # Agent and tool identity. Names only; arguments and results are not
       # allowed and therefore cannot reach storage.
@@ -77,19 +65,16 @@ processors:
       - copilot_chat.turn_count
       - copilot_chat.copilot_usage_nano_aiu
       - github.copilot.agent.type
-      # The edit-acceptance panel groups by the copilot_chat_edit_source label.
-      # Which OTLP key produces that label is not established: normalization to
-      # a Prometheus label is not reversible, and both spellings below collapse
-      # to it. Allow-listing both means a wrong single guess cannot silently
-      # empty the panel. Settling this needs live emitter output, and the gap
-      # is recorded in SECURITY.md rather than guessed away here.
+      # Both spellings normalize to the copilot_chat_edit_source label and
+      # normalization is not reversible, so both are allowed. Unresolved gap:
+      # SECURITY.md.
       - copilot_chat.edit_source
       - copilot_chat.edit.source
       # Failure triage without failure content.
       - error.type
-    # Masked, not dropped, so a panel keeps its shape while the value is gone.
-    # These are recognizable shapes, not secret detection: a credential with no
-    # distinctive prefix passes, and that limit is recorded in SECURITY.md.
+    # Masked rather than dropped, so a panel keeps its shape. Recognizable
+    # shapes only; a credential with no distinctive prefix passes. See
+    # SECURITY.md.
     blocked_values:
       - "gh[pousr]_[0-9A-Za-z]{16,}"
       - "github_pat_[0-9A-Za-z_]{20,}"
@@ -110,35 +95,18 @@ processors:
     # keys it removed, which would reintroduce the drift it exists to stop.
     summary: silent
 
-  # Everything the redaction processor cannot reach.
+  # Carriers the redaction processor cannot reach. redaction traverses
+  # attribute maps only, so span status messages, span event names, trace
+  # state, and non-map log bodies are overwritten here.
   #
-  # redaction traverses attribute maps. Running the pinned Collector against
-  # payloads that placed a distinct marker in every OTLP carrier showed which
-  # carriers that leaves open: span status messages, span event names, trace
-  # state, and every log body shape except a map all reached the exporter
-  # verbatim. An allow-list that never sees a field cannot fail closed on it,
-  # so those carriers are overwritten here.
+  # Invariant: a carrier the allow-list does not reach is scrubbed unless a
+  # shipped consumer reads it. Span names and metric metadata are therefore
+  # absent, as are carriers this distribution cannot address. Both residual
+  # kinds are registered in SECURITY.md.
   #
-  # The rule is: a carrier the allow-list does not reach is scrubbed unless a
-  # shipped consumer reads it. That is why span names are absent from this
-  # list even though they are the carrier most likely to hold prompt text.
-  # Three dashboard queries match on span name and baseline.py reads Tempo's
-  # rootTraceName, so scrubbing them would break shipped functionality. Metric
-  # names, descriptions, and units are absent for the same reason. Those
-  # residual exposures are recorded in SECURITY.md rather than hidden here.
-  #
-  # Span link attributes, span link trace state, and metric exemplar filtered
-  # attributes are also open and are also absent, but for a different reason:
-  # this distribution provides no way to reach them. OTTL has no `spanlink`
-  # context and refuses to index `links`, and assigning to `datapoint.exemplars`
-  # parses but does nothing. Both are recorded as gaps.
-  # `error_mode: ignore` is deliberate and load-bearing. A statement that
-  # errors on one record shape is skipped for that record, which is why a
-  # map-valued log body keeps the allow-listed subset rather than being
-  # replaced wholesale. It also makes this processor fail-open per statement,
-  # unlike the allow-list above, which is fail-closed. The digest pins and the
-  # runtime carrier harness are what bound that; the residual is registered in
-  # SECURITY.md rather than left implicit.
+  # error_mode: ignore is deliberate and fail-open per statement: a statement
+  # that errors on one record shape is skipped for that record, which is what
+  # lets a map-valued log body keep its allow-listed subset.
   transform/scrub:
     error_mode: ignore
     trace_statements:
@@ -155,12 +123,9 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  # The LGTM container is reachable only on the internal Compose network. TLS
-  # is not used on that hop and the insecure flag says so explicitly rather
-  # than leaving it to a default.
-  #
-  # `otlp_grpc` rather than `otlp`: the pinned Collector logs a deprecation
-  # warning for the `otlp` exporter alias once per signal at every start.
+  # Reachable only on the internal Compose network; TLS is not used on that hop
+  # and insecure states so explicitly rather than relying on a default.
+  # otlp_grpc rather than otlp: the pinned Collector deprecates the otlp alias.
   otlp_grpc/lgtm:
     endpoint: lgtm:4317
     tls:

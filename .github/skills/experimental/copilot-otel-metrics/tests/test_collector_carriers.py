@@ -2,19 +2,14 @@
 # SPDX-License-Identifier: MIT
 """Runtime carrier map for the shipped local Collector configuration.
 
-Every other test module in this suite parses committed files and simulates the
-declared policy. That is how this skill came to ship control claims no test
-could support: a static check confirmed the YAML said the right thing, and a
-runtime claim was written on that basis.
+Starts the pinned Collector, sends payloads that place a unique marker in every
+OTLP carrier the signal model can transport, and records what the shipped
+policy does to each one. The recorded map is the citable evidence behind the
+minimization claims in `SECURITY.md` and the references, and it is asserted as
+a regression boundary, so a configuration or image change that opens a carrier
+fails here.
 
-This module starts the pinned Collector, sends payloads that place a unique
-marker in every OTLP carrier the signal model can transport, and records what
-the shipped policy does to each one. The recorded map is the citable evidence
-behind the minimization claims in `SECURITY.md` and the references, and it is
-asserted as a regression boundary, so a configuration or image change that
-opens a carrier fails here rather than passing quietly.
-
-Absence alone proves nothing. A marker can be missing because policy dropped it
+Absence alone proves nothing: a marker can be missing because policy dropped it
 or because the exporter never renders that field. Every run is therefore paired
 with a negative control that removes the content-minimization processors from
 the same configuration. A marker the control does not render is `unobservable`,
