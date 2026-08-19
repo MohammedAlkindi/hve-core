@@ -14,14 +14,14 @@ _TESTS_DIR = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_TESTS_DIR))
 sys.path.insert(0, str(_TESTS_DIR.parent / "examples"))
 
-from _input_policy import PolicyError, check_url  # noqa: E402
-from settings_upsert import SettingsError, parse_assignment, strip_jsonc  # noqa: E402
-from test_local_config import (  # noqa: E402
+from _config_support import (  # noqa: E402
     MASK,
     ConfigError,
     load_yaml_text,
     simulate_redaction,
 )
+from _input_policy import PolicyError, check_url  # noqa: E402
+from settings_upsert import SettingsError, parse_assignment, strip_jsonc  # noqa: E402
 
 try:
     import atheris
