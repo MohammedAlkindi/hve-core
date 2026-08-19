@@ -45,6 +45,15 @@ import yaml
 SKILL_ROOT = pathlib.Path(__file__).resolve().parents[1]
 COLLECTOR_PATH = SKILL_ROOT / "examples" / "otel-collector-local.yaml"
 COMPOSE_PATH = SKILL_ROOT / "examples" / "compose.yaml"
+FLEET_COLLECTOR_PATH = SKILL_ROOT / "examples" / "azure" / "otel-collector-config.yaml"
+
+# Which shipped document supplies the content-minimization processors under
+# test. The fleet document exports to a shared, retained workspace, so its
+# policy needs the same carrier-level evidence as the local one rather than a
+# static claim that the two files look alike.
+LOCAL_POLICY = "local"
+FLEET_POLICY = "fleet"
+POLICY_SOURCES = (LOCAL_POLICY, FLEET_POLICY)
 
 # The probe runs the same image the stack runs. Read from compose.yaml rather
 # than restated here, so a pin bump cannot leave this harness testing an image
@@ -61,10 +70,16 @@ CONTENT_PROCESSORS = ("redaction", "transform/scrub")
 # machine and not tolerable anywhere the run's result is cited: `SECURITY.md`
 # and the references attribute their minimization claims to this module, so a
 # lane that quietly stopped starting the Collector would keep reporting green
-# while those claims lost their backing. Strictness is therefore on by default
-# wherever `CI` is set, and this variable overrides it in both directions.
+# while those claims lost their backing. The lane that owns this evidence says
+# so explicitly through this variable; no ambient signal turns strictness on,
+# because a generic runner that never selected these tests should not inherit
+# their runtime prerequisites.
 STRICT_RUNTIME_ENV = "COPILOT_OTEL_STRICT_RUNTIME"
 _FALSE_VALUES = frozenset({"", "0", "false", "no", "off"})
+
+# This module starts containers and pulls a pinned image. Selecting it is a
+# deliberate act by a lane that provisions those prerequisites.
+pytestmark = pytest.mark.slow
 
 MASK = "****"
 SCRUB = "[redacted]"
@@ -485,7 +500,15 @@ def shipped_collector_config() -> dict:
     return yaml.safe_load(COLLECTOR_PATH.read_text(encoding="utf-8"))
 
 
-def derive_probe_config(*, remove_content_processors: bool) -> dict:
+def policy_document(policy_source: str) -> dict:
+    """The shipped document that owns the content-minimization processors."""
+    path = COLLECTOR_PATH if policy_source == LOCAL_POLICY else FLEET_COLLECTOR_PATH
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def derive_probe_config(
+    *, remove_content_processors: bool, policy_source: str = LOCAL_POLICY
+) -> dict:
     """Derive a probe configuration from the shipped file.
 
     The only permitted substitution for an ordinary run is exporter wiring, so
@@ -493,8 +516,19 @@ def derive_probe_config(*, remove_content_processors: bool) -> dict:
     this harness does not start. Receivers, processors, and processor ordering
     are preserved. The negative control is additionally permitted to remove
     every content-minimization processor, and makes no other policy change.
+
+    A fleet run substitutes the two content-minimization processor definitions
+    from the fleet document and nothing else. Transport stays local because the
+    fleet receiver requires TLS material and a bearer credential this harness
+    does not hold, and because the fleet exporter targets a store it does not
+    start. What is under test is the policy, and the policy is what is swapped.
     """
     config = copy.deepcopy(shipped_collector_config())
+
+    if policy_source != LOCAL_POLICY:
+        source = policy_document(policy_source)
+        for name in CONTENT_PROCESSORS:
+            config["processors"][name] = copy.deepcopy(source["processors"][name])
 
     config["exporters"] = {"debug": {"verbosity": "detailed"}}
     # A ten second batch window would dominate the probe's runtime without
@@ -535,6 +569,22 @@ class ContainerRuntime:
         """Render a host path in the form this Docker CLI can bind-mount."""
         return path.as_posix()
 
+    def openssl(
+        self, *args: str, cwd: pathlib.Path, timeout: float = 120.0
+    ) -> subprocess.CompletedProcess[str]:
+        """Run OpenSSL where this runtime's files live, using relative names."""
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["openssl", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+
+    def has_openssl(self) -> bool:
+        return shutil.which("openssl") is not None
+
 
 class _WslDockerRuntime(ContainerRuntime):
     """Windows hosts where Docker is reachable only inside WSL."""
@@ -550,6 +600,38 @@ class _WslDockerRuntime(ContainerRuntime):
         if translated.returncode != 0:
             raise RuntimeError(f"wslpath failed: {translated.stderr.strip()}")
         return translated.stdout.strip()
+
+    def openssl(
+        self, *args: str, cwd: pathlib.Path, timeout: float = 120.0
+    ) -> subprocess.CompletedProcess[str]:
+        # The certificate has to be readable by the same daemon that mounts it,
+        # so it is produced by the OpenSSL that lives beside that daemon.
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [
+                "wsl.exe",
+                "-e",
+                "sh",
+                "-c",
+                'cd "$1" && shift && exec openssl "$@"',
+                "sh",
+                self.mount_source(cwd),
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+
+    def has_openssl(self) -> bool:
+        probe = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["wsl.exe", "-e", "openssl", "version"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        return probe.returncode == 0
 
 
 def detect_runtime() -> ContainerRuntime | None:
@@ -578,15 +660,14 @@ def detect_runtime() -> ContainerRuntime | None:
 def strict_runtime_required(env: Mapping[str, str] | None = None) -> bool:
     """Whether a missing container runtime must fail this module rather than skip it.
 
-    An explicit `STRICT_RUNTIME_ENV` value decides on its own, in either
-    direction, so a lane without a usable runtime can opt out deliberately and
-    a contributor can opt in. With no explicit value the standard `CI` variable
-    decides, because a run whose green result is read as evidence is exactly the
-    run that must not skip.
+    Only `STRICT_RUNTIME_ENV` decides. The lane that selects these tests also
+    provisions Docker and pre-pulls the pinned image, so it is the only caller
+    positioned to promise that a green result means the probes ran. Inferring
+    strictness from an ambient signal would impose that promise on runners that
+    never selected the module.
     """
     source = os.environ if env is None else env
-    explicit = source.get(STRICT_RUNTIME_ENV)
-    chosen = explicit if explicit is not None else source.get("CI", "")
+    chosen = source.get(STRICT_RUNTIME_ENV, "")
     return chosen.strip().lower() not in _FALSE_VALUES
 
 
@@ -654,12 +735,19 @@ def _post(port: int, signal: str, payload: dict) -> None:
             raise RuntimeError(f"{signal} export returned HTTP {response.status}")
 
 
-def run_probe(runtime: ContainerRuntime, *, remove_content_processors: bool) -> ProbeResult:
+def run_probe(
+    runtime: ContainerRuntime,
+    *,
+    remove_content_processors: bool,
+    policy_source: str = LOCAL_POLICY,
+) -> ProbeResult:
     """Start a disposable Collector, export every marker, capture the output."""
-    config = derive_probe_config(remove_content_processors=remove_content_processors)
+    config = derive_probe_config(
+        remove_content_processors=remove_content_processors, policy_source=policy_source
+    )
     http_port = _free_port()
     health_port = _free_port()
-    variant = "control" if remove_content_processors else "policy"
+    variant = "control" if remove_content_processors else policy_source
     container = f"copilot-otel-carrier-probe-{variant}-{http_port}"
 
     with tempfile.TemporaryDirectory(prefix="copilot-otel-probe-") as workdir:
@@ -745,9 +833,9 @@ def runtime() -> ContainerRuntime:
     return resolve_runtime()
 
 
-@pytest.fixture(scope="module")
-def policy_output(runtime: ContainerRuntime) -> str:
-    return run_probe(runtime, remove_content_processors=False).output
+@pytest.fixture(scope="module", params=POLICY_SOURCES)
+def policy_output(request: pytest.FixtureRequest, runtime: ContainerRuntime) -> str:
+    return run_probe(runtime, remove_content_processors=False, policy_source=request.param).output
 
 
 @pytest.fixture(scope="module")
@@ -828,6 +916,26 @@ class TestProbeConfigDerivation:
     def test_the_probe_runs_the_image_the_stack_pins(self) -> None:
         assert "@sha256:" in pinned_collector_image()
 
+    def test_a_fleet_run_uses_the_fleet_content_processors(self) -> None:
+        fleet = policy_document(FLEET_POLICY)
+        derived = derive_probe_config(remove_content_processors=False, policy_source=FLEET_POLICY)
+        for name in CONTENT_PROCESSORS:
+            assert derived["processors"][name] == fleet["processors"][name]
+
+    def test_a_fleet_run_substitutes_nothing_but_the_content_processors(self) -> None:
+        """Swapping transport as well would test the fleet's network, not its policy."""
+        local = derive_probe_config(remove_content_processors=False)
+        fleet = derive_probe_config(remove_content_processors=False, policy_source=FLEET_POLICY)
+        assert local["receivers"] == fleet["receivers"]
+        assert local["exporters"] == fleet["exporters"]
+        assert local["service"] == fleet["service"]
+        differing = {
+            name
+            for name in local["processors"]
+            if local["processors"][name] != fleet["processors"][name]
+        }
+        assert differing <= set(CONTENT_PROCESSORS)
+
 
 class TestStrictRuntimeMode:
     """A run that produces no evidence must not be able to pass quietly.
@@ -836,21 +944,21 @@ class TestStrictRuntimeMode:
     usable container runtime, a skip would keep the suite green while those
     claims cite a run that never happened, which is the defect this suite
     exists to prevent, one level up. The rule that decides between skipping and
-    failing is therefore asserted rather than trusted.
+    failing is therefore asserted rather than trusted, including its refusal to
+    infer strictness from an ambient signal.
     """
 
     @pytest.mark.parametrize(
         ("env", "expected"),
         [
             ({}, False),
-            ({"CI": "true"}, True),
-            ({"CI": "1"}, True),
-            ({"CI": "false"}, False),
-            ({"CI": ""}, False),
+            ({"CI": "true"}, False),
+            ({"CI": "1"}, False),
             ({STRICT_RUNTIME_ENV: "1"}, True),
             ({STRICT_RUNTIME_ENV: "true", "CI": "false"}, True),
             ({STRICT_RUNTIME_ENV: "0", "CI": "true"}, False),
             ({STRICT_RUNTIME_ENV: "off", "CI": "true"}, False),
+            ({STRICT_RUNTIME_ENV: ""}, False),
         ],
     )
     def test_strictness_follows_the_environment(self, env: dict[str, str], expected: bool) -> None:
@@ -994,3 +1102,372 @@ class TestShippedConfigurationStartsClean:
             )
         finally:
             runtime.docker("rm", "-f", container, timeout=120)
+
+
+# --- Agent-host relay ------------------------------------------------------
+#
+# The relay is the only carrier for organization-managed agent-host telemetry,
+# and everything that makes it safe is transport: it must reach the fleet
+# receiver over TLS it verified against the operator's bundle, carrying the
+# fleet credential, and it must refuse to forward when any of that is wrong.
+# None of that is observable in a configuration file, so the shipped relay is
+# run against a disposable receiver that holds the other half of the handshake.
+
+RELAY_COLLECTOR_PATH = (
+    SKILL_ROOT / "examples" / "azure" / "agent-host-relay" / ("otel-collector-config.yaml")
+)
+RELAY_SAN_HOST = "fleet-receiver"
+RELAY_WRONG_HOST = "other-receiver-name"
+RELAY_TOKEN = "relay-runtime-fleet-token"
+RELAY_CA_MOUNT = "/run/copilot-otel/fleet-ca.pem"
+RELAY_MARKER_ATTRIBUTE = "session.id"
+
+NO_OPENSSL_REASON = (
+    "OpenSSL is unavailable beside the container runtime, so no ephemeral CA "
+    "and server certificate could be issued. The relay's TLS and credential "
+    "behaviour was not verified by this run."
+)
+
+
+@dataclass(frozen=True)
+class RelayCase:
+    """One end-to-end relay attempt and whether forwarding may succeed."""
+
+    name: str
+    token: str
+    ca_file: str
+    endpoint_host: str
+    forwards: bool
+
+
+RELAY_CASES = (
+    RelayCase("trusted", RELAY_TOKEN, "ca.pem", RELAY_SAN_HOST, forwards=True),
+    RelayCase("wrong-bearer", "not-the-fleet-token", "ca.pem", RELAY_SAN_HOST, forwards=False),
+    RelayCase("untrusted-ca", RELAY_TOKEN, "other-ca.pem", RELAY_SAN_HOST, forwards=False),
+    RelayCase("hostname-mismatch", RELAY_TOKEN, "ca.pem", RELAY_WRONG_HOST, forwards=False),
+)
+
+
+def resolve_openssl(runtime: ContainerRuntime) -> None:
+    """Stop this module the way strictness requires when OpenSSL is missing."""
+    if runtime.has_openssl():
+        return
+    if strict_runtime_required():
+        pytest.fail(
+            f"{NO_OPENSSL_REASON} Strict mode is active, so this is a failure and "
+            f"not a skip. Set {STRICT_RUNTIME_ENV}=0 to allow the skip.",
+            pytrace=False,
+        )
+    pytest.skip(NO_OPENSSL_REASON)
+
+
+def _issue_relay_material(runtime: ContainerRuntime, workdir: pathlib.Path) -> None:
+    """Issue a throwaway CA, a SAN-matched server certificate, and a rival CA.
+
+    The rival CA is what makes the untrusted-certificate case a real rejection
+    rather than an absence: the receiver still presents a valid certificate,
+    signed by an authority the relay was not given.
+    """
+    # Only RELAY_SAN_HOST is named, so the mismatched-hostname case rests on
+    # the certificate rather than on the receiver refusing the connection.
+    (workdir / "san.cnf").write_text(f"subjectAltName=DNS:{RELAY_SAN_HOST}\n", encoding="utf-8")
+    commands = [
+        # The authority the relay is told to trust.
+        (
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            "ca.key",
+            "-out",
+            "ca.pem",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=copilot-otel-relay-test-ca",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+        ),
+        # An authority the relay is never told about.
+        (
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            "other-ca.key",
+            "-out",
+            "other-ca.pem",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=copilot-otel-rival-ca",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+        ),
+        (
+            "req",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            "server.key",
+            "-out",
+            "server.csr",
+            "-subj",
+            f"/CN={RELAY_SAN_HOST}",
+        ),
+        (
+            "x509",
+            "-req",
+            "-in",
+            "server.csr",
+            "-CA",
+            "ca.pem",
+            "-CAkey",
+            "ca.key",
+            "-CAcreateserial",
+            "-out",
+            "server.crt",
+            "-days",
+            "1",
+            "-extfile",
+            "san.cnf",
+        ),
+    ]
+    for command in commands:
+        result = runtime.openssl(*command, cwd=workdir)
+        if result.returncode != 0:
+            raise RuntimeError(f"openssl {command[0]} failed: {result.stderr.strip()}")
+
+
+def _fleet_receiver_config() -> dict:
+    """A disposable stand-in for the fleet receiver: TLS, bearer auth, and a log."""
+    return {
+        "receivers": {
+            "otlp": {
+                "protocols": {
+                    "http": {
+                        "endpoint": "0.0.0.0:4318",
+                        "auth": {"authenticator": "bearertokenauth"},
+                        "tls": {
+                            "cert_file": "/etc/otel/server.crt",
+                            "key_file": "/etc/otel/server.key",
+                        },
+                    }
+                }
+            }
+        },
+        "exporters": {"debug": {"verbosity": "detailed"}},
+        "extensions": {
+            "health_check": {"endpoint": "0.0.0.0:13133"},
+            "bearertokenauth": {"scheme": "Bearer", "token": RELAY_TOKEN},
+        },
+        "service": {
+            "extensions": ["health_check", "bearertokenauth"],
+            "pipelines": {"traces": {"receivers": ["otlp"], "exporters": ["debug"]}},
+        },
+    }
+
+
+def _agent_host_payload(marker: str) -> dict:
+    """A trace only the agent host would produce, carrying a unique marker."""
+    return {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": "copilot-agent-host"}}
+                    ]
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "copilot-otel-relay-test"},
+                        "spans": [
+                            {
+                                "traceId": "d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5",
+                                "spanId": "a1b2c3d4e5f60718",
+                                "name": "invoke_agent",
+                                "kind": 1,
+                                "startTimeUnixNano": "1700000000000000000",
+                                "endTimeUnixNano": "1700000000100000000",
+                                "attributes": [
+                                    {
+                                        "key": RELAY_MARKER_ATTRIBUTE,
+                                        "value": {"stringValue": marker},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _container_logs(runtime: ContainerRuntime, container: str) -> str:
+    logs = runtime.docker("logs", container, timeout=60)
+    return logs.stdout + logs.stderr
+
+
+def run_relay_case(runtime: ContainerRuntime, case: RelayCase) -> tuple[str, str]:
+    """Run the shipped relay against a disposable fleet receiver.
+
+    Returns the receiver's output and the relay's own output. The relay
+    configuration is used exactly as shipped, including its ten second batch
+    window, so nothing about the transport under test is a test-only variant.
+    """
+    marker = f"RELAYMARKER{case.name.upper().replace('-', '')}{_free_port()}"
+    network = f"copilot-otel-relay-net-{_free_port()}"
+    receiver_container = f"copilot-otel-relay-receiver-{_free_port()}"
+    relay_container = f"copilot-otel-relay-{_free_port()}"
+    relay_http_port = _free_port()
+    receiver_health_port = _free_port()
+    relay_health_port = _free_port()
+
+    with tempfile.TemporaryDirectory(prefix="copilot-otel-relay-") as raw_workdir:
+        workdir = pathlib.Path(raw_workdir)
+        _issue_relay_material(runtime, workdir)
+        receiver_config = workdir / "receiver.yaml"
+        receiver_config.write_text(
+            yaml.safe_dump(_fleet_receiver_config(), sort_keys=False), encoding="utf-8"
+        )
+
+        created = runtime.docker("network", "create", network)
+        if created.returncode != 0:
+            raise RuntimeError(f"relay test network failed: {created.stderr.strip()}")
+        try:
+            started = runtime.docker(
+                "run",
+                "-d",
+                "--name",
+                receiver_container,
+                "--network",
+                network,
+                "--network-alias",
+                RELAY_SAN_HOST,
+                "--network-alias",
+                RELAY_WRONG_HOST,
+                "-p",
+                f"127.0.0.1:{receiver_health_port}:13133",
+                "-v",
+                f"{runtime.mount_source(receiver_config)}:/etc/otelcol-contrib/config.yaml:ro",
+                "-v",
+                f"{runtime.mount_source(workdir / 'server.crt')}:/etc/otel/server.crt:ro",
+                "-v",
+                f"{runtime.mount_source(workdir / 'server.key')}:/etc/otel/server.key:ro",
+                pinned_collector_image(),
+                "--config=/etc/otelcol-contrib/config.yaml",
+            )
+            if started.returncode != 0:
+                raise RuntimeError(f"fleet receiver failed to start: {started.stderr.strip()}")
+
+            started = runtime.docker(
+                "run",
+                "-d",
+                "--name",
+                relay_container,
+                "--network",
+                network,
+                "-e",
+                f"COPILOT_OTEL_FLEET_ENDPOINT=https://{case.endpoint_host}:4318",
+                "-e",
+                f"COPILOT_OTEL_INGEST_TOKEN={case.token}",
+                "-p",
+                f"127.0.0.1:{relay_http_port}:4318",
+                "-p",
+                f"127.0.0.1:{relay_health_port}:13133",
+                "-v",
+                f"{runtime.mount_source(RELAY_COLLECTOR_PATH)}:/etc/otelcol-contrib/config.yaml:ro",
+                "-v",
+                f"{runtime.mount_source(workdir / case.ca_file)}:{RELAY_CA_MOUNT}:ro",
+                pinned_collector_image(),
+                "--config=/etc/otelcol-contrib/config.yaml",
+            )
+            if started.returncode != 0:
+                raise RuntimeError(f"relay failed to start: {started.stderr.strip()}")
+
+            for name, port in (
+                (receiver_container, receiver_health_port),
+                (relay_container, relay_health_port),
+            ):
+                if not _wait_for_health(port, timeout=60):
+                    raise RuntimeError(
+                        f"{name} never became healthy; output:\n{_container_logs(runtime, name)}"
+                    )
+
+            _post(relay_http_port, "traces", _agent_host_payload(marker))
+
+            # The shipped relay batches for ten seconds, so no verdict is
+            # available until that window has passed at least once.
+            deadline = time.monotonic() + 45
+            receiver_output = ""
+            while time.monotonic() < deadline:
+                receiver_output = _container_logs(runtime, receiver_container)
+                if marker in receiver_output:
+                    break
+                time.sleep(1)
+            relay_output = _container_logs(runtime, relay_container)
+            return receiver_output.replace(marker, "AGENTHOSTMARKER"), relay_output
+        finally:
+            for name in (relay_container, receiver_container):
+                runtime.docker("rm", "-f", name, timeout=120)
+            runtime.docker("network", "rm", network, timeout=120)
+
+
+@pytest.fixture(scope="module")
+def relay_results(runtime: ContainerRuntime) -> dict[str, tuple[str, str]]:
+    """Every relay case, run once, because each one starts two containers."""
+    resolve_openssl(runtime)
+    return {case.name: run_relay_case(runtime, case) for case in RELAY_CASES}
+
+
+class TestAgentHostRelay:
+    """The shipped relay forwards only over verified TLS with the fleet credential.
+
+    A static check can confirm the relay declares a CA file and an
+    authenticator. It cannot confirm that the Collector refuses a receiver
+    signed by another authority, or one whose certificate does not name the
+    host the relay dialled. Those are the failures that would otherwise be
+    found by a fleet already sending telemetry somewhere it should not.
+    """
+
+    def test_a_trusted_receiver_with_the_right_credential_receives_the_span(
+        self, relay_results: dict[str, tuple[str, str]]
+    ) -> None:
+        receiver_output, _ = relay_results["trusted"]
+        assert "AGENTHOSTMARKER" in receiver_output, (
+            "the relay did not forward agent-host telemetry over verified TLS"
+        )
+
+    def test_the_forwarded_span_keeps_its_agent_host_identity(
+        self, relay_results: dict[str, tuple[str, str]]
+    ) -> None:
+        receiver_output, _ = relay_results["trusted"]
+        assert "copilot-agent-host" in receiver_output
+
+    @pytest.mark.parametrize("case", [entry.name for entry in RELAY_CASES if not entry.forwards])
+    def test_a_rejected_transport_forwards_nothing(
+        self, relay_results: dict[str, tuple[str, str]], case: str
+    ) -> None:
+        receiver_output, _ = relay_results[case]
+        assert "AGENTHOSTMARKER" not in receiver_output, (
+            f"the {case} case reached the fleet receiver anyway"
+        )
+
+    def test_a_wrong_bearer_is_refused_by_the_receiver(
+        self, relay_results: dict[str, tuple[str, str]]
+    ) -> None:
+        _, relay_output = relay_results["wrong-bearer"]
+        assert "401" in relay_output or "unauthorized" in relay_output.lower()
+
+    @pytest.mark.parametrize("case", ["untrusted-ca", "hostname-mismatch"])
+    def test_a_certificate_failure_is_reported_as_one(
+        self, relay_results: dict[str, tuple[str, str]], case: str
+    ) -> None:
+        _, relay_output = relay_results[case]
+        assert "certificate" in relay_output.lower() or "tls" in relay_output.lower()
