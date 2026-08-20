@@ -399,8 +399,16 @@ def backup_path_for(
     highest index already used for this second rather than filling the lowest
     free slot: retention can delete a low index, and reusing it would place a
     newer backup ahead of an older one in the order retention reads.
+
+    The counter only orders backups within one second, so a clock that steps
+    backwards would name the newest backup lowest and retention would delete it
+    first. A regressing stamp is held at the newest one on disk.
     """
     stamp = (now or datetime.datetime.now(datetime.UTC)).strftime("%Y%m%dT%H%M%SZ")
+    existing = existing_backups(settings_path)
+    if existing:
+        newest = existing[-1].name[len(f"{settings_path.name}.") :].rsplit("-", 1)[0]
+        stamp = max(stamp, newest)
     prefix = f"{settings_path.name}.{stamp}-"
     used = []
     for sibling in settings_path.parent.glob(f"{prefix}*.bak"):

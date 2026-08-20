@@ -655,6 +655,26 @@ class TestBackupRetention:
         assert removed == created[:2]
         assert all(not path.exists() for path in removed)
 
+    def test_a_backwards_clock_still_sorts_the_newest_backup_last(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Retention reads name order, so a regressing clock must not reorder it.
+
+        An NTP correction on a shared runner is enough to move the wall clock
+        back a second. Without this the newest backup takes the lowest name and
+        retention deletes it first, which loses the only copy that matters.
+        """
+        settings = tmp_path / "settings.json"
+        settings.write_text("{}\n", encoding="utf-8")
+        later = datetime.datetime(2026, 1, 2, 3, 4, 5, tzinfo=datetime.UTC)
+        earlier = later - datetime.timedelta(seconds=30)
+
+        first = backup_path_for(settings, now=later)
+        first.write_text("{}\n", encoding="utf-8")
+        second = backup_path_for(settings, now=earlier)
+
+        assert second.name > first.name
+
     def test_pruning_keeps_the_newest_backup(self, settings_file: pathlib.Path) -> None:
         for index in range(BACKUP_RETENTION + 2):
             apply_changes(settings_file, {MAXSIZE: index + 1}, apply=True)

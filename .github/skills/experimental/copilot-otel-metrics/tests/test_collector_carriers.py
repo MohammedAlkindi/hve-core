@@ -1238,6 +1238,11 @@ def _issue_relay_material(runtime: ContainerRuntime, workdir: pathlib.Path) -> N
         if result.returncode != 0:
             raise RuntimeError(f"openssl {command[0]} failed: {result.stderr.strip()}")
 
+    # OpenSSL writes keys 0600 for the creating user; the Collector image runs
+    # as a different UID and the bind mount carries host mode through.
+    for key in workdir.glob("*.key"):
+        key.chmod(0o644)
+
 
 def _fleet_receiver_config() -> dict:
     """A disposable stand-in for the fleet receiver: TLS, bearer auth, and a log."""
