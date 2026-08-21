@@ -132,15 +132,6 @@ active:
 * `telemetry-foundations` owns metric names, instruments, units, cardinality,
   and PII-safe telemetry conventions.
 
-A cross-cutting concern always surfaces an observation and offers concrete
-choices. It never blocks a durable write, never edits an artifact silently, and
-never decides for the user. The durable-write scan gate remains the only
-condition that blocks a write.
-
-When a concern triggers, name it, say why it applies, name its owning skill,
-offer the contribution, and let the user choose. When the owning skill is
-unavailable, say so and continue without improvising its authority.
-
 Produce the confirmed job's durable output directly using its owning skill.
 Coaching governs decision ownership, not abstention from producing work: the
 user selects and confirms, and this agent does the resulting analysis,

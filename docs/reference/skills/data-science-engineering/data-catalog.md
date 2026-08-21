@@ -28,7 +28,7 @@ Create and enrich durable data catalogs using the native DS_CATALOG_V1 Markdown 
 
 ## When to use it
 
-Use `ds-catalog` when an engagement needs a durable inventory of business
+Use `data-catalog` when an engagement needs a durable inventory of business
 entities, declared relationships, lineage, data tiers, access state, and
 privacy citations. It is the source authority for catalog-driven ERD rendering.
 
