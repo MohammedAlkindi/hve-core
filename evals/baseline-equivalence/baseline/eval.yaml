@@ -7,8 +7,9 @@ description: >
   and invokes this spec via `vally eval --eval-spec ... --workspace <empty>
   --skill-dir <empty>`. The `response-quality` prompt graders defined here
   score this run independently; `vally compare` performs the
-  baseline-versus-customized comparison separately against its embedded
-  rubric, with the judge model pinned on the compare invocation.
+  baseline-versus-customized comparison separately against the explicit
+  contract in compare.eval.yml, with the judge model pinned on the compare
+  invocation.
 type: capability
 # vally materializes each trial in <workspace>/<variant>/<stimulus>/, not at the
 # workspace root, so anything the agent must see has to arrive through

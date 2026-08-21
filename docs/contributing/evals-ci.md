@@ -261,8 +261,7 @@ vally lint --eval-spec evals/baseline-equivalence/baseline/eval.yaml
 vally lint --eval-spec evals/baseline-equivalence/customized/eval.yaml
 ```
 
-`npm run ci:eval:run:equivalence` invokes the two specs directly through `vally eval`, with no driver, comparison, or summary.
-[scripts/evals/Invoke-BaselineEquivalence.ps1](../../scripts/evals/Invoke-BaselineEquivalence.ps1) runs during `npm run ci:eval:equivalence` instead, and owns environment materialization, seeding, baseline caching, the pinned comparison invocation, and summary generation.
+[scripts/evals/Invoke-BaselineEquivalence.ps1](../../scripts/evals/Invoke-BaselineEquivalence.ps1) runs during `npm run ci:eval:equivalence` and owns environment materialization, seeding, baseline caching, the pinned comparison invocation, and summary generation. It is the only path that materializes the customization surface, so the customized spec must be run through it rather than invoked directly.
 See [evals/baseline-equivalence/README.md](https://github.com/microsoft/hve-core/blob/main/evals/baseline-equivalence/README.md) for the suite operator guide and driver-output contract.
 
 ## Matrix, Moderation, and Dashboard Scripts

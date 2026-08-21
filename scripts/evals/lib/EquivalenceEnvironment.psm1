@@ -179,20 +179,43 @@ function Assert-ContainedRepositoryPath {
         [string]$Because = 'materialization input'
     )
 
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-    if ($item.LinkType -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-        throw "Refusing to materialize $Because '$Path': symbolic links and reparse points are not permitted."
-    }
+    $rootItem = Get-Item -LiteralPath $ApprovedRoot -Force -ErrorAction Stop
+    $rootFull = [System.IO.Path]::GetFullPath($rootItem.FullName)
+    $rootTrimmed = $rootFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $rootPrefix = $rootTrimmed + [System.IO.Path]::DirectorySeparatorChar
 
-    $rootFull = [System.IO.Path]::GetFullPath((Get-Item -LiteralPath $ApprovedRoot -Force -ErrorAction Stop).FullName)
-    $rootPrefix = $rootFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     $resolved = [System.IO.Path]::GetFullPath($item.FullName)
 
     if ($resolved -ne $rootFull -and -not $resolved.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to materialize $Because '$Path': resolved path '$resolved' escapes the approved root '$rootFull'."
     }
 
-    return $resolved
+    # GetFullPath is lexical normalization only, so a regular file beneath a linked
+    # directory still carries the approved prefix. Every segment between the approved
+    # root and the target is inspected, because a link in any ancestor redirects the
+    # read outside the repository just as effectively as a linked leaf.
+    $separators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $relative = $resolved.Substring($rootTrimmed.Length).Trim($separators)
+    if (-not [string]::IsNullOrEmpty($relative)) {
+        $current = $rootTrimmed
+        foreach ($segment in $relative.Split($separators, [System.StringSplitOptions]::RemoveEmptyEntries)) {
+            $current = Join-Path $current $segment
+            $component = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+            if ($component.LinkType -or ($component.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                throw "Refusing to materialize $Because '$Path': ancestor or target '$current' is a symbolic link or reparse point."
+            }
+        }
+    }
+
+    # Re-open after the walk so the returned path is the one that was verified rather
+    # than the one that was requested.
+    $verified = [System.IO.Path]::GetFullPath((Get-Item -LiteralPath $resolved -Force -ErrorAction Stop).FullName)
+    if ($verified -ne $rootFull -and -not $verified.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to materialize $Because '$Path': verified path '$verified' escapes the approved root '$rootFull'."
+    }
+
+    return $verified
 }
 
 function Get-AgentDeclaredDependency {

@@ -108,7 +108,7 @@ Those answers were spread across a driver, a parser, and a CI dispatcher, and in
 
 Chosen option: **Option C**, because the policy questions are coupled. Separating the gates without fixing the rubric source leaves the verdict reproducible only by accident, and renaming tiers without defining which failures may be advisory leaves the exit policy ambiguous at the moment it matters most.
 
-The decision has six parts.
+The decision has eight parts.
 
 **1. The comparison rubric is an explicit repository contract, and the judge model is pinned on the invocation.** `vally compare` treats `--eval-spec` as an optional override of its embedded rubric.
 Relying on that default proved unsound: the embedded rubric asks which response is better, and two runs of one configuration still differ in wording, so the judge picks winners even when customization changed nothing.

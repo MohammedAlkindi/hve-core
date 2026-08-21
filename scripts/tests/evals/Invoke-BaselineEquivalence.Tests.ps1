@@ -457,6 +457,27 @@ stimuli:
       - {type: prompt, name: equivalence-judgement, config: {prompt: "Equivalent?"}}
 '@
 
+        # The driver reads the canonical stimulus library and the executable specs before
+        # any model-backed work and fails loudly when either is unreadable, so the stub
+        # repo carries both rather than relying on a silent default.
+        Set-Content -LiteralPath (Join-Path $baselineRoot 'stimuli.yml') -Encoding UTF8 -Value @'
+stimuli:
+  - name: stub-stimulus
+    prompt: "Stub prompt."
+    tags: {category: baseline-equivalence, policy: equivalent}
+'@
+        foreach ($variantDir in @('baseline', 'customized')) {
+            $variantPath = Join-Path $baselineRoot $variantDir
+            New-Item -ItemType Directory -Path $variantPath -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $variantPath 'eval.yaml') -Encoding UTF8 -Value @'
+name: stub-spec
+type: capability
+defaults:
+  runs: 1
+  executor: copilot-sdk
+'@
+        }
+
         $script:StubOutputPath = Join-Path $script:StubRepoRoot 'logs/summary.json'
         $stubVally = Join-Path $PSScriptRoot 'fixtures/stub-vally.ps1'
         Set-Alias -Name vally -Value $stubVally -Scope Global
@@ -555,6 +576,20 @@ stimuli:
     customized_required: [stub-guard]
     tags: {category: baseline-equivalence, policy: documented-divergence}
 '@
+
+        # The driver reads the executable specs for the effective trial count and fails
+        # loudly when they are unreadable, so the guard repo carries both.
+        foreach ($variantDir in @('baseline', 'customized')) {
+            $variantPath = Join-Path $guardRoot $variantDir
+            New-Item -ItemType Directory -Path $variantPath -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $variantPath 'eval.yaml') -Encoding UTF8 -Value @'
+name: stub-spec
+type: capability
+defaults:
+  runs: 1
+  executor: copilot-sdk
+'@
+        }
 
         $script:GuardOutputPath = Join-Path $script:GuardRepoRoot 'logs/summary.json'
         Set-Alias -Name vally -Value (Join-Path $PSScriptRoot 'fixtures/stub-vally.ps1') -Scope Global

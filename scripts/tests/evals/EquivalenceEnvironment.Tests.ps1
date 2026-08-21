@@ -167,6 +167,28 @@ Describe 'Assert-ContainedRepositoryPath' -Tag 'Unit' {
         catch {
             $script:CanLink = $false
         }
+
+        # A directory link inside the root that points outside it. Junctions need no
+        # elevation on Windows, so the ancestor cases still run on an unelevated agent
+        # where the symbolic-link case above skips.
+        $script:LinkedDir = Join-Path $script:GuardRoot 'linked-dir'
+        $script:CanLinkDir = $false
+        try {
+            $linkKind = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+            New-Item -ItemType $linkKind -Path $script:LinkedDir -Target $script:OutsideRoot -ErrorAction Stop | Out-Null
+            $script:CanLinkDir = Test-Path -LiteralPath $script:LinkedDir
+        }
+        catch {
+            $script:CanLinkDir = $false
+        }
+    }
+
+    AfterAll {
+        # Directory links are removed explicitly so cleanup does not follow them into
+        # the outside fixture tree.
+        if ($script:CanLinkDir) {
+            [System.IO.Directory]::Delete($script:LinkedDir) 2>$null
+        }
     }
 
     It 'Returns the resolved path for a contained regular file' {
@@ -187,7 +209,29 @@ Describe 'Assert-ContainedRepositoryPath' -Tag 'Unit' {
         # This is the exfiltration shape the check exists to stop: a file that looks
         # like an expected fixture but resolves to content outside the repository.
         { Assert-ContainedRepositoryPath -Path $script:LinkPath -ApprovedRoot $script:GuardRoot } |
-            Should -Throw -ExpectedMessage '*symbolic links and reparse points are not permitted*'
+            Should -Throw -ExpectedMessage '*symbolic link or reparse point*'
+    }
+
+    It 'Rejects a linked ancestor directory itself' {
+        if (-not $script:CanLinkDir) {
+            Set-ItResult -Skipped -Because 'the platform or account cannot create directory links'
+            return
+        }
+        { Assert-ContainedRepositoryPath -Path $script:LinkedDir -ApprovedRoot $script:GuardRoot } |
+            Should -Throw -ExpectedMessage '*symbolic link or reparse point*'
+    }
+
+    It 'Rejects a regular file reached through a linked ancestor directory' {
+        if (-not $script:CanLinkDir) {
+            Set-ItResult -Skipped -Because 'the platform or account cannot create directory links'
+            return
+        }
+        # Lexical containment accepts this path outright: every character of it sits
+        # under the approved root, and the target is an ordinary file with no link
+        # attributes of its own. Only walking the ancestors rejects it.
+        $through = Join-Path $script:LinkedDir 'secret.txt'
+        { Assert-ContainedRepositoryPath -Path $through -ApprovedRoot $script:GuardRoot } |
+            Should -Throw -ExpectedMessage '*symbolic link or reparse point*'
     }
 }
 
@@ -566,10 +610,21 @@ Describe 'Resolve-AgentScopePattern' -Tag 'Unit' {
         $result.Scope | Should -Not -BeNullOrEmpty
     }
 
-    It 'Reports the known advisory agents as exempt' {
-        # These agents were verified to contain no .copilot-tracking reference, so the
-        # exemption reflects their actual design rather than a resolution failure.
-        foreach ($slug in @('agile-coach', 'dependency-reviewer', 'ux-ui-designer')) {
+    It 'Reports agents that declare no tracking scope as exempt' {
+        # Derived rather than hard-coded. The previous fixed slug list asserted a
+        # property of the agent roster instead of the rule, so it broke when one agent
+        # was removed from the repository and another gained a tracking directive.
+        $candidates = @(
+            Get-ChildItem -Path (Join-Path $script:RepoRoot '.github/agents') -Recurse -Filter '*.agent.md' -File |
+                Where-Object { -not (Select-String -Path $_.FullName -Pattern '\.copilot-tracking' -Quiet) } |
+                Select-Object -First 5
+        )
+        if ($candidates.Count -eq 0) {
+            Set-ItResult -Skipped -Because 'every repository agent currently declares a tracking scope'
+            return
+        }
+        foreach ($file in $candidates) {
+            $slug = [System.IO.Path]::GetFileNameWithoutExtension($file.Name) -replace '\.agent$', ''
             (Resolve-AgentScopePattern -RepoRoot $script:RepoRoot -Agent $slug).Exempt | Should -BeTrue
         }
     }

@@ -397,13 +397,18 @@ function Get-CanonicalStimulusPolicy {
 
     $result = @{ Policy = @{}; Invariants = @(); Guards = @(); InvariantManifest = @{}; GuardManifest = @{} }
     $path = Join-Path $RepoRoot 'evals/baseline-equivalence/stimuli.yml'
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $result }
+    # An empty result is not a neutral degradation: every stimulus falls through to an
+    # empty policy, all trials book to divergence, and both gates fail with diagnostics
+    # that blame the customization instead of naming this file. Fail loudly instead.
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Canonical stimulus library not found at '$path'."
+    }
 
     try {
         $parsed = ConvertFrom-Yaml (Get-Content -LiteralPath $path -Raw)
     }
     catch {
-        return $result
+        throw "Canonical stimulus library at '$path' could not be parsed: $($_.Exception.Message)"
     }
 
     $invariants = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -463,7 +468,7 @@ function Get-EffectiveTrialCount {
         coverage check silently wrong the moment the run count is tuned, which the
         equivalence policy expects to happen during calibration.
     .OUTPUTS
-        [int] The configured run count, or 1 when it cannot be read.
+        [int] The configured run count.
     #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -472,13 +477,18 @@ function Get-EffectiveTrialCount {
         [string]$SpecPath
     )
 
-    if (-not (Test-Path -LiteralPath $SpecPath -PathType Leaf)) { return 1 }
+    # A silent fallback to 1 against a spec declaring runs: N makes the coverage check
+    # report N-1 surplus instances for every declared grader, filling dataQualityViolations
+    # with reports that describe a healthy run.
+    if (-not (Test-Path -LiteralPath $SpecPath -PathType Leaf)) {
+        throw "Executable eval spec not found at '$SpecPath'."
+    }
 
     try {
         $spec = ConvertFrom-Yaml (Get-Content -LiteralPath $SpecPath -Raw)
     }
     catch {
-        return 1
+        throw "Executable eval spec at '$SpecPath' could not be parsed: $($_.Exception.Message)"
     }
 
     if ($spec -and $spec.ContainsKey('defaults') -and $spec.defaults -and $spec.defaults.ContainsKey('runs')) {
@@ -632,6 +642,12 @@ if ($MyInvocation.InvocationName -ne '.') {
         $variantA = Get-VariantMetadata -VariantYamlPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/baseline/variant.yaml') -Default $defaultVariantA
         $variantB = Get-VariantMetadata -VariantYamlPath (Join-Path $resolvedRoot 'evals/baseline-equivalence/customized/variant.yaml') -Default $defaultVariantB
         $workspaceRoot = Join-Path $resolvedRoot 'evals/baseline-equivalence/customized/workspace'
+        # vally owns this tree and recreates it per trial, but it must exist before the
+        # invocation: it carries no tracked placeholder, so a clean checkout has no such
+        # directory and the customized run would receive a nonexistent --workspace.
+        if (-not (Test-Path -LiteralPath $workspaceRoot -PathType Container)) {
+            New-Item -ItemType Directory -Path $workspaceRoot -Force -WhatIf:$false -Confirm:$false | Out-Null
+        }
         # The surface is staged outside the workspace because vally owns the workspace
         # tree and recreates it per trial. The customized spec copies this directory
         # into each trial through environment.files.
@@ -664,7 +680,9 @@ if ($MyInvocation.InvocationName -ne '.') {
                 if ($node -and $node.version) { $vallyVersion = [string]$node.version }
             }
             catch {
-                $null = $_
+                # Non-fatal: an unknown version only weakens baseline cache keying, but it
+                # must be visible rather than silently recorded as 'unknown'.
+                Write-Error -Message "Could not read the pinned Vally version from '$lockPath': $($_.Exception.Message)" -ErrorAction Continue
             }
         }
         $baselineCacheRoot = Join-Path $resolvedRoot 'evals/results/baseline-equivalence/_baseline-cache'
@@ -764,14 +782,11 @@ if ($MyInvocation.InvocationName -ne '.') {
             $customizedSkillDirForModel = Join-Path $outputRoot "$model/$runId/customized-skill-dir"
             # Rebuilt from scratch each run so an artifact removed from the agent's
             # dependency set does not linger and keep influencing later comparisons.
-            # The placeholder is restored because vally's spec linter resolves this
-            # path, so an aborted run must not leave the directory missing.
             if (Test-Path -LiteralPath $surfaceRoot) {
                 Remove-Item -LiteralPath $surfaceRoot -Recurse -Force -ErrorAction SilentlyContinue
             }
             $surfaceGitHub = Join-Path $surfaceRoot '.github'
-            New-Item -ItemType Directory -Path $surfaceGitHub -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $surfaceGitHub '.gitkeep') -Value $surfacePlaceholderText -Encoding utf8NoBOM
+            New-Item -ItemType Directory -Path $surfaceRoot -Force | Out-Null
             try {
                 $customized = New-CustomizedEnvironment `
                     -RepoRoot $resolvedRoot `
@@ -791,6 +806,14 @@ if ($MyInvocation.InvocationName -ne '.') {
                 if (-not (Test-Path -LiteralPath $customizedSkillDirForModel)) {
                     New-Item -ItemType Directory -Path $customizedSkillDirForModel -Force | Out-Null
                 }
+            }
+            finally {
+                # Materialization clears this tree, so the tracked placeholder is restored
+                # after it rather than before. vally's spec linter resolves the path, so a
+                # completed or aborted run must both leave the directory present and the
+                # working tree clean.
+                New-Item -ItemType Directory -Path $surfaceGitHub -Force -WhatIf:$false -Confirm:$false | Out-Null
+                Set-Content -LiteralPath (Join-Path $surfaceGitHub '.gitkeep') -Value $surfacePlaceholderText -Encoding utf8NoBOM
             }
 
             # Both specs seed their trials from this fixture through environment.files.

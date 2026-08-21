@@ -10,7 +10,7 @@ This catalog documents the four grader identifiers the vally-tests skill cites i
 
 ## CLI Compatibility Note
 
-The grader behavior below is validated against Vally CLI **0.12.0**, the version pinned in this repository. Individual claims are deliberately not version-stamped: re-verify against the pinned version rather than assuming a version bump invalidated them.
+The grader behavior below was last validated against Vally CLI **0.12.0**. Individual claims are deliberately not version-stamped: re-verify against the version currently pinned in this repository rather than assuming a version bump invalidated them.
 
 The four grader identifiers used throughout this skill (`semantic_similarity`, `contains`, `regex`, `json_schema`) are the skill's conceptual vocabulary. They are NOT the literal `type:` strings Vally reads from stimulus YAML. The mapping is:
 

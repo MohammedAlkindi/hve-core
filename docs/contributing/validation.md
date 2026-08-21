@@ -303,7 +303,6 @@ clean moderation result.
 |-----------------------|-----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
 | Baseline equivalence  | `npm run ci:eval:equivalence -- -Agent rpi-agent -Tier devloop` | Model-backed comparison; writes `logs/baseline-equivalence-summary.json` and result trajectories under `evals/results/` |
 | Equivalence dry run   | `npm run ci:eval:equivalence -- -Agent rpi-agent -WhatIf`       | Prints planned work and writes a dry-run summary without SDK calls                                                      |
-| Raw equivalence specs | `npm run ci:eval:run:equivalence`                               | Runs paired specs directly; requires the selected model environment                                                     |
 | Agent matrix          | `npm run ci:eval:agent:matrix`                                  | Model-backed nightly matrix; writes date-scoped output under `evals/results/agent-matrix/`                              |
 | Agent matrix dry run  | `npm run ci:eval:agent:matrix:dryrun`                           | No model invocation; writes a dry-run matrix summary                                                                    |
 | Changed-agent matrix  | `npm run ci:eval:agent:changed`                                 | Requires a suitable git comparison base and model access                                                                |

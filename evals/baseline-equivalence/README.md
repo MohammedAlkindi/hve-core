@@ -121,7 +121,8 @@ The baseline-equivalence specs live in two subdirectories (`baseline/eval.yaml` 
 |--------------------------------------------------------------------------|------------------------------------------------------------------------------------|
 | `vally lint --eval-spec evals/baseline-equivalence/baseline/eval.yaml`   | Schema-validate the empty baseline spec                                            |
 | `vally lint --eval-spec evals/baseline-equivalence/customized/eval.yaml` | Schema-validate the materialized customized spec and persona-bleed guards          |
-| `npm run ci:eval:run:equivalence`                                        | Run both specs end to end via `vally eval --eval-spec ...` (no driver, no compare) |
+
+The customized spec cannot be run directly: only the driver materializes the customization surface, so a direct `vally eval` invocation would score an empty surface. Use `npm run ci:eval:equivalence -- -Agent <slug> -Tier devloop` to run the suite end to end.
 
 Run both `vally lint` commands before pushing a change to this suite. The presence linter ([scripts/evals/Test-StimulusPresence.ps1](../../scripts/evals/Test-StimulusPresence.ps1)) is wired into the changed-artifact lane and is documented in [docs/contributing/evals-ci.md](../../docs/contributing/evals-ci.md).
 
