@@ -46,6 +46,8 @@ Row 4 reaches `none` even while open items remain, because an unresolved item wh
 
 Normalize the supplied question set into `source_questions`, classify each question, identify the claims and evidence needed to answer it, and expose unresolved evidence or decision needs. Do not draft unsupported answers.
 
+For a question asking about an outcome or value prediction, look for approved evidence that supplies the measurable goal, timeframe, baseline, target, measurement source, and owner. Prefer a committed outcome hypothesis when the user has approved one, and register it as `kind: outcome_hypothesis`. When no approved source supports the requested outcome or value, create an `unsupported` claim and an `evidence` unresolved item so the gap contributes to structural readiness instead of being hidden in response prose.
+
 ### Contribute
 
 Add evidence and claims only for the requested ownership domain:

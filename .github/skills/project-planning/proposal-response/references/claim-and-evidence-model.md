@@ -23,12 +23,38 @@ An approved source is evidence the user authorized for this response. It takes t
 id: SRC-001
 origin: file | user_supplied
 path: docs/planning/aster-vale-supplier-onboarding-prd.md
-kind: brd | prd | policy | attestation | other
+kind: brd | prd | outcome_hypothesis | policy | attestation | other
 named_by: user
 read_date: 2026-08-12
 source_version: 1.3
 sections_used: [NFR-014, FR-021]
 ```
+
+A committed outcome hypothesis uses `kind: outcome_hypothesis`. Cite `Expected
+Outcomes` for the goal statement and timeframe, and cite the indicator table
+under `Validation & Measurement` for its baseline, target, measurement source,
+and owner:
+
+```yaml
+id: SRC-002
+origin: file
+path: docs/planning/outcome-hypotheses/2026-08-19-supplier-cycle-time-outcome-hypothesis.md
+kind: outcome_hypothesis
+named_by: user
+read_date: 2026-08-21
+source_version: 2026-08-19
+sections_used: [Expected Outcomes, "Validation & Measurement / Indicators"]
+```
+
+For a question asking about an outcome or value prediction, prefer a committed
+outcome hypothesis when the user has approved one. Cite `Expected Outcomes` and
+the indicator table separately so the response preserves both the prediction
+and its measurement basis. A BRD or PRD may support the claim only when its
+approved content directly supplies the same requested evidence; retain its
+actual `brd` or `prd` kind. When no approved source supports the requested
+outcome or value, create an `unsupported` claim and an `evidence` unresolved
+item rather than treating a requirement or aspiration as a measured
+prediction.
 
 For `origin: file`, `path` is the artifact the skill actually read, `source_version` is the version or date that artifact declares, and `sections_used` lists the requirement, section, or heading identifiers the claims drew from. Read the file before registering it. Never register a path the skill has not opened, and never infer `source_version` from the filename.
 

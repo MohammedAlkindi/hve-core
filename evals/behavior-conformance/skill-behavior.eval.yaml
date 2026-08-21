@@ -2508,6 +2508,70 @@ stimuli:
           pattern: '(?i)evidence_refs:\s*\[\s*(?:")?northwind-onboarding-brd\.md'
           negate: true
 
+  - name: skill-proposal-response-outcome-hypothesis-source
+    prompt: |
+      Use `proposal-response` contribute mode with domain business. The approved
+      source is
+      `docs/planning/outcome-hypotheses/supplier-cycle-time-outcome-hypothesis.md`.
+      SQ-001 asks what measurable supplier-onboarding outcome and value the
+      proposed workflow is expected to produce. Read and register the source,
+      contribute the supported claim, and display the registered SRC record
+      with the compact pointer.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-supplier-cycle-time-outcome-hypothesis.txt
+          dest: docs/planning/outcome-hypotheses/supplier-cycle-time-outcome-hypothesis.md
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: source-intake
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: typed-outcome-source
+        config:
+          pattern: '(?i)(kind:\s*outcome_hypothesis|SRC-0*1.{0,80}outcome[ _-]hypothesis|outcome[ _-]hypothesis.{0,80}SRC-0*1)'
+      - type: output-matches
+        name: expected-outcomes-section-cited
+        config:
+          pattern: '(?i)Expected Outcomes'
+      - type: output-matches
+        name: indicator-table-cited
+        config:
+          pattern: '(?i)(Validation\s*&\s*Measurement|Indicator detail|indicator table)'
+
+  - name: skill-proposal-response-missing-outcome-evidence
+    prompt: |
+      Use `proposal-response` analyze mode. SQ-001 asks for the measurable
+      business outcome, baseline, target, timeframe, measurement source, and
+      owner that justify the proposed solution's value. Treat this statement as
+      user-supplied approved PRD evidence: "The feature should improve
+      efficiency." It supplies no measured prediction. Display the claim and
+      unresolved item created for this gap with the compact pointer.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/proposal-response
+    tags:
+      category: behavior-conformance
+      skill: proposal-response
+      shape: outcome-evidence-gap
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: outcome-claim-unsupported
+        config:
+          pattern: '(?is)evidence_review:\s*unsupported|CLM-0*1.{0,240}(?:unsupported|no\s+(?:measurable\s+)?(?:goal|baseline|target|timeframe|measurement source|owner))|(?:unsupported|no\s+(?:measurable\s+)?(?:goal|baseline|target|timeframe|measurement source|owner)).{0,240}CLM-0*1'
+      - type: output-matches
+        name: evidence-gap-unresolved
+        config:
+          pattern: '(?is)(?:type:\s*evidence|type\s+`evidence`).*UNR-0*1|UNR-0*1.*(?:type:\s*evidence|type\s+`evidence`|approved evidence|evidence gap|gap recorded)'
+      - type: output-matches
+        name: unsupported-claim-blocks-readiness
+        config:
+          pattern: '(?is)blocking_ids:\s*\[[^\]]*CLM-0*1'
+
   - name: skill-proposal-response-source-unresolvable
     prompt: |
       Use `proposal-response` contribute mode with domain business. The approved
@@ -4394,6 +4458,33 @@ stimuli:
         config:
           pattern: '(?is)(?:\bOH\.(?:[1-9]|1[0-3])\b|^\s*(?:#{1,6}\s*)?(?:Full\s+Outcome\s+Hypothesis|Expected\s+Outcomes|Validation\s*&\s*Measurement)\b|^\s*(?:#{1,6}\s*)?(?:Investability|Confidence)\b|(?:would\s+you\s+like|can\s+I|offer).{0,100}(?:save|persist|write))'
           negate: true
+  - name: skill-outcome-hypothesis-d4-d6-provisional
+    prompt: |
+      Create an outcome hypothesis readiness decision where D4 and D6 are Red
+      and every other D1-D7 pillar is Green. Explain whether this routes to
+      Investigate or Provisional and what validation does with the resulting
+      draft.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+    tags:
+      category: behavior-conformance
+      skill: outcome-hypothesis
+      shape: knowledge
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: two-red-route-is-provisional
+        config:
+          pattern: '(?is)(D4.{0,80}D6|D6.{0,80}D4).{0,180}Provisional|Provisional.{0,180}(D4.{0,80}D6|D6.{0,80}D4)'
+      - type: output-matches
+        name: draft-is-not-investable
+        config:
+          pattern: '(?is)(draft|drafting).{0,160}not investable|not investable.{0,160}(draft|drafting)'
+      - type: output-matches
+        name: validation-rules-identified
+        config:
+          pattern: '(?is)(?=.*OH\.2)(?=.*OH\.3)(?=.*OH\.7)'
   - name: skill-outcome-hypothesis-human-owned-status
     prompt: |
       What status should the `outcome-hypothesis` skill use when it persists a
@@ -4438,4 +4529,59 @@ stimuli:
         name: excludes-privacy-standards-user-route
         config:
           pattern: '(?is)(invoke|run|start|route|use).{0,80}privacy-standards|privacy-standards.{0,80}(invoke|run|start|route|use)'
+          negate: true
+  - name: skill-outcome-hypothesis-late-privacy-gate
+    prompt: |
+      In create mode, the D1-D7 scorecard and readiness decision already exist.
+      During OH.13 validation, you discover that the drafted individual-level
+      measure uses personal data and no privacy review exists. Explain exactly
+      what may be returned and what must be withheld.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+    tags:
+      category: behavior-conformance
+      skill: outcome-hypothesis
+      shape: knowledge
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: safe-scorecard-returned
+        config:
+          pattern: '(?is)(?=.*(?:may be returned|return|provide|show))(?=.*(?:D1-D7|scorecard))(?=.*(?:readiness|decision))'
+      - type: output-matches
+        name: draft-and-findings-withheld
+        config:
+          pattern: '(?is)(?=.*(?:withhold|withheld|do not return|must not return))(?=.*draft)(?=.*validation)(?=.*investability)(?=.*Confidence)'
+      - type: output-matches
+        name: privacy-route-required
+        config:
+          pattern: '(?is)(invoke|run|route|use).{0,80}Privacy Planner|Privacy Planner.{0,80}(invoke|run|route|use)'
+  - name: skill-outcome-hypothesis-privacy-planner-unavailable
+    prompt: |
+      The outcome hypothesis requires individual-level personal-data
+      measurement, no privacy review exists, and `Privacy Planner` is not
+      available in this environment. Explain whether work may continue and
+      what is required to resume.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+    tags:
+      category: behavior-conformance
+      skill: outcome-hypothesis
+      shape: knowledge
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: unavailable-route-remains-stopped
+        config:
+          pattern: '(?is)(remain|stays?)\s+stop|must\s+stop|cannot\s+continue|do\s+not\s+continue'
+      - type: output-matches
+        name: qualified-human-review-required
+        config:
+          pattern: '(?is)documented.{0,100}(qualified\s+)?privacy.{0,40}(professional|reviewer|expert).{0,100}review|review.{0,100}(qualified\s+)?privacy.{0,40}(professional|reviewer|expert)'
+      - type: output-matches
+        name: no-silent-fallback
+        config:
+          pattern: '(?is)(may|can|should)\s+(continue|proceed).{0,80}(without|no).{0,80}(privacy|review)'
           negate: true

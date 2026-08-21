@@ -6,7 +6,7 @@ user-invocable: false
 metadata:
   authors: "microsoft/hve-core"
   spec_version: "1.1"
-  last_updated: "2026-08-13"
+  last_updated: "2026-08-21"
 ---
 
 # Requirements Author Skill
@@ -36,6 +36,17 @@ PRD scope (`references/prd/`):
 * [Product Discovery](references/prd/product-discovery.md)
 * [EARS Acceptance](references/prd/ears-acceptance.md)
 * [PRD Quality Formats](references/prd/prd-quality-formats.md)
+
+## Handoff Transport Convention
+
+The producing workflow owns each handoff's canonical transport, and the
+consumer validates the complete payload regardless of transport. An outcome
+hypothesis returns `OUTCOME_HYPOTHESIS_TO_BRD_HANDOFF_V1` inline by default
+because it is a one-time seed derived from an already persisted source
+artifact; the user may instead supply a separately persisted payload path.
+BRD Govern persists `BRD_TO_PRD_HANDOFF_V1` and returns its path because that
+payload is a durable governance record consumed across agent sessions. This
+asymmetry is intentional and does not change payload authority or validation.
 
 ## BRD Lifecycle
 

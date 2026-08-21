@@ -1,9 +1,9 @@
 ---
 title: proposal-response
 description: "Build traceable internal-review proposal, RFI, RFP, tender, bid, and questionnaire responses from supplied questions and approved sources. Use to analyze questions, contribute business or product evidence, or draft qualified responses."
-sidebar_position: 11
+sidebar_position: 12
 author: Microsoft
-ms.date: 2026-08-18
+ms.date: 2026-08-21
 ms.topic: reference
 keywords:
   - skill

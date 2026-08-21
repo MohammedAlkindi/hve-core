@@ -3,7 +3,7 @@ title: Skills
 description: Reference documentation for HVE Core skills.
 sidebar_position: 0
 author: Microsoft
-ms.date: 2026-08-18
+ms.date: 2026-08-21
 ms.topic: overview
 keywords:
   - reference
