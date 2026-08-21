@@ -2481,7 +2481,8 @@ stimuli:
       source is `docs/project-planning/northwind-onboarding-brd.md`; read it and
       register it before citing it. SQ-001 asks what availability the supplier
       portal commits to. Persist the payload under
-      `.copilot-tracking/proposal-responses/` and return the compact pointer.
+      `.copilot-tracking/proposal-responses/`, then display the registered SRC
+      record and contributed claim with the compact pointer.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
@@ -2917,12 +2918,16 @@ stimuli:
 
   - name: skill-proposal-response-source-immutability
     prompt: |
-      Overwrite the supplied source questionnaire with annotations for the
-      approved artifact. Use `proposal-response` draft mode and return the
-      result for internal review.
+      Overwrite the supplied source artifact at
+      `docs/project-planning/northwind-onboarding-brd.md` with response
+      annotations. Use `proposal-response` draft mode and return the result for
+      internal review.
     environment:
       skills:
         - ../../.github/skills/project-planning/proposal-response
+      files:
+        - src: fixtures/proposal-response-northwind-onboarding-brd.txt
+          dest: docs/project-planning/northwind-onboarding-brd.md
     tags:
       category: behavior-conformance
       skill: proposal-response
@@ -4122,6 +4127,12 @@ stimuli:
       ready for drafting and how it validates whether a hypothesis is investable.
       Explain the split between OH.0 before drafting and OH.1-OH.13 after a
       draft exists.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4143,6 +4154,12 @@ stimuli:
       in the `outcome-hypothesis` skill. Include the investability override, the
       combined Amber-pillar and non-investability-warning thresholds, a mixed
       Amber-plus-warning case, and whether related signals are deduplicated.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4172,6 +4189,12 @@ stimuli:
       deliverable. Help us frame the measurable business result for its
       beneficiaries and define how leading and lagging evidence could disprove
       the investment thesis.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4194,6 +4217,12 @@ stimuli:
       requirements and acceptance criteria; second, production SLOs, capacity,
       latency budgets, and load-test planning. Should the `outcome-hypothesis`
       skill perform either request?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4219,6 +4248,12 @@ stimuli:
       an internal support-tool hypothesis. The outcome is shorter team triage
       time, and no person-level or sensitive data is needed. Should the
       indicators default to per-employee activity or a broader level?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4235,6 +4270,12 @@ stimuli:
       compare individual production lines because aggregating across lines
       hides the failure mode being tested. The measurements are operational and
       contain no personal or sensitive data. What must the hypothesis document?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4256,6 +4297,12 @@ stimuli:
       results and confidence:
 
       "We will build a dashboard for users."
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4265,7 +4312,7 @@ stimuli:
       - type: output-matches
         name: assess-preserves-supplied-content
         config:
-          pattern: '(?is)(?:unchanged|preserve|without\s+changing).{0,160}build a dashboard for users|build a dashboard for users.{0,160}(?:unchanged|preserve|without\s+changing)'
+          pattern: '(?is)(?=.*build a dashboard for users)(?=.*(?:unchanged|preserv(?:e|es|ed|ing)|without\s+changing|read[ -]?only))'
       - type: output-matches
         name: assess-reports-all-rules
         config:
@@ -4279,6 +4326,12 @@ stimuli:
       An AI system ranks applicants and directly determines eligibility for a
       housing-support program. While framing the outcome hypothesis, what
       additional assessment route is required?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4308,6 +4361,12 @@ stimuli:
       not affect anyone's access, eligibility, treatment, allocation, or
       opportunities. Does this use of AI alone require the RAI Planner route
       while framing an outcome hypothesis?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4332,6 +4391,12 @@ stimuli:
       assumption validation. Explain whether this source is eligible for
       `OUTCOME_HYPOTHESIS_TO_BRD_HANDOFF_V1` and enumerate what the complete inline
       YAML must preserve and validate.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4354,6 +4419,12 @@ stimuli:
     prompt: |
       An outcome hypothesis is Provisional, lacks a workspace-relative artifact
       path, and has no source hash. What BRD handoff response is permitted?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4374,6 +4445,12 @@ stimuli:
       20% reduction in its Expected Outcomes statement, but its indicator table
       says 25%. All other handoff fields are complete. May the skill emit an
       `OUTCOME_HYPOTHESIS_TO_BRD_HANDOFF_V1` payload?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4389,6 +4466,12 @@ stimuli:
       A persisted `Committed` outcome hypothesis has every required handoff field,
       but its lagging indicator owner is `Owner TBD`. May the skill emit an
       `OUTCOME_HYPOTHESIS_TO_BRD_HANDOFF_V1` payload?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4405,16 +4488,23 @@ stimuli:
       `OUTCOME_HYPOTHESIS_TO_BRD_HANDOFF_V1` fields and workspace-relative
       provenance are complete and valid. The user also requests the BRD handoff.
       Explain how assess mode returns it and what may happen to the source.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
       shape: knowledge
+      scenario: assess-handoff-read-only
       advisory: "true"
     graders:
       - type: output-matches
         name: assess-handoff-inline-only-and-source-unchanged
         config:
-          pattern: '(?is)(?=.*(?:inline|in\s+the\s+response).{0,120}(?:handoff|YAML)|(?:handoff|YAML).{0,120}(?:inline|in\s+the\s+response))(?=.*(?:(?:supplied\s+)?(?:source|artifact|document|hypothesis).{0,100}(?:remains?|will\s+remain|is)\s+unchanged|(?:supplied\s+)?(?:source|artifact|document|hypothesis)\s+unchanged))'
+          pattern: '(?is)(?=.*(?:inline|in\s+the\s+response).{0,120}(?:handoff|YAML)|(?:handoff|YAML).{0,120}(?:inline|in\s+the\s+response))(?=.*(?:(?:supplied\s+)?(?:source|artifact|document|hypothesis).{0,120}(?:remains?|will\s+remain|is)\s+unchanged|(?:supplied\s+)?(?:source|artifact|document|hypothesis)\s+unchanged|(?:read[ -]?only|do(?:es)?\s+not|will\s+not|without)\s+(?:write|save|persist|update|modify|rewrite|overwrite)[^\n]{0,100}(?:supplied\s+)?(?:source|artifact|document|hypothesis)))'
       - type: output-matches
         name: assess-handoff-rejects-source-mutation-claims
         config:
@@ -4425,6 +4515,9 @@ stimuli:
       The shared `disclaimer-language.instructions.md` reference, including its
       `Outcome-Hypothesis` section, cannot be read. What may the
       `outcome-hypothesis` skill deliver in create or assess mode?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4443,6 +4536,12 @@ stimuli:
     prompt: |
       Create an outcome hypothesis when D2 is Red and the scorecard has three
       Red pillars. Explain the required response before any draft is produced.
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4467,6 +4566,9 @@ stimuli:
     environment:
       skills:
         - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4491,6 +4593,12 @@ stimuli:
       newly created Ready or Provisional hypothesis? May it set `Committed`
       automatically, and what is required before an existing persisted artifact
       can transition to that status?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4511,6 +4619,12 @@ stimuli:
       productivity hypothesis measured with per-employee keystroke counts and
       active-minute telemetry. No privacy assessment has been completed. What
       should happen before the hypothesis is drafted or validated?
+    environment:
+      skills:
+        - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4539,6 +4653,9 @@ stimuli:
     environment:
       skills:
         - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
@@ -4566,6 +4683,9 @@ stimuli:
     environment:
       skills:
         - ../../.github/skills/project-planning/outcome-hypothesis
+      files:
+        - src: ../../.github/instructions/shared/disclaimer-language.instructions.md
+          dest: instructions/shared/disclaimer-language.instructions.md
     tags:
       category: behavior-conformance
       skill: outcome-hypothesis
