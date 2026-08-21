@@ -676,17 +676,17 @@ NO_RUNTIME_REASON = (
 def resolve_runtime() -> ContainerRuntime:
     """Return a reachable runtime, or stop this module the way strictness requires."""
     found = detect_runtime()
-    if found is not None:
-        return found
-    if strict_runtime_required():
-        pytest.fail(
-            f"{NO_RUNTIME_REASON} Strict mode is active, so this is a failure and "
-            f"not a skip: the runtime-backed claims in SECURITY.md cite this "
-            f"module, and a silent skip would leave them citing a run that never "
-            f"happened. Set {STRICT_RUNTIME_ENV}=0 to allow the skip.",
-            pytrace=False,
-        )
-    pytest.skip(NO_RUNTIME_REASON)
+    if found is None:
+        if strict_runtime_required():
+            pytest.fail(
+                f"{NO_RUNTIME_REASON} Strict mode is active, so this is a failure and "
+                f"not a skip: the runtime-backed claims in SECURITY.md cite this "
+                f"module, and a silent skip would leave them citing a run that never "
+                f"happened. Set {STRICT_RUNTIME_ENV}=0 to allow the skip.",
+                pytrace=False,
+            )
+        pytest.skip(NO_RUNTIME_REASON)
+    return found
 
 
 def _free_port() -> int:

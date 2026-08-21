@@ -18,7 +18,6 @@ import subprocess
 import sys
 import urllib.request
 
-import _input_policy
 import inspect_metrics
 import pytest
 import validate_dashboard
@@ -63,7 +62,7 @@ def resolves(monkeypatch: pytest.MonkeyPatch):
                 raise PolicyError(f"refusing '{host}': it does not resolve")
             return tuple(ipaddress.ip_address(value) for value in mapping[host])
 
-        monkeypatch.setattr(_input_policy, "resolve_addresses", fake)
+        monkeypatch.setattr("_input_policy.resolve_addresses", fake)
 
     return apply
 
