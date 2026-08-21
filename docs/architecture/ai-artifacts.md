@@ -217,7 +217,7 @@ Copilot discovers skills automatically when their description matches the curren
 
 Root `plugin.json` is the sole component-membership authority for the `hve-core` plugin and VSIX. `.github/plugin/marketplace.json` contains one relative locator to the repository root and does not repeat membership. The plugin details surface resolves root `README.md` and `LICENSE`; the VSIX keeps `extension/README.md` and `extension/LICENSE` as its separate metadata surface.
 
-The one product identity includes every distributable agent, prompt, instruction, and skill plus the fixed telemetry hook. Stable and PreRelease use the same manifest membership.
+The one product identity includes every distributable agent, prompt, instruction, and skill. Stable and PreRelease use the same manifest membership.
 
 ### Deterministic Membership
 
@@ -259,7 +259,7 @@ HVE Core has one Copilot plugin root at the repository root and one VSIX identit
 
 The VS Code extension is prepared with `Prepare-Extension.ps1` and packaged with `Package-Extension.ps1`. Both Stable and PreRelease preparation write the same component set to the single extension manifest and README. No Copilot package assembly step exists.
 
-The plugin includes the telemetry hook. VS Code has no declarative hook contribution point, so extension users configure its location manually.
+The plugin ships no hooks. Telemetry is opt-in through the `copilot-otel-metrics` skill, which the user installs and configures deliberately.
 
 For a repository-owned selection, the installer validates chosen component paths against root `plugin.json`. It converts repository-relative manifest declarations to installer form, then copies agents, prompts, instructions, and complete distributable skill directories while preserving canonical `.github` target paths; hooks are not copied.
 

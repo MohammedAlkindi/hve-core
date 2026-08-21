@@ -152,6 +152,7 @@ Three things still reach the store unfiltered, and they are recorded as gaps rat
 
 * **Span names and metric metadata**, because dashboard queries match on them. A span name is composed by the emitter, so this is the residual worth watching.
 * **Span link attributes and metric exemplar attributes**, because this Collector distribution offers no way to reach them. OTTL has no `spanlink` context, refuses to index `links`, and silently ignores an assignment to `datapoint.exemplars`.
+* **Instrumentation scope name and version, and the resource and scope schema URLs**, because they are expected to carry library identity rather than content. That is an expectation about a well-behaved emitter, not a control: nothing filters these fields, so anything placed in them is stored.
 
 None of that is inferred from reading the configuration. `tests/test_collector_carriers.py` starts the pinned Collector, sends a distinct marker through each of 28 carriers, and records what survives, with a paired control run proving each marker is visible when nothing filters it. The recorded map is asserted, so a change that opens a carrier fails the test suite.
 
