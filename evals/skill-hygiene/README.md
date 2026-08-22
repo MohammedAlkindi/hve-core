@@ -47,7 +47,9 @@ New skills added under `.github/skills/<collection>/<slug>/SKILL.md` are picked 
 
 ## Graders
 
-Tier 1 ships with the two hygiene graders `vally lint` registers. `skill-size` is deferred per **PD-01 Option A** in the planning log and tracked under **WI-08**; it activates in **Phase 15** alongside other custom grader plugin work. Verified against the repository-pinned Vally CLI (`@microsoft/vally-cli` in `package.json`) on 2026-08-21: `skill-size` is still exported by `@microsoft/vally` but is not referenced by the CLI's lint command. Re-verify against the pin rather than against a literal version when this note is next touched.
+Tier 1 ships with the two hygiene graders `vally lint` registers. `skill-size` is deferred per **PD-01 Option A** in the planning log and tracked under **WI-08**; it activates in **Phase 15** alongside other custom grader plugin work.
+
+Verified against the repository-pinned Vally CLI (`@microsoft/vally-cli` in `package.json`) on 2026-08-21: `skill-size` is still exported by `@microsoft/vally` but is not referenced by the CLI's lint command. Re-verify against the pin rather than a literal version.
 
 | Grader         | Status   | Behavior                                                                       |
 |----------------|----------|--------------------------------------------------------------------------------|
