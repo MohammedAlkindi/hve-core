@@ -348,7 +348,9 @@ jobs:
     with:
       soft-fail: false
       changed-files-only: true
-      base-branch: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.base_ref) }}
+      # Outside a pull request both operands are empty, so fall back to a real
+      # ref instead of the literal 'origin/'.
+      base-branch: ${{ github.event.pull_request.base.sha || (github.base_ref && format('origin/{0}', github.base_ref)) || 'origin/main' }}
 
   msdate-freshness:
     name: ms.date Freshness Check
@@ -376,7 +378,7 @@ jobs:
     with:
       soft-fail: false
       changed-files-only: true
-      base-branch: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.base_ref) }}
+      base-branch: ${{ github.event.pull_request.base.sha || (github.base_ref && format('origin/{0}', github.base_ref)) || 'origin/main' }}
 
   eval-validation:
     name: Eval Validation
@@ -387,7 +389,7 @@ jobs:
     with:
       soft-fail: false
       changed-files-only: true
-      base-branch: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.base_ref) }}
+      base-branch: ${{ github.event.pull_request.base.sha || (github.base_ref && format('origin/{0}', github.base_ref)) || 'origin/main' }}
     secrets:
       copilot-github-token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
 
