@@ -3,7 +3,7 @@ title: Validation Commands and CI-Owned Lanes
 description: Choose local-safe validation defaults and reproduce CI-owned documentation and evaluation lanes when their prerequisites are available
 sidebar_position: 12
 author: Microsoft
-ms.date: 2026-08-11
+ms.date: 2026-08-21
 ms.topic: how-to
 keywords:
   - validation
@@ -299,13 +299,13 @@ clean moderation result.
 
 ### Baseline equivalence and agent matrix
 
-| Lane                  | Command                                                         | Behavior and output                                                                                                     |
-|-----------------------|-----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| Baseline equivalence  | `npm run ci:eval:equivalence -- -Agent rpi-agent -Tier devloop` | Model-backed comparison; writes `logs/baseline-equivalence-summary.json` and result trajectories under `evals/results/` |
-| Equivalence dry run   | `npm run ci:eval:equivalence -- -Agent rpi-agent -WhatIf`       | Prints planned work and writes a dry-run summary without SDK calls                                                      |
-| Agent matrix          | `npm run ci:eval:agent:matrix`                                  | Model-backed nightly matrix; writes date-scoped output under `evals/results/agent-matrix/`                              |
-| Agent matrix dry run  | `npm run ci:eval:agent:matrix:dryrun`                           | No model invocation; writes a dry-run matrix summary                                                                    |
-| Changed-agent matrix  | `npm run ci:eval:agent:changed`                                 | Requires a suitable git comparison base and model access                                                                |
+| Lane                 | Command                                                         | Behavior and output                                                                                                     |
+|----------------------|-----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| Baseline equivalence | `npm run ci:eval:equivalence -- -Agent rpi-agent -Tier devloop` | Model-backed comparison; writes `logs/baseline-equivalence-summary.json` and result trajectories under `evals/results/` |
+| Equivalence dry run  | `npm run ci:eval:equivalence -- -Agent rpi-agent -WhatIf`       | Prints planned work and writes a dry-run summary without SDK calls                                                      |
+| Agent matrix         | `npm run ci:eval:agent:matrix`                                  | Model-backed nightly matrix; writes date-scoped output under `evals/results/agent-matrix/`                              |
+| Agent matrix dry run | `npm run ci:eval:agent:matrix:dryrun`                           | No model invocation; writes a dry-run matrix summary                                                                    |
+| Changed-agent matrix | `npm run ci:eval:agent:changed`                                 | Requires a suitable git comparison base and model access                                                                |
 
 Devloop-tier equivalence results are advisory while CI-tier results are
 authoritative. These tiers name the baseline-equivalence exit policy and are

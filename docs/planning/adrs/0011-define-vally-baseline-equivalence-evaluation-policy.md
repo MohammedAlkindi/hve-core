@@ -3,7 +3,7 @@ id: "0011"
 title: "Define the Vally baseline-equivalence evaluation policy"
 description: "Define launch-based agent invocation, authoritative evidence, report-only comparison calibration, model scope, and trial posture for the baseline-equivalence suite."
 author: "HVE Core Maintainers"
-ms.date: "2026-08-11"
+ms.date: "2026-08-21"
 ms.topic: "reference"
 status: "proposed"
 proposed_date: "2026-08-01"
@@ -209,7 +209,7 @@ The authoritative/report-only separation, fail-closed rules, population reconcil
 * [scripts/evals/lib/EquivalenceEnvironment.psm1](../../../scripts/evals/lib/EquivalenceEnvironment.psm1) materializes the per-agent customized environment and its referenced artifacts.
 * [scripts/evals/Invoke-VallyEvals.ps1](../../../scripts/evals/Invoke-VallyEvals.ps1) dispatches the suite in CI and is the consumer that rejects an unsupported reporting-contract major version.
 * ADR 0002 adopted Vally and identified the baseline-equivalence guarantee this policy governs.
-* ADR 0010 corrected PR-time execution semantics; its typed-record parsing rule is extended here to the equivalence results reader, and the tier vocabulary it described as PR and nightly is renamed by part 3 of this decision.
+* ADR 0010 corrected PR-time execution semantics; its typed-record parsing rule is extended here to the equivalence results reader, and the tier vocabulary it described as PR and nightly is renamed by part 4 of this decision.
 
 ## ADR Planning
 

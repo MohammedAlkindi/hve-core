@@ -2,7 +2,7 @@
 title: Baseline Equivalence Suite
 description: 'Pairs identical probes across baseline and customized environments to measure nominal behavior preservation'
 author: HVE Core Team
-ms.date: 2026-08-17
+ms.date: 2026-08-21
 ---
 
 ## Purpose
@@ -62,8 +62,9 @@ npm run ci:eval:equivalence -- -Agent rpi-agent -WhatIf
 
 The former `pr` and `nightly` tier names are rejected with a migration message rather than aliased, because they carried different exit policies and a silent alias would let a stale caller select the wrong one.
 
-`rpi-agent` is the only stage 1 equivalence subject because the customized launch target is fixed to that agent. Corpus backlinks identify related artifacts for indexing;
-they do not select subjects. The corpus is excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus
+`rpi-agent` is the only equivalence subject currently selected, because the customized launch target is fixed to that agent and the corpus guards encode that agent's contract. Other agents can be materialized by the driver, but they are not selected and are not meaningfully evaluated: scoring one against this corpus would fail for reasons unrelated to equivalence. Treat the shared-stimulus and scope-guard claims in this document as applying to `rpi-agent` only.
+
+Corpus backlinks identify related artifacts for indexing; they do not select subjects. The corpus is excluded from generic tag-filtered dispatch, which previously produced partial and zero-stimulus
 runs that reported success without measuring anything. Extending coverage to the remaining agents requires per-subject conditional guards and is
 deferred until one clean run under the restored comparison contract exists.
 
@@ -117,10 +118,10 @@ Authoritative evidence is derived by `Get-EquivalenceGateResults` in [scripts/ev
 
 The baseline-equivalence specs live in two subdirectories (`baseline/eval.yaml` and `customized/eval.yaml`) so the driver can invoke them as a paired set. The repository-wide `npm run ci:eval:lint:vally` task runs `vally lint --eval-spec evals/` and discovers both nested specs. Use the explicit commands below for targeted validation:
 
-| Command                                                                  | Purpose                                                                            |
-|--------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| `vally lint --eval-spec evals/baseline-equivalence/baseline/eval.yaml`   | Schema-validate the empty baseline spec                                            |
-| `vally lint --eval-spec evals/baseline-equivalence/customized/eval.yaml` | Schema-validate the materialized customized spec and persona-bleed guards          |
+| Command                                                                  | Purpose                                                                   |
+|--------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| `vally lint --eval-spec evals/baseline-equivalence/baseline/eval.yaml`   | Schema-validate the empty baseline spec                                   |
+| `vally lint --eval-spec evals/baseline-equivalence/customized/eval.yaml` | Schema-validate the materialized customized spec and persona-bleed guards |
 
 The customized spec cannot be run directly: only the driver materializes the customization surface, so a direct `vally eval` invocation would score an empty surface. Use `npm run ci:eval:equivalence -- -Agent <slug> -Tier devloop` to run the suite end to end.
 

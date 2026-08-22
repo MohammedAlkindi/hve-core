@@ -2,7 +2,7 @@
 title: Scripts
 description: PowerShell scripts for linting, validation, and security automation
 author: HVE Core Team
-ms.date: 2026-08-13
+ms.date: 2026-08-21
 ms.topic: reference
 keywords:
   - powershell
