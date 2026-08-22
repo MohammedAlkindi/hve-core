@@ -80,11 +80,18 @@ class TestScheme:
             "//localhost:3000/api",
         ],
     )
-    def test_a_non_http_scheme_is_refused(self, url: str) -> None:
+    def test_given_a_non_http_scheme_url_when_check_url_runs_then_it_raises_policy_error(
+        self,
+        url: str,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError):
             check_url(url)
 
-    def test_loopback_http_is_allowed(self) -> None:
+    def test_given_a_loopback_http_url_when_check_url_runs_then_the_hostname_is_returned(
+        self,
+    ) -> None:
+        # Act & Assert
         assert check_url("http://localhost:3000/api/health").hostname == "localhost"
 
 
@@ -99,15 +106,25 @@ class TestAuthority:
             "http://:pass@localhost:3000/",
         ],
     )
-    def test_userinfo_is_refused(self, url: str) -> None:
+    def test_given_a_url_with_userinfo_when_check_url_runs_then_it_refuses_credentials(
+        self,
+        url: str,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError, match="credentials"):
             check_url(url)
 
-    def test_a_missing_host_is_refused(self) -> None:
+    def test_given_a_url_without_a_host_when_check_url_runs_then_it_raises_policy_error(
+        self,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError):
             check_url("http:///api/health")
 
-    def test_a_malformed_port_is_refused(self) -> None:
+    def test_given_a_url_with_a_malformed_port_when_check_url_runs_then_it_raises_policy_error(
+        self,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError):
             check_url("http://localhost:notaport/")
 
@@ -116,11 +133,19 @@ class TestPorts:
     """Local requests stay on the stack's own ports."""
 
     @pytest.mark.parametrize("port", sorted(DEFAULT_ALLOWED_PORTS))
-    def test_each_stack_port_is_allowed(self, port: int) -> None:
+    def test_given_a_default_allowed_stack_port_when_check_url_runs_then_the_port_is_preserved(
+        self,
+        port: int,
+    ) -> None:
+        # Act & Assert
         assert check_url(f"http://127.0.0.1:{port}/").port == port
 
     @pytest.mark.parametrize("port", [22, 80, 443, 8080, 5432])
-    def test_an_unrelated_local_port_is_refused(self, port: int) -> None:
+    def test_given_a_loopback_url_on_another_port_when_check_url_runs_then_it_is_refused(
+        self,
+        port: int,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError, match="local port"):
             check_url(f"http://127.0.0.1:{port}/")
 
@@ -128,25 +153,46 @@ class TestPorts:
 class TestRemoteOptIn:
     """A remote target needs an explicit opt-in, TLS, and a globally routable address."""
 
-    def test_a_remote_host_is_refused_without_opt_in(self, resolves) -> None:
+    def test_given_a_remote_host_without_opt_in_when_check_url_runs_then_it_refuses_as_non_loopback(
+        self,
+        resolves,
+    ) -> None:
+        # Arrange
         resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="non-loopback"):
             check_url("https://grafana.example.com/")
 
-    def test_a_remote_host_is_allowed_with_opt_in(self, resolves) -> None:
+    def test_given_a_globally_routable_host_with_opt_in_when_check_url_runs_then_https_is_accepted(
+        self,
+        resolves,
+    ) -> None:
+        # Arrange
         resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
+
+        # Act & Assert
         assert check_url("https://grafana.example.com/", allow_remote=True).scheme == "https"
 
-    def test_plaintext_remote_is_refused_even_with_opt_in(self, resolves) -> None:
+    def test_given_an_http_remote_host_with_opt_in_when_check_url_runs_then_it_refuses_plaintext(
+        self,
+        resolves,
+    ) -> None:
+        # Arrange
         resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="plaintext"):
             check_url("http://grafana.example.com/", allow_remote=True)
 
-    def test_an_opted_in_remote_name_resolving_inside_the_network_is_refused(
+    def test_given_an_opted_in_private_name_when_check_url_runs_then_non_global_is_refused(
         self, resolves
     ) -> None:
         """The opt-in permits a remote target, not a route back into the network."""
+        # Arrange
         resolves({"grafana.example.com": [PRIVATE_ADDRESS]})
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="non-global"):
             check_url("https://grafana.example.com/", allow_remote=True)
 
@@ -154,26 +200,48 @@ class TestRemoteOptIn:
 class TestHostResolution:
     """A name is classified by where it resolves, not by how it is spelled."""
 
-    def test_a_local_looking_name_that_resolves_off_machine_is_not_local(self, resolves) -> None:
+    def test_given_localhost_resolving_globally_when_it_is_classified_then_it_is_not_loopback(
+        self,
+        resolves,
+    ) -> None:
+        # Arrange
         resolves({"localhost": [GLOBAL_ADDRESS]})
+
+        # Act & Assert
         assert is_loopback_host("localhost") is False
         with pytest.raises(PolicyError, match="non-loopback"):
             check_url("http://localhost:3000/")
 
-    def test_a_name_resolving_to_both_is_refused(self, resolves) -> None:
+    def test_given_a_name_resolving_to_loopback_and_global_when_it_is_checked_then_it_is_refused(
+        self,
+        resolves,
+    ) -> None:
         """Treating a mixed answer as local would permit a connection off machine."""
+        # Arrange
         resolves({"split.example": ["127.0.0.1", GLOBAL_ADDRESS]})
+
+        # Act & Assert
         assert is_loopback_host("split.example") is False
         with pytest.raises(PolicyError, match="loopback and non-loopback"):
             check_url("http://split.example:3000/")
 
-    def test_a_name_that_does_not_resolve_is_refused(self, resolves) -> None:
+    def test_given_a_name_that_does_not_resolve_when_check_url_runs_then_it_is_refused(
+        self,
+        resolves,
+    ) -> None:
+        # Arrange
         resolves({})
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="does not resolve"):
             check_url("http://nowhere.invalid:3000/")
 
     @pytest.mark.parametrize("literal", ["127.0.0.1", "[::1]"])
-    def test_an_address_literal_needs_no_resolver(self, literal: str) -> None:
+    def test_given_a_loopback_address_literal_when_it_is_classified_then_no_resolver_is_needed(
+        self,
+        literal: str,
+    ) -> None:
+        # Act & Assert
         assert is_loopback_host(literal) is True
 
 
@@ -184,34 +252,57 @@ class TestRedirects:
         opener = open_url.__globals__["_PolicyRedirectHandler"]
         return opener(allow_remote=False, allowed_ports=DEFAULT_ALLOWED_PORTS)
 
-    def test_a_redirect_off_loopback_is_refused(self) -> None:
+    def test_given_a_loopback_request_when_it_redirects_off_loopback_then_it_is_refused(
+        self,
+    ) -> None:
+        # Arrange
         request = urllib.request.Request("http://localhost:3000/api")
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="non-loopback"):
             self._handler().redirect_request(
                 request, None, 302, "Found", {}, f"http://{GLOBAL_ADDRESS}/"
             )
 
-    def test_a_redirect_to_a_file_url_is_refused(self) -> None:
+    def test_given_a_loopback_request_when_it_redirects_to_a_file_url_then_the_scheme_is_refused(
+        self,
+    ) -> None:
+        # Arrange
         request = urllib.request.Request("http://localhost:3000/api")
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="scheme"):
             self._handler().redirect_request(request, None, 302, "Found", {}, "file:///etc/passwd")
 
-    def test_a_redirect_to_an_unrelated_local_port_is_refused(self) -> None:
+    def test_given_a_loopback_request_when_it_redirects_to_port_22_then_the_local_port_is_refused(
+        self,
+    ) -> None:
+        # Arrange
         request = urllib.request.Request("http://localhost:3000/api")
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="local port"):
             self._handler().redirect_request(
                 request, None, 302, "Found", {}, "http://localhost:22/"
             )
 
-    def test_open_url_refuses_before_opening_anything(self, monkeypatch) -> None:
+    def test_given_a_disallowed_url_when_open_url_runs_then_it_refuses_before_calling_the_opener(
+        self,
+        monkeypatch,
+    ) -> None:
+        # Arrange
         opened: list[str] = []
         monkeypatch.setattr(
             urllib.request.OpenerDirector,
             "open",
             lambda self, *a, **k: opened.append("opened"),
         )
+
+        # Act
         with pytest.raises(PolicyError):
             open_url("http://evil.example.com/")
+
+        # Assert
         assert opened == [], "a refused URL still reached the opener"
 
 
@@ -240,8 +331,14 @@ class TestProxyNeutralization:
         open_url("http://127.0.0.1:3000/api/health")
         return captured[0]
 
-    def test_the_built_opener_carries_no_proxy_configuration(self, monkeypatch) -> None:
+    def test_given_proxy_env_variables_when_open_url_builds_an_opener_then_no_proxy_is_configured(
+        self,
+        monkeypatch,
+    ) -> None:
+        # Act
         opener = self._built_opener(monkeypatch)
+
+        # Assert
         configured = {
             scheme: target
             for handler in opener.handlers
@@ -250,9 +347,17 @@ class TestProxyNeutralization:
         }
         assert configured == {}, f"open_url would proxy loopback traffic to {configured}"
 
-    def test_the_built_opener_keeps_the_policy_redirect_handler(self, monkeypatch) -> None:
+    def test_given_open_url_when_it_builds_an_opener_then_the_policy_redirect_handler_is_kept(
+        self,
+        monkeypatch,
+    ) -> None:
+        # Arrange
         policy_handler = open_url.__globals__["_PolicyRedirectHandler"]
+
+        # Act
         opener = self._built_opener(monkeypatch)
+
+        # Assert
         assert any(isinstance(handler, policy_handler) for handler in opener.handlers), (
             "the redirect allow-list re-check and cross-origin credential stripping were dropped"
         )
@@ -261,19 +366,37 @@ class TestProxyNeutralization:
 class TestPathContainment:
     """A configurable path cannot escape its root."""
 
-    def test_a_contained_relative_path_resolves(self, tmp_path: pathlib.Path) -> None:
+    def test_given_a_relative_path_when_contain_path_runs_then_it_resolves_inside_the_root(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Act & Assert
         assert contain_path("snapshot.json", tmp_path) == (tmp_path / "snapshot.json").resolve()
 
-    def test_traversal_is_refused(self, tmp_path: pathlib.Path) -> None:
+    def test_given_a_traversal_path_when_contain_path_runs_then_it_is_refused(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError):
             contain_path("../../etc/passwd", tmp_path)
 
-    def test_an_absolute_path_outside_the_root_is_refused(self, tmp_path: pathlib.Path) -> None:
+    def test_given_an_absolute_path_outside_the_root_when_contain_path_runs_then_it_is_refused(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Arrange
         outside = tmp_path.parent / "outside.json"
+
+        # Act & Assert
         with pytest.raises(PolicyError):
             contain_path(outside, tmp_path)
 
-    def test_a_symlink_pointing_outside_the_root_is_refused(self, tmp_path: pathlib.Path) -> None:
+    def test_given_a_symlink_pointing_outside_the_root_when_contain_path_runs_then_it_is_refused(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Arrange
         root = tmp_path / "root"
         root.mkdir()
         target = tmp_path / "outside"
@@ -283,39 +406,71 @@ class TestPathContainment:
             link.symlink_to(target, target_is_directory=True)
         except (OSError, NotImplementedError):
             pytest.skip("symlink creation is not permitted in this environment")
+
+        # Act & Assert
         with pytest.raises(PolicyError):
             contain_path(link / "snapshot.json", root)
 
-    def test_the_root_itself_is_allowed(self, tmp_path: pathlib.Path) -> None:
+    def test_given_the_root_itself_when_contain_path_runs_then_the_resolved_root_is_returned(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Act & Assert
         assert contain_path(tmp_path, tmp_path) == tmp_path.resolve()
 
 
 class TestCredentials:
     """Missing configuration is reported as configuration, before any request."""
 
-    def test_both_missing_variables_are_named(self, monkeypatch) -> None:
+    def test_given_both_credential_env_vars_missing_when_they_are_required_then_both_are_named(
+        self,
+        monkeypatch,
+    ) -> None:
+        # Arrange
         monkeypatch.delenv("COPILOT_OTEL_GRAFANA_USER", raising=False)
         monkeypatch.delenv("COPILOT_OTEL_GRAFANA_PASSWORD", raising=False)
+
+        # Act
         with pytest.raises(PolicyError) as excinfo:
             require_credentials("COPILOT_OTEL_GRAFANA_USER", "COPILOT_OTEL_GRAFANA_PASSWORD")
+
+        # Assert
         assert "COPILOT_OTEL_GRAFANA_USER" in str(excinfo.value)
         assert "COPILOT_OTEL_GRAFANA_PASSWORD" in str(excinfo.value)
 
-    def test_a_single_missing_variable_is_named(self, monkeypatch) -> None:
+    def test_given_only_the_password_var_missing_when_they_are_required_then_it_is_named(
+        self,
+        monkeypatch,
+    ) -> None:
+        # Arrange
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_USER", "admin")
         monkeypatch.delenv("COPILOT_OTEL_GRAFANA_PASSWORD", raising=False)
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="COPILOT_OTEL_GRAFANA_PASSWORD"):
             require_credentials("COPILOT_OTEL_GRAFANA_USER", "COPILOT_OTEL_GRAFANA_PASSWORD")
 
-    def test_an_empty_value_counts_as_missing(self, monkeypatch) -> None:
+    def test_given_an_empty_password_value_when_they_are_required_then_it_counts_as_missing(
+        self,
+        monkeypatch,
+    ) -> None:
+        # Arrange
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_USER", "admin")
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_PASSWORD", "")
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="COPILOT_OTEL_GRAFANA_PASSWORD"):
             require_credentials("COPILOT_OTEL_GRAFANA_USER", "COPILOT_OTEL_GRAFANA_PASSWORD")
 
-    def test_supplied_credentials_are_returned_in_order(self, monkeypatch) -> None:
+    def test_given_both_variables_set_when_they_are_required_then_the_pair_is_returned_in_order(
+        self,
+        monkeypatch,
+    ) -> None:
+        # Arrange
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_USER", "operator")
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_PASSWORD", "chosen-by-the-user")
+
+        # Act & Assert
         assert require_credentials(
             "COPILOT_OTEL_GRAFANA_USER", "COPILOT_OTEL_GRAFANA_PASSWORD"
         ) == ("operator", "chosen-by-the-user")
@@ -351,27 +506,41 @@ class TestHelperWiring:
     policy tests above green while restoring the exact write this change closed.
     """
 
-    def test_baseline_refuses_a_snapshot_path_outside_the_cache_root(
+    def test_given_an_escaping_snapshot_path_when_baseline_captures_then_nothing_is_written(
         self, tmp_path: pathlib.Path
     ) -> None:
+        # Arrange
         target = tmp_path / "escaped-snapshot.json"
+
+        # Act
         result = run_helper("baseline.py", ["capture"], {"COPILOT_OTEL_BASELINE": str(target)})
+
+        # Assert
         assert result.returncode != 0
         assert "refusing a path outside" in (result.stderr + result.stdout)
         assert not target.exists(), "a refused snapshot path was still written"
 
-    def test_baseline_refuses_a_traversal_snapshot_path(self, tmp_path: pathlib.Path) -> None:
+    def test_given_a_traversal_snapshot_path_when_baseline_captures_then_it_exits_nonzero(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Act
         result = run_helper(
             "baseline.py", ["capture"], {"COPILOT_OTEL_BASELINE": "../../escaped.json"}
         )
+
+        # Assert
         assert result.returncode != 0
         assert "refusing a path outside" in (result.stderr + result.stdout)
 
-    def test_validate_dashboard_reports_a_malformed_dashboard_without_a_traceback(
+    def test_given_a_malformed_dashboard_when_the_helper_runs_then_it_reports_without_a_traceback(
         self, tmp_path: pathlib.Path
     ) -> None:
+        # Arrange
         broken = tmp_path / "generated-dashboard.json"
         broken.write_text("{not json", encoding="utf-8")
+
+        # Act
         result = run_helper(
             "validate_dashboard.py",
             [str(broken)],
@@ -380,12 +549,17 @@ class TestHelperWiring:
                 "COPILOT_OTEL_GRAFANA_PASSWORD": "chosen-by-the-user",
             },
         )
+
+        # Assert
         assert result.returncode == 1
         combined = result.stderr + result.stdout
         assert "not valid JSON" in combined
         assert "Traceback" not in combined
 
-    def test_validate_dashboard_refuses_a_non_loopback_endpoint_without_opt_in(self) -> None:
+    def test_given_a_non_loopback_grafana_endpoint_when_the_helper_runs_then_it_is_refused(
+        self,
+    ) -> None:
+        # Act
         result = run_helper(
             "validate_dashboard.py",
             [],
@@ -395,11 +569,16 @@ class TestHelperWiring:
                 "COPILOT_OTEL_GRAFANA_PASSWORD": "chosen-by-the-user",
             },
         )
+
+        # Assert
         assert result.returncode != 0
         assert "non-loopback" in (result.stderr + result.stdout)
 
-    def test_validate_dashboard_refuses_an_unguarded_query_endpoint(self) -> None:
+    def test_given_a_non_loopback_prometheus_endpoint_when_the_helper_runs_then_it_is_refused(
+        self,
+    ) -> None:
         """The Prometheus override was previously unchecked entirely."""
+        # Act
         result = run_helper(
             "validate_dashboard.py",
             [],
@@ -409,15 +588,22 @@ class TestHelperWiring:
                 "COPILOT_OTEL_GRAFANA_PASSWORD": "chosen-by-the-user",
             },
         )
+
+        # Assert
         assert result.returncode != 0
         assert "non-loopback" in (result.stderr + result.stdout)
 
-    def test_validate_dashboard_reports_missing_credentials_as_configuration(self) -> None:
+    def test_given_empty_grafana_credentials_when_the_helper_runs_then_both_variables_are_named(
+        self,
+    ) -> None:
+        # Act
         result = run_helper(
             "validate_dashboard.py",
             [],
             {"COPILOT_OTEL_GRAFANA_USER": "", "COPILOT_OTEL_GRAFANA_PASSWORD": ""},
         )
+
+        # Assert
         assert result.returncode != 0
         combined = result.stderr + result.stdout
         assert "COPILOT_OTEL_GRAFANA_USER" in combined
@@ -436,43 +622,69 @@ class TestDashboardSelection:
     def _dashboard(self) -> dict:
         return {"panels": [{"title": "one", "type": "row"}]}
 
-    def test_a_generated_dashboard_outside_the_skill_is_accepted(
+    def test_given_a_dashboard_outside_the_skill_when_load_dashboard_runs_then_it_is_loaded(
         self, tmp_path: pathlib.Path
     ) -> None:
+        # Arrange
         generated = tmp_path / "generated.json"
         generated.write_text(json.dumps(self._dashboard()), encoding="utf-8")
+
+        # Act & Assert
         assert validate_dashboard.load_dashboard(str(generated)) == self._dashboard()
 
-    def test_a_relative_path_resolves_against_the_current_directory(
+    def test_given_a_relative_path_when_load_dashboard_runs_then_it_resolves_against_the_cwd(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         (tmp_path / "generated.json").write_text(json.dumps(self._dashboard()), encoding="utf-8")
         monkeypatch.chdir(tmp_path)
+
+        # Act & Assert
         assert validate_dashboard.load_dashboard("generated.json") == self._dashboard()
 
-    def test_the_bundled_dashboard_is_the_default(self) -> None:
+    def test_given_no_dashboard_argument_when_load_dashboard_runs_then_the_bundled_one_is_loaded(
+        self,
+    ) -> None:
+        # Act & Assert
         assert validate_dashboard.load_dashboard(None)["panels"]
 
-    def test_a_missing_file_is_reported_as_a_missing_file(self, tmp_path: pathlib.Path) -> None:
+    def test_given_a_path_to_no_file_when_load_dashboard_runs_then_it_reports_a_missing_dashboard(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError, match="no dashboard at"):
             validate_dashboard.load_dashboard(str(tmp_path / "absent.json"))
 
-    def test_a_directory_is_reported_as_a_directory(self, tmp_path: pathlib.Path) -> None:
+    def test_given_a_directory_path_when_load_dashboard_runs_then_it_reports_a_directory(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Act & Assert
         with pytest.raises(PolicyError, match="not a dashboard file"):
             validate_dashboard.load_dashboard(str(tmp_path))
 
-    def test_invalid_json_is_reported_as_invalid_json(self, tmp_path: pathlib.Path) -> None:
+    def test_given_a_file_of_invalid_json_when_load_dashboard_runs_then_it_reports_invalid_json(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        # Arrange
         broken = tmp_path / "broken.json"
         broken.write_text("{not json", encoding="utf-8")
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="not valid JSON"):
             validate_dashboard.load_dashboard(str(broken))
 
     @pytest.mark.parametrize("content", ["[]", '{"title": "no panels"}', '{"panels": {}}'])
-    def test_json_that_is_not_a_dashboard_is_reported_as_such(
+    def test_given_json_without_a_panels_array_when_load_dashboard_runs_then_it_reports_no_panels(
         self, tmp_path: pathlib.Path, content: str
     ) -> None:
+        # Arrange
         candidate = tmp_path / "not-a-dashboard.json"
         candidate.write_text(content, encoding="utf-8")
+
+        # Act & Assert
         with pytest.raises(PolicyError, match="no panels array"):
             validate_dashboard.load_dashboard(str(candidate))
 
@@ -520,60 +732,90 @@ class TestGrafanaCredentialLiveness:
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_USER", user)
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_PASSWORD", password)
 
-    def test_an_adopted_credential_passes_both_checks(
+    def test_given_only_the_configured_credential_works_when_grafana_is_checked_then_both_pass(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         self._configure(monkeypatch, "operator", "chosen-by-the-user")
         self._probe(monkeypatch, {("operator", "chosen-by-the-user"): True})
+
+        # Act
         verify.check_grafana_credentials()
+
+        # Assert
         assert self._outcome("configured grafana credential works")[0] is True
         assert self._outcome("grafana default credential inactive")[0] is True
 
-    def test_a_live_default_credential_is_reported_as_such(
+    def test_given_admin_admin_works_when_grafana_is_checked_then_the_default_check_fails(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         self._configure(monkeypatch, "operator", "chosen-by-the-user")
         self._probe(monkeypatch, {("admin", "admin"): True})
+
+        # Act
         verify.check_grafana_credentials()
+
+        # Assert
         ok, detail = self._outcome("grafana default credential inactive")
         assert ok is False
         assert "admin/admin authenticates" in detail
 
-    def test_a_rejected_configured_credential_is_reported_separately(
+    def test_given_admin_admin_works_when_grafana_is_checked_then_the_configured_check_fails(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         self._configure(monkeypatch, "operator", "chosen-by-the-user")
         self._probe(monkeypatch, {("admin", "admin"): True})
+
+        # Act
         verify.check_grafana_credentials()
+
+        # Assert
         ok, detail = self._outcome("configured grafana credential works")
         assert ok is False
         assert "database predates this password" in detail
 
-    def test_an_unanswered_probe_is_not_reported_as_a_rejection(
+    def test_given_an_unanswered_probe_when_grafana_is_checked_then_no_answer_is_reported(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         self._configure(monkeypatch, "operator", "chosen-by-the-user")
         monkeypatch.setattr(verify, "grafana_accepts", lambda user, password: None)
+
+        # Act
         verify.check_grafana_credentials()
+
+        # Assert
         assert "no answer from Grafana" in self._outcome("configured grafana credential works")[1]
 
-    def test_missing_configuration_is_named_rather_than_probed(
+    def test_given_unset_grafana_variables_when_grafana_is_checked_then_they_are_named_not_probed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         monkeypatch.delenv("COPILOT_OTEL_GRAFANA_USER", raising=False)
         monkeypatch.delenv("COPILOT_OTEL_GRAFANA_PASSWORD", raising=False)
         self._probe(monkeypatch, {})
+
+        # Act
         verify.check_grafana_credentials()
+
+        # Assert
         ok, detail = self._outcome("configured grafana credential works")
         assert ok is False
         assert "are not both set" in detail
 
-    def test_configuring_the_default_pair_fails_the_default_check(
+    def test_given_the_default_pair_is_configured_when_grafana_is_checked_then_it_fails(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         self._configure(monkeypatch, "admin", "admin")
         self._probe(monkeypatch, {("admin", "admin"): True})
+
+        # Act
         verify.check_grafana_credentials()
+
+        # Assert
         ok, detail = self._outcome("grafana default credential inactive")
         assert ok is False
         assert "is the image default" in detail
@@ -588,20 +830,28 @@ class TestGrafanaCredentialScope:
     replay handed a third-party store an admin credential for a fourth.
     """
 
-    def test_a_request_built_without_a_credential_carries_no_authorization(self) -> None:
+    def test_given_no_authorization_when_build_request_runs_then_the_header_is_absent(self) -> None:
+        # Act
         request = validate_dashboard.build_request("http://localhost:9090/api/v1/query")
+
+        # Assert
         assert "Authorization" not in request.headers
 
-    def test_a_request_built_with_a_credential_carries_it(self) -> None:
+    def test_given_an_authorization_value_when_build_request_runs_then_the_header_carries_it(
+        self,
+    ) -> None:
+        # Act
         request = validate_dashboard.build_request(
             "http://localhost:3000/api/dashboards/db",
             b"{}",
             "POST",
             authorization="Basic supplied-at-the-call-site",
         )
+
+        # Assert
         assert request.headers["Authorization"] == "Basic supplied-at-the-call-site"
 
-    def test_only_the_grafana_request_carries_the_credential_end_to_end(
+    def test_given_a_full_dashboard_walk_when_the_tool_runs_then_only_grafana_is_authorized(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Drive the real tool and inspect every request it actually builds.
@@ -610,6 +860,7 @@ class TestGrafanaCredentialScope:
         representative one: the shipped dashboard is walked, every panel query
         is issued, and each resulting request object is inspected.
         """
+        # Arrange
         sent: list[urllib.request.Request] = []
 
         def fake_open_url(request, **kwargs):  # noqa: ANN001, ANN202
@@ -621,8 +872,10 @@ class TestGrafanaCredentialScope:
         monkeypatch.setenv("COPILOT_OTEL_GRAFANA_PASSWORD", "chosen-by-the-user")
         monkeypatch.delenv("COPILOT_OTEL_ALLOW_REMOTE", raising=False)
 
+        # Act
         assert validate_dashboard.main([]) == 0
 
+        # Assert
         authorized = [r for r in sent if "Authorization" in r.headers]
         assert len(sent) > 1, "the dashboard walk issued no store queries"
         assert len(authorized) == 1, (
@@ -657,55 +910,97 @@ class TestRedirectCredentialHandling:
         )
 
     @pytest.mark.parametrize("header", ["Authorization", "Proxy-Authorization", "Cookie"])
-    def test_a_redirect_to_another_local_port_drops_each_credential_header(
+    def test_given_a_credential_header_when_a_redirect_changes_the_local_port_then_it_is_dropped(
         self, header: str
     ) -> None:
+        # Act
         redirected = self._redirect("http://localhost:3000/api", "http://localhost:9090/api")
+
+        # Assert
         assert not any(name.lower() == header.lower() for name in redirected.headers)
 
-    def test_a_same_origin_redirect_keeps_the_credential(self) -> None:
+    def test_given_a_credential_header_when_a_redirect_stays_on_the_same_origin_then_it_is_kept(
+        self,
+    ) -> None:
+        # Act
         redirected = self._redirect("http://localhost:3000/api", "http://localhost:3000/other")
+
+        # Assert
         assert redirected.headers["Authorization"] == "Basic issued-for-the-original-origin"
 
-    def test_an_explicit_default_port_is_the_same_origin(self, resolves) -> None:
+    def test_given_a_redirect_adding_the_default_https_port_when_it_is_handled_then_it_is_kept(
+        self,
+        resolves,
+    ) -> None:
         """`https://h/x` and `https://h:443/y` are one origin, not two."""
+        # Arrange
         resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
+
+        # Act
         redirected = self._redirect(
             "https://grafana.example.com/api",
             "https://grafana.example.com:443/other",
             allow_remote=True,
         )
+
+        # Assert
         assert redirected.headers["Authorization"] == "Basic issued-for-the-original-origin"
 
-    def test_a_different_remote_host_drops_the_credential(self, resolves) -> None:
+    def test_given_a_redirect_to_a_different_remote_host_when_it_is_handled_then_it_is_dropped(
+        self,
+        resolves,
+    ) -> None:
+        # Arrange
         resolves(
             {
                 "grafana.example.com": [GLOBAL_ADDRESS],
                 "someone-else.example.com": [GLOBAL_ADDRESS],
             }
         )
+
+        # Act
         redirected = self._redirect(
             "https://grafana.example.com/api",
             "https://someone-else.example.com/api",
             allow_remote=True,
         )
+
+        # Assert
         assert "Authorization" not in redirected.headers
 
-    def test_a_different_remote_port_drops_the_credential(self, resolves) -> None:
+    def test_given_a_redirect_to_a_different_remote_port_when_it_is_handled_then_it_is_dropped(
+        self,
+        resolves,
+    ) -> None:
+        # Arrange
         resolves({"grafana.example.com": [GLOBAL_ADDRESS]})
+
+        # Act
         redirected = self._redirect(
             "https://grafana.example.com/api",
             "https://grafana.example.com:9090/api",
             allow_remote=True,
         )
+
+        # Assert
         assert "Authorization" not in redirected.headers
 
-    def test_a_non_credential_header_survives_an_origin_change(self) -> None:
+    def test_given_an_accept_header_when_a_redirect_changes_the_origin_then_it_survives(
+        self,
+    ) -> None:
+        # Act
         redirected = self._redirect("http://localhost:3000/api", "http://localhost:9090/api")
+
+        # Assert
         assert redirected.headers["Accept"] == "application/json"
 
-    def test_the_credential_headers_are_dropped_together(self) -> None:
+    def test_given_the_credential_headers_when_a_redirect_changes_the_origin_then_none_remain(
+        self,
+    ) -> None:
+        # Act
         redirected = self._redirect("http://localhost:3000/api", "http://localhost:9090/api")
+
+        # Assert
         remaining = {name.lower() for name in redirected.headers}
         assert remaining.isdisjoint({"authorization", "proxy-authorization", "cookie"})
 
@@ -721,7 +1016,12 @@ class TestOriginNormalization:
             ("http://H/a", "http://h/b"),
         ],
     )
-    def test_equivalent_urls_share_an_origin(self, one: str, other: str) -> None:
+    def test_given_urls_differing_only_by_default_port_or_case_when_origin_of_runs_then_they_match(
+        self,
+        one: str,
+        other: str,
+    ) -> None:
+        # Act & Assert
         assert origin_of(one) == origin_of(other)
 
     @pytest.mark.parametrize(
@@ -732,7 +1032,12 @@ class TestOriginNormalization:
             ("http://h:3000/a", "http://h:9090/a"),
         ],
     )
-    def test_different_urls_have_different_origins(self, one: str, other: str) -> None:
+    def test_given_urls_differing_by_scheme_host_or_port_when_origin_of_runs_then_they_differ(
+        self,
+        one: str,
+        other: str,
+    ) -> None:
+        # Act & Assert
         assert origin_of(one) != origin_of(other)
 
 
@@ -745,9 +1050,10 @@ class TestPolicyRoutedHelpers:
     """
 
     @pytest.mark.parametrize("module", [verify, inspect_metrics], ids=lambda m: m.__name__)
-    def test_the_helper_reaches_http_through_the_policy_boundary(
+    def test_given_a_patched_open_url_when_the_helper_calls_api_then_it_goes_through_policy(
         self, module, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         opened: list[str] = []
 
         def fake_open_url(url, **kwargs):  # noqa: ANN001, ANN202
@@ -755,14 +1061,24 @@ class TestPolicyRoutedHelpers:
             return _json_response({"data": []})
 
         monkeypatch.setattr(module, "open_url", fake_open_url)
+
+        # Act
         module.api(module.PROM, "/api/v1/label/__name__/values")
+
+        # Assert
         assert opened == ["http://localhost:9090/api/v1/label/__name__/values"]
 
     @pytest.mark.parametrize(
         "name", ["verify.py", "inspect_metrics.py", "validate_dashboard.py", "baseline.py"]
     )
-    def test_no_bundled_helper_opens_a_url_outside_the_policy_module(self, name: str) -> None:
+    def test_given_a_bundled_helper_source_when_it_is_scanned_then_no_direct_urlopen_appears(
+        self,
+        name: str,
+    ) -> None:
+        # Arrange
         source = (EXAMPLES_DIR / name).read_text(encoding="utf-8")
+
+        # Act & Assert
         assert "urlopen(" not in source, (
             f"{name} opens a URL directly; every helper must go through open_url "
             "so scheme, authority, port, redirect, and remote-opt-in rules apply"

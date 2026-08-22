@@ -68,21 +68,35 @@ def fuzz_local_config(data: bytes) -> None:
 class TestLocalConfigFuzzHarness:
     """Property tests mirroring the fuzz target."""
 
-    def test_loader_raises_config_error_or_returns_mapping(self) -> None:
+    def test_given_assorted_yaml_text_when_the_loader_runs_then_a_mapping_or_config_error_results(
+        self,
+    ) -> None:
+        # Act & Assert
         for text in ("", "a: 1", "- list", "a: [\n", "null"):
             with suppress(ConfigError):
                 assert isinstance(load_yaml_text(text), dict)
 
-    def test_redaction_never_emits_a_key_outside_the_allow_list(self) -> None:
+    def test_given_arbitrary_attribute_keys_when_redaction_runs_then_only_allow_listed_keys_remain(
+        self,
+    ) -> None:
+        # Act & Assert
         for key in ("service.name", "prompt.text", "", "0" * 200, "service.name.extra"):
             kept = simulate_redaction({key: "value"}, ALLOW, BLOCKED)
             assert set(kept) <= ALLOW
 
-    def test_a_blocked_value_is_masked_rather_than_leaked(self) -> None:
+    def test_given_an_allow_listed_key_with_a_blocked_value_when_redaction_runs_then_it_is_masked(
+        self,
+    ) -> None:
+        # Act
         kept = simulate_redaction({"http.url": "b" * 40}, ALLOW, (re.compile(r"b{40}"),))
+
+        # Assert
         assert kept == {"http.url": MASK}
 
-    def test_check_url_never_returns_a_non_http_scheme(self) -> None:
+    def test_given_malformed_url_candidates_when_check_url_runs_then_only_http_schemes_return(
+        self,
+    ) -> None:
+        # Act & Assert
         for candidate in ("", "file:///etc/passwd", "http://", "://", "http://[", "data:,"):
             try:
                 parsed = check_url(candidate)
@@ -90,7 +104,10 @@ class TestLocalConfigFuzzHarness:
                 continue
             assert parsed.scheme in ("http", "https")
 
-    def test_strip_jsonc_preserves_length_and_parses_what_it_can(self) -> None:
+    def test_given_jsonc_text_when_strip_jsonc_runs_then_length_is_preserved_and_json_parses(
+        self,
+    ) -> None:
+        # Act & Assert
         for text in ("", "{}", '{"a": 1} // trailing', "/* unterminated", '{"a": "//"}'):
             stripped = strip_jsonc(text)
             assert len(stripped) == len(text)

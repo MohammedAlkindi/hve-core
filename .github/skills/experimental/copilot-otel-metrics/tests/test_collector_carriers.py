@@ -841,64 +841,113 @@ def control_output(runtime: ContainerRuntime) -> str:
 class TestMarkerInventory:
     """The markers must be distinguishable before any classification means anything."""
 
-    def test_every_carrier_has_a_unique_marker(self) -> None:
+    def test_given_the_carrier_map_when_markers_are_collected_then_each_is_unique(self) -> None:
+        # Act
         markers = [carrier.marker for carrier in CARRIERS]
+
+        # Assert
         assert len(markers) == len(set(markers))
 
-    def test_no_marker_is_a_substring_of_another(self) -> None:
+    def test_given_the_carrier_map_when_markers_are_compared_pairwise_then_none_is_a_substring(
+        self,
+    ) -> None:
+        # Act
         overlapping = [
             (one.name, other.name)
             for one in CARRIERS
             for other in CARRIERS
             if one is not other and one.marker in other.marker
         ]
+
+        # Assert
         assert overlapping == []
 
-    def test_every_carrier_declares_a_known_classification(self) -> None:
+    def test_given_the_carrier_map_when_expectations_are_checked_then_each_class_is_known(
+        self,
+    ) -> None:
+        # Arrange
         allowed = {GOVERNED, MASKED, PASSED_THROUGH}
+
+        # Act
         unknown = [c.name for c in CARRIERS if c.expected not in allowed]
+
+        # Assert
         assert unknown == [], (
             "An unobservable or unclassified carrier is a gap, not a baseline. "
             "Record it in SECURITY.md rather than encoding it as an expectation."
         )
 
-    def test_a_masked_expectation_declares_what_masking_looks_like(self) -> None:
+    def test_given_a_masked_carrier_when_its_entry_is_read_then_a_masked_signature_is_declared(
+        self,
+    ) -> None:
+        # Act
         undeclared = [c.name for c in CARRIERS if c.expected == MASKED and not c.masked_signature]
+
+        # Assert
         assert undeclared == []
 
-    def test_a_passed_through_carrier_declares_no_mechanism(self) -> None:
+    def test_given_a_passed_through_carrier_when_its_entry_is_read_then_no_mechanism_is_claimed(
+        self,
+    ) -> None:
         """A carrier cannot claim a control and pass through at the same time."""
+        # Act
         contradictory = [
             c.name for c in CARRIERS if c.expected == PASSED_THROUGH and c.mechanism != NO_MECHANISM
         ]
+
+        # Assert
         assert contradictory == []
 
-    def test_a_handled_carrier_names_the_mechanism_that_handles_it(self) -> None:
+    def test_given_a_governed_or_masked_carrier_when_its_entry_is_read_then_a_mechanism_is_named(
+        self,
+    ) -> None:
+        # Act
         unattributed = [
             c.name
             for c in CARRIERS
             if c.expected in {GOVERNED, MASKED} and c.mechanism == NO_MECHANISM
         ]
+
+        # Assert
         assert unattributed == []
 
 
 class TestProbeConfigDerivation:
     """The configuration under test must be the shipped one, minus stated changes."""
 
-    def test_the_probe_preserves_the_shipped_processor_order(self) -> None:
+    def test_given_the_shipped_config_when_a_probe_config_is_derived_then_processor_order_is_kept(
+        self,
+    ) -> None:
+        # Arrange
         shipped = shipped_collector_config()
+
+        # Act
         derived = derive_probe_config(remove_content_processors=False)
+
+        # Assert
         for name, pipeline in derived["service"]["pipelines"].items():
             assert pipeline["processors"] == shipped["service"]["pipelines"][name]["processors"]
 
-    def test_the_probe_preserves_the_shipped_redaction_policy(self) -> None:
+    def test_given_the_shipped_config_when_a_probe_config_is_derived_then_redaction_policy_is_kept(
+        self,
+    ) -> None:
+        # Arrange
         shipped = shipped_collector_config()
+
+        # Act
         derived = derive_probe_config(remove_content_processors=False)
+
+        # Assert
         assert derived["processors"]["redaction"] == shipped["processors"]["redaction"]
 
-    def test_the_control_removes_only_the_content_processors(self) -> None:
+    def test_given_a_control_config_when_it_is_derived_then_only_content_processors_are_removed(
+        self,
+    ) -> None:
+        # Act
         policy = derive_probe_config(remove_content_processors=False)
         control = derive_probe_config(remove_content_processors=True)
+
+        # Assert
         assert set(policy["processors"]) - set(control["processors"]) == set(CONTENT_PROCESSORS)
         for name, pipeline in control["service"]["pipelines"].items():
             expected = [
@@ -908,19 +957,34 @@ class TestProbeConfigDerivation:
             ]
             assert pipeline["processors"] == expected
 
-    def test_the_probe_runs_the_image_the_stack_pins(self) -> None:
+    def test_given_the_compose_file_when_the_probe_image_is_resolved_then_it_is_digest_pinned(
+        self,
+    ) -> None:
+        # Act & Assert
         assert "@sha256:" in pinned_collector_image()
 
-    def test_a_fleet_run_uses_the_fleet_content_processors(self) -> None:
+    def test_given_fleet_policy_when_a_probe_config_is_derived_then_fleet_content_processors_apply(
+        self,
+    ) -> None:
+        # Arrange
         fleet = policy_document(FLEET_POLICY)
+
+        # Act
         derived = derive_probe_config(remove_content_processors=False, policy_source=FLEET_POLICY)
+
+        # Assert
         for name in CONTENT_PROCESSORS:
             assert derived["processors"][name] == fleet["processors"][name]
 
-    def test_a_fleet_run_substitutes_nothing_but_the_content_processors(self) -> None:
+    def test_given_fleet_policy_when_a_probe_config_is_derived_then_transport_blocks_are_unchanged(
+        self,
+    ) -> None:
         """Swapping transport as well would test the fleet's network, not its policy."""
+        # Act
         local = derive_probe_config(remove_content_processors=False)
         fleet = derive_probe_config(remove_content_processors=False, policy_source=FLEET_POLICY)
+
+        # Assert
         assert local["receivers"] == fleet["receivers"]
         assert local["exporters"] == fleet["exporters"]
         assert local["service"] == fleet["service"]
@@ -956,32 +1020,48 @@ class TestStrictRuntimeMode:
             ({STRICT_RUNTIME_ENV: ""}, False),
         ],
     )
-    def test_strictness_follows_the_environment(self, env: dict[str, str], expected: bool) -> None:
+    def test_given_an_environment_mapping_when_strictness_is_resolved_then_the_flag_decides(
+        self,
+        env: dict[str, str],
+        expected: bool,
+    ) -> None:
+        # Act & Assert
         assert strict_runtime_required(env) is expected
 
-    def test_a_missing_runtime_fails_when_strictness_is_on(
+    def test_given_no_container_runtime_when_strictness_is_on_then_resolution_fails_loudly(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         monkeypatch.setitem(globals(), "detect_runtime", lambda: None)
         monkeypatch.setenv(STRICT_RUNTIME_ENV, "1")
+
+        # Act
         with pytest.raises(pytest.fail.Exception) as raised:
             resolve_runtime()
+
+        # Assert
         assert STRICT_RUNTIME_ENV in str(raised.value)
 
-    def test_a_missing_runtime_skips_when_strictness_is_off(
+    def test_given_no_container_runtime_when_strictness_is_off_then_resolution_skips(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         monkeypatch.setitem(globals(), "detect_runtime", lambda: None)
         monkeypatch.setenv(STRICT_RUNTIME_ENV, "0")
+
+        # Act & Assert
         with pytest.raises(pytest.skip.Exception):
             resolve_runtime()
 
-    def test_a_reachable_runtime_is_returned_under_strictness(
+    def test_given_a_reachable_runtime_when_strictness_is_on_then_that_runtime_is_returned(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Arrange
         stub = ContainerRuntime(["docker"], "stub runtime")
         monkeypatch.setitem(globals(), "detect_runtime", lambda: stub)
         monkeypatch.setenv(STRICT_RUNTIME_ENV, "1")
+
+        # Act & Assert
         assert resolve_runtime() is stub
 
 
@@ -993,8 +1073,14 @@ class TestProcessorChainPosition:
     """
 
     @pytest.mark.parametrize("processor", CONTENT_PROCESSORS)
-    def test_the_processor_sits_between_the_limiter_and_the_batcher(self, processor: str) -> None:
+    def test_given_a_content_processor_when_the_chain_is_read_then_it_follows_the_limiter(
+        self,
+        processor: str,
+    ) -> None:
+        # Act
         pipelines = shipped_collector_config()["service"]["pipelines"]
+
+        # Assert
         for name, pipeline in pipelines.items():
             chain = pipeline["processors"]
             assert processor in chain, f"{name} does not apply {processor}"
@@ -1007,9 +1093,10 @@ class TestNegativeControl:
     """Validate the instrument before trusting anything it reports."""
 
     @pytest.mark.parametrize("carrier", CARRIERS, ids=lambda c: c.name)
-    def test_the_control_without_content_processors_renders_every_marker(
+    def test_given_the_control_run_when_a_carrier_is_probed_then_its_marker_is_rendered(
         self, carrier: Carrier, control_output: str
     ) -> None:
+        # Assert
         assert carrier.marker in control_output, (
             f"{carrier.name} is not rendered even with the content processors "
             f"removed, so its absence under policy proves nothing. Classify it "
@@ -1021,10 +1108,13 @@ class TestCarrierMap:
     """The recorded map is the regression boundary."""
 
     @pytest.mark.parametrize("carrier", CARRIERS, ids=lambda c: c.name)
-    def test_each_carrier_matches_its_recorded_classification(
+    def test_given_paired_policy_and_control_runs_when_a_carrier_is_classified_then_the_map_holds(
         self, carrier: Carrier, policy_output: str, control_output: str
     ) -> None:
+        # Act
         observed = classify(carrier, policy_output, control_output)
+
+        # Assert
         assert observed == carrier.expected, (
             f"{carrier.name} is now {observed}, recorded as {carrier.expected}. "
             "Rebaselining this entry is a policy decision and needs its own "
@@ -1043,15 +1133,21 @@ class TestRestoredDetectionAttributes:
     """
 
     @pytest.mark.parametrize("key", sorted(RESTORED_DETECTION_KEYS))
-    def test_the_shipped_policy_keeps_the_attribute(self, key: str, policy_output: str) -> None:
+    def test_given_a_restored_detection_key_when_the_shipped_policy_runs_then_its_marker_survives(
+        self,
+        key: str,
+        policy_output: str,
+    ) -> None:
+        # Assert
         assert RESTORED_DETECTION_KEYS[key] in policy_output, (
             f"{key} is in the allow-list but was dropped by the running Collector"
         )
 
     @pytest.mark.parametrize("key", sorted(RESTORED_DETECTION_KEYS))
-    def test_the_attribute_is_rendered_under_its_own_key(
+    def test_given_a_restored_detection_key_when_the_exporter_renders_it_then_its_own_key_is_used(
         self, key: str, policy_output: str
     ) -> None:
+        # Assert
         assert f"-> {key}: Str({RESTORED_DETECTION_KEYS[key]})" in policy_output
 
 
@@ -1063,10 +1159,13 @@ class TestShippedConfigurationStartsClean:
     runs the file exactly as an operator runs it.
     """
 
-    def test_the_shipped_configuration_logs_no_deprecation_warning(
+    def test_given_the_shipped_configuration_when_the_collector_starts_then_no_deprecation_logs(
         self, runtime: ContainerRuntime
     ) -> None:
+        # Arrange
         container = f"copilot-otel-alias-check-{_free_port()}"
+
+        # Act
         started = runtime.docker(
             "run",
             "-d",
@@ -1091,6 +1190,8 @@ class TestShippedConfigurationStartsClean:
                 if "Everything is ready" in output:
                     break
                 time.sleep(1)
+
+            # Assert
             assert "Everything is ready" in output, f"Collector never finished starting:\n{output}"
             assert "deprecated" not in output.lower(), (
                 f"the shipped configuration still triggers a deprecation warning:\n{output}"
@@ -1436,38 +1537,53 @@ class TestAgentHostRelay:
     found by a fleet already sending telemetry somewhere it should not.
     """
 
-    def test_a_trusted_receiver_with_the_right_credential_receives_the_span(
+    def test_given_a_trusted_receiver_and_credential_when_the_relay_forwards_then_the_span_arrives(
         self, relay_results: dict[str, tuple[str, str]]
     ) -> None:
+        # Arrange
         receiver_output, _ = relay_results["trusted"]
+
+        # Assert
         assert "AGENTHOSTMARKER" in receiver_output, (
             "the relay did not forward agent-host telemetry over verified TLS"
         )
 
-    def test_the_forwarded_span_keeps_its_agent_host_identity(
+    def test_given_a_trusted_relay_run_when_the_span_arrives_then_agent_host_identity_is_kept(
         self, relay_results: dict[str, tuple[str, str]]
     ) -> None:
+        # Arrange
         receiver_output, _ = relay_results["trusted"]
+
+        # Assert
         assert "copilot-agent-host" in receiver_output
 
     @pytest.mark.parametrize("case", [entry.name for entry in RELAY_CASES if not entry.forwards])
-    def test_a_rejected_transport_forwards_nothing(
+    def test_given_a_rejected_transport_case_when_the_relay_runs_then_nothing_reaches_the_receiver(
         self, relay_results: dict[str, tuple[str, str]], case: str
     ) -> None:
+        # Arrange
         receiver_output, _ = relay_results[case]
+
+        # Assert
         assert "AGENTHOSTMARKER" not in receiver_output, (
             f"the {case} case reached the fleet receiver anyway"
         )
 
-    def test_a_wrong_bearer_is_refused_by_the_receiver(
+    def test_given_a_wrong_bearer_token_when_the_relay_forwards_then_the_receiver_answers_401(
         self, relay_results: dict[str, tuple[str, str]]
     ) -> None:
+        # Arrange
         _, relay_output = relay_results["wrong-bearer"]
+
+        # Assert
         assert "401" in relay_output or "unauthorized" in relay_output.lower()
 
     @pytest.mark.parametrize("case", ["untrusted-ca", "hostname-mismatch"])
-    def test_a_certificate_failure_is_reported_as_one(
+    def test_given_a_bad_certificate_case_when_the_relay_dials_then_a_tls_failure_is_logged(
         self, relay_results: dict[str, tuple[str, str]], case: str
     ) -> None:
+        # Arrange
         _, relay_output = relay_results[case]
+
+        # Assert
         assert "certificate" in relay_output.lower() or "tls" in relay_output.lower()
