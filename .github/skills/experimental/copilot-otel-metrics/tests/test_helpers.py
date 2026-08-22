@@ -215,6 +215,49 @@ class TestRedirects:
         assert opened == [], "a refused URL still reached the opener"
 
 
+class TestProxyNeutralization:
+    """A permitted loopback request is not routed through an ambient proxy.
+
+    `build_opener` adds to the default handler chain, so the default
+    `ProxyHandler` is installed unless an empty one is passed explicitly.
+    `proxy_bypass` does not exempt loopback, so without that the request goes
+    to whatever `HTTP_PROXY` names -- carrying the Grafana Basic credential
+    that `validate_dashboard` attaches. `no_proxy` is cleared here on purpose:
+    an environment where it already covers loopback would pass either way.
+    """
+
+    def _built_opener(self, monkeypatch) -> urllib.request.OpenerDirector:
+        monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+        monkeypatch.setenv("http_proxy", "http://proxy.invalid:3128")
+        monkeypatch.setenv("NO_PROXY", "")
+        monkeypatch.setenv("no_proxy", "")
+        captured: list[urllib.request.OpenerDirector] = []
+        monkeypatch.setattr(
+            urllib.request.OpenerDirector,
+            "open",
+            lambda self, *a, **k: captured.append(self),
+        )
+        open_url("http://127.0.0.1:3000/api/health")
+        return captured[0]
+
+    def test_the_built_opener_carries_no_proxy_configuration(self, monkeypatch) -> None:
+        opener = self._built_opener(monkeypatch)
+        configured = {
+            scheme: target
+            for handler in opener.handlers
+            if isinstance(handler, urllib.request.ProxyHandler)
+            for scheme, target in handler.proxies.items()
+        }
+        assert configured == {}, f"open_url would proxy loopback traffic to {configured}"
+
+    def test_the_built_opener_keeps_the_policy_redirect_handler(self, monkeypatch) -> None:
+        policy_handler = open_url.__globals__["_PolicyRedirectHandler"]
+        opener = self._built_opener(monkeypatch)
+        assert any(isinstance(handler, policy_handler) for handler in opener.handlers), (
+            "the redirect allow-list re-check and cross-origin credential stripping were dropped"
+        )
+
+
 class TestPathContainment:
     """A configurable path cannot escape its root."""
 
@@ -449,6 +492,91 @@ _ANY_STORE_RESPONSE = {
     "traces": [],
     "series": [],
 }
+
+
+class TestGrafanaCredentialLiveness:
+    """`verify.py` reports which admin credential is live, not only whether ours works.
+
+    Grafana applies `GF_SECURITY_ADMIN_*` only when it creates its database, so
+    a stack on a pre-existing database can be running on `admin`/`admin` while
+    the configured pair was supplied and ignored. A check that tried only the
+    configured pair would report that as a mismatch rather than as a live
+    default credential, which is the condition worth failing the run for.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolated_results(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(verify, "results", [])
+
+    def _probe(self, monkeypatch: pytest.MonkeyPatch, answers: dict) -> None:
+        monkeypatch.setattr(
+            verify, "grafana_accepts", lambda user, password: answers.get((user, password), False)
+        )
+
+    def _outcome(self, name: str) -> tuple[bool, str]:
+        return next((ok, detail) for recorded, ok, detail in verify.results if recorded == name)
+
+    def _configure(self, monkeypatch: pytest.MonkeyPatch, user: str, password: str) -> None:
+        monkeypatch.setenv("COPILOT_OTEL_GRAFANA_USER", user)
+        monkeypatch.setenv("COPILOT_OTEL_GRAFANA_PASSWORD", password)
+
+    def test_an_adopted_credential_passes_both_checks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._configure(monkeypatch, "operator", "chosen-by-the-user")
+        self._probe(monkeypatch, {("operator", "chosen-by-the-user"): True})
+        verify.check_grafana_credentials()
+        assert self._outcome("configured grafana credential works")[0] is True
+        assert self._outcome("grafana default credential inactive")[0] is True
+
+    def test_a_live_default_credential_is_reported_as_such(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._configure(monkeypatch, "operator", "chosen-by-the-user")
+        self._probe(monkeypatch, {("admin", "admin"): True})
+        verify.check_grafana_credentials()
+        ok, detail = self._outcome("grafana default credential inactive")
+        assert ok is False
+        assert "admin/admin authenticates" in detail
+
+    def test_a_rejected_configured_credential_is_reported_separately(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._configure(monkeypatch, "operator", "chosen-by-the-user")
+        self._probe(monkeypatch, {("admin", "admin"): True})
+        verify.check_grafana_credentials()
+        ok, detail = self._outcome("configured grafana credential works")
+        assert ok is False
+        assert "database predates this password" in detail
+
+    def test_an_unanswered_probe_is_not_reported_as_a_rejection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._configure(monkeypatch, "operator", "chosen-by-the-user")
+        monkeypatch.setattr(verify, "grafana_accepts", lambda user, password: None)
+        verify.check_grafana_credentials()
+        assert "no answer from Grafana" in self._outcome("configured grafana credential works")[1]
+
+    def test_missing_configuration_is_named_rather_than_probed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("COPILOT_OTEL_GRAFANA_USER", raising=False)
+        monkeypatch.delenv("COPILOT_OTEL_GRAFANA_PASSWORD", raising=False)
+        self._probe(monkeypatch, {})
+        verify.check_grafana_credentials()
+        ok, detail = self._outcome("configured grafana credential works")
+        assert ok is False
+        assert "are not both set" in detail
+
+    def test_configuring_the_default_pair_fails_the_default_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._configure(monkeypatch, "admin", "admin")
+        self._probe(monkeypatch, {("admin", "admin"): True})
+        verify.check_grafana_credentials()
+        ok, detail = self._outcome("grafana default credential inactive")
+        assert ok is False
+        assert "is the image default" in detail
 
 
 class TestGrafanaCredentialScope:

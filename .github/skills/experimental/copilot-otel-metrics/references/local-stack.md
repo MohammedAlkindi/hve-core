@@ -54,10 +54,11 @@ Seed from `examples/compose.yaml` and `examples/otel-collector-local.yaml`. Seve
 
 * **The Collector is the only OTLP listener published on the host.** LGTM's own `4317` and `4318` are deliberately not mapped. This is the difference between filtering telemetry and merely hoping it is filtered: if LGTM published OTLP itself, any local process could write straight past the allow-list. Loopback binding does not prevent that, because every process on the machine is already on loopback.
 * **The attribute policy is an allow-list, not a delete-list.** `allow_all_keys: false` means an attribute the configuration has never seen is dropped. The emitter's attribute set is not a stable contract, so a delete-list is only correct until the next extension release adds a content-bearing key. Adding a key to `allowed_keys` is a deliberate decision to store it.
-* **Grafana credentials are required with no default.** The image enables anonymous access with the Admin role and hides the login form, so left alone every stored prompt fragment is readable by anything that can reach port 3000. The compose file disables anonymous access, restores the login form, and requires `COPILOT_OTEL_GRAFANA_USER` and `COPILOT_OTEL_GRAFANA_PASSWORD` through the `${VAR:?message}` form, which fails the `up` rather than starting on a guessable credential.
+* **Grafana credentials are required with no default.** The image enables anonymous access with the Admin role and hides the login form, so left alone every stored prompt fragment is readable by anything that can reach port 3000. The compose file disables anonymous access, restores the login form, and requires `COPILOT_OTEL_GRAFANA_USER` and `COPILOT_OTEL_GRAFANA_PASSWORD` through the `${VAR:?message}` form. Be precise about what that form buys: it fails the `up` when a variable is unset. It does not make Grafana adopt the value.
+* **Grafana's database has its own volume.** `copilot-otel-grafana-db` mounts over `/data/grafana/data`, which is `GF_PATHS_DATA` in this image. Grafana applies `GF_SECURITY_ADMIN_USER` and `GF_SECURITY_ADMIN_PASSWORD` only when it creates `grafana.db`, so on a stack sharing the reusable `copilot-otel-data` volume the required variables would be supplied and then ignored, leaving whatever password that database already carried — possibly the image default of `admin`/`admin`. This volume is deliberately not `external`, because the per-project creation is what produces the first run that adopts the credential. The cost is that Grafana users and dashboards do not carry over from an older shared volume; telemetry history does, because it stays on `copilot-otel-data`.
 * **Both images are pinned by digest.** A tag is mutable, so a tag-pinned stack can change underneath a configuration that was reviewed. The tag is kept in a comment above each digest so the version stays legible.
 * **Every port binds `127.0.0.1`.** The OTLP endpoint accepts writes from anyone who can reach it. Loopback binding is what makes that acceptable. Publishing `4318` on all interfaces, as some published walkthroughs do, exposes an unauthenticated ingest endpoint on the network; OpenTelemetry's own security guidance flags that pattern under CWE-1327.
-* **The data volume is declared `external`.** Compose namespaces volumes by project. A plain declaration creates a second, empty, project-prefixed volume and silently orphans everything already collected. This is why the volume is created by hand first.
+* **The telemetry volume is declared `external`.** Compose namespaces volumes by project. A plain declaration creates a second, empty, project-prefixed volume and silently orphans everything already collected. This is why the volume is created by hand first.
 * **`--enable-feature=otlp-deltatocumulative` is set.** Prometheus drops delta-temporality metrics by default, and a dropped delta metric was observed failing an entire batched write, losing unrelated cumulative metrics that shared the batch. The flag converts instead of dropping and is inert when traffic is already cumulative. Its per-series state lives in memory and resets when the container restarts.
 * **Retention is raised to 120 days.** Prometheus defaults to 15, which silently truncates any monthly total into a smaller number that still looks plausible.
 
@@ -84,11 +85,11 @@ Two variants, and the difference is the entire history.
 docker compose -f compose.yaml down
 
 # Stop the stack and destroy all history
-docker compose -f compose.yaml down
+docker compose -f compose.yaml down -v
 docker volume rm copilot-otel-data
 ```
 
-`down` alone leaves the external volume intact, so a later `up -d` restores the stack with its data. Only the explicit `docker volume rm` discards it. Say which one the user asked for before handing over either.
+`down` alone leaves both volumes intact, so a later `up -d` restores the stack with its data and its Grafana users. `down -v` removes the project-managed `copilot-otel-grafana-db`, which discards Grafana users and dashboards but not telemetry; only the explicit `docker volume rm copilot-otel-data` discards the telemetry, because that volume is external. Say which one the user asked for before handing over either.
 
 ## The local dashboard
 

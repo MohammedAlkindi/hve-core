@@ -13,12 +13,14 @@ where a request may go and where a file may be written, not what is asked for.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import os
 import pathlib
 import socket
 import urllib.parse
 import urllib.request
+from typing import IO
 
 __all__ = [
     "DEFAULT_ALLOWED_PORTS",
@@ -199,7 +201,15 @@ class _PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
         self._allow_remote = allow_remote
         self._allowed_ports = allowed_ports
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: http.client.HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
         check_url(newurl, allow_remote=self._allow_remote, allowed_ports=self._allowed_ports)
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
         if redirected is None:
@@ -227,12 +237,20 @@ def open_url(
     allow_remote: bool = False,
     allowed_ports: frozenset[int] = DEFAULT_ALLOWED_PORTS,
     timeout: int = 25,
-):  # noqa: ANN201
-    """Open a URL after checking it, and re-check every redirect it follows."""
+) -> http.client.HTTPResponse:
+    """Open a URL after checking it, and re-check every redirect it follows.
+
+    The response is an `HTTPResponse` rather than a wider union because
+    `check_url` admits only http and https, so no other handler can answer.
+    """
     url = request if isinstance(request, str) else request.full_url
     check_url(url, allow_remote=allow_remote, allowed_ports=allowed_ports)
+    # The empty ProxyHandler is explicit because build_opener adds to the default
+    # chain: without it, the default handler reads HTTP_PROXY and routes even a
+    # loopback request off-box, since proxy_bypass does not exempt loopback.
     opener = urllib.request.build_opener(
-        _PolicyRedirectHandler(allow_remote=allow_remote, allowed_ports=allowed_ports)
+        _PolicyRedirectHandler(allow_remote=allow_remote, allowed_ports=allowed_ports),
+        urllib.request.ProxyHandler({}),
     )
     return opener.open(request, timeout=timeout)
 

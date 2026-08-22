@@ -174,6 +174,74 @@ class TestMergedStatePolicy:
         with pytest.raises(SettingsError, match="exporterType"):
             check_policy({ENABLED: True}, existing={EXPORTER: "otlp-quic"})
 
+    def test_an_existing_off_policy_endpoint_is_refused(self) -> None:
+        with pytest.raises(SettingsError, match="already holds an otlpEndpoint"):
+            check_policy(
+                {EXPORTER: "otlp-http"}, existing={ENDPOINT: "http://evil.example.com:4318"}
+            )
+
+    def test_replacing_an_off_policy_endpoint_in_the_same_run_is_allowed(self) -> None:
+        check_policy(
+            {ENDPOINT: "http://localhost:4318"},
+            existing={ENDPOINT: "http://evil.example.com:4318"},
+        )
+
+    def test_an_already_enabled_content_capture_is_refused(self) -> None:
+        with pytest.raises(SettingsError, match="already enabled"):
+            check_policy({ENABLED: True}, existing={CAPTURE: True})
+
+    def test_turning_an_enabled_content_capture_off_in_the_same_run_is_allowed(self) -> None:
+        check_policy({CAPTURE: False}, existing={CAPTURE: True})
+
+
+class TestSplitInvocationWrites:
+    """What reaches disk is validated, not just the arguments of the run writing it.
+
+    This is the shape a single-invocation test cannot reach. The off-policy
+    value is already in the file -- hand-edited, or written before this policy
+    existed -- and the current run's own argument is clean. Checking only the
+    argument writes the combined document without ever judging it.
+
+    These go through `apply_changes` rather than `check_policy` because the
+    claim is about the write path, and `apply_changes` is the only caller of
+    `write_atomically`, which is the only writer of the settings document.
+    """
+
+    def test_a_clean_edit_cannot_write_past_an_off_policy_endpoint_already_in_the_file(
+        self, settings_file: pathlib.Path
+    ) -> None:
+        settings_file.write_text(
+            json.dumps({ENDPOINT: "http://evil.example.com:4318"}, indent=2), encoding="utf-8"
+        )
+        with pytest.raises(SettingsError, match="already holds an otlpEndpoint"):
+            apply_changes(settings_file, {ENABLED: True}, apply=True)
+
+    def test_the_refused_write_leaves_the_document_byte_identical(
+        self, settings_file: pathlib.Path
+    ) -> None:
+        original = json.dumps({ENDPOINT: "http://evil.example.com:4318"}, indent=2)
+        settings_file.write_text(original, encoding="utf-8")
+        with pytest.raises(SettingsError):
+            apply_changes(settings_file, {ENABLED: True}, apply=True)
+        assert settings_file.read_text(encoding="utf-8") == original
+
+    def test_a_clean_edit_cannot_write_past_content_capture_already_in_the_file(
+        self, settings_file: pathlib.Path
+    ) -> None:
+        settings_file.write_text(json.dumps({CAPTURE: True}, indent=2), encoding="utf-8")
+        with pytest.raises(SettingsError, match="already enabled"):
+            apply_changes(settings_file, {ENABLED: True}, apply=True)
+
+    def test_correcting_the_offending_value_in_the_same_run_is_allowed(
+        self, settings_file: pathlib.Path
+    ) -> None:
+        settings_file.write_text(
+            json.dumps({ENDPOINT: "http://evil.example.com:4318"}, indent=2), encoding="utf-8"
+        )
+        apply_changes(settings_file, {ENDPOINT: "http://localhost:4318"}, apply=True)
+        written = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert written[ENDPOINT] == "http://localhost:4318"
+
 
 class TestOutfilePolicy:
     """Captured spans may not land somewhere nobody chose."""

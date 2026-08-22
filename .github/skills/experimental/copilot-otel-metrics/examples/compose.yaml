@@ -6,8 +6,10 @@
 # deliberately unmapped so no local process can bypass the filter.
 #
 # Images are pinned by manifest digest. Grafana credentials are required with
-# no default, and the data volume is external so this file binds the existing
-# copilot-otel-data volume rather than creating a project-prefixed duplicate.
+# no default, and the telemetry volume is external so this file binds the
+# existing copilot-otel-data volume rather than creating a project-prefixed
+# duplicate. Grafana's own database is deliberately NOT on that volume: see the
+# copilot-otel-grafana-db notes below.
 #
 # Prerequisites, credential handling, and first-run steps:
 # references/local-setup.md.
@@ -60,7 +62,11 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_AUTH_DISABLE_LOGIN_FORM: "false"
       GF_AUTH_BASIC_ENABLED: "true"
-      # Required with no default; the :? form fails the up with this message.
+      # The :? form fails the `up` when the variable is unset. That is all it
+      # does. Grafana reads GF_SECURITY_ADMIN_* only when it initializes its
+      # database, so on a database that already exists the value is supplied
+      # and then ignored. The separate copilot-otel-grafana-db volume below is
+      # what makes this pair actually take effect.
       # validate_dashboard.py reads the same pair.
       GF_SECURITY_ADMIN_USER: ${COPILOT_OTEL_GRAFANA_USER:?set COPILOT_OTEL_GRAFANA_USER before starting the stack}
       GF_SECURITY_ADMIN_PASSWORD: ${COPILOT_OTEL_GRAFANA_PASSWORD:?set COPILOT_OTEL_GRAFANA_PASSWORD before starting the stack}
@@ -75,6 +81,14 @@ services:
       # Everything persistent lives under /data: grafana, prometheus, tempo,
       # loki, pyroscope.
       - copilot-otel-data:/data
+      # Grafana's database, mounted over GF_PATHS_DATA so it is not part of the
+      # reusable telemetry volume. Grafana applies GF_SECURITY_ADMIN_USER and
+      # GF_SECURITY_ADMIN_PASSWORD only when it creates grafana.db; on a reused
+      # /data volume it would find an existing database and keep whatever
+      # password that database already carries, possibly the image default.
+      # Giving the database its own project-managed volume means a new stack
+      # initializes it, so the configured credential is the live one.
+      - copilot-otel-grafana-db:/data/grafana/data
     healthcheck:
       test:
         [
@@ -95,3 +109,7 @@ networks:
 volumes:
   copilot-otel-data:
     external: true
+  # Deliberately not external. Compose creates it per project, which is what
+  # produces the Grafana first run that adopts the configured credential.
+  # Dashboards and Grafana users live here rather than in copilot-otel-data.
+  copilot-otel-grafana-db: {}

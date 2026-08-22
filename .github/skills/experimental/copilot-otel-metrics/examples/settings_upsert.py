@@ -161,10 +161,16 @@ def check_policy(
 ) -> None:
     """Apply the rules the schema alone cannot express.
 
-    Cross-setting rules are evaluated against the settings that would result,
-    not against this invocation's arguments. Setting `exporterType` alone
-    otherwise passes while producing a file that contradicts the `outfile`
-    already written beside it.
+    Every rule is evaluated against the settings that would result, not against
+    this invocation's arguments. Two invocations that each pass alone can
+    otherwise combine into a document no invocation ever validated: setting
+    `exporterType` while the file already holds an off-policy `otlpEndpoint`
+    writes that endpoint's document without ever checking it.
+
+    A pre-existing value that fails policy is refused rather than carried
+    through, and the refusal says the value was already there. That is the same
+    posture `outfile` and `maxAttributeSizeChars` already had; `captureContent`
+    and `otlpEndpoint` were the two rules that looked only at the invocation.
     """
     merged = {**(existing or {}), **values}
 
@@ -174,13 +180,21 @@ def check_policy(
             "instructions, and tool arguments onto spans. Set it by hand, deliberately."
         )
 
+    if merged.get("github.copilot.chat.otel.captureContent") is True:
+        raise SettingsError(
+            "refusing to write while captureContent is already enabled in this file. This "
+            "invocation did not set it, but the document it would produce still puts prompt "
+            "text, responses, system instructions, and tool arguments onto spans. Turn it off, "
+            "or make this edit by hand."
+        )
+
     exporter = merged.get("github.copilot.chat.otel.exporterType")
     if exporter is not None and exporter not in EXPORTER_TYPES:
         raise SettingsError(
             f"exporterType must be one of {', '.join(sorted(EXPORTER_TYPES))}, got '{exporter}'"
         )
 
-    endpoint = values.get("github.copilot.chat.otel.otlpEndpoint")
+    endpoint = merged.get("github.copilot.chat.otel.otlpEndpoint")
     if endpoint:
         try:
             check_url(
@@ -189,7 +203,13 @@ def check_policy(
                 allowed_ports=DEFAULT_ALLOWED_PORTS,
             )
         except PolicyError as exc:
-            raise SettingsError(f"otlpEndpoint rejected: {exc}") from exc
+            if "github.copilot.chat.otel.otlpEndpoint" in values:
+                raise SettingsError(f"otlpEndpoint rejected: {exc}") from exc
+            raise SettingsError(
+                "refusing to write: this file already holds an otlpEndpoint that this "
+                f"invocation did not set, and it fails policy ({exc}). Correct or remove "
+                "that value first."
+            ) from exc
 
     outfile = merged.get("github.copilot.chat.otel.outfile")
     if outfile:
