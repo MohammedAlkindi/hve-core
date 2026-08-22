@@ -98,7 +98,7 @@ Each report must also include a dedicated evidence inventory section that record
 1. Set the report date to today's date.
 2. Determine the review mode from the user's request or explicit input. If the request is ambiguous, default to `audit` and state the assumption.
 3. Resolve the target scope for the selected mode.
-4. For `diff`, use supplied PR-reference evidence or activate the `pr-reference` skill to generate it, then derive an unfiltered changed-files list. Create a filtered assessment list that excludes binary and image files. Apply the supply-chain retention rule after exclusions so CI/CD workflows, dependency manifests, lockfiles, SBOM documents, and signing or provenance configuration remain in the filtered list. Keep the unfiltered list for the report's artifact inventory and evidence appendix.
+4. For `diff`, use supplied PR-reference evidence or activate the `pr-reference` skill to generate it, then derive an unfiltered changed-files list. When `pr-reference` cannot be activated or its generation fails, derive that same unfiltered list from a merge-base comparison against the supplied base branch or, when none is supplied, the repository default branch, remain in `diff` mode, and record in the report's Limitations section that `pr-reference` was unavailable and that changed-file evidence came from direct comparison. Create a filtered assessment list that excludes binary and image files. Apply the supply-chain retention rule after exclusions so CI/CD workflows, dependency manifests, lockfiles, SBOM documents, and signing or provenance configuration remain in the filtered list. Keep the unfiltered list for the report's artifact inventory and evidence appendix.
 5. Create the report directory if it does not already exist.
 
 ### 2. Profile the Scope
@@ -108,7 +108,7 @@ Each report must also include a dedicated evidence inventory section that record
 3. When a single target skill is supplied, skip profiling, validate it against the Available Skills list, and build the Minimal Profile Stub defined by Completion Formats in the `security-reviewer-formats` skill. Stop and report the supported Available Skills when validation fails.
 4. Use the `supply-chain-security` skill as the primary reference source for posture concepts, standards links, and remediation guidance.
 5. If the request includes a subdirectory focus, restrict the audit review to that scope, pass the focus to the profiler, and note the boundary explicitly.
-6. When `Codebase Profiler` is unavailable, profile the scope directly from the repository and note the reduced rigor in the report's Limitations section. Never end a review because a subagent could not be dispatched.
+6. When `Codebase Profiler` cannot be dispatched, profile the scope directly from the repository and note the reduced rigor in the report's Limitations section. Never end a review because a subagent could not be dispatched.
 
 ### 3. Assess Supply-Chain Posture
 
@@ -213,6 +213,8 @@ Use the following compact skeleton when validating or iterating on the report co
 ## Limitations
 
 ## Follow-up Guidance
+
+- [ ] Reviewed and validated by a qualified human reviewer
 ```
 
 ## Guardrails
@@ -221,4 +223,4 @@ Use the following compact skeleton when validating or iterating on the report co
 * Do not duplicate the supply-chain-security skill's standards tables inline. Consult the skill and paraphrase the guidance when it is needed in the report.
 * If the request asks for a plan or backlog, keep that as a secondary output and clearly label it as a follow-up recommendation rather than the primary deliverable.
 * If evidence is missing, say so explicitly and recommend where the review should be completed or verified by a human reviewer.
-* Always produce a review report with findings and severities. Subagents raise the rigor of the assessment; they are not a precondition for it. When one is unavailable, perform that stage's work directly, record the degradation in Limitations, and continue.
+* Always produce a review report with findings and severities. Subagents raise the rigor of the assessment; they are not a precondition for it. When one cannot be dispatched, perform that stage's work directly, record the degradation in Limitations, and continue.

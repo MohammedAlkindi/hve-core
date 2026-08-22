@@ -15,7 +15,7 @@ tags:
   - agents
   - security
 author: Microsoft
-ms.date: 2026-08-14
+ms.date: 2026-08-22
 ms.topic: concept
 estimated_reading_time: 7
 ---
@@ -49,7 +49,9 @@ The reviewer runs in one of three modes. When no mode is supplied, it defaults t
 | `plan`  | An implementation plan document            | `sssc-plan-review-{{NNN}}.md` |
 
 * **audit** profiles and assesses the entire codebase.
-* **diff** resolves the changed files, scopes the assessment to them, and keeps supply-chain-relevant configuration (CI/CD workflows, dependency manifests, lockfiles, SBOM documents, signing or provenance configuration) in scope. Verification still searches the full repository so mitigations in unchanged code do not produce false positives.
+* **diff** resolves the changed files, scopes the assessment to them, and keeps supply-chain-relevant configuration (CI/CD workflows, dependency manifests, lockfiles, SBOM documents, signing or provenance configuration) in scope.
+  It takes a PR reference or changed-files list you supply, generates a PR reference with the `pr-reference` skill when you supply neither, and compares the branch against its base when that skill is unavailable, noting the reduced rigor under Limitations.
+  Verification still searches the full repository so mitigations in unchanged code do not produce false positives.
 * **plan** evaluates an implementation plan document for supply-chain risk before the work is built. Findings pass through without the adversarial verification step.
 
 ## The Three-Subagent Pipeline
@@ -111,6 +113,7 @@ The reviewer runs with no required arguments; an unqualified invocation performs
 | Input                | Effect                                                                                                                      |
 |----------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | Mode                 | `audit`, `diff`, or `plan`. Defaults to `audit`.                                                                            |
+| PR reference         | An existing PR reference or changed-files list for `diff` mode. The agent produces one itself when you omit it.             |
 | Subdirectory / path  | Focus profiling and scanning on a specific area of the codebase (audit and diff).                                           |
 | Specific skills list | Comma-separated skills that override the profiler's automatic skill detection. The profiler still runs for context.         |
 | Target skill         | A single supply-chain skill (for example, `supply-chain-security`). Fast-paths past profiling and assesses only that skill. |
@@ -134,13 +137,14 @@ The `{{NNN}}` sequence number increments per day, starting at `001`. After the r
 * The SSSC Reviewer agent installed and enabled through the complete `hve-core` identity.
 * The three pipeline subagents available: Codebase Profiler, Supply Chain Skill Assessor, and Finding Deep Verifier.
 * The `supply-chain-security` skill and the `security-reviewer-formats` skill for the assessment references and finding formats.
+* For `diff` work: the `pr-reference` skill, when you want generated PR evidence rather than the base-branch comparison fallback.
 * For VEX work: the `vex` skill and the `CVE Analyzer` subagent.
 
 ## Quick Start
 
 1. Open the agent picker and select **SSSC Reviewer**.
 2. Run it with no arguments for a full `audit`, or specify a mode (`diff` or `plan`) and any optional focus.
-3. For `diff` mode, ensure the change is available as a pull request reference; for `plan` mode, provide the plan document path.
+3. For `diff` mode, optionally supply a pull request reference or changed-files list; the agent resolves the changed files itself when you supply neither. For `plan` mode, provide the plan document path.
 4. Review the generated report under `.copilot-tracking/sssc-reviews/{{YYYY-MM-DD}}/` and act on the severity-grouped findings.
 
 > [!IMPORTANT]

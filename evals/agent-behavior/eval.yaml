@@ -2254,6 +2254,48 @@ stimuli:
     config:
       pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)
       negate: true
+- name: sssc-reviewer-diff-fallback-retains-supply-chain-files
+  prompt: |
+    Run a `diff` mode supply chain review. The `pr-reference` skill is not
+    installed in this session and cannot be activated, and no changed-files
+    list was supplied. The branch differs from its base branch in exactly two
+    files: `package-lock.json` and `.github/workflows/release.yml`.
+
+    Before assessing anything, state how you resolved the changed files for
+    this run, which of those two files stay in scope for assessment, and how
+    the report records the reduced evidence quality.
+  environment:
+    files:
+    - src: ../../.github/agents/security/sssc-reviewer.agent.md
+      dest: .github/copilot-instructions.md
+    skills:
+    - ../../.github/skills/security/supply-chain-security
+    - ../../.github/skills/security/security-reviewer-formats
+  tags:
+    category: agent-behavior
+    agent: sssc-reviewer
+  graders:
+  - type: output-matches
+    name: diff-mode-retained
+    config:
+      pattern: (?is)(remains?|remaining|continues?|continuing|stays?|still|retains?|retained|proceeds?|proceeding)[^.]{0,80}diff|diff[- ]?(mode|scope|scoped)[^.]{0,80}(remains?|continues?|retained|preserved|proceeds?)
+  - type: output-matches
+    name: direct-repository-comparison
+    config:
+      pattern: (?is)(base branch|repository comparison|compared the branch|comparing the branch|directly from the repository|git diff)
+  - type: output-matches
+    name: supply-chain-files-retained
+    config:
+      pattern: (?is)(?=.*package-lock\.json)(?=.*release\.yml).
+  - type: output-matches
+    name: reduced-rigor-in-limitations
+    config:
+      pattern: (?is)limitations?[^.]{0,160}(reduced|degraded|lower|unavailable|fallback|direct comparison)|(reduced rigor|reduced evidence|reduced confidence)[^.]{0,160}limitations?
+  - type: output-matches
+    name: no-source-edit
+    config:
+      pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)(?!\w)
+      negate: true
 - name: supply-chain-skill-assessor-posture
   prompt: |
     As the supply-chain skill assessor, assess a repository's supply-chain
