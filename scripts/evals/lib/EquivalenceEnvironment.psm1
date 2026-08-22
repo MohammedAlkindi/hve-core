@@ -46,6 +46,10 @@ function Get-AgentSkillReference {
         Both forms are resolved here against the skills actually present on disk.
     .OUTPUTS
         [string[]] Workspace-relative skill directory paths, deduplicated and sorted.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root that skills are resolved against.
+    .PARAMETER AgentFilePath
+        Agent file to scan, either absolute or relative to RepoRoot.
     #>
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -59,36 +63,36 @@ function Get-AgentSkillReference {
         [string]$AgentFilePath
     )
 
-    $skillsRoot = Join-Path $RepoRoot '.github/skills'
-    if (-not (Test-Path -LiteralPath $skillsRoot -PathType Container)) { return @() }
+    $SkillsRoot = Join-Path $RepoRoot '.github/skills'
+    if (-not (Test-Path -LiteralPath $SkillsRoot -PathType Container)) { return @() }
 
-    $available = @{}
-    foreach ($skillFile in (Get-ChildItem -LiteralPath $skillsRoot -Recurse -File -Filter 'SKILL.md' -ErrorAction SilentlyContinue)) {
-        $dir = Split-Path -Parent $skillFile.FullName
-        $name = Split-Path -Leaf $dir
-        $relative = $dir.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/')
-        if (-not $available.ContainsKey($name)) { $available[$name] = $relative }
+    $Available = @{}
+    foreach ($SkillFile in (Get-ChildItem -LiteralPath $SkillsRoot -Recurse -File -Filter 'SKILL.md' -ErrorAction SilentlyContinue)) {
+        $SkillDir = Split-Path -Parent $SkillFile.FullName
+        $SkillName = Split-Path -Leaf $SkillDir
+        $RelativePath = $SkillDir.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/')
+        if (-not $Available.ContainsKey($SkillName)) { $Available[$SkillName] = $RelativePath }
     }
 
-    $full = if ([System.IO.Path]::IsPathRooted($AgentFilePath)) { $AgentFilePath } else { Join-Path $RepoRoot $AgentFilePath }
-    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { return @() }
-    $body = Get-Content -LiteralPath $full -Raw
+    $FullPath = if ([System.IO.Path]::IsPathRooted($AgentFilePath)) { $AgentFilePath } else { Join-Path $RepoRoot $AgentFilePath }
+    if (-not (Test-Path -LiteralPath $FullPath -PathType Leaf)) { return @() }
+    $Body = Get-Content -LiteralPath $FullPath -Raw
 
-    $resolved = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $Resolved = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
-    foreach ($match in [regex]::Matches($body, '\.github/skills/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)')) {
-        $candidate = ".github/skills/$($match.Groups[1].Value)/$($match.Groups[2].Value)"
-        if (Test-Path -LiteralPath (Join-Path $RepoRoot (Join-Path $candidate 'SKILL.md')) -PathType Leaf) {
-            [void]$resolved.Add($candidate)
+    foreach ($PathMatch in [regex]::Matches($Body, '\.github/skills/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)')) {
+        $Candidate = ".github/skills/$($PathMatch.Groups[1].Value)/$($PathMatch.Groups[2].Value)"
+        if (Test-Path -LiteralPath (Join-Path $RepoRoot (Join-Path $Candidate 'SKILL.md')) -PathType Leaf) {
+            [void]$Resolved.Add($Candidate)
         }
     }
 
-    foreach ($match in [regex]::Matches($body, '`([A-Za-z0-9][A-Za-z0-9_-]{2,})`')) {
-        $name = $match.Groups[1].Value
-        if ($available.ContainsKey($name)) { [void]$resolved.Add($available[$name]) }
+    foreach ($NameMatch in [regex]::Matches($Body, '`([A-Za-z0-9][A-Za-z0-9_-]{2,})`')) {
+        $SkillName = $NameMatch.Groups[1].Value
+        if ($Available.ContainsKey($SkillName)) { [void]$Resolved.Add($Available[$SkillName]) }
     }
 
-    return @($resolved) | Sort-Object
+    return @($Resolved) | Sort-Object
 }
 
 function Resolve-AgentScopePattern {
@@ -103,16 +107,19 @@ function Resolve-AgentScopePattern {
 
         Agents that write tracking artifacts get an anchored pattern asserting the
         customized run names its own tracking directory. Agents that write none are
-        exempt: advisory agents such as agile-coach and dependency-reviewer reference
-        no tracking directory at all, so there is no scope to assert. Because params
-        substitute values and cannot remove a grader from a spec shared by every agent,
-        an exempt agent receives a pattern that matches anything.
+        exempt: advisory agents that reference no tracking directory have no scope to
+        assert. Because params substitute values and cannot remove a grader from a spec
+        shared by every agent, an exempt agent receives a pattern that matches anything.
 
         A vacuous pattern that passes silently would recreate the defect this work
         exists to remove, so `Exempt` is returned alongside the pattern for the caller
         to surface in run output.
     .OUTPUTS
         [hashtable] Keys: Scope (string or $null), Pattern (string), Exempt (bool).
+    .PARAMETER RepoRoot
+        Absolute path to the repository root containing .github/agents.
+    .PARAMETER Agent
+        Agent slug, matched against `<Agent>.agent.md` beneath .github/agents.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -126,23 +133,23 @@ function Resolve-AgentScopePattern {
         [string]$Agent
     )
 
-    $exempt = @{ Scope = $null; Pattern = '.*'; Exempt = $true }
+    $Exempt = @{ Scope = $null; Pattern = '.*'; Exempt = $true }
 
-    $agentsRoot = Join-Path $RepoRoot '.github/agents'
-    if (-not (Test-Path -LiteralPath $agentsRoot -PathType Container)) { return $exempt }
+    $AgentsRoot = Join-Path $RepoRoot '.github/agents'
+    if (-not (Test-Path -LiteralPath $AgentsRoot -PathType Container)) { return $Exempt }
 
-    $agentFile = Get-ChildItem -LiteralPath $agentsRoot -Recurse -File -Filter "$Agent.agent.md" -ErrorAction SilentlyContinue |
+    $AgentFile = Get-ChildItem -LiteralPath $AgentsRoot -Recurse -File -Filter "$Agent.agent.md" -ErrorAction SilentlyContinue |
         Select-Object -First 1
-    if (-not $agentFile) { return $exempt }
+    if (-not $AgentFile) { return $Exempt }
 
-    $body = Get-Content -LiteralPath $agentFile.FullName -Raw
-    $match = [regex]::Match($body, '\.copilot-tracking/([a-z0-9][a-z0-9-]*)')
-    if (-not $match.Success) { return $exempt }
+    $Body = Get-Content -LiteralPath $AgentFile.FullName -Raw
+    $ScopeMatch = [regex]::Match($Body, '\.copilot-tracking/([a-z0-9][a-z0-9-]*)')
+    if (-not $ScopeMatch.Success) { return $Exempt }
 
-    $scope = $match.Groups[1].Value
+    $Scope = $ScopeMatch.Groups[1].Value
     return @{
-        Scope   = $scope
-        Pattern = "(?i)\.copilot-tracking/$([regex]::Escape($scope))"
+        Scope   = $Scope
+        Pattern = "(?i)\.copilot-tracking/$([regex]::Escape($Scope))"
         Exempt  = $false
     }
 }
@@ -163,6 +170,12 @@ function Assert-ContainedRepositoryPath {
         in any of its parent segments.
     .OUTPUTS
         [string] The verified full path.
+    .PARAMETER Path
+        Path to verify. Must resolve to a link-free regular entry beneath ApprovedRoot.
+    .PARAMETER ApprovedRoot
+        Root that Path must resolve beneath.
+    .PARAMETER Because
+        Short noun phrase naming what is being materialized, used in refusal messages.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -179,43 +192,43 @@ function Assert-ContainedRepositoryPath {
         [string]$Because = 'materialization input'
     )
 
-    $rootItem = Get-Item -LiteralPath $ApprovedRoot -Force -ErrorAction Stop
-    $rootFull = [System.IO.Path]::GetFullPath($rootItem.FullName)
-    $rootTrimmed = $rootFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
-    $rootPrefix = $rootTrimmed + [System.IO.Path]::DirectorySeparatorChar
+    $RootItem = Get-Item -LiteralPath $ApprovedRoot -Force -ErrorAction Stop
+    $RootFull = [System.IO.Path]::GetFullPath($RootItem.FullName)
+    $RootTrimmed = $RootFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $RootPrefix = $RootTrimmed + [System.IO.Path]::DirectorySeparatorChar
 
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-    $resolved = [System.IO.Path]::GetFullPath($item.FullName)
+    $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    $Resolved = [System.IO.Path]::GetFullPath($Item.FullName)
 
-    if ($resolved -ne $rootFull -and -not $resolved.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to materialize $Because '$Path': resolved path '$resolved' escapes the approved root '$rootFull'."
+    if ($Resolved -ne $RootFull -and -not $Resolved.StartsWith($RootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to materialize $Because '$Path': resolved path '$Resolved' escapes the approved root '$RootFull'."
     }
 
     # GetFullPath is lexical normalization only, so a regular file beneath a linked
     # directory still carries the approved prefix. Every segment between the approved
     # root and the target is inspected, because a link in any ancestor redirects the
     # read outside the repository just as effectively as a linked leaf.
-    $separators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-    $relative = $resolved.Substring($rootTrimmed.Length).Trim($separators)
-    if (-not [string]::IsNullOrEmpty($relative)) {
-        $current = $rootTrimmed
-        foreach ($segment in $relative.Split($separators, [System.StringSplitOptions]::RemoveEmptyEntries)) {
-            $current = Join-Path $current $segment
-            $component = Get-Item -LiteralPath $current -Force -ErrorAction Stop
-            if ($component.LinkType -or ($component.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-                throw "Refusing to materialize $Because '$Path': ancestor or target '$current' is a symbolic link or reparse point."
+    $Separators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $Relative = $Resolved.Substring($RootTrimmed.Length).Trim($Separators)
+    if (-not [string]::IsNullOrEmpty($Relative)) {
+        $Current = $RootTrimmed
+        foreach ($Segment in $Relative.Split($Separators, [System.StringSplitOptions]::RemoveEmptyEntries)) {
+            $Current = Join-Path $Current $Segment
+            $Component = Get-Item -LiteralPath $Current -Force -ErrorAction Stop
+            if ($Component.LinkType -or ($Component.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                throw "Refusing to materialize $Because '$Path': ancestor or target '$Current' is a symbolic link or reparse point."
             }
         }
     }
 
     # Re-open after the walk so the returned path is the one that was verified rather
     # than the one that was requested.
-    $verified = [System.IO.Path]::GetFullPath((Get-Item -LiteralPath $resolved -Force -ErrorAction Stop).FullName)
-    if ($verified -ne $rootFull -and -not $verified.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to materialize $Because '$Path': verified path '$verified' escapes the approved root '$rootFull'."
+    $Verified = [System.IO.Path]::GetFullPath((Get-Item -LiteralPath $Resolved -Force -ErrorAction Stop).FullName)
+    if ($Verified -ne $RootFull -and -not $Verified.StartsWith($RootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to materialize $Because '$Path': verified path '$Verified' escapes the approved root '$RootFull'."
     }
 
-    return $verified
+    return $Verified
 }
 
 function Get-AgentDeclaredDependency {
@@ -235,6 +248,10 @@ function Get-AgentDeclaredDependency {
         omission.
     .OUTPUTS
         [hashtable] With keys Instructions and Subagents, each workspace-relative paths.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root that references are resolved against.
+    .PARAMETER AgentRelativePath
+        Workspace-relative path to the agent file whose declarations are resolved.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -248,80 +265,80 @@ function Get-AgentDeclaredDependency {
         [string]$AgentRelativePath
     )
 
-    $instructions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $subagents = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $Instructions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $Subagents = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
-    $full = Join-Path $RepoRoot $AgentRelativePath
-    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+    $FullPath = Join-Path $RepoRoot $AgentRelativePath
+    if (-not (Test-Path -LiteralPath $FullPath -PathType Leaf)) {
         throw "Agent file '$AgentRelativePath' does not exist. Refusing to materialize an incomplete customization surface."
     }
-    $body = Get-Content -LiteralPath $full -Raw
-    $agentDir = Split-Path -Parent $AgentRelativePath
+    $Body = Get-Content -LiteralPath $FullPath -Raw
+    $AgentDir = Split-Path -Parent $AgentRelativePath
 
     # Cross-kind references resolve relative to the containing file, so a repository
     # `#file:` path such as `../../instructions/<name>.instructions.md` is normalized
     # against the agent's own directory rather than assumed to start at the repo root.
-    $normalize = {
+    $Normalize = {
         param([string]$Reference)
 
-        $candidates = [System.Collections.Generic.List[string]]::new()
-        $candidates.Add(($Reference -replace '^(\.\./)+', ''))
-        if ($agentDir) {
-            $combined = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $RepoRoot $agentDir) $Reference))
-            $rootFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
-            if ($combined.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $candidates.Add($combined.Substring($rootFull.Length).TrimStart('\', '/').Replace('\', '/'))
+        $Candidates = [System.Collections.Generic.List[string]]::new()
+        $Candidates.Add(($Reference -replace '^(\.\./)+', ''))
+        if ($AgentDir) {
+            $Combined = [System.IO.Path]::GetFullPath((Join-Path (Join-Path $RepoRoot $AgentDir) $Reference))
+            $RootFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+            if ($Combined.StartsWith($RootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $Candidates.Add($Combined.Substring($RootFull.Length).TrimStart('\', '/').Replace('\', '/'))
             }
         }
 
-        foreach ($candidate in $candidates) {
-            if (Test-Path -LiteralPath (Join-Path $RepoRoot $candidate) -PathType Leaf) { return $candidate }
+        foreach ($Candidate in $Candidates) {
+            if (Test-Path -LiteralPath (Join-Path $RepoRoot $Candidate) -PathType Leaf) { return $Candidate }
         }
         return $null
     }
 
-    foreach ($match in [regex]::Matches($body, '[A-Za-z0-9_./-]*\.instructions\.md')) {
-        $resolved = & $normalize $match.Value
-        if ($resolved) { [void]$instructions.Add($resolved) }
+    foreach ($InstructionMatch in [regex]::Matches($Body, '[A-Za-z0-9_./-]*\.instructions\.md')) {
+        $Resolved = & $Normalize $InstructionMatch.Value
+        if ($Resolved) { [void]$Instructions.Add($Resolved) }
     }
 
-    foreach ($match in [regex]::Matches($body, '[A-Za-z0-9_./*-]*\.agent\.md')) {
+    foreach ($AgentMatch in [regex]::Matches($Body, '[A-Za-z0-9_./*-]*\.agent\.md')) {
         # Glob references such as `.github/agents/**/name.agent.md` name a subagent
         # whose collection directory is intentionally unspecified.
-        if ($match.Value -match '\*') {
-            $leaf = Split-Path -Leaf ($match.Value -replace '\*+/?', '')
-            if (-not [string]::IsNullOrWhiteSpace($leaf)) {
-                $file = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter $leaf -ErrorAction SilentlyContinue |
+        if ($AgentMatch.Value -match '\*') {
+            $Leaf = Split-Path -Leaf ($AgentMatch.Value -replace '\*+/?', '')
+            if (-not [string]::IsNullOrWhiteSpace($Leaf)) {
+                $File = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter $Leaf -ErrorAction SilentlyContinue |
                     Select-Object -First 1
-                if ($file) {
-                    [void]$subagents.Add($file.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/'))
+                if ($File) {
+                    [void]$Subagents.Add($File.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/'))
                 }
             }
             continue
         }
-        $resolved = & $normalize $match.Value
-        if ($resolved -and $resolved -ne $AgentRelativePath) { [void]$subagents.Add($resolved) }
+        $Resolved = & $Normalize $AgentMatch.Value
+        if ($Resolved -and $Resolved -ne $AgentRelativePath) { [void]$Subagents.Add($Resolved) }
     }
 
     # Frontmatter `agents:` names subagents by stable name rather than by path.
-    $frontmatter = [regex]::Match($body, '(?s)\A---\r?\n(.*?)\r?\n---')
-    if ($frontmatter.Success) {
-        $agentsBlock = [regex]::Match($frontmatter.Groups[1].Value, '(?ms)^agents:\s*$(.*?)(?=^\S|\z)')
-        if ($agentsBlock.Success) {
-            foreach ($entry in [regex]::Matches($agentsBlock.Groups[1].Value, '(?m)^\s*-\s*([A-Za-z0-9_.-]+)\s*$')) {
-                $name = $entry.Groups[1].Value
-                $file = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter "$name.agent.md" -ErrorAction SilentlyContinue |
+    $Frontmatter = [regex]::Match($Body, '(?s)\A---\r?\n(.*?)\r?\n---')
+    if ($Frontmatter.Success) {
+        $AgentsBlock = [regex]::Match($Frontmatter.Groups[1].Value, '(?ms)^agents:\s*$(.*?)(?=^\S|\z)')
+        if ($AgentsBlock.Success) {
+            foreach ($Entry in [regex]::Matches($AgentsBlock.Groups[1].Value, '(?m)^\s*-\s*([A-Za-z0-9_.-]+)\s*$')) {
+                $EntryName = $Entry.Groups[1].Value
+                $File = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter "$EntryName.agent.md" -ErrorAction SilentlyContinue |
                     Select-Object -First 1
-                if ($file) {
-                    [void]$subagents.Add($file.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/'))
+                if ($File) {
+                    [void]$Subagents.Add($File.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/'))
                 }
             }
         }
     }
 
     return @{
-        Instructions = @($instructions | Sort-Object)
-        Subagents    = @($subagents | Sort-Object)
+        Instructions = @($Instructions | Sort-Object)
+        Subagents    = @($Subagents | Sort-Object)
     }
 }
 
@@ -331,6 +348,12 @@ function Copy-VerifiedRepositoryFile {
         Copies one repository-relative file into a workspace after verifying it.
     .OUTPUTS
         [bool] True when the file existed and was copied.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root that RelativePath is resolved against.
+    .PARAMETER RelativePath
+        Workspace-relative path of the file to copy.
+    .PARAMETER WorkspacePath
+        Destination workspace root; RelativePath is recreated beneath it.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -348,18 +371,18 @@ function Copy-VerifiedRepositoryFile {
         [string]$WorkspacePath
     )
 
-    $source = Join-Path $RepoRoot $RelativePath
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($source, 'Copy into customized workspace')) { return $false }
+    $Source = Join-Path $RepoRoot $RelativePath
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Source, 'Copy into customized workspace')) { return $false }
 
-    $null = Assert-ContainedRepositoryPath -Path $source -ApprovedRoot $RepoRoot -Because 'customization artifact'
+    $null = Assert-ContainedRepositoryPath -Path $Source -ApprovedRoot $RepoRoot -Because 'customization artifact'
 
-    $target = Join-Path $WorkspacePath $RelativePath
-    $targetDir = Split-Path -Parent $target
-    if (-not (Test-Path -LiteralPath $targetDir)) {
-        New-Item -ItemType Directory -Path $targetDir -Force -WhatIf:$false -Confirm:$false | Out-Null
+    $Target = Join-Path $WorkspacePath $RelativePath
+    $TargetDir = Split-Path -Parent $Target
+    if (-not (Test-Path -LiteralPath $TargetDir)) {
+        New-Item -ItemType Directory -Path $TargetDir -Force -WhatIf:$false -Confirm:$false | Out-Null
     }
-    Copy-Item -LiteralPath $source -Destination $target -Force -WhatIf:$false -Confirm:$false
+    Copy-Item -LiteralPath $Source -Destination $Target -Force -WhatIf:$false -Confirm:$false
     return $true
 }
 
@@ -379,6 +402,14 @@ function New-CustomizedEnvironment {
         link-free regular file beneath the repository root.
     .OUTPUTS
         [hashtable] With keys WorkspacePath, SkillDirPath, and Applied.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root supplying the customization surface.
+    .PARAMETER Agent
+        Agent slug whose surface is materialized.
+    .PARAMETER WorkspacePath
+        Workspace root passed to `vally eval --workspace`. Emptied before population.
+    .PARAMETER SkillDirPath
+        Skill root passed to `vally eval --skill-dir`. Emptied before population.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -400,72 +431,72 @@ function New-CustomizedEnvironment {
         [string]$SkillDirPath
     )
 
-    foreach ($path in @($WorkspacePath, $SkillDirPath)) {
-        if (Test-Path -LiteralPath $path) {
-            Get-ChildItem -LiteralPath $path -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($TargetRoot in @($WorkspacePath, $SkillDirPath)) {
+        if (Test-Path -LiteralPath $TargetRoot) {
+            Get-ChildItem -LiteralPath $TargetRoot -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
         }
         else {
-            New-Item -ItemType Directory -Path $path -Force -WhatIf:$false -Confirm:$false | Out-Null
+            New-Item -ItemType Directory -Path $TargetRoot -Force -WhatIf:$false -Confirm:$false | Out-Null
         }
     }
 
-    $applied = [System.Collections.Generic.List[string]]::new()
+    $Applied = [System.Collections.Generic.List[string]]::new()
 
-    $agentFile = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter "$Agent.agent.md" -ErrorAction SilentlyContinue |
+    $AgentFile = Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.github/agents') -Recurse -File -Filter "$Agent.agent.md" -ErrorAction SilentlyContinue |
         Select-Object -First 1
-    if (-not $agentFile) {
+    if (-not $AgentFile) {
         throw "Agent '$Agent' not found under .github/agents. Cannot materialize a customized environment for an agent that does not exist."
     }
-    $agentRelative = $agentFile.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/')
+    $AgentRelative = $AgentFile.FullName.Substring($RepoRoot.Length).TrimStart('\', '/').Replace('\', '/')
 
-    $declared = Get-AgentDeclaredDependency -RepoRoot $RepoRoot -AgentRelativePath $agentRelative
+    $Declared = Get-AgentDeclaredDependency -RepoRoot $RepoRoot -AgentRelativePath $AgentRelative
 
-    if (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath $agentRelative -WorkspacePath $WorkspacePath -WhatIf:$false) {
-        $applied.Add($agentRelative)
+    if (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath $AgentRelative -WorkspacePath $WorkspacePath -WhatIf:$false) {
+        $Applied.Add($AgentRelative)
     }
 
-    foreach ($relative in @($declared.Instructions) + @($declared.Subagents)) {
-        if ([string]::IsNullOrWhiteSpace($relative)) { continue }
-        if (-not (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath ([string]$relative) -WorkspacePath $WorkspacePath -WhatIf:$false)) {
-            throw "Declared dependency '$relative' for agent '$Agent' could not be materialized. Refusing to compare against a partial customization surface."
+    foreach ($Relative in @($Declared.Instructions) + @($Declared.Subagents)) {
+        if ([string]::IsNullOrWhiteSpace($Relative)) { continue }
+        if (-not (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath ([string]$Relative) -WorkspacePath $WorkspacePath -WhatIf:$false)) {
+            throw "Declared dependency '$Relative' for agent '$Agent' could not be materialized. Refusing to compare against a partial customization surface."
         }
-        $applied.Add([string]$relative)
+        $Applied.Add([string]$Relative)
     }
 
-    $copilotInstructions = '.github/copilot-instructions.md'
-    if (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath $copilotInstructions -WorkspacePath $WorkspacePath -WhatIf:$false) {
-        $applied.Add($copilotInstructions)
+    $CopilotInstructions = '.github/copilot-instructions.md'
+    if (Copy-VerifiedRepositoryFile -RepoRoot $RepoRoot -RelativePath $CopilotInstructions -WorkspacePath $WorkspacePath -WhatIf:$false) {
+        $Applied.Add($CopilotInstructions)
     }
 
-    $skillDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($relative in (Get-AgentSkillReference -RepoRoot $RepoRoot -AgentFilePath $agentRelative)) {
-        [void]$skillDirs.Add($relative)
+    $SkillDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($Relative in (Get-AgentSkillReference -RepoRoot $RepoRoot -AgentFilePath $AgentRelative)) {
+        [void]$SkillDirs.Add($Relative)
     }
     # A subagent's skills are part of the surface the parent agent delivers, so they
     # are resolved transitively rather than left to the agent body alone.
-    foreach ($subagentRelative in @($declared.Subagents)) {
-        if ([string]::IsNullOrWhiteSpace($subagentRelative)) { continue }
-        foreach ($relative in (Get-AgentSkillReference -RepoRoot $RepoRoot -AgentFilePath ([string]$subagentRelative))) {
-            [void]$skillDirs.Add($relative)
+    foreach ($SubagentRelative in @($Declared.Subagents)) {
+        if ([string]::IsNullOrWhiteSpace($SubagentRelative)) { continue }
+        foreach ($Relative in (Get-AgentSkillReference -RepoRoot $RepoRoot -AgentFilePath ([string]$SubagentRelative))) {
+            [void]$SkillDirs.Add($Relative)
         }
     }
 
-    foreach ($relative in ($skillDirs | Sort-Object)) {
-        $source = Join-Path $RepoRoot $relative
-        if (-not (Test-Path -LiteralPath $source -PathType Container)) { continue }
-        $null = Assert-ContainedRepositoryPath -Path $source -ApprovedRoot $RepoRoot -Because 'skill directory'
-        foreach ($entry in @(Get-ChildItem -LiteralPath $source -Recurse -Force -ErrorAction SilentlyContinue)) {
-            $null = Assert-ContainedRepositoryPath -Path $entry.FullName -ApprovedRoot $RepoRoot -Because 'skill content'
+    foreach ($Relative in ($SkillDirs | Sort-Object)) {
+        $Source = Join-Path $RepoRoot $Relative
+        if (-not (Test-Path -LiteralPath $Source -PathType Container)) { continue }
+        $null = Assert-ContainedRepositoryPath -Path $Source -ApprovedRoot $RepoRoot -Because 'skill directory'
+        foreach ($Entry in @(Get-ChildItem -LiteralPath $Source -Recurse -Force -ErrorAction SilentlyContinue)) {
+            $null = Assert-ContainedRepositoryPath -Path $Entry.FullName -ApprovedRoot $RepoRoot -Because 'skill content'
         }
-        $target = Join-Path $SkillDirPath (Split-Path -Leaf $relative)
-        Copy-Item -LiteralPath $source -Destination $target -Recurse -Force -WhatIf:$false -Confirm:$false
-        $applied.Add("$relative/SKILL.md")
+        $Target = Join-Path $SkillDirPath (Split-Path -Leaf $Relative)
+        Copy-Item -LiteralPath $Source -Destination $Target -Recurse -Force -WhatIf:$false -Confirm:$false
+        $Applied.Add("$Relative/SKILL.md")
     }
 
     return @{
         WorkspacePath = $WorkspacePath
         SkillDirPath  = $SkillDirPath
-        Applied       = @($applied | Sort-Object -Unique)
+        Applied       = @($Applied | Sort-Object -Unique)
     }
 }
 
@@ -481,6 +512,12 @@ function Get-BaselineCacheKey {
         rather than silently comparing new questions against old answers.
     .OUTPUTS
         [string]
+    .PARAMETER Model
+        Model identifier the baseline was captured under.
+    .PARAMETER VallyVersion
+        Pinned Vally CLI version the baseline was captured under.
+    .PARAMETER StimulusHash
+        Content hash of the baseline spec and seed workspace.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -498,13 +535,13 @@ function Get-BaselineCacheKey {
         [string]$StimulusHash
     )
 
-    $safeModel = $Model -replace '[^A-Za-z0-9._-]', '-'
-    $safeVersion = $VallyVersion -replace '[^A-Za-z0-9._-]', '-'
+    $SafeModel = $Model -replace '[^A-Za-z0-9._-]', '-'
+    $SafeVersion = $VallyVersion -replace '[^A-Za-z0-9._-]', '-'
     # The hash is truncated for a readable path, but a sentinel such as 'missing' is
     # shorter than the truncation length, so the shorter of the two is used.
-    $safeHash = ($StimulusHash -replace '[^A-Za-z0-9._-]', '-')
-    $prefix = $safeHash.Substring(0, [Math]::Min(12, $safeHash.Length))
-    return "$safeModel/$safeVersion/$prefix"
+    $SafeHash = ($StimulusHash -replace '[^A-Za-z0-9._-]', '-')
+    $Prefix = $SafeHash.Substring(0, [Math]::Min(12, $SafeHash.Length))
+    return "$SafeModel/$SafeVersion/$Prefix"
 }
 
 function Get-StimulusContentHash {
@@ -517,6 +554,12 @@ function Get-StimulusContentHash {
         files those stimuli act on. Hashing only the spec would let a baseline captured
         against an empty workspace be reused after the seed changed, silently comparing
         a customized run that could act against a baseline that could not.
+    .OUTPUTS
+        [string] Lowercase hexadecimal SHA-256 digest, or 'missing' when the spec is absent.
+    .PARAMETER SpecPath
+        Baseline eval spec whose content contributes to the hash.
+    .PARAMETER SeedPath
+        Optional seed workspace root whose sorted relative paths and content also contribute.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -532,28 +575,28 @@ function Get-StimulusContentHash {
 
     if (-not (Test-Path -LiteralPath $SpecPath -PathType Leaf)) { return 'missing' }
 
-    $parts = [System.Collections.Generic.List[string]]::new()
-    $parts.Add(((Get-Content -LiteralPath $SpecPath -Raw) -replace "`r`n", "`n"))
+    $Parts = [System.Collections.Generic.List[string]]::new()
+    $Parts.Add(((Get-Content -LiteralPath $SpecPath -Raw) -replace "`r`n", "`n"))
 
     # Sorted relative paths plus content, so a rename or an edit both change the key.
     # Each entry is verified before it is read: hashing follows the same trust boundary
     # as materialization, so a link planted in the seed must not be read here either.
     if ($SeedPath -and (Test-Path -LiteralPath $SeedPath)) {
-        $root = (Resolve-Path -LiteralPath $SeedPath).Path
-        foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Sort-Object FullName)) {
-            $null = Assert-ContainedRepositoryPath -Path $f.FullName -ApprovedRoot $root -Because 'seed workspace entry'
-            $rel = $f.FullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
-            $parts.Add($rel)
-            $parts.Add(((Get-Content -LiteralPath $f.FullName -Raw) -replace "`r`n", "`n"))
+        $SeedRoot = (Resolve-Path -LiteralPath $SeedPath).Path
+        foreach ($SeedFile in @(Get-ChildItem -LiteralPath $SeedRoot -Recurse -File -Force | Sort-Object FullName)) {
+            $null = Assert-ContainedRepositoryPath -Path $SeedFile.FullName -ApprovedRoot $SeedRoot -Because 'seed workspace entry'
+            $SeedRelative = $SeedFile.FullName.Substring($SeedRoot.Length).TrimStart('\', '/').Replace('\', '/')
+            $Parts.Add($SeedRelative)
+            $Parts.Add(((Get-Content -LiteralPath $SeedFile.FullName -Raw) -replace "`r`n", "`n"))
         }
     }
 
-    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $Sha = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes(($parts -join "`n")))
-        return (-join ($bytes | ForEach-Object { $_.ToString('x2') }))
+        $Bytes = $Sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes(($Parts -join "`n")))
+        return (-join ($Bytes | ForEach-Object { $_.ToString('x2') }))
     }
-    finally { $sha.Dispose() }
+    finally { $Sha.Dispose() }
 }
 
 function Get-BaselineCacheEntry {
@@ -566,6 +609,10 @@ function Get-BaselineCacheEntry {
         different conditions.
     .OUTPUTS
         [string] Run directory path, or $null.
+    .PARAMETER CacheRoot
+        Root directory holding persisted baseline entries.
+    .PARAMETER CacheKey
+        Invalidation key produced by Get-BaselineCacheKey.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -579,29 +626,29 @@ function Get-BaselineCacheEntry {
         [string]$CacheKey
     )
 
-    $entryDir = Join-Path $CacheRoot $CacheKey
-    $manifestPath = Join-Path $entryDir 'baseline-cache.json'
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { return $null }
+    $EntryDir = Join-Path $CacheRoot $CacheKey
+    $ManifestPath = Join-Path $EntryDir 'baseline-cache.json'
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { return $null }
 
     try {
-        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
     }
     catch {
         return $null
     }
 
-    if (-not $manifest.runDir) { return $null }
-    $runDir = if ([System.IO.Path]::IsPathRooted([string]$manifest.runDir)) {
-        [string]$manifest.runDir
+    if (-not $Manifest.runDir) { return $null }
+    $RunDirectory = if ([System.IO.Path]::IsPathRooted([string]$Manifest.runDir)) {
+        [string]$Manifest.runDir
     }
     else {
-        Join-Path $entryDir ([string]$manifest.runDir)
+        Join-Path $EntryDir ([string]$Manifest.runDir)
     }
 
-    if (-not (Test-Path -LiteralPath $runDir -PathType Container)) { return $null }
-    if (-not (Get-ChildItem -LiteralPath $runDir -Recurse -File -Filter 'results.jsonl' -ErrorAction SilentlyContinue)) { return $null }
+    if (-not (Test-Path -LiteralPath $RunDirectory -PathType Container)) { return $null }
+    if (-not (Get-ChildItem -LiteralPath $RunDirectory -Recurse -File -Filter 'results.jsonl' -ErrorAction SilentlyContinue)) { return $null }
 
-    return $runDir
+    return $RunDirectory
 }
 
 function Save-BaselineCacheEntry {
@@ -610,6 +657,18 @@ function Save-BaselineCacheEntry {
         Persists a baseline run directory for reuse under its invalidation key.
     .OUTPUTS
         [string] The cached run directory path.
+    .PARAMETER CacheRoot
+        Root directory holding persisted baseline entries.
+    .PARAMETER CacheKey
+        Invalidation key produced by Get-BaselineCacheKey.
+    .PARAMETER RunDir
+        Source run directory to persist.
+    .PARAMETER Model
+        Model identifier recorded in the entry manifest.
+    .PARAMETER VallyVersion
+        Pinned Vally CLI version recorded in the entry manifest.
+    .PARAMETER StimulusHash
+        Stimulus content hash recorded in the entry manifest.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
@@ -639,26 +698,26 @@ function Save-BaselineCacheEntry {
         [string]$StimulusHash
     )
 
-    $entryDir = Join-Path $CacheRoot $CacheKey
-    $targetRun = Join-Path $entryDir 'run'
+    $EntryDir = Join-Path $CacheRoot $CacheKey
+    $TargetRun = Join-Path $EntryDir 'run'
 
-    if (Test-Path -LiteralPath $targetRun) {
-        Remove-Item -LiteralPath $targetRun -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $TargetRun) {
+        Remove-Item -LiteralPath $TargetRun -Recurse -Force -ErrorAction SilentlyContinue
     }
-    New-Item -ItemType Directory -Path $entryDir -Force -WhatIf:$false -Confirm:$false | Out-Null
-    Copy-Item -LiteralPath $RunDir -Destination $targetRun -Recurse -Force -WhatIf:$false -Confirm:$false
+    New-Item -ItemType Directory -Path $EntryDir -Force -WhatIf:$false -Confirm:$false | Out-Null
+    Copy-Item -LiteralPath $RunDir -Destination $TargetRun -Recurse -Force -WhatIf:$false -Confirm:$false
 
-    $manifest = [ordered]@{
+    $Manifest = [ordered]@{
         runDir       = 'run'
         model        = $Model
         vallyVersion = $VallyVersion
         stimulusHash = $StimulusHash
         capturedAt   = (Get-Date -AsUTC).ToString('o')
     }
-    $manifest | ConvertTo-Json -Depth 5 |
-        Set-Content -LiteralPath (Join-Path $entryDir 'baseline-cache.json') -Encoding utf8NoBOM
+    $Manifest | ConvertTo-Json -Depth 5 |
+        Set-Content -LiteralPath (Join-Path $EntryDir 'baseline-cache.json') -Encoding utf8NoBOM
 
-    return $targetRun
+    return $TargetRun
 }
 
 Export-ModuleMember -Function @(

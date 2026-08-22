@@ -35,6 +35,22 @@ function Measure-CompareTrials {
         are expected to differ, so counting them against equivalence penalizes intended
         customization. When the map is supplied, equivalent-only tallies are reported
         alongside the totals.
+
+        Optionally accepts the canonical stimulus names and the effective trial count.
+        Structural counts detect records that arrived broken, but they cannot detect a
+        record that never arrived: a comparison that produced no output for a stimulus
+        leaves no malformed line, no judge error, and no unmatched trajectory. Supplying
+        the expected population lets every observed (stimulus, trial) pair be reconciled
+        against the expected Cartesian set, so a silently truncated run is a data-quality
+        violation rather than a smaller denominator that still reports a healthy ratio.
+    .PARAMETER Lines
+        Raw JSONL lines emitted by `vally compare --output`.
+    .PARAMETER StimulusPolicy
+        Optional map of stimulus name to policy, used to separate equivalent-only tallies.
+    .PARAMETER ExpectedStimulusName
+        Optional canonical stimulus names. Reconciliation is skipped when omitted.
+    .PARAMETER ExpectedTrialCount
+        Optional effective trial count per stimulus. Reconciliation is skipped when zero.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -47,7 +63,15 @@ function Measure-CompareTrials {
 
         [Parameter(Mandatory = $false)]
         [AllowNull()]
-        [hashtable]$StimulusPolicy
+        [hashtable]$StimulusPolicy,
+
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
+        [string[]]$ExpectedStimulusName,
+
+        [Parameter(Mandatory = $false)]
+        [int]$ExpectedTrialCount = 0
     )
 
     $ties = 0; $baselineWins = 0; $treatmentWins = 0; $total = 0
@@ -61,6 +85,7 @@ function Measure-CompareTrials {
     $unmatchedTreatment = 0
     $comparisonRecords = 0
     $duplicateTrials = 0
+    $observedPairs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $perStimulus = @{}
     $meanScores = [System.Collections.Generic.List[double]]::new()
     $winRates = [System.Collections.Generic.List[double]]::new()
@@ -95,8 +120,20 @@ function Measure-CompareTrials {
 
             $seenIndices = [System.Collections.Generic.HashSet[string]]::new()
             $trials = if ($stimulus.PSObject.Properties['trials'] -and $stimulus.trials) { @($stimulus.trials) } else { @() }
+            $trialPosition = -1
             foreach ($trial in $trials) {
                 if (-not $trial) { continue }
+                $trialPosition++
+
+                # Recorded before any skip or error path, so a trial that arrived and
+                # failed is distinguishable from one that never arrived at all.
+                $observedIndex = if ($trial.PSObject.Properties['trialIndex'] -and $null -ne $trial.trialIndex) {
+                    [string]$trial.trialIndex
+                }
+                else {
+                    [string]$trialPosition
+                }
+                [void]$observedPairs.Add("$name`u{241F}$observedIndex")
 
                 if ($trial.PSObject.Properties['trialIndex'] -and $null -ne $trial.trialIndex) {
                     $indexKey = [string]$trial.trialIndex
@@ -178,6 +215,38 @@ function Measure-CompareTrials {
 
     $meanScore = if ($meanScores.Count -gt 0) { ($meanScores | Measure-Object -Average).Average } else { 0.0 }
     $winRate = if ($winRates.Count -gt 0) { ($winRates | Measure-Object -Average).Average } else { 0.0 }
+
+    # Reconcile the observed population against the expected Cartesian set. A stimulus
+    # that produced no record at all is invisible to every structural counter above,
+    # so absence is only detectable by comparing against what was supposed to run.
+    $missingTrials = 0
+    $unexpectedTrials = 0
+    $populationReconciled = $false
+    if ($ExpectedStimulusName -and @($ExpectedStimulusName).Count -gt 0 -and $ExpectedTrialCount -gt 0) {
+        $populationReconciled = $true
+        $expectedPairs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($expectedName in @($ExpectedStimulusName)) {
+            if ([string]::IsNullOrWhiteSpace($expectedName)) { continue }
+            for ($trialIndex = 0; $trialIndex -lt $ExpectedTrialCount; $trialIndex++) {
+                [void]$expectedPairs.Add("$expectedName`u{241F}$trialIndex")
+            }
+        }
+
+        foreach ($pair in $expectedPairs) {
+            if (-not $observedPairs.Contains($pair)) {
+                $missingTrials++
+                $parts = $pair -split "`u{241F}"
+                $diagnostics.Add("Missing comparison trial: stimulus '$($parts[0])' trial $($parts[1]) produced no record.")
+            }
+        }
+        foreach ($pair in $observedPairs) {
+            if (-not $expectedPairs.Contains($pair)) {
+                $unexpectedTrials++
+                $parts = $pair -split "`u{241F}"
+                $diagnostics.Add("Unexpected comparison trial: stimulus '$($parts[0])' trial $($parts[1]) is not in the declared population.")
+            }
+        }
+    }
     $ciLow = if ($ciLows.Count -gt 0) { ($ciLows | Measure-Object -Maximum).Maximum } else { 0.0 }
     $ciHigh = if ($ciHighs.Count -gt 0) { ($ciHighs | Measure-Object -Minimum).Minimum } else { 0.0 }
 
@@ -237,6 +306,9 @@ function Measure-CompareTrials {
         UnmatchedBaseline  = $unmatchedBaseline
         UnmatchedTreatment = $unmatchedTreatment
         DuplicateTrials    = $duplicateTrials
+        MissingTrials      = $missingTrials
+        UnexpectedTrials   = $unexpectedTrials
+        PopulationReconciled = $populationReconciled
         ComparisonRecords  = $comparisonRecords
         EquivalentTotal    = $equivalentTotal
         EquivalentTies     = $equivalentTies
@@ -1257,6 +1329,8 @@ pre { background: #f5f5f5; padding: 0.5rem; border: 1px solid #ddd; overflow: au
 .verdict-pass { color: #0a7d28; font-weight: bold; }
 .verdict-warn { color: #b8860b; font-weight: bold; }
 .verdict-fail { color: #b30000; font-weight: bold; }
+th[data-key] { cursor: pointer; }
+th[data-key]:focus-visible { outline: 3px solid #005fcc; outline-offset: -3px; }
 @media (prefers-color-scheme: dark) {
   th { background: #2a2a2a; }
   tr.details { background: #1c1c1c; }
@@ -1347,11 +1421,27 @@ pre { background: #f5f5f5; padding: 0.5rem; border: 1px solid #ddd; overflow: au
     if (det) det.classList.toggle('open');
   });
 
+  function applySort(k) {
+    if (sortKey === k) { sortDir = -sortDir; } else { sortKey = k; sortDir = 1; }
+    document.querySelectorAll('th[data-key]').forEach(function (h) {
+      if (h.getAttribute('data-key') === sortKey) {
+        h.setAttribute('aria-sort', sortDir === 1 ? 'ascending' : 'descending');
+      } else {
+        h.setAttribute('aria-sort', 'none');
+      }
+    });
+    renderRows();
+  }
+
   document.querySelectorAll('th[data-key]').forEach(function (th) {
     th.addEventListener('click', function () {
-      var k = th.getAttribute('data-key');
-      if (sortKey === k) { sortDir = -sortDir; } else { sortKey = k; sortDir = 1; }
-      renderRows();
+      applySort(th.getAttribute('data-key'));
+    });
+    th.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        applySort(th.getAttribute('data-key'));
+      }
     });
   });
 
@@ -1395,16 +1485,16 @@ $css
 <input id="search" type="search" placeholder="filter stimuli&hellip;">
 <table>
 <thead><tr>
-<th data-key="stimulusName">Stimulus</th>
-<th data-key="baselinePassRate">$aLabelEsc pass</th>
-<th data-key="customizedPassRate">$bLabelEsc pass</th>
-<th data-key="identicalCount">Identical</th>
-<th data-key="ties">Ties</th>
-<th data-key="baselineWins">$aLabelEsc wins</th>
-<th data-key="treatmentWins">$bLabelEsc wins</th>
-<th data-key="meanWallTimeDeltaMs">Wall &Delta; (ms)</th>
-<th data-key="meanTokenDelta">Tokens &Delta;</th>
-<th>Verdict</th>
+<th data-key="stimulusName" tabindex="0" role="columnheader" scope="col" aria-sort="ascending">Stimulus</th>
+<th data-key="baselinePassRate" tabindex="0" role="columnheader" scope="col" aria-sort="none">$aLabelEsc pass</th>
+<th data-key="customizedPassRate" tabindex="0" role="columnheader" scope="col" aria-sort="none">$bLabelEsc pass</th>
+<th data-key="identicalCount" tabindex="0" role="columnheader" scope="col" aria-sort="none">Identical</th>
+<th data-key="ties" tabindex="0" role="columnheader" scope="col" aria-sort="none">Ties</th>
+<th data-key="baselineWins" tabindex="0" role="columnheader" scope="col" aria-sort="none">$aLabelEsc wins</th>
+<th data-key="treatmentWins" tabindex="0" role="columnheader" scope="col" aria-sort="none">$bLabelEsc wins</th>
+<th data-key="meanWallTimeDeltaMs" tabindex="0" role="columnheader" scope="col" aria-sort="none">Wall &Delta; (ms)</th>
+<th data-key="meanTokenDelta" tabindex="0" role="columnheader" scope="col" aria-sort="none">Tokens &Delta;</th>
+<th scope="col">Verdict</th>
 </tr></thead>
 <tbody id="rows"></tbody>
 </table>

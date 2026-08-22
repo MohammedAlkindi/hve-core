@@ -15,6 +15,9 @@ evals/baseline-equivalence/customized/workspace/
 evals/baseline-equivalence/customized/surface/**
 !evals/baseline-equivalence/customized/surface/.github/
 !evals/baseline-equivalence/customized/surface/.github/.gitkeep
+# Concurrency lock for the shared surface. Held for the duration of a run and
+# removed on exit, but a killed run can leave it behind.
+evals/baseline-equivalence/customized/.surface.lock
 
 # Generated Copilot plugin packages
 /plugins/

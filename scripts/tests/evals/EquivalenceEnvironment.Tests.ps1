@@ -51,6 +51,10 @@ See .github/skills/beta/skill-three/SKILL.md for details.
     }
 }
 
+AfterAll {
+    Remove-Module -Name 'EquivalenceEnvironment' -Force -ErrorAction SilentlyContinue
+}
+
 Describe 'Get-AgentSkillReference' -Tag 'Unit' {
     BeforeAll {
         $script:FixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())

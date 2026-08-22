@@ -176,6 +176,7 @@ The driver separates authoritative evidence from report-only comparison through 
 
 * No comparative pass/fail state exists yet. A valid post-launch calibration must precede any decision about a degradation margin, confidence level, inequality, or authoritative comparative tier.
 * Historical values from before launch-based invocation are not comparable to post-change results.
+* Individual divergence-guard outcomes are report-only, but total guard collapse is not. When no declared guard produces a result, that is promoted to `runHealthFailures`, which fails `calibration` and `ci`. A guard suite that silently stopped running is a broken run, not a clean one.
 
 The inherited `0.80` tie-ratio floor and the old all-policy `ciLow` and `ciHigh` fields are retained only for historical reporting. Neither participates in an authoritative decision.
 

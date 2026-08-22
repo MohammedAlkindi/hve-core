@@ -263,6 +263,54 @@ Describe 'Measure-CompareTrials data-quality accounting' -Tag 'Unit' {
         }
     }
 
+    Context 'Population reconciliation' {
+        It 'Reports a stimulus that produced no record at all as missing' {
+            # The defining case: a truncated run leaves no malformed line, no judge
+            # error, and no unmatched trajectory, so only reconciliation can see it.
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"alpha","trials":[{"trialIndex":0,"winner":"tie","score":0.0}]}]}'
+            $result = Measure-CompareTrials -Lines @($record) -ExpectedStimulusName @('alpha', 'beta') -ExpectedTrialCount 1
+            $result.MissingTrials | Should -Be 1
+            $result.MalformedRecords | Should -Be 0
+            $result.UnmatchedBaseline | Should -Be 0
+            ($result.Diagnostics -join ' ') | Should -Match "stimulus 'beta' trial 0 produced no record"
+        }
+
+        It 'Reports a partially delivered stimulus as missing per absent trial' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"alpha","trials":[{"trialIndex":0,"winner":"tie","score":0.0}]}]}'
+            $result = Measure-CompareTrials -Lines @($record) -ExpectedStimulusName @('alpha') -ExpectedTrialCount 3
+            $result.MissingTrials | Should -Be 2
+        }
+
+        It 'Counts an errored trial as delivered rather than missing' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"alpha","trials":[{"trialIndex":0,"errored":true}]}]}'
+            $result = Measure-CompareTrials -Lines @($record) -ExpectedStimulusName @('alpha') -ExpectedTrialCount 1
+            $result.MissingTrials | Should -Be 0
+            $result.JudgeErrors | Should -Be 1
+        }
+
+        It 'Reports a stimulus outside the declared population as unexpected' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"stray","trials":[{"trialIndex":0,"winner":"tie","score":0.0}]}]}'
+            $result = Measure-CompareTrials -Lines @($record) -ExpectedStimulusName @('alpha') -ExpectedTrialCount 1
+            $result.UnexpectedTrials | Should -Be 1
+            $result.MissingTrials | Should -Be 1
+        }
+
+        It 'Reports a complete population as fully reconciled with no violations' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"alpha","trials":[{"trialIndex":0,"winner":"tie","score":0.0},{"trialIndex":1,"winner":"tie","score":0.0}]}]}'
+            $result = Measure-CompareTrials -Lines @($record) -ExpectedStimulusName @('alpha') -ExpectedTrialCount 2
+            $result.PopulationReconciled | Should -BeTrue
+            $result.MissingTrials | Should -Be 0
+            $result.UnexpectedTrials | Should -Be 0
+        }
+
+        It 'Skips reconciliation and flags it when no expected population is supplied' {
+            $record = '{"type":"comparison","stimuli":[{"stimulusName":"alpha","trials":[{"trialIndex":0,"winner":"tie","score":0.0}]}]}'
+            $result = Measure-CompareTrials -Lines @($record)
+            $result.PopulationReconciled | Should -BeFalse
+            $result.MissingTrials | Should -Be 0
+        }
+    }
+
     Context 'Comparison policy denominator' {
         BeforeAll {
             $script:PolicyMap = @{ 'equal-one' = 'equivalent'; 'equal-two' = 'equivalent'; 'diverges' = 'documented-divergence' }

@@ -120,12 +120,10 @@ param(
     [string]$EquivalenceTier = 'devloop',
     [switch]$EnableBaselineEquivalence,
 
-    # Stage 1 subject boundary. Backlinks identify which agents a stimulus relates to,
-    # but they do not define a valid equivalence population: the corpus and its
-    # customization-boundary guards encode the RPI agent's contract, so scoring another
-    # agent against them would fail for reasons unrelated to equivalence. Repaired
-    # list-form backlinks therefore stay indexing evidence. Stage 2 replaces this
-    # default with a subject-aware resolver once per-subject guards exist.
+    # Restrict equivalence execution to agents whose guards match this corpus. Stimulus
+    # backlinks identify related artifacts and do not authorize an equivalence subject:
+    # the corpus and its customization-boundary guards encode the RPI agent's contract,
+    # so scoring another agent against them fails for reasons unrelated to equivalence.
     [Parameter(Mandatory = $false)]
     [string[]]$EquivalenceSubject = @('rpi-agent'),
     [switch]$FailFast,

@@ -656,6 +656,24 @@ if ($MyInvocation.InvocationName -ne '.') {
         $variantB.applied = @(Get-AppliedArtifacts -WorkspaceRoot $surfaceRoot)
         $variants = @{ a = $variantA; b = $variantB; subject = [string]$variantB.name }
 
+        # The surface is one mutable repository path shared by every invocation, and it
+        # is deleted and repopulated per agent. A second concurrent run would repopulate
+        # it for a different agent while this run's trials are still reading it, so the
+        # comparison would silently score a surface it did not build. An exclusive lock
+        # held for the whole run makes that a fast, explicit failure instead.
+        $surfaceLockPath = Join-Path $resolvedRoot 'evals/baseline-equivalence/customized/.surface.lock'
+        $surfaceLockStream = $null
+        try {
+            $surfaceLockStream = [System.IO.File]::Open(
+                $surfaceLockPath,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::None)
+        }
+        catch {
+            throw "Another baseline-equivalence run holds the customization surface lock at '$surfaceLockPath'. Concurrent runs would race on the shared surface under evals/baseline-equivalence/customized/. Wait for the other run to finish, or remove the lock file if no run is active."
+        }
+
         Write-Host "Baseline equivalence: agent=$Agent tier=$Tier model(s)=$($models -join ',')" -ForegroundColor Cyan
         Write-Host "   Summary output:  $OutputPath" -ForegroundColor DarkGray
         Write-Host "   Results root:    $outputRoot" -ForegroundColor DarkGray
@@ -1023,7 +1041,11 @@ if ($MyInvocation.InvocationName -ne '.') {
                 $compareLogs.Add($compareLog)
 
                 $jsonlLines = if (Test-Path -LiteralPath $compareJsonlPath) { @(Get-Content -LiteralPath $compareJsonlPath -Encoding utf8) } else { @() }
-                $tally = Measure-CompareTrials -Lines $jsonlLines -StimulusPolicy $canonicalPolicy
+                # A comparison pair needs both sides, so the comparable population is
+                # bounded by the smaller trial count.
+                $comparableTrials = [Math]::Min($baselineTrials, $customizedTrials)
+                $tally = Measure-CompareTrials -Lines $jsonlLines -StimulusPolicy $canonicalPolicy `
+                    -ExpectedStimulusName @($canonicalPolicy.Keys) -ExpectedTrialCount $comparableTrials
                 if ($tally.Total -le 0) {
                     Write-Host "   Compare emitted no parseable comparison records: $compareJsonlPath" -ForegroundColor Yellow
                     if (-not $compareFailed) { $runHealthFailures++ }
@@ -1036,11 +1058,16 @@ if ($MyInvocation.InvocationName -ne '.') {
                 # Records that could not be scored are counted rather than dropped. An
                 # unmatched trajectory or malformed record means the comparison is
                 # incomplete, and reporting a tie ratio computed only from the survivors
-                # would overstate equivalence.
-                $structural = $tally.MalformedRecords + $tally.UnmatchedBaseline + $tally.UnmatchedTreatment + $tally.DuplicateTrials
+                # would overstate equivalence. Missing and unexpected trials extend this
+                # to records that never arrived, which no structural counter can see.
+                $structural = $tally.MalformedRecords + $tally.UnmatchedBaseline + $tally.UnmatchedTreatment + $tally.DuplicateTrials +
+                    $tally.MissingTrials + $tally.UnexpectedTrials
                 if ($structural -gt 0) {
                     $dataQualityViolations += $structural
-                    Write-Host "   Data quality: $($tally.MalformedRecords) malformed, $($tally.UnmatchedBaseline) unmatched baseline, $($tally.UnmatchedTreatment) unmatched treatment, $($tally.DuplicateTrials) duplicate" -ForegroundColor Yellow
+                    Write-Host "   Data quality: $($tally.MalformedRecords) malformed, $($tally.UnmatchedBaseline) unmatched baseline, $($tally.UnmatchedTreatment) unmatched treatment, $($tally.DuplicateTrials) duplicate, $($tally.MissingTrials) missing, $($tally.UnexpectedTrials) unexpected" -ForegroundColor Yellow
+                }
+                if (-not $tally.PopulationReconciled) {
+                    Write-Host "   Comparison population was not reconciled; missing stimuli cannot be detected for this model." -ForegroundColor Yellow
                 }
                 if ($tally.JudgeErrors -gt 0) {
                     Write-Host "   Judge errors: $($tally.JudgeErrors) of $($tally.Total + $tally.JudgeErrors) attempted trial(s)" -ForegroundColor Yellow
@@ -1155,6 +1182,15 @@ if ($MyInvocation.InvocationName -ne '.') {
     catch {
         Write-Error -ErrorAction Continue "Invoke-BaselineEquivalence failed: $($_.Exception.Message)"
         exit 3
+    }
+    finally {
+        # Released before removal so a waiting run fails fast rather than inheriting a
+        # half-built surface. Removal keeps the working tree clean for the same reason
+        # the surface placeholder is restored.
+        if ($surfaceLockStream) {
+            $surfaceLockStream.Dispose()
+            Remove-Item -LiteralPath $surfaceLockPath -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 #endregion Main Execution
