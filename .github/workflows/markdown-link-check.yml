@@ -11,7 +11,7 @@ on:
         type: boolean
         default: false
       changed-files-only:
-        description: 'Only validate markdown files changed against the base branch'
+        description: 'Scope external-link validation to markdown files changed against the base branch; internal links are always validated repository-wide'
         required: false
         type: boolean
         default: true
@@ -21,7 +21,7 @@ on:
         type: string
         default: ''
       throttle-limit:
-        description: 'Maximum number of markdown files checked concurrently'
+        description: 'Maximum number of markdown-link-check processes run concurrently'
         required: false
         type: number
         default: 8

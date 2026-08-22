@@ -8,9 +8,12 @@
     Repository-aware wrapper for markdown-link-check.
 
 .DESCRIPTION
-    Runs markdown-link-check with the repo-specific configuration to validate
-    all markdown links across the repository. Checks tracked and untracked,
-    nonignored files so local validation does not require staging.
+    Runs markdown-link-check with the repo-specific configuration. Internal links
+    are always validated across the whole repository, because deleting, renaming,
+    or moving a target breaks references in files the change never touched.
+    External links are fetched once per unique URL and may be scoped to changed
+    files. Checks tracked and untracked, nonignored files so local validation does
+    not require staging.
 
 .PARAMETER Path
     One or more files or directories to scan. Directories are searched
@@ -23,16 +26,20 @@
     Suppress non-error output from markdown-link-check.
 
 .PARAMETER ChangedFilesOnly
-    Restrict validation to Markdown files changed relative to BaseBranch.
+    Restrict external-link validation to Markdown files changed relative to
+    BaseBranch. Internal links are still validated repository-wide. External links
+    in unchanged files are reported as skipped rather than checked.
 
 .PARAMETER BaseBranch
     Branch reference used by -ChangedFilesOnly to compute the changed-file set.
 
 .PARAMETER ThrottleLimit
-    Maximum number of files checked concurrently.
+    Maximum number of markdown-link-check processes run concurrently, and the
+    minimum number of batches targets are distributed across. Additional batches
+    are created when a batch would exceed the platform command-line length limit.
 
 .EXAMPLE
-    # Validate all markdown files in default paths
+    # Validate all markdown links across the repository
     ./Markdown-Link-Check.ps1
 
 .EXAMPLE
@@ -40,7 +47,7 @@
     ./Markdown-Link-Check.ps1 -Path ".github" -Quiet:$false
 
 .EXAMPLE
-    # Validate only markdown files changed against the default base branch
+    # Validate internal links repository-wide and external links only in changed files
     ./Markdown-Link-Check.ps1 -ChangedFilesOnly
     #>
 
@@ -262,11 +269,26 @@ function Split-MarkdownTargetBatch {
         the configured throttle limit. Each returned object preserves its file
         array as one pipeline item for parallel processing.
 
+        When an argument-length budget is supplied, the throttle limit becomes a
+        minimum batch count rather than a maximum: a count-balanced batch whose
+        arguments would not fit is split into contiguous sub-batches so every
+        emitted batch stays within the budget. Callers that omit the budget keep
+        the count-only behavior.
+
     .PARAMETER Target
         Repository-relative Markdown file paths to batch.
 
     .PARAMETER ThrottleLimit
-        Maximum number of batches to create.
+        Minimum number of batches to create, and the maximum when no
+        argument-length budget applies.
+
+    .PARAMETER ArgumentLengthBudget
+        Total command-line length available to one invocation. Zero disables
+        length-based splitting.
+
+    .PARAMETER ReservedLength
+        Length already consumed by the executable path and the fixed arguments
+        every invocation carries, which is unavailable to target arguments.
 
     .OUTPUTS
         System.Management.Automation.PSCustomObject
@@ -277,7 +299,13 @@ function Split-MarkdownTargetBatch {
         [string[]]$Target,
 
         [ValidateRange(1, 32)]
-        [int]$ThrottleLimit
+        [int]$ThrottleLimit,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$ArgumentLengthBudget = 0,
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]$ReservedLength = 0
     )
 
     $sortedTargets = @($Target | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object)
@@ -289,16 +317,170 @@ function Split-MarkdownTargetBatch {
     $baseSize = [Math]::Floor($sortedTargets.Count / $batchCount)
     $remainder = $sortedTargets.Count % $batchCount
     $offset = 0
+    $countBalancedBatches = @()
 
     for ($index = 0; $index -lt $batchCount; $index++) {
         $batchSize = $baseSize + $(if ($index -lt $remainder) { 1 } else { 0 })
-        $files = @($sortedTargets[$offset..($offset + $batchSize - 1)])
-        [pscustomobject]@{
-            Index = $index
-            Files = $files
-        }
+        $countBalancedBatches += , @($sortedTargets[$offset..($offset + $batchSize - 1)])
         $offset += $batchSize
     }
+
+    $emitIndex = 0
+    if ($ArgumentLengthBudget -le 0) {
+        foreach ($files in $countBalancedBatches) {
+            [pscustomobject]@{
+                Index = $emitIndex
+                Files = @($files)
+            }
+            $emitIndex++
+        }
+        return
+    }
+
+    $available = $ArgumentLengthBudget - $ReservedLength
+    if ($available -le 0) {
+        throw "The reserved command-line length $ReservedLength leaves no room within the budget $ArgumentLengthBudget."
+    }
+
+    # Balanced-by-count batches are not balanced by length when path lengths vary,
+    # so each batch is packed greedily against the budget rather than trusting an
+    # average. Every argument also costs a separating space and the two quote
+    # characters a shell adds for values containing spaces.
+    foreach ($files in $countBalancedBatches) {
+        $currentFiles = @()
+        $currentLength = 0
+
+        foreach ($file in $files) {
+            $cost = $file.Length + 3
+            if ($cost -gt $available) {
+                throw "Markdown target '$file' alone exceeds the available command-line length $available."
+            }
+
+            if ($currentFiles.Count -gt 0 -and ($currentLength + $cost) -gt $available) {
+                [pscustomobject]@{
+                    Index = $emitIndex
+                    Files = @($currentFiles)
+                }
+                $emitIndex++
+                $currentFiles = @()
+                $currentLength = 0
+            }
+
+            $currentFiles += $file
+            $currentLength += $cost
+        }
+
+        if ($currentFiles.Count -gt 0) {
+            [pscustomobject]@{
+                Index = $emitIndex
+                Files = @($currentFiles)
+            }
+            $emitIndex++
+        }
+    }
+}
+
+function Get-MarkdownBatchLengthBudget {
+    <#
+    .SYNOPSIS
+        Computes the command-line length budget for source-pass batches.
+
+    .DESCRIPTION
+        Returns the platform command-line ceiling and the length reserved by the
+        executable path and the fixed arguments every source invocation carries,
+        so batching can bound only the target arguments it appends.
+
+        On Windows the CLI resolves to a .cmd shim, so the process is dispatched
+        through the command interpreter and the 8191-character interpreter limit
+        governs rather than the 32767-character CreateProcess limit. The reserved
+        allowance therefore includes the interpreter wrapper and per-argument
+        quoting overhead.
+
+    .PARAMETER Cli
+        Path to the markdown-link-check executable.
+
+    .PARAMETER BaseArgument
+        Arguments applied to every invocation before target files.
+
+    .PARAMETER ReportPath
+        A representative JUnit report path carried by the reporter arguments.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [string]$Cli,
+
+        [string[]]$BaseArgument,
+
+        [string]$ReportPath
+    )
+
+    $budget = if ($IsWindows) { 8191 } else { 131072 }
+
+    $fixedArguments = @($BaseArgument) + @(
+        '--reporters',
+        'default,junit',
+        '--junit-output',
+        $ReportPath
+    )
+
+    $reserved = $Cli.Length + 3
+    foreach ($argument in $fixedArguments) {
+        $reserved += ([string]$argument).Length + 3
+    }
+
+    if ($IsWindows) {
+        # PowerShell dispatches a .cmd shim through the command interpreter.
+        $reserved += 'cmd.exe /c ""'.Length
+    }
+
+    return [pscustomobject]@{
+        Budget = $budget
+        Reserved = $reserved
+    }
+}
+
+function Test-MarkdownExternalScope {
+    <#
+    .SYNOPSIS
+        Tests whether a source file belongs to the external-link scope.
+
+    .DESCRIPTION
+        Compares a relative source path against the external-link allowlist. An
+        absent allowlist means every file is in scope; an empty allowlist means
+        no file is. Those two states have opposite meanings, so callers must pass
+        $null rather than an empty set when no scoping applies.
+
+        Both sides are normalized to forward slashes because relative source
+        paths carry the platform separator while the allowlist is normalized when
+        it is built.
+
+    .PARAMETER RelativePath
+        Repository-relative source path as reported by the source pass.
+
+    .PARAMETER Scope
+        Allowlist of normalized repository-relative paths, or $null for all files.
+
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string]$RelativePath,
+
+        [AllowNull()]
+        [System.Collections.Generic.HashSet[string]]$Scope
+    )
+
+    if ($null -eq $Scope) {
+        return $true
+    }
+
+    return $Scope.Contains(($RelativePath -replace '\\', '/'))
 }
 
 function ConvertFrom-MarkdownLinkCheckReport {
@@ -666,22 +848,30 @@ function Invoke-MarkdownLinkCheck {
     $repoRoot = Resolve-Path -LiteralPath $repoRootPath
     $config = Resolve-Path -LiteralPath $ConfigPath -ErrorAction Stop
 
-    $targetParams = @{ InputPath = $Path }
-    if ($ChangedFilesOnly) {
-        $targetParams['ChangedFilesOnly'] = $true
-        $targetParams['BaseBranch'] = $BaseBranch
-    }
-
-    $filesToCheck = @(Get-MarkdownTarget @targetParams)
+    # Internal links are validated repository-wide on every run, because deleting,
+    # renaming, or moving a target breaks references in files the change never
+    # touched. External links decay on their own schedule instead, so they are
+    # scoped to changed Markdown and the weekly full sweep owns the rest.
+    $filesToCheck = @(Get-MarkdownTarget -InputPath $Path)
 
     if (-not $filesToCheck -or @($filesToCheck).Count -eq 0) {
-        # An empty changed-file set is the expected outcome for pull requests that
-        # touch no Markdown, so it reports a clean run instead of failing.
-        if (-not $ChangedFilesOnly) {
-            throw 'No markdown files were found to validate.'
+        throw 'No markdown files were found to validate.'
+    }
+
+    # $null means "no external scoping"; an empty set means "no file is in scope".
+    # Conflating the two would silently disable all external checking.
+    $externalScope = $null
+    if ($ChangedFilesOnly) {
+        $externalScope = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $changedTargets = @(Get-MarkdownTarget -InputPath $Path -ChangedFilesOnly -BaseBranch $BaseBranch)
+        foreach ($changedTarget in $changedTargets) {
+            $changedRelative = [System.IO.Path]::GetRelativePath($repoRoot.Path, $changedTarget) -replace '\\', '/'
+            [void]$externalScope.Add($changedRelative)
         }
 
-        Write-Output 'No changed markdown files to validate.'
+        if ($externalScope.Count -eq 0) {
+            Write-Output 'No changed markdown files; external link validation was skipped.'
+        }
     }
 
     $cliOverride = Get-Variable -Name MarkdownLinkCheckCliOverride -Scope Script -ValueOnly -ErrorAction SilentlyContinue
@@ -702,6 +892,7 @@ function Invoke-MarkdownLinkCheck {
     $failedFiles = @()
     $brokenLinks = @()
     $totalLinks = 0
+    $skippedLinks = 0
     $totalFiles = $filesToCheck.Count
     $rootPath = $repoRoot.Path
 
@@ -732,7 +923,15 @@ function Invoke-MarkdownLinkCheck {
         $relativeTargets = @($filesToCheck | ForEach-Object {
             [System.IO.Path]::GetRelativePath($rootPath, (Resolve-Path -LiteralPath $_))
         })
-        $targetBatches = @(Split-MarkdownTargetBatch -Target $relativeTargets -ThrottleLimit $ThrottleLimit | ForEach-Object {
+        $lengthBudget = Get-MarkdownBatchLengthBudget `
+            -Cli $cli `
+            -BaseArgument $sourceArguments `
+            -ReportPath (Join-Path $taskWorkspace 'source-00.xml')
+        $targetBatches = @(Split-MarkdownTargetBatch `
+            -Target $relativeTargets `
+            -ThrottleLimit $ThrottleLimit `
+            -ArgumentLengthBudget $lengthBudget.Budget `
+            -ReservedLength $lengthBudget.Reserved | ForEach-Object {
             [pscustomobject]@{
                 Index = $_.Index
                 Files = @($_.Files)
@@ -773,6 +972,10 @@ function Invoke-MarkdownLinkCheck {
 
         $externalUrls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         foreach ($fileResult in @($fileResults | Where-Object { -not $_.ParseFailed })) {
+            if (-not (Test-MarkdownExternalScope -RelativePath $fileResult.File -Scope $externalScope)) {
+                continue
+            }
+
             foreach ($link in $fileResult.Links) {
                 if ([regex]::IsMatch([string]$link.Url, '^[Hh][Tt][Tt][Pp][Ss]?://')) {
                     [void]$externalUrls.Add([string]$link.Url)
@@ -836,10 +1039,24 @@ function Invoke-MarkdownLinkCheck {
         }
 
         foreach ($fileResult in @($fileResults | Where-Object { -not $_.ParseFailed })) {
+            $inExternalScope = Test-MarkdownExternalScope -RelativePath $fileResult.File -Scope $externalScope
             $replayedLinks = foreach ($link in $fileResult.Links) {
                 $url = [string]$link.Url
                 if (-not [regex]::IsMatch($url, '^[Hh][Tt][Tt][Pp][Ss]?://')) {
                     $link
+                    continue
+                }
+
+                if (-not $inExternalScope) {
+                    # The source pass ignores every external link by configuration,
+                    # so the inbound placeholder already reads 'ignored'. A new link
+                    # is built instead of passing it through, keeping "excluded by
+                    # configuration" distinct from "excluded by this run's scope".
+                    [pscustomobject]@{
+                        Url = $url
+                        Status = 'skipped'
+                        StatusCode = $null
+                    }
                     continue
                 }
 
@@ -879,7 +1096,16 @@ function Invoke-MarkdownLinkCheck {
             Write-Output "Checking $relative"
 
             foreach ($link in $fileResult.Links) {
-                $totalLinks++
+                # A skipped link was deliberately left unchecked by this run's
+                # scope, so counting it would overstate what was actually resolved.
+                # It is counted separately instead, because a consumer reading only
+                # the totals would otherwise see an unexplained shortfall.
+                if ($link.Status -eq 'skipped') {
+                    $skippedLinks++
+                }
+                else {
+                    $totalLinks++
+                }
 
                 # Display human-readable output if not quiet
                 if (-not $Quiet) {
@@ -888,6 +1114,9 @@ function Invoke-MarkdownLinkCheck {
                     }
                     elseif ($link.Status -eq 'ignored') {
                         Write-Host "  / $($link.Url) (ignored)" -ForegroundColor Yellow
+                    }
+                    elseif ($link.Status -eq 'skipped') {
+                        Write-Host "  - $($link.Url) (skipped: outside the changed-file scope)" -ForegroundColor DarkGray
                     }
                     elseif ($link.Status -eq 'dead') {
                         Write-Host "  ✖ $($link.Url) → Status: $($link.StatusCode)" -ForegroundColor Red
@@ -924,6 +1153,7 @@ function Invoke-MarkdownLinkCheck {
             total_files = $totalFiles
             files_with_broken_links = $failedFiles.Count
             total_links_checked = $totalLinks
+            skipped_links = $skippedLinks
             total_broken_links = $brokenLinks.Count
         }
         broken_links = $brokenLinks
