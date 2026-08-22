@@ -78,8 +78,11 @@
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
+    # Constrained to the only subject this corpus can score. Every customized stimulus
+    # and the invocation-evidence default target the RPI Agent, so another subject would
+    # stage, spend model budget, and then fail for reasons unrelated to equivalence.
     [Parameter(Mandatory = $false)]
-    [ValidateNotNullOrEmpty()]
+    [ValidateSet('rpi-agent')]
     [string]$Agent = 'rpi-agent',
 
     [Parameter(Mandatory = $false)]

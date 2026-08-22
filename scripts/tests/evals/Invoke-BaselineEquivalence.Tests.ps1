@@ -12,6 +12,34 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
         $script:OutputPath = Join-Path $TestDrive "summary-$([Guid]::NewGuid()).json"
     }
 
+    Context 'Unsupported subject preflight' {
+        It 'Refuses an unsupported agent before any model-backed execution' {
+            # Parameter binding fails, so the script body never runs and no vally
+            # invocation can occur for a subject this corpus cannot score.
+            {
+                & $script:ScriptPath `
+                    -Agent 'not-a-real-agent' `
+                    -Tier 'devloop' `
+                    -RepoRoot $script:RepoRoot `
+                    -OutputPath $script:OutputPath `
+                    -WhatIf *> $null
+            } | Should -Throw
+
+            Test-Path -LiteralPath $script:OutputPath | Should -BeFalse
+        }
+
+        It 'Accepts the only supported subject' {
+            {
+                & $script:ScriptPath `
+                    -Agent 'rpi-agent' `
+                    -Tier 'devloop' `
+                    -RepoRoot $script:RepoRoot `
+                    -OutputPath $script:OutputPath `
+                    -WhatIf *> $null
+            } | Should -Not -Throw
+        }
+    }
+
     Context 'Devloop tier defaults' {
         BeforeEach {
             & $script:ScriptPath `
