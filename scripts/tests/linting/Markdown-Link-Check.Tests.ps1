@@ -544,7 +544,7 @@ Describe 'Get-RelativePrefix' -Tag 'Unit' {
 #region Split-MarkdownTargetBatch Tests
 
 Describe 'Split-MarkdownTargetBatch' -Tag 'Unit' {
-    It 'Creates exactly the bounded batch count for <TargetCount> targets and throttle <ThrottleLimit>' -ForEach @(
+    It 'Creates the throttle-derived batch count for <TargetCount> targets and throttle <ThrottleLimit> when no budget applies' -ForEach @(
         @{ TargetCount = 0; ThrottleLimit = 4; ExpectedBatchCount = 0 }
         @{ TargetCount = 1; ThrottleLimit = 4; ExpectedBatchCount = 1 }
         @{ TargetCount = 4; ThrottleLimit = 4; ExpectedBatchCount = 4 }
@@ -569,6 +569,120 @@ Describe 'Split-MarkdownTargetBatch' -Tag 'Unit' {
         @($batches[1].Files) | Should -Be @('x.md', 'z.md')
         $sizes = @($batches | ForEach-Object { @($_.Files).Count })
         (($sizes | Measure-Object -Maximum).Maximum - ($sizes | Measure-Object -Minimum).Minimum) | Should -BeLessOrEqual 1
+    }
+
+    It 'Keeps every batch within the budget when combined argument length crosses it' {
+        $targets = @(0..79 | ForEach-Object {
+            'docs/deeply/nested/section/file-{0:D3}-{1}.md' -f $_, ('x' * 20)
+        })
+        $budget = 1024
+        $reserved = 512
+        $available = $budget - $reserved
+
+        $batches = @(Split-MarkdownTargetBatch `
+            -Target $targets `
+            -ThrottleLimit 4 `
+            -ArgumentLengthBudget $budget `
+            -ReservedLength $reserved)
+
+        $batches.Count | Should -BeGreaterThan 4
+        foreach ($batch in $batches) {
+            $files = @($batch.Files)
+            $length = (($files | Measure-Object -Property Length -Sum).Sum) + (3 * $files.Count)
+            $length | Should -BeLessOrEqual $available
+        }
+        @($batches | ForEach-Object { @($_.Files) }) | Should -Be @($targets | Sort-Object)
+        @($batches.Index) | Should -Be @(0..($batches.Count - 1))
+    }
+
+    It 'Reproduces the unbudgeted batches when no batch would exceed the budget' {
+        $targets = @(0..9 | ForEach-Object { "file-$_.md" })
+
+        $unbudgeted = @(Split-MarkdownTargetBatch -Target $targets -ThrottleLimit 4)
+        $budgeted = @(Split-MarkdownTargetBatch `
+            -Target $targets `
+            -ThrottleLimit 4 `
+            -ArgumentLengthBudget 8191 `
+            -ReservedLength 200)
+
+        @($budgeted | ForEach-Object { $_.Files -join '|' }) |
+            Should -Be @($unbudgeted | ForEach-Object { $_.Files -join '|' })
+    }
+
+    It 'Throws when a single target alone exceeds the available length' {
+        {
+            Split-MarkdownTargetBatch `
+                -Target @((('a' * 200) + '.md')) `
+                -ThrottleLimit 1 `
+                -ArgumentLengthBudget 100 `
+                -ReservedLength 10
+        } | Should -Throw -ExpectedMessage '*alone exceeds the available command-line length*'
+    }
+
+    It 'Leaves URL batching bounded only by the throttle limit' {
+        $urls = @(0..19 | ForEach-Object { 'https://example.test/{0}/{1}' -f $_, ('y' * 2000) })
+
+        $batches = @(Split-MarkdownTargetBatch -Target $urls -ThrottleLimit 4)
+
+        $batches.Count | Should -Be 4
+        (($batches | ForEach-Object { ($_.Files | Measure-Object -Property Length -Sum).Sum } |
+            Measure-Object -Maximum).Maximum) | Should -BeGreaterThan 8191
+    }
+}
+
+#endregion
+
+#region Get-MarkdownBatchLengthBudget Tests
+
+Describe 'Get-MarkdownBatchLengthBudget' -Tag 'Unit' {
+    It 'Reserves the CLI path, base arguments, and reporter arguments' {
+        $cli = '/repo/node_modules/.bin/markdown-link-check'
+        $baseArgument = @('-c', '/tmp/task-workspace/source-config.json', '-q')
+        $reportPath = '/tmp/task-workspace/source-00.xml'
+
+        $result = Get-MarkdownBatchLengthBudget -Cli $cli -BaseArgument $baseArgument -ReportPath $reportPath
+
+        $fixed = @($cli) + $baseArgument + @('--reporters', 'default,junit', '--junit-output', $reportPath)
+        $expected = (@($fixed | ForEach-Object { $_.Length + 3 }) | Measure-Object -Sum).Sum
+        if ($IsWindows) {
+            $expected += 'cmd.exe /c ""'.Length
+        }
+
+        $result.Reserved | Should -Be $expected
+        $result.Reserved | Should -BeLessThan $result.Budget
+    }
+
+    It 'Uses the command-interpreter ceiling on Windows rather than the CreateProcess ceiling' {
+        $result = Get-MarkdownBatchLengthBudget -Cli 'cli' -BaseArgument @('-c', 'config.json') -ReportPath 'report.xml'
+
+        if ($IsWindows) {
+            $result.Budget | Should -Be 8191
+        }
+        else {
+            $result.Budget | Should -BeGreaterThan 8191
+        }
+    }
+}
+
+#endregion
+
+#region Test-MarkdownExternalScope Tests
+
+Describe 'Test-MarkdownExternalScope' -Tag 'Unit' {
+    It 'Treats an absent scope as every file in scope and an empty scope as no file in scope' {
+        $emptyScope = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+        Test-MarkdownExternalScope -RelativePath 'docs/readme.md' -Scope $null | Should -BeTrue
+        Test-MarkdownExternalScope -RelativePath 'docs/readme.md' -Scope $emptyScope | Should -BeFalse
+    }
+
+    It 'Matches a platform-separator source path against a forward-slash scope key' {
+        $scope = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        [void]$scope.Add('docs/guide/readme.md')
+
+        Test-MarkdownExternalScope -RelativePath 'docs\guide\readme.md' -Scope $scope | Should -BeTrue
+        Test-MarkdownExternalScope -RelativePath 'DOCS\GUIDE\README.MD' -Scope $scope | Should -BeTrue
+        Test-MarkdownExternalScope -RelativePath 'docs/guide/other.md' -Scope $scope | Should -BeFalse
     }
 }
 
@@ -805,6 +919,7 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
             } | Sort-Object)
 
             $script:ResultsPath = Join-Path $script:RepoRoot 'logs/markdown-link-check-results.json'
+            $script:ChangedTargets = @()
             $script:OriginalResults = if (Test-Path -LiteralPath $script:ResultsPath) {
                 Get-Content -LiteralPath $script:ResultsPath -Raw
             }
@@ -813,6 +928,9 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
             }
 
             Mock Get-MarkdownTarget { return $script:BatchTargets }
+            # The orchestrator resolves scope twice: once for the repository-wide
+            # source pass and once, with the switch, for the external-link scope.
+            Mock Get-MarkdownTarget { return $script:ChangedTargets } -ParameterFilter { $ChangedFilesOnly }
             Mock Write-CIStepSummary { }
             Mock Write-CIAnnotation { }
             Mock Set-CIEnv { }
@@ -1071,6 +1189,7 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
             $result.summary.total_files | Should -Be 5
             $result.summary.files_with_broken_links | Should -Be 1
             $result.summary.total_links_checked | Should -Be 5
+            $result.summary.skipped_links | Should -Be 0
             $result.summary.total_broken_links | Should -Be 1
             $result.broken_links[0].File | Should -Be $env:MARKDOWN_LINK_CHECK_TEST_DEAD_TARGET
             @($captured | Where-Object { $_ -like 'Checking *' } | ForEach-Object { $_ -replace '^Checking ', '' }) |
@@ -1085,18 +1204,99 @@ Describe 'Invoke-MarkdownLinkCheck' -Tag 'Unit' {
             }
         }
 
-        It 'Completes an empty changed-file invocation without creating a batch process' {
-            Mock Get-MarkdownTarget { return @() }
+        It 'Validates internal links repository-wide and skips external checks when no markdown changed' {
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            $targetDir = Split-Path $script:BatchTargets[0] -Parent
+            $targetPath = Join-Path $targetDir 'unchanged.md'
+            Set-Content -LiteralPath $targetPath -Value '[External](https://example.test/unchanged)' -Encoding utf8
+            $script:BatchTargets = @($targetPath)
+            $script:ChangedTargets = @()
 
             $output = @(Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ChangedFilesOnly -ThrottleLimit 2 -Quiet)
 
-            @($output | Where-Object { $_ -eq 'No changed markdown files to validate.' }).Count | Should -Be 1
-            @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json').Count | Should -Be 0
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
             $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
-            $result.summary.total_files | Should -Be 0
+
+            @($output | Where-Object {
+                $_ -eq 'No changed markdown files; external link validation was skipped.'
+            }).Count | Should -Be 1
+            @($records | Where-Object Stage -eq 'source').Count | Should -BeGreaterThan 0
+            @($records | Where-Object Stage -eq 'aggregate').Count | Should -Be 0
+            $result.summary.total_files | Should -Be 1
             $result.summary.files_with_broken_links | Should -Be 0
             $result.summary.total_links_checked | Should -Be 0
+            $result.summary.skipped_links | Should -Be 1
             $result.summary.total_broken_links | Should -Be 0
+        }
+
+        It 'Fetches a shared URL for the changed file and reports the unchanged file as skipped' {
+            $sharedUrl = 'https://example.test/shared-scope'
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            $targetDir = Split-Path $script:BatchTargets[0] -Parent
+            $script:BatchTargets = @('changed.md', 'unchanged.md') | ForEach-Object {
+                $targetPath = Join-Path $targetDir $_
+                Set-Content -LiteralPath $targetPath -Value "[Shared]($sharedUrl)" -Encoding utf8
+                $targetPath
+            }
+            $script:ChangedTargets = @($script:BatchTargets[0])
+
+            Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ChangedFilesOnly -ThrottleLimit 2 -Quiet
+
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
+            $fetchedUrls = @($records | ForEach-Object { @($_.FetchedUrls) })
+            $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
+
+            @($fetchedUrls | Where-Object { $_ -eq $sharedUrl }).Count | Should -Be 1
+            $result.summary.total_files | Should -Be 2
+            $result.summary.total_links_checked | Should -Be 1
+            $result.summary.skipped_links | Should -Be 1
+            $result.summary.files_with_broken_links | Should -Be 0
+            $result.summary.total_broken_links | Should -Be 0
+        }
+
+        It 'Fails an in-scope file closed for a missing aggregate result while an out-of-scope file is unaffected' {
+            $env:MARKDOWN_LINK_CHECK_TEST_URL_MODE = 'true'
+            $env:MARKDOWN_LINK_CHECK_TEST_AGGREGATE_DEFECT = 'malformed-xml'
+            $targetDir = Split-Path $script:BatchTargets[0] -Parent
+            $inScope = Join-Path $targetDir 'in-scope.md'
+            Set-Content -LiteralPath $inScope -Value '[In](https://example.test/in-scope)' -Encoding utf8
+            $outOfScope = Join-Path $targetDir 'out-of-scope.md'
+            Set-Content -LiteralPath $outOfScope -Value '[Out](https://example.test/out-of-scope)' -Encoding utf8
+            $script:BatchTargets = @($inScope, $outOfScope)
+            $script:ChangedTargets = @($inScope)
+
+            $captured = @(& {
+                try {
+                    Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ChangedFilesOnly -ThrottleLimit 2 -Quiet
+                }
+                catch {
+                    Write-Output "THREW: $($_.Exception.Message)"
+                }
+            })
+
+            $records = @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json' | ForEach-Object {
+                Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            })
+            $aggregateUrls = @($records | ForEach-Object { @($_.AggregateUrls) })
+            $result = Get-Content -LiteralPath $script:ResultsPath -Raw | ConvertFrom-Json
+
+            @($aggregateUrls | Where-Object { $_ -eq 'https://example.test/out-of-scope' }).Count | Should -Be 0
+            $result.summary.total_files | Should -Be 2
+            $result.summary.files_with_broken_links | Should -Be 1
+            @($captured | Where-Object { $_ -like 'THREW:*' }).Count | Should -Be 1
+        }
+
+        It 'Throws when the repository-wide target set is empty even with the changed-files switch' {
+            $script:BatchTargets = @()
+            $script:ChangedTargets = @()
+
+            { Invoke-MarkdownLinkCheck -Path @('unused') -ConfigPath $script:FixtureConfig -ChangedFilesOnly -ThrottleLimit 2 -Quiet } |
+                Should -Throw -ExpectedMessage 'No markdown files were found to validate.'
+            @(Get-ChildItem -LiteralPath $script:LedgerDir -Filter '*.json').Count | Should -Be 0
         }
     }
 }
