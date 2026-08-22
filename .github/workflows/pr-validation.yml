@@ -695,6 +695,7 @@ jobs:
       - yaml-lint
       - pester-tests
       - pytest
+      - copilot-otel-runtime-tests
       - discover-node-projects
       - node-tests
       - accessibility-browser-smoke
