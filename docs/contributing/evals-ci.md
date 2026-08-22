@@ -3,7 +3,7 @@ title: Evals in CI
 description: Auth contract, fork-PR policy, and how to add a new eval spec for the hve-core vally pipeline
 sidebar_position: 11
 author: Microsoft
-ms.date: 2026-08-06
+ms.date: 2026-08-21
 ms.topic: how-to
 keywords:
   - evals
@@ -38,7 +38,9 @@ The `@github/copilot` CLI accepts the following token prefixes. Classic personal
 | `ghp_`         | Classic personal access token      | Rejected at runtime. The probe fails fast      |
 | `GITHUB_TOKEN` | Actions-issued token               | Scope-limited. Not sufficient for `vally eval` |
 
-For hve-core, the recommended pattern is a GitHub App with Copilot SDK scopes that mints an installation token in CI and exports it as `COPILOT_GITHUB_TOKEN`.
+A GitHub App that mints an installation token in CI is the preferred target state, because a leaked installation token expires in about an hour rather than remaining valid until someone notices.
+
+hve-core has not adopted that pattern for this credential. `COPILOT_GITHUB_TOKEN` is currently a fine-grained personal access token held as a repository secret, which the table above rates as acceptable where a GitHub App is not feasible. Adopting a GitHub App here requires first confirming that an App can carry the Copilot SDK scopes the CLI needs.
 
 ### Probe Behavior
 
@@ -79,6 +81,21 @@ jobs:
 The `eval-execute` job is also skipped for non-eval-relevant PRs (those that change only documentation or other non-AI-artifact paths) through the `eval-relevant` output gate, independent of the fork policy.
 
 The `eval-presence` and `eval-lint` jobs do run on fork PRs because they require no secrets. Structural problems with eval specs (missing coverage, schema violations, profanity in stimulus text) surface immediately. Eval execution itself runs only after a maintainer merges the fork branch into a trusted topic branch on the upstream repository.
+
+## Published Artifacts and the Transcript Boundary
+
+Workflow artifacts on a public repository are readable by anyone, and an agent transcript records whatever the agent printed. An agent asked to inspect the workspace can print the job environment, and the eval jobs export `COPILOT_GITHUB_TOKEN` into that environment. Nothing in the pipeline redacts transcripts.
+
+Eval artifacts therefore publish aggregate results only. These paths are deliberately withheld:
+
+| Withheld path                    | Reason                                             |
+|----------------------------------|----------------------------------------------------|
+| `evals/results/**/results.jsonl` | Per-trial trajectories, including raw model output |
+| `logs/vally-compare-*.log`       | Raw judge-run output                               |
+
+What is still published covers the summaries that drive the gate and the per-artifact debugging payloads: `logs/eval-summary.json`, `logs/eval-results-*.json`, `logs/baseline-equivalence-*.json`, and the changed-artifact and stimulus-presence manifests. None of these embed model output.
+
+The cost is that inspecting what an agent actually said during a failed run means re-running it rather than downloading the artifact. Do not re-add the withheld paths to make debugging easier.
 
 ## Adding a New Eval Spec
 
