@@ -398,6 +398,92 @@ Describe 'Measure-CompareTrials equivalent-only calibration estimates' -Tag 'Uni
     }
 }
 
+Describe 'Resolve-InvocationReadKind' -Tag 'Unit' {
+    BeforeAll {
+        $script:Expected = '.github/agents/hve-core/rpi-agent.agent.md'
+    }
+
+    It 'Accepts a structured read of the trial-rooted agent path' {
+        $callArgs = [pscustomobject]@{ path = "/tmp/trial/$script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Rejects a .bak sibling that contains the expected path as a prefix' {
+        $callArgs = [pscustomobject]@{ path = "/tmp/trial/$script:Expected.bak" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Rejects a sibling agent in the same directory' {
+        $callArgs = [pscustomobject]@{ path = '/tmp/trial/.github/agents/hve-core/other-agent.agent.md' }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'none'
+    }
+
+    It 'Rejects a partial-segment suffix that is not a whole path segment' {
+        $callArgs = [pscustomobject]@{ path = '/tmp/trial/.github/agents/hve-core/evil-rpi-agent.agent.md' }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Rejects a traversal path even when it ends with the expected suffix' {
+        $callArgs = [pscustomobject]@{ path = "/tmp/trial/../../$script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Accepts an unambiguous single-operand shell read' {
+        $callArgs = [pscustomobject]@{ command = "cat $script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Accepts a shell read with options preceding the operand' {
+        $callArgs = [pscustomobject]@{ command = "sed -n '1,240p' /tmp/trial/$script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Rejects a compound read whose earlier operand is another path' {
+        $callArgs = [pscustomobject]@{ command = "cat /etc/passwd $script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Accepts a delegated prompt naming only the agent file' {
+        $callArgs = [pscustomobject]@{ prompt = "Read $script:Expected and return its contents." }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Rejects a delegated prompt naming a second agent file' {
+        $callArgs = [pscustomobject]@{ prompt = "Read $script:Expected and .github/agents/hve-core/other.agent.md too." }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Rejects a compound read that also targets an unrelated file' {
+        $callArgs = [pscustomobject]@{ command = "cat $script:Expected /proc/self/environ" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Rejects a piped read' {
+        $callArgs = [pscustomobject]@{ command = "cat $script:Expected | head -n 5" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Rejects a chained command separated by a semicolon' {
+        $callArgs = [pscustomobject]@{ command = "cat $script:Expected; cat /etc/passwd" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Rejects command substitution' {
+        $callArgs = [pscustomobject]@{ command = "cat `$(echo $script:Expected)" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Rejects a non-read command pointed at the agent file' {
+        $callArgs = [pscustomobject]@{ command = "rm $script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+    }
+
+    It 'Reports no evidence when no path or command argument is present' {
+        $callArgs = [pscustomobject]@{ query = 'something else' }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'none'
+    }
+}
+
 Describe 'Measure-AgentInvocationEvidence' -Tag 'Unit' {
     BeforeAll {
         function New-InvocationRecord {
