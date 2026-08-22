@@ -368,18 +368,20 @@ function Resolve-ExpectedInstanceCount {
 function Resolve-InvocationReadKind {
     <#
     .SYNOPSIS
-        Classifies one tool call as an exact read of the expected agent file.
+        Classifies one tool call as a read of the expected agent file.
     .DESCRIPTION
         Invocation evidence must prove the agent file itself was read. Matching the
-        expected path anywhere inside serialized arguments does not prove that: a
-        suffix path, a `.bak` sibling, or a compound command such as
-        `cat <expected> /proc/self/environ` all contain the expected substring while
-        reading something else as well.
+        expected path anywhere inside serialized arguments does not prove that, because
+        a `.bak` sibling, a differently named agent, or a traversal path all contain the
+        expected substring while naming something else.
 
-        Structured readers are judged on their declared path argument compared exactly.
-        Shell readers are accepted only in their unambiguous form: one recognized read
-        command and one operand, with no pipeline, redirection, substitution, separator,
-        or additional operand. Anything else is not evidence.
+        The target is therefore resolved per candidate path rather than by substring.
+        Command shape is deliberately not constrained: the caller only treats a call as
+        evidence when its correlated tool result returns the agent file's content, so
+        the content is the operative proof and the composition of the command is not.
+        Constraining shape rejected the composed reads both models routinely emit, such
+        as `find -path ... -exec sed ...` and `pwd && sed -n ...`, and discarded valid
+        trials without adding any measurement guarantee.
     .OUTPUTS
         [string] One of 'exact', 'wrong-path', or 'none'.
     .PARAMETER Arguments
@@ -396,7 +398,7 @@ function Resolve-InvocationReadKind {
 
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
-        [string]$ExpectedPath
+        $ExpectedPath
     )
 
     if ($null -eq $Arguments) { return 'none' }
@@ -407,27 +409,27 @@ function Resolve-InvocationReadKind {
         $value = $Candidate.Trim().Trim('"', "'")
         $value = $value -replace '\\', '/'
         $value = $value -replace '^\./', ''
+        # Shell globs name the target without spelling its root.
+        $value = $value -replace '^\*\*/', '' -replace '^\*/', ''
         return $value.TrimStart('/')
     }
 
-    $expected = & $normalize $ExpectedPath
+    $expected = & $normalize ([string]$ExpectedPath)
 
-    # Vally copies the workspace into a per-trial directory, so the recorded path is
-    # trial-rooted rather than repository-relative. The target is therefore matched on
-    # a whole-segment suffix rather than by equality, which still rejects a `.bak`
-    # sibling, a differently named agent, and any extra operand. Anchoring to the exact
-    # trial root would require the run to record that root, which it does not.
+    # Vally copies the workspace into a per-trial directory, so a recorded path may be
+    # trial-rooted, repository-relative, or a trailing fragment produced by a glob.
+    # Each is matched on whole segments, which still rejects a `.bak` sibling, a
+    # differently named agent, a partial-segment name, and any traversal.
     $isTarget = {
         param([string]$Candidate)
         $value = & $normalize $Candidate
         if ([string]::IsNullOrEmpty($value)) { return $false }
         if ($value -match '(^|/)\.\.(/|$)') { return $false }
         if ($value -eq $expected) { return $true }
-        return $value.EndsWith("/$expected", [System.StringComparison]::OrdinalIgnoreCase)
+        if ($value.EndsWith("/$expected", [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+        return $expected.EndsWith("/$value", [System.StringComparison]::OrdinalIgnoreCase)
     }
 
-    # Structured readers declare the target as a named argument, which is the only
-    # form that can be compared against a declared path at all.
     foreach ($property in @('path', 'filePath', 'file', 'target', 'uri', 'filename')) {
         if ($Arguments.PSObject.Properties[$property] -and $Arguments.$property) {
             $candidate = [string]$Arguments.$property
@@ -441,41 +443,10 @@ function Resolve-InvocationReadKind {
         if (-not ($Arguments.PSObject.Properties[$property] -and $Arguments.$property)) { continue }
         $command = [string]$Arguments.$property
 
-        # Any shell metacharacter makes the read ambiguous, so the call stops being
-        # evidence rather than being parsed further.
-        if ($command -match '[|<>;&`]' -or $command -match '\$\(') {
-            if ($command -match 'rpi-agent\.agent\.md') { return 'wrong-path' }
-            return 'none'
+        foreach ($token in @($command -split '[\s;|&()]+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+            if (& $isTarget $token) { return 'exact' }
         }
 
-        $tokens = @($command -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-        if ($tokens.Count -lt 2) { return 'none' }
-
-        $reader = $tokens[0].Trim().ToLowerInvariant()
-        $readers = @('cat', 'head', 'tail', 'sed', 'type', 'get-content', 'gc', 'more', 'less')
-        if ($readers -notcontains $reader) {
-            if ($command -match 'rpi-agent\.agent\.md') { return 'wrong-path' }
-            return 'none'
-        }
-
-        # The operand is the final token; everything between the reader and it must be
-        # an option or an option value. A second path-shaped token means the command
-        # reads more than the agent file, which is what makes a compound read such as
-        # `cat <expected> /proc/self/environ` not evidence.
-        $operand = $tokens[-1]
-        # Guarded because a descending range such as 1..0 would walk back over the
-        # reader and its own operand.
-        if ($tokens.Count -gt 2) {
-            foreach ($token in $tokens[1..($tokens.Count - 2)]) {
-                $bare = $token.Trim().Trim('"', "'")
-                if ($bare -match '/' -or $bare -match '\.md$') {
-                    if ($command -match 'rpi-agent\.agent\.md') { return 'wrong-path' }
-                    return 'none'
-                }
-            }
-        }
-
-        if (& $isTarget $operand) { return 'exact' }
         if ($command -match 'rpi-agent\.agent\.md') { return 'wrong-path' }
         return 'none'
     }

@@ -438,8 +438,50 @@ Describe 'Resolve-InvocationReadKind' -Tag 'Unit' {
         Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
     }
 
-    It 'Rejects a compound read whose earlier operand is another path' {
-        $callArgs = [pscustomobject]@{ command = "cat /etc/passwd $script:Expected" }
+    # The forms below are taken verbatim from captured trajectories. Both models compose
+    # reads this way, so rejecting composed commands discarded valid trials.
+    It 'Accepts a find -exec read naming the target through a glob' {
+        $callArgs = [pscustomobject]@{ command = "find . -path '*/$script:Expected' -print -exec sed -n '1,240p' {} \;" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Accepts a find -exec read naming only the file name through a glob' {
+        $callArgs = [pscustomobject]@{ command = "find . -path '*/rpi-agent.agent.md' -print -exec sed -n '1,240p' {} \;" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Accepts a chained read preceded by an unrelated command' {
+        $callArgs = [pscustomobject]@{ command = "pwd && sed -n '1,240p' $script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Accepts a semicolon-separated read' {
+        $callArgs = [pscustomobject]@{ command = "pwd; sed -n '1,240p' $script:Expected" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Accepts a guarded read inside a shell conditional' {
+        $callArgs = [pscustomobject]@{ command = "if [ -f $script:Expected ]; then sed -n '1,240p' $script:Expected; else printf 'FILE_NOT_FOUND'; fi" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Accepts a read with a redirected fallback' {
+        $callArgs = [pscustomobject]@{ command = "cat /tmp/trial/$script:Expected 2>/dev/null || find . -name rpi-agent.agent.md" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Accepts a piped read' {
+        $callArgs = [pscustomobject]@{ command = "cat $script:Expected | head -n 200" }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
+    }
+
+    It 'Rejects a command naming only an unrelated agent file' {
+        $callArgs = [pscustomobject]@{ command = 'cat .github/agents/hve-core/other-agent.agent.md' }
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'none'
+    }
+
+    It 'Rejects a command naming only a .bak sibling' {
+        $callArgs = [pscustomobject]@{ command = "cat $script:Expected.bak" }
         Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
     }
 
@@ -453,29 +495,13 @@ Describe 'Resolve-InvocationReadKind' -Tag 'Unit' {
         Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
     }
 
-    It 'Rejects a compound read that also targets an unrelated file' {
+    # Command shape is intentionally unconstrained. A composed command that also reads
+    # something else still read the agent file, and the caller only counts the call when
+    # its correlated result returns agent content. Credential exposure is handled by not
+    # publishing transcripts, not by this gate.
+    It 'Accepts a composed read that also targets an unrelated file' {
         $callArgs = [pscustomobject]@{ command = "cat $script:Expected /proc/self/environ" }
-        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
-    }
-
-    It 'Rejects a piped read' {
-        $callArgs = [pscustomobject]@{ command = "cat $script:Expected | head -n 5" }
-        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
-    }
-
-    It 'Rejects a chained command separated by a semicolon' {
-        $callArgs = [pscustomobject]@{ command = "cat $script:Expected; cat /etc/passwd" }
-        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
-    }
-
-    It 'Rejects command substitution' {
-        $callArgs = [pscustomobject]@{ command = "cat `$(echo $script:Expected)" }
-        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
-    }
-
-    It 'Rejects a non-read command pointed at the agent file' {
-        $callArgs = [pscustomobject]@{ command = "rm $script:Expected" }
-        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'wrong-path'
+        Resolve-InvocationReadKind -Arguments $callArgs -ExpectedPath $script:Expected | Should -Be 'exact'
     }
 
     It 'Reports no evidence when no path or command argument is present' {
