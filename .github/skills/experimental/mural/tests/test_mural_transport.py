@@ -954,6 +954,7 @@ def test_concurrent_proactive_refreshes_coalesce(
     rotated_calls = [auth for auth in api_calls if rotated_token in auth]
     assert len(rotated_calls) == n_threads
 
+
 # ---------------------------------------------------------------------------
 # Issue 2756: exception messages carry a bounded, redacted excerpt
 # ---------------------------------------------------------------------------
@@ -1048,7 +1049,7 @@ def test_token_invalid_json_excludes_raw_body(
 ) -> None:
     """A non-JSON token response is excerpted before entering the exception."""
     resp = response_factory(
-        f'not-json refresh_token={_EXCERPT_SECRET}',
+        f"not-json refresh_token={_EXCERPT_SECRET}",
         status=200,
         headers={"Content-Type": "application/json"},
     )

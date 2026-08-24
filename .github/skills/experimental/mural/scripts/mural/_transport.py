@@ -343,9 +343,7 @@ def _refresh_access_token(
             exc.code, "REFRESH_FAILED", _error_excerpt(text) or "refresh failed"
         ) from exc
     if status >= 400:
-        raise MuralAPIError(
-            status, "REFRESH_FAILED", _error_excerpt(json.dumps(data))
-        )
+        raise MuralAPIError(status, "REFRESH_FAILED", _error_excerpt(json.dumps(data)))
     if "access_token" not in data:
         raise MuralAPIError(status, "REFRESH_INVALID_PAYLOAD", "missing access_token")
     return data
