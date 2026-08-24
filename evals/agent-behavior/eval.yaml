@@ -2242,17 +2242,26 @@ stimuli:
     agent: sssc-reviewer
   graders:
   - type: output-matches
-    name: findings-table-present
+    name: report-path-present
     config:
-      pattern: (?i)(\|.*severity.*\||finding|issue|concern|recommendation|risk)
+      pattern: (?is)sssc-reviews[\\/][^\s`]*\.md
   - type: output-matches
-    name: severity-vocab
+    name: supply-chain-scope-present
     config:
-      pattern: (?i)(critical|high|medium|low|info|severity|warning)
+      pattern: (?is)(openssf\s+scorecard|scorecard|slsa|sigstore|supply[- ]chain)
+  - type: output-matches
+    name: review-completion-stated
+    config:
+      pattern: (?is)(review|report|assessment)[^.]{0,80}(written|created|completed|document(s|ed)?|covers?|produced)|(written|created|completed|document(s|ed)?|covers?|produced)[^.]{0,80}(review|report|assessment)
+  - type: output-matches
+    name: no-contradictory-findings
+    config:
+      pattern: (?is)no\s+(findings|issues|concerns)\s+(were\s+)?(found|identified|detected)[\s\S]{0,200}\b(found|identified|detected)\s+(a|an|\d+)\s+\w{0,20}\s?(finding|issue|vulnerability|risk)
+      negate: true
   - type: output-matches
     name: no-source-edit
     config:
-      pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)
+      pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)(?!\w)
       negate: true
 - name: sssc-reviewer-diff-fallback-retains-supply-chain-files
   prompt: |
@@ -2276,26 +2285,26 @@ stimuli:
     agent: sssc-reviewer
   graders:
   - type: output-matches
-    name: diff-mode-retained
+    name: diff-scoped-review
     config:
-      pattern: (?is)(remains?|remaining|continues?|continuing|stays?|still|retains?|retained|proceeds?|proceeding)[^.]{0,80}diff|diff[- ]?(mode|scope|scoped)[^.]{0,80}(remains?|continues?|retained|preserved|proceeds?)
+      pattern: (?is)sssc-review-diff|\bdiff\b[^.]{0,80}(review|mode|scope|scoped|assessment)|(review|mode|scope|scoped|assessment)[^.]{0,80}\bdiff\b
   - type: output-matches
-    name: direct-repository-comparison
+    name: no-audit-fallback
     config:
-      pattern: (?is)(base branch|repository comparison|compared the branch|comparing the branch|directly from the repository|git diff)
+      pattern: (?is)(fall(s|ing|en)?\s+back|fell\s+back|switch(ed|ing)?\s+to|reverted)[^.]{0,40}audit
+      negate: true
+  - type: output-matches
+    name: changed-file-resolution-stated
+    config:
+      pattern: (?is)direct[- ]comparison|changed[- ]file resolution|resolution used|two[- ]file assertion|git diff|repository comparison|compar(ed|ing|ison)[^.]{0,60}(branch|repository|base)|(branch|repository|base)[^.]{0,60}compar(ed|ing|ison)|(changed[- ]?files?|file list)[^.]{0,60}(supplied|provided|named|stated|asserted|listed|given)
   - type: output-matches
     name: supply-chain-files-retained
     config:
-      pattern: (?is)(?=.*package-lock\.json)(?=.*release\.yml).
+      pattern: (?is)((?=.*package-lock\.json)(?=.*release\.yml)(?=.*(retain\w*|remain\w*|kept|keep\w*|stay\w*|in scope|scope:)).)|(both\s+\w*\s?\w*\s?files?[^.]{0,60}(retain\w*|remain\w*|kept|keep\w*|stay\w*|in scope))|((retain\w*|keeps?|kept|keeping)[^.]{0,40}both\s+\w*\s?files?)
   - type: output-matches
-    name: reduced-rigor-in-limitations
+    name: degraded-evidence-recorded
     config:
-      pattern: (?is)limitations?[^.]{0,160}(reduced|degraded|lower|unavailable|fallback|direct comparison)|(reduced rigor|reduced evidence|reduced confidence)[^.]{0,160}limitations?
-  - type: output-matches
-    name: no-source-edit
-    config:
-      pattern: (?i)(created|wrote|modified|edited|patched|added)\s+\S{0,40}(\.cs|\.py|\.ts|\.js|package\.json)(?!\w)
-      negate: true
+      pattern: (?is)(reduc(e|ed|es|ing)|degrad(e|ed|es|ing)|limited|lower(ed)?|unavailable)[^.]{0,120}(evidence|rigor|pr-reference|confidence|quality)|(evidence|rigor|pr-reference|confidence)[^.]{0,120}(reduc(e|ed|es|ing)|degrad(e|ed|es|ing)|limited|lower(ed)?|unavailable|not available|could not)
 - name: supply-chain-skill-assessor-posture
   prompt: |
     As the supply-chain skill assessor, assess a repository's supply-chain
