@@ -74,6 +74,11 @@ from ._validation import (
 LOGGER = logging.getLogger("mural")
 REQUEST_TIMEOUT_SECONDS = 30
 
+# Upper bound on upstream response text carried inside an exception message.
+# ``_redact`` only masks the substring shapes it knows about, so an unbounded
+# body could still surface an unrecognised secret shape or flood a terminal.
+MAX_ERROR_EXCERPT_CHARS = 512
+
 
 def _pkg() -> Any:
     """Return the live ``mural`` package module for monkeypatch-aware routing."""
@@ -88,6 +93,24 @@ def _redact(text: str) -> str:
     for pattern, replacement in _REDACT_PATTERNS:
         redacted = pattern.sub(replacement, redacted)
     return redacted
+
+
+def _error_excerpt(text: str) -> str:
+    """Return a redacted, length-bounded excerpt of an upstream response body.
+
+    Exception messages built from token-endpoint or asset-upload responses are
+    surfaced to the operator, so the raw body must never travel inside them.
+    Redaction runs before truncation: cutting first could sever a key name from
+    its value and defeat the substitution patterns. Truncation then runs as
+    defense-in-depth, bounding both unrecognised secret shapes and hostile
+    bodies that would otherwise flood the error channel.
+    """
+    if not text:
+        return ""
+    redacted = _redact(text)
+    if len(redacted) <= MAX_ERROR_EXCERPT_CHARS:
+        return redacted
+    return f"{redacted[:MAX_ERROR_EXCERPT_CHARS]}... (truncated)"
 
 
 @dataclass
@@ -267,7 +290,11 @@ def _parse_token_response(resp: Any) -> dict[str, Any]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise MuralAPIError(status, "TOKEN_INVALID_JSON", text) from exc
+        raise MuralAPIError(
+            status,
+            "TOKEN_INVALID_JSON",
+            _error_excerpt(text) or "token endpoint returned malformed JSON",
+        ) from exc
     if not isinstance(data, dict):
         raise MuralAPIError(
             status,
@@ -313,10 +340,12 @@ def _refresh_access_token(
         text = _read_response_body(exc).decode("utf-8", errors="replace")
         _emit(f"refresh failed: HTTP {exc.code} {text}", level=logging.ERROR)
         raise MuralAPIError(
-            exc.code, "REFRESH_FAILED", text or "refresh failed"
+            exc.code, "REFRESH_FAILED", _error_excerpt(text) or "refresh failed"
         ) from exc
     if status >= 400:
-        raise MuralAPIError(status, "REFRESH_FAILED", json.dumps(data))
+        raise MuralAPIError(
+            status, "REFRESH_FAILED", _error_excerpt(json.dumps(data))
+        )
     if "access_token" not in data:
         raise MuralAPIError(status, "REFRESH_INVALID_PAYLOAD", "missing access_token")
     return data
@@ -600,11 +629,15 @@ def _upload_to_sas(
             status = getattr(resp, "status", 200)
             if status >= 400:
                 payload = _read_response_body(resp).decode("utf-8", errors="replace")
-                raise MuralAPIError(status, "ASSET_UPLOAD_FAILED", payload)
+                raise MuralAPIError(
+                    status,
+                    "ASSET_UPLOAD_FAILED",
+                    _error_excerpt(payload) or "upload failed",
+                )
     except urllib.error.HTTPError as exc:
         text = _read_response_body(exc).decode("utf-8", errors="replace")
         raise MuralAPIError(
-            exc.code, "ASSET_UPLOAD_FAILED", text or "upload failed"
+            exc.code, "ASSET_UPLOAD_FAILED", _error_excerpt(text) or "upload failed"
         ) from exc
     except urllib.error.URLError as exc:
         raise MuralError(f"network error uploading to asset url: {exc}") from exc

@@ -11,6 +11,8 @@ substitution patterns.
 
 from __future__ import annotations
 
+import argparse
+import json
 import logging
 import pathlib
 from typing import Any
@@ -276,3 +278,356 @@ def test_logger_format_string_redacts_exception_repr_at_runtime(
             mural_module._redact(repr(exc)),
         )
     assert SECRET_VALUE not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# `main()` error sinks
+# ---------------------------------------------------------------------------
+#
+# `main()` is the last place an exception can reach a human. Its typed handlers
+# print exception text and structured envelopes straight to stderr, so each one
+# is an independent redaction barrier: repairing one while leaving another bare
+# keeps the leak reachable. These tests drive `main()` end-to-end through a fake
+# parser so a regression fails here rather than in an operator's terminal.
+
+
+def _drive_main(
+    mural_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    func: Any,
+) -> int:
+    """Run `main()` with a stub parser that dispatches straight to `func`."""
+    fake_args = argparse.Namespace(log_level="WARNING", func=func)
+
+    class FakeParser:
+        def parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
+            return fake_args
+
+        def print_help(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    monkeypatch.setattr(mural_module, "_build_parser", FakeParser)
+    return mural_module.main([])
+
+
+def test_main_redacts_mural_error_text(
+    mural_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The terminal `MuralError` handler must not print a raw response body."""
+
+    def boom(_args: argparse.Namespace) -> int:
+        raise mural_module.MuralAPIError(
+            status=400,
+            code="REFRESH_FAILED",
+            message=f'{{"refresh_token": "{SECRET_VALUE}"}}',
+        )
+
+    result = _drive_main(mural_module, monkeypatch, boom)
+
+    err = capsys.readouterr().err
+    assert result == 1
+    assert SECRET_VALUE not in err
+    assert '"refresh_token": "***"' in err
+
+
+def test_main_redacts_autoload_credentials_error_text(
+    mural_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The credential-autoload guard runs before dispatch and is its own sink."""
+
+    def explode(_profile: str) -> None:
+        raise mural_module.MuralError(f"credential load failed: code={SECRET_VALUE}")
+
+    monkeypatch.setattr(mural_module, "_autoload_credentials", explode)
+
+    result = _drive_main(mural_module, monkeypatch, lambda _args: 0)
+
+    err = capsys.readouterr().err
+    assert result == mural_module.EXIT_FAILURE
+    assert SECRET_VALUE not in err
+    assert "code=***" in err
+
+
+def test_main_redacts_auth_scope_error_text(
+    mural_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The scope handler prints exception text and is redacted for uniformity."""
+
+    def boom(_args: argparse.Namespace) -> int:
+        exc = mural_module.MuralAuthScopeError("mural:write", ())
+        exc.args = (f"missing scope; client_secret={SECRET_VALUE}",)
+        raise exc
+
+    result = _drive_main(mural_module, monkeypatch, boom)
+
+    err = capsys.readouterr().err
+    assert result == 77
+    assert SECRET_VALUE not in err
+    assert "client_secret=***" in err
+
+
+def test_main_redacts_structured_stderr_envelope(
+    mural_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Envelopes stay parseable JSON with their key set intact after redaction."""
+    summary = {
+        "succeeded": [],
+        "failed": [
+            {
+                "widget_id": "w-1",
+                "error": f"upstream rejected: client_secret={SECRET_VALUE}",
+            }
+        ],
+        "warnings": [],
+    }
+
+    def boom(_args: argparse.Namespace) -> int:
+        raise mural_module.MuralBulkAtomicAbort(summary)
+
+    result = _drive_main(mural_module, monkeypatch, boom)
+
+    err = capsys.readouterr().err
+    assert result == mural_module.EXIT_TEMPFAIL
+    assert SECRET_VALUE not in err
+    envelope = json.loads(err)
+    assert envelope["error"] == "bulk_atomic_abort"
+    assert envelope["aborted"] is True
+    assert set(envelope) == {"error", "aborted", "succeeded", "failed", "warnings"}
+
+
+def test_emit_json_error_writes_redacted_json_to_stderr(
+    mural_module: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`_emit_json_error` is the redacting stderr channel for envelopes."""
+    mural_module._emit_json_error({"error": "boom", "detail": f"code={SECRET_VALUE}"})
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert SECRET_VALUE not in captured.err
+    assert json.loads(captured.err)["detail"] == "code=***"
+
+
+# ---------------------------------------------------------------------------
+# `main()` sink call-site contracts (defense-in-depth)
+# ---------------------------------------------------------------------------
+
+
+def test_main_error_handlers_wrap_exception_text_in_redact(
+    mural_module: Any,
+) -> None:
+    """Both `MuralError` handlers and the scope handler must redact at the sink."""
+    src = _package_src(mural_module)
+    for call_site in (
+        "print(_redact(str(exc)), file=sys.stderr)",
+        'print(f"auth: {_redact(str(exc))}", file=sys.stderr)',
+        'print(f"error: {_redact(str(exc))}", file=sys.stderr)',
+    ):
+        assert call_site in src, f"missing redacted sink: {call_site}"
+
+
+def test_no_bare_json_envelope_written_to_stderr(mural_module: Any) -> None:
+    """Structured envelopes must route through `_emit_json_error`, not `print`."""
+    src = _package_src(mural_module)
+    assert "print(json.dumps(envelope), file=sys.stderr)" not in src, (
+        "stderr envelopes bypass the redaction barrier; "
+        "use _emit_json_error(envelope) instead"
+    )
+
+
+def test_transport_exceptions_use_error_excerpt(mural_module: Any) -> None:
+    """Token and asset failures must carry an excerpt, not a raw response body."""
+    src = _package_src(mural_module)
+    for forbidden in (
+        'raise MuralAPIError(status, "TOKEN_INVALID_JSON", text)',
+        'raise MuralAPIError(status, "REFRESH_FAILED", json.dumps(data))',
+        'raise MuralAPIError(status, "ASSET_UPLOAD_FAILED", payload)',
+    ):
+        assert forbidden not in src, f"raw response body in exception: {forbidden}"
+    assert "_error_excerpt(" in src
+
+
+# ---------------------------------------------------------------------------
+# `_redact_payload` container coverage
+# ---------------------------------------------------------------------------
+#
+# `_redact_payload` walks an envelope before it is serialized. A container it
+# does not recurse into is a hole in the barrier, because its strings reach
+# `json.dumps` untouched. Sets are rebuilt as sets rather than coerced to
+# lists: `json.dumps` cannot serialize a set, and coercing here would change
+# which payloads the sink accepts, which is a serialization decision rather
+# than a redaction one.
+
+
+def test_redact_payload_recurses_tuples(mural_module: Any) -> None:
+    result = mural_module._redact_payload((f"code={SECRET_VALUE}", 1))
+
+    assert isinstance(result, tuple)
+    assert result == ("code=***", 1)
+
+
+def test_redact_payload_recurses_sets(mural_module: Any) -> None:
+    result = mural_module._redact_payload({f"code={SECRET_VALUE}"})
+
+    assert isinstance(result, set)
+    assert "code=***" in result
+    assert not any(SECRET_VALUE in member for member in result)
+
+
+def test_redact_payload_preserves_and_redacts_frozenset(mural_module: Any) -> None:
+    """Type preservation alone would pass against an unfixed helper."""
+    result = mural_module._redact_payload(frozenset({f"code={SECRET_VALUE}"}))
+
+    assert isinstance(result, frozenset)
+    assert "code=***" in result
+
+
+def test_redact_payload_composes_across_container_kinds(mural_module: Any) -> None:
+    payload = [{"detail": (f"code={SECRET_VALUE}",)}]
+
+    result = mural_module._redact_payload(payload)
+
+    assert result == [{"detail": ("code=***",)}]
+
+
+def test_redact_payload_passes_through_non_string_scalars(mural_module: Any) -> None:
+    assert mural_module._redact_payload(7) == 7
+    assert mural_module._redact_payload(True) is True
+    assert mural_module._redact_payload(None) is None
+
+
+def test_emit_json_error_redacts_inside_a_tuple(
+    mural_module: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A tuple serializes as a JSON array, so it must be walked before dumping."""
+    mural_module._emit_json_error(
+        {"error": "boom", "detail": (f"code={SECRET_VALUE}",)}
+    )
+
+    err = capsys.readouterr().err
+    assert SECRET_VALUE not in err
+    assert json.loads(err)["detail"] == ["code=***"]
+
+
+def test_main_redacts_tuple_inside_bulk_abort_summary(
+    mural_module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`summary` is the only envelope surface whose value types are unconstrained."""
+    summary = {
+        "succeeded": [],
+        "failed": ({"widget_id": "w-1", "error": f"code={SECRET_VALUE}"},),
+        "warnings": [],
+    }
+
+    def boom(_args: argparse.Namespace) -> int:
+        raise mural_module.MuralBulkAtomicAbort(summary)
+
+    result = _drive_main(mural_module, monkeypatch, boom)
+
+    err = capsys.readouterr().err
+    assert result == mural_module.EXIT_TEMPFAIL
+    assert SECRET_VALUE not in err
+    assert json.loads(err)["failed"][0]["error"] == "code=***"
+
+
+# ---------------------------------------------------------------------------
+# Sensitive mapping keys
+# ---------------------------------------------------------------------------
+#
+# Redacting the serialized text used to mask a top-level `"client_secret":
+# "value"` pair, because `json.dumps` leaves those quotes unescaped. Redacting
+# values in isolation cannot see the key, so `_redact_payload` masks by key as
+# well. That is stronger than the regex ever was: it does not depend on
+# quoting, escaping, or serialization order, and it covers non-string values.
+
+
+def test_redact_payload_masks_value_under_sensitive_key(mural_module: Any) -> None:
+    result = mural_module._redact_payload({"client_secret": SECRET_VALUE})
+
+    assert result == {"client_secret": "***"}
+
+
+def test_redact_payload_matches_sensitive_key_case_insensitively(
+    mural_module: Any,
+) -> None:
+    result = mural_module._redact_payload({"Client_Secret": SECRET_VALUE})
+
+    assert result == {"Client_Secret": "***"}
+
+
+def test_redact_payload_masks_non_string_value_under_sensitive_key(
+    mural_module: Any,
+) -> None:
+    """A value-only redactor cannot mask this, because it is not a string."""
+    result = mural_module._redact_payload({"access_token": {"nested": 1}})
+
+    assert result == {"access_token": "***"}
+
+
+def test_redact_payload_does_not_match_env_style_key_names(mural_module: Any) -> None:
+    """Pins NFR-1: `auth logout --json` records backend errors under these keys.
+
+    Matching is exact after lowercasing, never by suffix. Widening it would
+    change shipped output, so this guards against a future well-meaning switch.
+    """
+    payload = {"errors": {"MURAL_CLIENT_SECRET": "read failed: keyring locked"}}
+
+    result = mural_module._redact_payload(payload)
+
+    assert result == payload
+
+
+def test_redact_payload_masks_sensitive_keys_nested_in_containers(
+    mural_module: Any,
+) -> None:
+    payload = [{"outer": {"refresh_token": SECRET_VALUE}}]
+
+    result = mural_module._redact_payload(payload)
+
+    assert result == [{"outer": {"refresh_token": "***"}}]
+
+
+# ---------------------------------------------------------------------------
+# `_emit_json` stdout channel
+# ---------------------------------------------------------------------------
+
+
+def test_emit_json_emits_parseable_json_for_trailing_secret(
+    mural_module: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Redacting serialized text consumed the closing quote and brace.
+
+    The form-style pattern matches every non-whitespace character after
+    ``key=``, so a secret at the tail of a JSON string swallowed the string
+    terminator and the output stopped parsing.
+    """
+    mural_module._emit_json({"detail": f"code={SECRET_VALUE}"})
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert SECRET_VALUE not in captured.out
+    assert json.loads(captured.out)["detail"] == "code=***"
+
+
+def test_emit_json_stays_pretty_printed_on_stdout(
+    mural_module: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`indent=2` is part of the operator-facing `--json` contract."""
+    mural_module._emit_json({"status": "cleared", "scope": "all"})
+
+    out = capsys.readouterr().out
+    assert "\n" in out.strip()
+    assert json.loads(out) == {"status": "cleared", "scope": "all"}

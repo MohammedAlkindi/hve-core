@@ -953,3 +953,109 @@ def test_concurrent_proactive_refreshes_coalesce(
     assert all(result == {"ok": True} for result in results)
     rotated_calls = [auth for auth in api_calls if rotated_token in auth]
     assert len(rotated_calls) == n_threads
+
+# ---------------------------------------------------------------------------
+# Issue 2756: exception messages carry a bounded, redacted excerpt
+# ---------------------------------------------------------------------------
+
+_EXCERPT_SECRET = "s3cr3t-VALUE.with-symbols_42"
+
+
+def test_error_excerpt_masks_token_shaped_body(mural_module: Any) -> None:
+    body = f'{{"refresh_token": "{_EXCERPT_SECRET}"}}'
+
+    result = mural_module._error_excerpt(body)
+
+    assert _EXCERPT_SECRET not in result
+    assert '"refresh_token": "***"' in result
+
+
+def test_error_excerpt_returns_empty_for_empty_body(mural_module: Any) -> None:
+    assert mural_module._error_excerpt("") == ""
+
+
+def test_error_excerpt_bounds_oversized_body(mural_module: Any) -> None:
+    limit = mural_module.MAX_ERROR_EXCERPT_CHARS
+    body = "A" * (limit * 4)
+
+    result = mural_module._error_excerpt(body)
+
+    assert result.endswith("... (truncated)")
+    assert len(result) == limit + len("... (truncated)")
+
+
+def test_error_excerpt_leaves_short_body_unmarked(mural_module: Any) -> None:
+    body = "upstream rejected the request"
+
+    assert mural_module._error_excerpt(body) == body
+
+
+def test_refresh_http_error_excludes_raw_refresh_token(
+    mural_module: Any,
+    recorded_http: Any,
+    http_error_factory: Any,
+) -> None:
+    """A failing refresh must not carry the upstream body into the exception."""
+    recorded_http.responses.append(
+        http_error_factory(
+            f'{{"error":"invalid_grant","refresh_token":"{_EXCERPT_SECRET}"}}'.encode(),
+            code=400,
+        )
+    )
+
+    with pytest.raises(mural_module.MuralAPIError) as excinfo:
+        mural_module._refresh_access_token(
+            _EXCERPT_SECRET,
+            client_id="client-abc",
+            _http=recorded_http,
+        )
+
+    assert excinfo.value.code == "REFRESH_FAILED"
+    assert _EXCERPT_SECRET not in excinfo.value.message
+    assert _EXCERPT_SECRET not in str(excinfo.value)
+
+
+def test_refresh_error_status_excludes_raw_payload(
+    mural_module: Any,
+    recorded_http: Any,
+    response_factory: Any,
+) -> None:
+    """A 4xx refresh payload is excerpted rather than dumped verbatim."""
+    recorded_http.responses.append(
+        response_factory(
+            json.dumps(
+                {"error": "invalid_grant", "refresh_token": _EXCERPT_SECRET}
+            ).encode("utf-8"),
+            status=400,
+            headers={"Content-Type": "application/json"},
+        )
+    )
+
+    with pytest.raises(mural_module.MuralAPIError) as excinfo:
+        mural_module._refresh_access_token(
+            _EXCERPT_SECRET,
+            client_id="client-abc",
+            _http=recorded_http,
+        )
+
+    assert excinfo.value.code == "REFRESH_FAILED"
+    assert _EXCERPT_SECRET not in str(excinfo.value)
+
+
+def test_token_invalid_json_excludes_raw_body(
+    mural_module: Any,
+    response_factory: Any,
+) -> None:
+    """A non-JSON token response is excerpted before entering the exception."""
+    resp = response_factory(
+        f'not-json refresh_token={_EXCERPT_SECRET}',
+        status=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    with pytest.raises(mural_module.MuralAPIError) as excinfo:
+        mural_module._parse_token_response(resp)
+
+    assert excinfo.value.code == "TOKEN_INVALID_JSON"
+    assert _EXCERPT_SECRET not in str(excinfo.value)
+    assert "refresh_token=***" in excinfo.value.message
