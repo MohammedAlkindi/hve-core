@@ -22,6 +22,7 @@ imports:
   - ../agents/hve-core/documentation.agent.md
 
 checkout:
+  fetch-depth: 0
   sparse-checkout: |
     .github/copilot-instructions.md
     .github/ISSUE_TEMPLATE/
@@ -65,7 +66,7 @@ stale.
 
 ## Procedure
 
-1. Read the list of files changed in the push from the event context.
+1. Read the list of files changed in the push. Full commit history is available in this checkout, so run `git show --stat HEAD --name-status` for a single-commit push, or `git diff --name-status HEAD~<n>..HEAD` when the push contains multiple commits.
 2. Filter out documentation-only changes.
 3. For each code file changed, use the imported Documentation agent guidance to identify the relevant documentation references and drift signals.
 4. Read each referenced documentation file.
