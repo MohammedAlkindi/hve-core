@@ -66,9 +66,11 @@ steps:
       elif git cat-file -e "${AFTER_SHA}^{commit}^" 2>/dev/null; then
         # 'before' is the all-zero SHA, empty, or unresolvable (branch creation,
         # force-push, or event context gh-aw does not expose it for): fall back to
-        # the single pushed commit against its own parent.
-        echo "No usable 'before' SHA; diffing ${AFTER_SHA} against its parent."
-        git diff-tree --no-commit-id --name-status -r "$AFTER_SHA" > "$OUT_FILE"
+        # the pushed commit against its FIRST parent. `git diff-tree` is not used
+        # here: on a merge commit it emits no records at all without `-m`, which
+        # would silently produce an empty file list.
+        echo "No usable 'before' SHA; diffing ${AFTER_SHA} against its first parent."
+        git diff --name-status "${AFTER_SHA}^1" "$AFTER_SHA" > "$OUT_FILE"
       else
         # The pushed commit has no parent (initial commit on the branch).
         echo "Pushed commit has no parent; listing all files it introduces."
