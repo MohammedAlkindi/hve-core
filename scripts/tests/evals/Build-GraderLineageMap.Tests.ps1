@@ -5,9 +5,6 @@
 BeforeAll {
     $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
     $script:ScriptPath = Join-Path $script:RepoRoot 'scripts/evals/Build-GraderLineageMap.ps1'
-    $script:SourceRevision = 'b4c940cc4067d9b2addbba48ea15e599f4c825c4'
-    $script:TargetRevision = '0b8762fe0003396557820bd6093d88a932047033'
-    $script:ProvenanceRevision = 'ce4c686f8906288db28ccf8a1108c26e2ea52bd9'
 
     Import-Module powershell-yaml -ErrorAction Stop
     . $script:ScriptPath
@@ -70,18 +67,76 @@ Describe 'Build-GraderLineageMap.ps1' -Tag 'Unit' {
     }
 
     It 'Rejects unreachable revisions and provenance drift' {
-        {
-            Assert-GraderLineageRevisions -RepoRoot $script:RepoRoot `
-                -SourceProvenanceRevision $script:ProvenanceRevision `
-                -SourceRevision ('0' * 40) `
-                -TargetRevision $script:TargetRevision
-        } | Should -Throw -ExpectedMessage '*Git command failed*'
+        # Repository history cannot carry this contract: the revisions it would
+        # need stop being ancestors of HEAD once their branch is squash-merged.
+        $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ((New-Guid).Guid)
+        $stimulus = Join-Path $fixture 'evals/agent-behavior/stimuli'
+        try {
+            New-Item -ItemType Directory -Path $stimulus -Force | Out-Null
+            & git -C $fixture -c init.defaultBranch=main init --quiet
+            & git -C $fixture config user.email 'lineage@example.invalid'
+            & git -C $fixture config user.name 'Lineage Fixture'
 
-        {
-            Assert-GraderLineageRevisions -RepoRoot $script:RepoRoot `
-                -SourceProvenanceRevision $script:TargetRevision `
-                -SourceRevision $script:SourceRevision `
-                -TargetRevision $script:TargetRevision
-        } | Should -Throw -ExpectedMessage '*does not match provenance*'
+            $seed = Join-Path $stimulus 'seed.yml'
+            Set-Content -LiteralPath $seed -Value 'graders: []' -Encoding utf8
+            & git -C $fixture add -A
+            & git -C $fixture commit --quiet -m 'provenance'
+            $provenance = (& git -C $fixture rev-parse HEAD).Trim()
+
+            Set-Content -LiteralPath $seed -Value 'graders: [drifted]' -Encoding utf8
+            & git -C $fixture add -A
+            & git -C $fixture commit --quiet -m 'source'
+            $source = (& git -C $fixture rev-parse HEAD).Trim()
+
+            Set-Content -LiteralPath $seed -Value 'graders: [target]' -Encoding utf8
+            & git -C $fixture add -A
+            & git -C $fixture commit --quiet -m 'target'
+            $target = (& git -C $fixture rev-parse HEAD).Trim()
+
+            # A revision that exists nowhere fails the object check first.
+            {
+                Assert-GraderLineageRevisions -RepoRoot $fixture `
+                    -SourceProvenanceRevision $provenance `
+                    -SourceRevision ('0' * 40) `
+                    -TargetRevision $target
+            } | Should -Throw -ExpectedMessage '*Git command failed*'
+
+            # A real commit on an unmerged side branch is not an ancestor of HEAD.
+            & git -C $fixture checkout --quiet -b side $provenance
+            Set-Content -LiteralPath $seed -Value 'graders: [side]' -Encoding utf8
+            & git -C $fixture add -A
+            & git -C $fixture commit --quiet -m 'side'
+            $side = (& git -C $fixture rev-parse HEAD).Trim()
+            & git -C $fixture checkout --quiet main
+
+            {
+                Assert-GraderLineageRevisions -RepoRoot $fixture `
+                    -SourceProvenanceRevision $provenance `
+                    -SourceRevision $side `
+                    -TargetRevision $target
+            } | Should -Throw -ExpectedMessage '*is not an ancestor of replacement head*'
+
+            # Reachable and correctly ordered, but the source drifted from provenance.
+            {
+                Assert-GraderLineageRevisions -RepoRoot $fixture `
+                    -SourceProvenanceRevision $provenance `
+                    -SourceRevision $source `
+                    -TargetRevision $target
+            } | Should -Throw -ExpectedMessage '*does not match provenance*'
+
+            # The same inputs pass once provenance matches the source revision.
+            {
+                Assert-GraderLineageRevisions -RepoRoot $fixture `
+                    -SourceProvenanceRevision $source `
+                    -SourceRevision $source `
+                    -TargetRevision $target
+            } | Should -Not -Throw
+        }
+        finally {
+            if (Test-Path $fixture) {
+                & git -C $fixture gc --quiet --prune=now 2>$null
+                Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 }
