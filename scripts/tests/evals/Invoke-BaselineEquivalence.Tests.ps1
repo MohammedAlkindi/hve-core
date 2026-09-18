@@ -220,6 +220,21 @@ Describe 'Invoke-BaselineEquivalence.ps1 (dry-run)' -Tag 'Unit' {
                     ForEach-Object { [regex]::Match($_, '--model (\S+) ').Groups[1].Value })
             ($evalModels -join ',') | Should -BeExactly 'gpt-5.6-luna,gpt-5.6-luna,claude-sonnet-5,claude-sonnet-5'
         }
+
+        It 'Plans only one model when calibration is isolated' {
+            & $script:ScriptPath `
+                -Agent 'rpi-agent' `
+                -Tier 'calibration' `
+                -CalibrationModel 'claude-sonnet-5' `
+                -RepoRoot $script:RepoRoot `
+                -OutputPath $script:OutputPath `
+                -WhatIf *> $null
+
+            $summary = Get-Content -LiteralPath $script:OutputPath -Raw | ConvertFrom-Json
+            $summary.model | Should -Be 'claude-sonnet-5'
+            $summary.plannedCommands | Should -HaveCount 3
+            ($summary.plannedCommands -join "`n") | Should -Not -Match 'gpt-5\.6-luna'
+        }
     }
 
     Context 'Retired parameters and tiers' {
@@ -635,6 +650,28 @@ Describe 'Resolve-ModelList' -Tag 'Unit' {
         ($models -join ',') | Should -BeExactly 'gpt-5.6-luna,claude-sonnet-5'
     }
 
+    It 'Selects only the requested fixed calibration model for <SelectedModel>' -ForEach @(
+        @{ SelectedModel = 'gpt-5.6-luna' }
+        @{ SelectedModel = 'claude-sonnet-5' }
+    ) {
+        $models = @(Resolve-ModelList -Tier 'calibration' -Hint 'hint-model' -ModelOverride 'override-model' -CalibrationModel $SelectedModel)
+
+        $models | Should -HaveCount 1
+        $models[0] | Should -BeExactly $SelectedModel
+    }
+
+    It 'Rejects an arbitrary isolated calibration model' {
+        { Resolve-ModelList -Tier 'calibration' -CalibrationModel 'future-model' } |
+            Should -Throw -ExpectedMessage "Unsupported calibration model 'future-model'.*"
+    }
+
+    It 'Ignores the calibration selector during devloop selection' {
+        $models = @(Resolve-ModelList -Tier 'devloop' -Hint 'hint-model' -ModelOverride 'override-model' -CalibrationModel 'claude-sonnet-5')
+
+        $models | Should -HaveCount 1
+        $models[0] | Should -BeExactly 'override-model'
+    }
+
     It 'Uses the hint when devloop has no override' {
         $models = @(Resolve-ModelList -Tier 'devloop' -Hint 'hint-model' -ModelOverride '')
 
@@ -679,6 +716,94 @@ Describe 'Comparison judge pin' -Tag 'Unit' {
         $driverText | Should -Not -Match 'Resolve-AgentSurfaceSignaturePath'
         $driverText | Should -Not -Match 'surface_signatures'
         $driverText | Should -Not -Match "'--eval-spec',\s*\`$renderedSpecRelative"
+    }
+}
+
+Describe 'Invoke-VallyProcess' -Tag 'Unit' {
+    BeforeAll {
+        . $script:ScriptPath
+        $script:PwshPath = (Get-Command pwsh -ErrorAction Stop).Source
+    }
+
+    BeforeEach {
+        $script:CaptureStub = Join-Path $TestDrive "capture-$([guid]::NewGuid()).ps1"
+        $script:CaptureLog = Join-Path $TestDrive "capture-$([guid]::NewGuid()).log"
+        Set-Variable -Name VallyHostMessages -Scope Global -Value ([System.Collections.Generic.List[string]]::new())
+        Mock Write-Host {
+            param($Object)
+            (Get-Variable -Name VallyHostMessages -Scope Global -ValueOnly).Add([string]$Object)
+        } -ModuleName VallyRunner
+    }
+
+    It 'withholds complete output while preserving exit status and sanitized progress' {
+        @'
+param([int]$DelayMilliseconds, [int]$ExitCode)
+Write-Output 'UNTRUSTED_STDOUT_SENTINEL'
+[Console]::Error.WriteLine('UNTRUSTED_STDERR_SENTINEL')
+foreach ($indexValue in 1..200) {
+    Write-Output "stdout-$indexValue"
+    [Console]::Error.WriteLine("stderr-$indexValue")
+}
+Start-Sleep -Milliseconds $DelayMilliseconds
+exit $ExitCode
+'@ | Set-Content -LiteralPath $script:CaptureStub -Encoding utf8NoBOM
+
+        $result = Invoke-VallyProcess `
+            -Command $script:PwshPath `
+            -Arguments @('-NoProfile', '-File', $script:CaptureStub, '2200', '7') `
+            -LogPath $script:CaptureLog `
+            -Phase 'compare' `
+            -Worker 'gpt-5.6-luna' `
+            -HeartbeatIntervalSeconds 1
+
+        $result.ExitCode | Should -Be 7
+        $result.ExitCategory | Should -Be 'unknown'
+        $result.PSObject.Properties.Name | Should -Not -Contain 'Lines'
+        $withheld = @(Get-Content -LiteralPath $script:CaptureLog)
+        $withheld | Should -Contain 'UNTRUSTED_STDOUT_SENTINEL'
+        ($withheld -join "`n") | Should -Match 'UNTRUSTED_STDERR_SENTINEL'
+        $withheld | Should -Contain 'stdout-200'
+        ($withheld -join "`n") | Should -Match 'stderr-200'
+        $hostMessages = Get-Variable -Name VallyHostMessages -Scope Global -ValueOnly
+        ($hostMessages -join "`n") | Should -Not -Match 'UNTRUSTED_|stdout-|stderr-'
+        $heartbeats = @($hostMessages | Where-Object { $_ -like 'Vally progress: event=heartbeat*' })
+        $heartbeats.Count | Should -BeGreaterOrEqual 1
+        foreach ($heartbeat in $heartbeats) {
+            $heartbeat | Should -Match '^Vally progress: event=heartbeat phase=compare worker=gpt-5\.6-luna attempt=1 elapsedSeconds=\d+ exitCategory=unknown$'
+        }
+        @($hostMessages | Where-Object { $_ -match '^Vally progress: event=phase-start phase=compare worker=gpt-5\.6-luna attempt=1 elapsedSeconds=0 exitCategory=unknown$' }) | Should -HaveCount 1
+        @($hostMessages | Where-Object { $_ -match '^Vally progress: event=phase-complete phase=compare worker=gpt-5\.6-luna attempt=1 elapsedSeconds=\d+ exitCategory=unknown$' }) | Should -HaveCount 1
+    }
+
+    It 'Terminates the child process tree when interrupted' {
+        $pidPath = Join-Path $TestDrive "child-$([guid]::NewGuid()).pid"
+        @'
+param([string]$PidPath)
+Set-Content -LiteralPath $PidPath -Value $PID -Encoding ascii
+Start-Sleep -Seconds 30
+'@ | Set-Content -LiteralPath $script:CaptureStub -Encoding utf8NoBOM
+        $script:PollCount = 0
+
+        {
+            Invoke-VallyProcess `
+                -Command $script:PwshPath `
+                -Arguments @('-NoProfile', '-File', $script:CaptureStub, $pidPath) `
+                -Phase 'compare' `
+                -Worker 'claude-sonnet-5' `
+                -HeartbeatIntervalSeconds 1 `
+                -ShouldCancel { (Test-Path -LiteralPath $pidPath) -and ((++$script:PollCount) -ge 2) }
+        } | Should -Throw -ExpectedMessage '*interrupted*'
+
+        Test-Path -LiteralPath $pidPath | Should -BeTrue
+        $childPid = [int](Get-Content -LiteralPath $pidPath -Raw)
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $remainingProcess = Get-Process -Id $childPid -ErrorAction SilentlyContinue
+            if ($null -ne $remainingProcess -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 50
+            }
+        } while ($null -ne $remainingProcess -and [DateTime]::UtcNow -lt $deadline)
+        $remainingProcess | Should -BeNullOrEmpty
     }
 }
 
@@ -798,9 +923,14 @@ defaults:
             -NoBaselineCache *> $null
 
         $summary = Get-Content -LiteralPath $script:StubOutputPath -Raw | ConvertFrom-Json
+        $summary.runId | Should -Not -BeNullOrEmpty
         $summary.runHealthFailures | Should -Be 2
         $summary.runs | Should -Be 0
         $summary.verdict | Should -Be 'fail'
+        @($summary.phaseTimings.phase) | Should -Contain 'materialize'
+        @($summary.phaseTimings.phase) | Should -Contain 'baseline-eval'
+        @($summary.phaseTimings.phase) | Should -Contain 'customized-eval'
+        @($summary.phaseTimings.phase) | Should -Contain 'compare'
         $LASTEXITCODE | Should -Be 1
 
         $calls = @(Get-Content -LiteralPath $env:STUB_VALLY_CALL_LOG | ForEach-Object { , ($_ | ConvertFrom-Json) })
