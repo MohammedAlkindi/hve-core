@@ -213,12 +213,20 @@ The CI-owned eval-validation workflow runs the static eval-lint lanes. They are
 not part of `validate:local`; see [Validation Commands and CI-Owned Lanes](validation)
 for local reproduction prerequisites and output handling.
 
-| Script                | Tool                            | Purpose                                                             |
-|-----------------------|---------------------------------|---------------------------------------------------------------------|
-| `ci:eval:lint:vally`  | `vally lint --eval-spec evals/` | Spec validation via the upstream CLI                                |
-| `ci:eval:lint:schema` | `Test-EvalSpec.ps1`             | Schema lint, agent-behavior coverage, and orphaned-tag reachability |
-| `ci:eval:lint:text`   | `Test-EvalSpecText.ps1`         | retext-profanities + retext-equality gate on the AI-artifact corpus |
-| `ci:eval:lint:safety` | `Test-VallyTestSafety.ps1`      | Safety validation for eval stimuli                                  |
+| Script                     | Tool                                | Purpose                                                                        |
+|----------------------------|-------------------------------------|--------------------------------------------------------------------------------|
+| `ci:eval:lint:vally`       | `vally lint --eval-spec evals/`     | Spec validation via the upstream CLI                                           |
+| `lint:eval-grader-lineage` | `Build-GraderLineageMap.ps1 -Check` | Grader-name lineage across Vally migrations; chained into `ci:eval:lint:vally` |
+| `ci:eval:lint:schema`      | `Test-EvalSpec.ps1`                 | Schema lint, agent-behavior coverage, and orphaned-tag reachability            |
+| `ci:eval:lint:text`        | `Test-EvalSpecText.ps1`             | retext-profanities + retext-equality gate on the AI-artifact corpus            |
+| `ci:eval:lint:safety`      | `Test-VallyTestSafety.ps1`          | Safety validation for eval stimuli                                             |
+
+`lint:eval-grader-lineage` is not a standalone lane. `ci:eval:lint:vally` runs it before the
+vally CLI, so a lineage failure fails that lane. With `-Check` it verifies the committed lineage
+JSON without changing it; given `-SourceRevision` and `-TargetRevision` it rebuilds the map
+between two reachable revisions. It pairs graders by source, stimulus, and a name-free behavior
+digest, and fails closed on unreachable history, provenance drift, ambiguous pairs, semantic
+changes, count drift, kind mismatches, duplicate result keys, or output drift.
 
 `ci:eval:lint:text` scans `.github/{agents,prompts,instructions,skills}/**/*.md` and `docs/**/*.md` using separate `retext-equality` and `retext-profanities` processors. The `alex` package is no longer a dependency. Equality findings retain `source: alex` in the JSON report and emit `::warning` annotations by default; the source alias and `-FailOnAlex` name are retained for existing consumers.
 
