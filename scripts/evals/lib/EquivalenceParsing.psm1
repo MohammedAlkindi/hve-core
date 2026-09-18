@@ -1144,6 +1144,72 @@ function Get-EquivalenceGateResults {
     }
 }
 
+function Merge-BaselineModelSummary {
+    <#
+    .SYNOPSIS
+    Combines fixed-model baseline summaries using the serial aggregation contract.
+    #>
+    [CmdletBinding()]
+    [OutputType([ordered])]
+    param(
+        [Parameter(Mandatory = $true)][psobject[]]$Summary,
+        [string[]]$DriverRunId = @()
+    )
+
+    if ($Summary.Count -eq 0) { throw 'At least one baseline model summary is required.' }
+    $summaries = @($Summary)
+    $sum = { param([string]$Name) [double](($summaries | Measure-Object -Property $Name -Sum).Sum) }
+    $runs = [int](& $sum 'runs')
+    $weighted = {
+        param([string]$Name)
+        if ($runs -le 0) { return 0.0 }
+        $total = 0.0
+        foreach ($item in $summaries) { $total += [double]$item.$Name * [int]$item.runs }
+        return $total / $runs
+    }
+    $invariantFailures = [int](& $sum 'invariantFailures')
+    $runHealthFailures = [int](& $sum 'runHealthFailures')
+    $dataQualityViolations = [int](& $sum 'dataQualityViolations')
+    $equivalentTrials = [int](& $sum 'equivalentTrials')
+    $equivalentTies = [int](& $sum 'equivalentTies')
+    $divergenceGuardFailures = [int](& $sum 'divergenceGuardFailures')
+    $judgeErrors = [int](& $sum 'judgeErrors')
+    $divergenceGuardsEvaluated = [int](& $sum 'divergenceGuardsEvaluated')
+    $gates = Get-EquivalenceGateResults `
+        -Runs $runs -InvariantFailures $invariantFailures -Tier ([string]$summaries[0].tier) `
+        -EquivalentTotal $equivalentTrials `
+        -TieRatio $(if ($equivalentTrials -gt 0) { $equivalentTies / $equivalentTrials } else { 0.0 }) `
+        -DataQualityViolations $dataQualityViolations `
+        -DivergenceGuardFailures $divergenceGuardFailures `
+        -DivergenceHasSignal ($divergenceGuardsEvaluated -gt 0) `
+        -RunHealthFailures $runHealthFailures
+
+    return [ordered]@{
+        schemaVersion = '2.1.0'; agent = [string]$summaries[0].agent; tier = [string]$summaries[0].tier
+        model = 'gpt-5.6-luna'; models = @($summaries.model); driverRunIds = @($DriverRunId)
+        runs = $runs; ties = [int](& $sum 'ties'); baselineWins = [int](& $sum 'baselineWins')
+        treatmentWins = [int](& $sum 'treatmentWins'); meanScore = [math]::Round((& $weighted 'meanScore'), 4)
+        ciLow = [math]::Round([double](($summaries | Measure-Object -Property ciLow -Maximum).Maximum), 4)
+        ciHigh = [math]::Round([double](($summaries | Measure-Object -Property ciHigh -Minimum).Minimum), 4)
+        winRate = [math]::Round((& $weighted 'winRate'), 4); invariantFailures = $invariantFailures
+        runHealthFailures = $runHealthFailures; executionDiagnostics = @($summaries.executionDiagnostics)
+        invocationEvidence = @($summaries.invocationEvidence); invocationFailures = [int](& $sum 'invocationFailures')
+        divergenceGuardFailures = $divergenceGuardFailures; divergenceGuardsEvaluated = $divergenceGuardsEvaluated
+        failedDivergenceGuards = @($summaries.failedDivergenceGuards); dataQualityViolations = $dataQualityViolations
+        judgeErrors = $judgeErrors; judgeErrorRate = if (($runs + $judgeErrors) -gt 0) { [math]::Round($judgeErrors / ($runs + $judgeErrors), 6) } else { 0.0 }
+        equivalentTrials = $equivalentTrials; equivalentTies = $equivalentTies
+        divergenceTrials = [int](& $sum 'divergenceTrials')
+        tieRatio = if ($equivalentTrials -gt 0) { [math]::Round($equivalentTies / $equivalentTrials, 4) } else { 0.0 }
+        comparisonCalibration = @($summaries.comparisonCalibration); comparisonStatus = 'report-only'
+        dataQualityDiagnostics = @($summaries.dataQualityDiagnostics); equivalenceGate = $gates.EquivalenceGate
+        documentedDivergenceGate = $gates.DocumentedDivergenceGate; verdict = $gates.Verdict
+        variants = $summaries[0].variants; compareLogs = @($summaries.compareLogs)
+        phaseTimings = @($summaries | ForEach-Object {
+                if ($_.PSObject.Properties['phaseTimings']) { @($_.phaseTimings) }
+            })
+    }
+}
+
 function Get-OutputHash {
     [CmdletBinding()]
     [OutputType([string])]
@@ -1820,6 +1886,7 @@ Export-ModuleMember -Function `
     Measure-InvariantFailures, `
     Measure-DeclaredInvariantFailures, `
     Get-EquivalenceGateResults, `
+    Merge-BaselineModelSummary, `
     Measure-DivergenceGuardResults, `
     Get-OutputHash, `
     Resolve-GraderLineageDetails, `

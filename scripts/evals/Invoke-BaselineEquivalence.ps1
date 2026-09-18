@@ -42,6 +42,11 @@
     cheaper model for advisory runs. Ignored for the `calibration` and `ci` tiers,
     which always run the fixed pair `gpt-5.6-luna` and `claude-sonnet-5`.
 
+.PARAMETER CalibrationModel
+    Optional fixed-model selector for an isolated `calibration` or `ci` producer.
+    Accepts only `gpt-5.6-luna` or `claude-sonnet-5`. When omitted, the existing
+    fixed-pair behavior is preserved. It does not affect `devloop` selection.
+
 .PARAMETER ComparisonJudgeModel
     Model used as the `vally compare` judge. Defaults to `claude-haiku-4.5`.
 
@@ -49,6 +54,11 @@
     Repository-relative path to the comparison-judging contract passed to
     `vally compare --eval-spec`. Defaults to
     `evals/baseline-equivalence/compare.eval.yml`.
+
+.PARAMETER ComparisonHeartbeatSeconds
+    Interval for trusted comparison progress messages while `vally compare` is
+    running. Defaults to 300 seconds. Heartbeats contain only model, phase,
+    attempt, and elapsed time; raw command output remains captured until exit.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the result of `git rev-parse --show-toplevel`, falling
@@ -93,6 +103,10 @@ param(
     [string]$Model,
 
     [Parameter(Mandatory = $false)]
+    [ValidateSet('gpt-5.6-luna', 'claude-sonnet-5')]
+    [string]$CalibrationModel,
+
+    [Parameter(Mandatory = $false)]
     [string]$RepoRoot,
 
     [Parameter(Mandatory = $false)]
@@ -114,6 +128,10 @@ param(
     [string]$ComparisonSpecPath = 'evals/baseline-equivalence/compare.eval.yml',
 
     [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 3600)]
+    [int]$ComparisonHeartbeatSeconds = 60,
+
+    [Parameter(Mandatory = $false)]
     [switch]$NoBaselineCache
 )
 
@@ -121,6 +139,7 @@ $ErrorActionPreference = 'Stop'
 
 Import-Module -Name (Join-Path $PSScriptRoot 'lib/EquivalenceParsing.psm1') -Force
 Import-Module -Name (Join-Path $PSScriptRoot 'lib/EquivalenceEnvironment.psm1') -Force
+Import-Module -Name (Join-Path $PSScriptRoot 'Modules/VallyRunner.psm1') -Force
 
 #region Helper Functions
 
@@ -204,12 +223,19 @@ function Resolve-ModelList {
         [Parameter(Mandatory)]
         [string]$Tier,
         [string]$Hint,
-        [string]$ModelOverride
+        [string]$ModelOverride,
+        [string]$CalibrationModel
     )
 
     if ($Tier -in @('calibration', 'ci')) {
         # Keep cross-vendor coverage pinned to explicit model IDs rather than floating
         # aliases. Hints and overrides apply only to advisory devloop runs.
+        if (-not [string]::IsNullOrWhiteSpace($CalibrationModel)) {
+            if ($CalibrationModel -notin @('gpt-5.6-luna', 'claude-sonnet-5')) {
+                throw "Unsupported calibration model '$CalibrationModel'. Expected gpt-5.6-luna or claude-sonnet-5."
+            }
+            return @($CalibrationModel)
+        }
         return @('gpt-5.6-luna', 'claude-sonnet-5')
     }
 
@@ -449,39 +475,6 @@ function Get-VallyExecutionDiagnostic {
         }
     )
     return $result
-}
-
-function Invoke-VallyCommandWithCapture {
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory)]
-        [string[]]$Arguments,
-        [string]$LogPath
-    )
-
-    $prev = [Console]::OutputEncoding
-    try {
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        $raw = & vally @Arguments 2>&1
-        $code = $LASTEXITCODE
-    }
-    finally {
-        [Console]::OutputEncoding = $prev
-    }
-
-    $lines = @($raw | ForEach-Object { $_.ToString() })
-    foreach ($line in $lines) { Write-Host $line }
-
-    if ($LogPath) {
-        $dir = Split-Path -Parent $LogPath
-        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        }
-        Set-Content -LiteralPath $LogPath -Value $lines -Encoding utf8NoBOM
-    }
-
-    return @{ ExitCode = $code; Lines = $lines }
 }
 
 function Get-CanonicalStimulusPolicy {
@@ -817,7 +810,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         }
 
         $modelHint = Get-AgentModelHint -RepoRoot $resolvedRoot -Agent $Agent
-        $models = @(Resolve-ModelList -Tier $Tier -Hint $modelHint -ModelOverride $Model)
+        $models = @(Resolve-ModelList -Tier $Tier -Hint $modelHint -ModelOverride $Model -CalibrationModel $CalibrationModel)
         $primaryModel = $models[0]
 
         # The comparison contract is resolved before any model-backed work so a missing
@@ -944,6 +937,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         $invocationEvidence = [System.Collections.Generic.List[object]]::new()
         $invocationFailures = 0
         $comparisonCalibration = [System.Collections.Generic.List[object]]::new()
+        $phaseTimings = [System.Collections.Generic.List[object]]::new()
 
         # Policy and invariant membership come from the canonical library, because the
         # comparison JSONL identifies stimuli by name only.
@@ -1000,6 +994,9 @@ if ($MyInvocation.InvocationName -ne '.') {
             }
             $surfaceGitHub = Join-Path $surfaceRoot '.github'
             New-Item -ItemType Directory -Path $surfaceRoot -Force | Out-Null
+            $materializeStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+            $materializeExitCategory = 'unknown'
+            Write-Host "Vally progress: event=phase-start phase=materialize worker=$model attempt=1 elapsedSeconds=0 exitCategory=unknown" -ForegroundColor DarkGray
             try {
                 $customized = New-CustomizedEnvironment `
                     -RepoRoot $resolvedRoot `
@@ -1009,6 +1006,7 @@ if ($MyInvocation.InvocationName -ne '.') {
                 $variantB.applied = @($customized.Applied)
                 $variants.b = $variantB
                 Write-Host "   Customized surface: $($customized.Applied.Count) artifact(s)" -ForegroundColor DarkGray
+                $materializeExitCategory = 'success'
             }
             catch {
                 # A customized environment that cannot be built is a divergence failure,
@@ -1021,6 +1019,15 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
             }
             finally {
+                $materializeStopwatch.Stop()
+                Write-Host "Vally progress: event=phase-complete phase=materialize worker=$model attempt=1 elapsedSeconds=$([math]::Floor($materializeStopwatch.Elapsed.TotalSeconds)) exitCategory=$materializeExitCategory" -ForegroundColor DarkGray
+                $phaseTimings.Add([ordered]@{
+                        phase          = 'materialize'
+                        worker         = $model
+                        attempt        = 1
+                        elapsedSeconds = [math]::Round($materializeStopwatch.Elapsed.TotalSeconds, 3)
+                        exitCategory   = $materializeExitCategory
+                    })
                 # Materialization clears this tree, so the tracked placeholder is restored
                 # after it rather than before. vally's spec linter resolves the path, so a
                 # completed or aborted run must both leave the directory present and the
@@ -1088,7 +1095,22 @@ if ($MyInvocation.InvocationName -ne '.') {
                 }
             }
             else {
-                $codeA = Invoke-VallyCommand -Arguments $evalBaseline
+                $baselineLog = Join-Path $resolvedRoot "logs/vally-eval-$model-$runId-baseline.log"
+                $baselineProcess = Invoke-VallyProcess `
+                    -Arguments $evalBaseline `
+                    -LogPath $baselineLog `
+                    -Phase 'baseline-eval' `
+                    -Worker $model `
+                    -Attempt 1 `
+                    -HeartbeatIntervalSeconds $ComparisonHeartbeatSeconds
+                $codeA = $baselineProcess.ExitCode
+                $phaseTimings.Add([ordered]@{
+                        phase          = 'baseline-eval'
+                        worker         = $baselineProcess.Worker
+                        attempt        = 1
+                        elapsedSeconds = [math]::Round($baselineProcess.ElapsedMilliseconds / 1000, 3)
+                        exitCategory   = $baselineProcess.ExitCategory
+                    })
                 $baselineRunDir = Resolve-LatestRunDir -OutputDir $aDir
                 $executionDiagnostics.Add((Get-VallyExecutionDiagnostic -RunDir $baselineRunDir -Model $model -Variant baseline -Attempt 1 -ExitCode $codeA))
                 $baselineTally = Measure-DeclaredInvariantFailures -RunDir $baselineRunDir -InvariantNames $canonicalInvariants -ExpectedManifest $invariantManifest -ExpectedTrials $baselineTrials
@@ -1130,7 +1152,22 @@ if ($MyInvocation.InvocationName -ne '.') {
 
             $aRunDir = $baselineRunDir
             $customizedAttempt = 1
-            $codeB = Invoke-VallyCommand -Arguments $evalCustomized
+            $customizedLog = Join-Path $resolvedRoot "logs/vally-eval-$model-$runId-customized.log"
+            $customizedProcess = Invoke-VallyProcess `
+                -Arguments $evalCustomized `
+                -LogPath $customizedLog `
+                -Phase 'customized-eval' `
+                -Worker $model `
+                -Attempt $customizedAttempt `
+                -HeartbeatIntervalSeconds $ComparisonHeartbeatSeconds
+            $codeB = $customizedProcess.ExitCode
+            $phaseTimings.Add([ordered]@{
+                    phase          = 'customized-eval'
+                    worker         = $customizedProcess.Worker
+                    attempt        = $customizedAttempt
+                    elapsedSeconds = [math]::Round($customizedProcess.ElapsedMilliseconds / 1000, 3)
+                    exitCategory   = $customizedProcess.ExitCategory
+                })
             $bRunDir = Resolve-LatestRunDir -OutputDir $bDir
             $customizedDiagnostic = Get-VallyExecutionDiagnostic -RunDir $bRunDir -Model $model -Variant customized -Attempt $customizedAttempt -ExitCode $codeB
             $executionDiagnostics.Add($customizedDiagnostic)
@@ -1164,7 +1201,22 @@ if ($MyInvocation.InvocationName -ne '.') {
                 Write-Host "   Agent invocation: retrying one complete customized $model calibration run after eligible incomplete evidence" -ForegroundColor Yellow
                 $customizedAttempt++
                 $firstCustomizedRunDir = $bRunDir
-                $codeB = Invoke-VallyCommand -Arguments $evalCustomized
+                $customizedProcess = Invoke-VallyProcess `
+                    -Arguments $evalCustomized `
+                    -LogPath $customizedLog `
+                    -AppendLog `
+                    -Phase 'customized-eval' `
+                    -Worker $model `
+                    -Attempt $customizedAttempt `
+                    -HeartbeatIntervalSeconds $ComparisonHeartbeatSeconds
+                $codeB = $customizedProcess.ExitCode
+                $phaseTimings.Add([ordered]@{
+                        phase          = 'customized-eval'
+                        worker         = $customizedProcess.Worker
+                        attempt        = $customizedAttempt
+                        elapsedSeconds = [math]::Round($customizedProcess.ElapsedMilliseconds / 1000, 3)
+                        exitCategory   = $customizedProcess.ExitCategory
+                    })
                 $retryRunDir = Resolve-LatestRunDir -OutputDir $bDir
                 $bRunDir = if ($retryRunDir -and $retryRunDir -ne $firstCustomizedRunDir) {
                     $retryRunDir
@@ -1276,7 +1328,20 @@ if ($MyInvocation.InvocationName -ne '.') {
                     '--output', $compareJsonlPath
                 )
                 $compareLog = Join-Path $resolvedRoot "logs/vally-compare-$model-$runId.log"
-                $resultC = Invoke-VallyCommandWithCapture -Arguments $compareArgs -LogPath $compareLog
+                $resultC = Invoke-VallyProcess `
+                    -Arguments $compareArgs `
+                    -LogPath $compareLog `
+                    -Phase 'compare' `
+                    -Worker $model `
+                    -Attempt 1 `
+                    -HeartbeatIntervalSeconds $ComparisonHeartbeatSeconds
+                $phaseTimings.Add([ordered]@{
+                        phase          = 'compare'
+                        worker         = $resultC.Worker
+                        attempt        = 1
+                        elapsedSeconds = [math]::Round($resultC.ElapsedMilliseconds / 1000, 3)
+                        exitCategory   = $resultC.ExitCategory
+                    })
                 $compareFailed = $resultC.ExitCode -ne 0
                 if ($compareFailed) { $runHealthFailures++ }
                 $compareLogs.Add($compareLog)
@@ -1371,6 +1436,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             # rather than reading absent fields as zeros, which is how a dropped field
             # previously degraded into a plausible-looking healthy run.
             schemaVersion            = '2.1.0'
+            runId                    = $runId
             agent                    = $Agent
             tier                     = $Tier
             model                    = $primaryModel
@@ -1405,6 +1471,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             verdict                  = $verdict
             variants                 = $variants
             compareLogs              = @($compareLogs)
+            phaseTimings             = @($phaseTimings)
         }
 
         Write-SummaryJson -Summary $summary -Path $OutputPath
