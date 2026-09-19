@@ -21,6 +21,10 @@
     Destination for the canonical plan JSON.
 .PARAMETER OrdinaryShardCount
     Maximum ordinary agent shard count. Supported values are 1 and 4.
+.PARAMETER InstructionShardCount
+    Maximum instruction shard count. Supported values are 1 and 2.
+.PARAMETER SkillShardCount
+    Maximum skill shard count. Supported values are 1 and 2.
 .PARAMETER BaselineSubject
     Agent whose affected status requires baseline equivalence.
 .PARAMETER RepoRoot
@@ -39,6 +43,10 @@ param(
     [string]$OutputPath = 'logs/agent-eval-plan.json',
     [ValidateSet(1, 4)]
     [int]$OrdinaryShardCount = 4,
+    [ValidateSet(1, 2)]
+    [int]$InstructionShardCount = 2,
+    [ValidateSet(1, 2)]
+    [int]$SkillShardCount = 2,
     [ValidateNotNullOrEmpty()]
     [string]$BaselineSubject = 'rpi-agent',
     [string]$RepoRoot
@@ -128,43 +136,38 @@ function Get-AgentEvalRunWeight {
     return [int]($stimuli.Count * $runCount)
 }
 
-function New-AgentEvalPlanValue {
+function New-AgentEvalKindPlan {
     <#
     .SYNOPSIS
-        Constructs the canonical plan value from manifests and eval specs.
+        Builds deterministic weighted shards for one artifact kind.
     #>
     [CmdletBinding()]
-    [OutputType([ordered])]
+    [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory = $true)][string]$ManifestPath,
-        [Parameter(Mandatory = $true)][string]$ChangedSpecManifestPath,
-        [Parameter(Mandatory = $true)][string]$EvalRoot,
-        [Parameter(Mandatory = $true)][ValidateSet(1, 4)][int]$ShardCount,
-        [Parameter(Mandatory = $true)][string]$BaselineSubject
+        [Parameter(Mandatory = $true)][ValidateSet('agent', 'instruction', 'skill')][string]$Kind,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Artifact,
+        [Parameter(Mandatory = $true)][hashtable]$Index,
+        [Parameter(Mandatory = $true)][hashtable]$BacklinkCount,
+        [Parameter(Mandatory = $true)][int]$ShardCount,
+        [Parameter(Mandatory = $true)][string]$ShardPrefix,
+        [switch]$PreserveEmptyProducer
     )
 
-    $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20
-    $changedSpecManifest = Get-Content -LiteralPath $ChangedSpecManifestPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20
-    $artifacts = @(Get-AgentEvalArtifacts -Manifest $manifest -ChangedSpecManifest $changedSpecManifest)
-    $agentArtifacts = @($artifacts | Where-Object { [string]$_.kind -eq 'agent' })
-    $index = New-StimulusIndex -EvalRoot $EvalRoot
-    if (@($index.errors).Count -gt 0) { throw "Stimulus index contains $(@($index.errors).Count) parse error(s)." }
-    $backlinkCounts = Get-VallySpecBacklinkCount -Index $index
     $descriptors = @(
-        foreach ($artifact in $agentArtifacts) {
-            $coverage = Test-StimulusCoverage -Index $index -Kind 'agent' -ArtifactId ([string]$artifact.artifactId)
+        foreach ($artifactItem in @($Artifact | Where-Object { [string]$_.kind -eq $Kind })) {
+            $coverage = Test-StimulusCoverage -Index $Index -Kind $Kind -ArtifactId ([string]$artifactItem.artifactId)
             [ordered]@{
-                kind       = 'agent'
-                artifactId = [string]$artifact.artifactId
-                path       = [string]$artifact.path
-                status     = [string]$artifact.status
+                kind       = $Kind
+                artifactId = [string]$artifactItem.artifactId
+                path       = [string]$artifactItem.path
+                status     = [string]$artifactItem.status
                 specs      = $coverage
             }
         }
     )
-    $runPlan = Get-VallySpecRunPlan -Artifact $descriptors -SpecBacklinkCount $backlinkCounts -IndexRoot $index.root
+    $runPlan = Get-VallySpecRunPlan -Artifact $descriptors -SpecBacklinkCount $BacklinkCount -IndexRoot $Index.root
     if (@($runPlan.missingSpecs).Count -gt 0) {
-        throw "Cannot plan agent evals: $(@($runPlan.missingSpecs).Count) artifact(s) have no covering spec."
+        throw "Cannot plan $Kind evals: $(@($runPlan.missingSpecs).Count) artifact(s) have no covering spec."
     }
 
     $ordinaryRuns = @{}
@@ -174,12 +177,12 @@ function New-AgentEvalPlanValue {
         $ordinaryRuns[$runKey] = $run
     }
     $ordinaryArtifactPlan = @(
-        foreach ($artifact in @($runPlan.artifactPlan)) {
-            $runKeys = @($artifact.specRuns | Where-Object { $ordinaryRuns.ContainsKey([string]$_) } | Sort-Object -Unique)
+        foreach ($artifactItem in @($runPlan.artifactPlan)) {
+            $runKeys = @($artifactItem.specRuns | Where-Object { $ordinaryRuns.ContainsKey([string]$_) } | Sort-Object -Unique)
             if ($runKeys.Count -eq 0) { continue }
             [pscustomobject][ordered]@{
-                kind       = [string]$artifact.kind
-                artifactId = [string]$artifact.artifactId
+                kind       = [string]$artifactItem.kind
+                artifactId = [string]$artifactItem.artifactId
                 specRuns   = $runKeys
             }
         }
@@ -202,7 +205,8 @@ function New-AgentEvalPlanValue {
     $shards = @(
         for ($indexValue = 1; $indexValue -le $ShardCount; $indexValue++) {
             [pscustomobject][ordered]@{
-                id                  = 'ordinary-{0:d2}' -f $indexValue
+                id                  = '{0}-{1:d2}' -f $ShardPrefix, $indexValue
+                kind                = $Kind
                 expectedTrialWeight = 0
                 artifacts           = [System.Collections.Generic.List[string]]::new()
                 runKeys             = [System.Collections.Generic.List[string]]::new()
@@ -215,20 +219,73 @@ function New-AgentEvalPlanValue {
         foreach ($artifactKey in $component.ArtifactKeys) { $target.artifacts.Add($artifactKey) }
         foreach ($runKey in $component.RunKeys) { $target.runKeys.Add($runKey) }
     }
-    $ordinaryShards = @(
-        foreach ($shard in @($shards | Where-Object { $_.artifacts.Count -gt 0 } | Sort-Object id)) {
-            [ordered]@{
-                id                  = $shard.id
-                expectedTrialWeight = [int]$shard.expectedTrialWeight
-                artifacts           = @($shard.artifacts | Sort-Object)
-                runKeys             = @($shard.runKeys | Sort-Object -Unique)
+
+    $selectedShards = @($shards | Where-Object { $_.artifacts.Count -gt 0 } | Sort-Object id)
+    if ($selectedShards.Count -eq 0 -and $PreserveEmptyProducer) { $selectedShards = @($shards[0]) }
+    return @{
+        Shards = @(
+            foreach ($shard in $selectedShards) {
+                [ordered]@{
+                    id                  = $shard.id
+                    kind                = $shard.kind
+                    expectedTrialWeight = [int]$shard.expectedTrialWeight
+                    artifacts           = @($shard.artifacts | Sort-Object)
+                    runKeys             = @($shard.runKeys | Sort-Object -Unique)
+                }
             }
-        }
+        )
+        ArtifactKeys = @($ordinaryArtifactPlan | ForEach-Object { "$($_.kind):$($_.artifactId)" } | Sort-Object -Unique)
+        RunKeys      = @($ordinaryRuns.Keys | Sort-Object)
+    }
+}
+
+function New-AgentEvalPlanValue {
+    <#
+    .SYNOPSIS
+        Constructs the canonical plan value from manifests and eval specs.
+    #>
+    [CmdletBinding()]
+    [OutputType([ordered])]
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ChangedSpecManifestPath,
+        [Parameter(Mandatory = $true)][string]$EvalRoot,
+        [Parameter(Mandatory = $true)][ValidateSet(1, 4)][int]$ShardCount,
+        [ValidateSet(1, 2)][int]$InstructionShardCount = 2,
+        [ValidateSet(1, 2)][int]$SkillShardCount = 2,
+        [Parameter(Mandatory = $true)][string]$BaselineSubject
     )
+
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20
+    $changedSpecManifest = Get-Content -LiteralPath $ChangedSpecManifestPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20
+    $artifacts = @(Get-AgentEvalArtifacts -Manifest $manifest -ChangedSpecManifest $changedSpecManifest)
+    $index = New-StimulusIndex -EvalRoot $EvalRoot
+    if (@($index.errors).Count -gt 0) { throw "Stimulus index contains $(@($index.errors).Count) parse error(s)." }
+    $backlinkCounts = Get-VallySpecBacklinkCount -Index $index
+    $ordinaryShards = [System.Collections.Generic.List[object]]::new()
+    $expectedArtifactKeys = [System.Collections.Generic.List[string]]::new()
+    $expectedRunKeys = [System.Collections.Generic.List[string]]::new()
+    foreach ($definition in @(
+            @{ Kind = 'agent'; ShardCount = $ShardCount; ShardPrefix = 'ordinary'; PreserveEmptyProducer = $false }
+            @{ Kind = 'instruction'; ShardCount = $InstructionShardCount; ShardPrefix = 'instruction'; PreserveEmptyProducer = $true }
+            @{ Kind = 'skill'; ShardCount = $SkillShardCount; ShardPrefix = 'skill'; PreserveEmptyProducer = $true }
+        )) {
+        $kindPlan = New-AgentEvalKindPlan `
+            -Kind $definition.Kind `
+            -Artifact $artifacts `
+            -Index $index `
+            -BacklinkCount $backlinkCounts `
+            -ShardCount $definition.ShardCount `
+            -ShardPrefix $definition.ShardPrefix `
+            -PreserveEmptyProducer:$definition.PreserveEmptyProducer
+        foreach ($shard in $kindPlan.Shards) { $ordinaryShards.Add($shard) }
+        foreach ($artifactKey in $kindPlan.ArtifactKeys) { $expectedArtifactKeys.Add($artifactKey) }
+        foreach ($runKey in $kindPlan.RunKeys) { $expectedRunKeys.Add($runKey) }
+    }
     Assert-AgentEvalOwnership `
-        -ExpectedArtifact @($ordinaryArtifactPlan | ForEach-Object { "$($_.kind):$($_.artifactId)" } | Sort-Object -Unique) `
-        -ExpectedRunKey @($ordinaryRuns.GetEnumerator() | ForEach-Object { [string]$_.Key } | Sort-Object) `
-        -Shard $ordinaryShards
+        -ExpectedArtifact @($expectedArtifactKeys | Sort-Object -Unique) `
+        -ExpectedRunKey @($expectedRunKeys | Sort-Object -Unique) `
+        -Shard @($ordinaryShards)
 
     $affectedAgents = @($manifest.affectedAgents | ForEach-Object { [string]$_ } | Sort-Object -Unique)
     $baselineRequired = $affectedAgents -contains $BaselineSubject
@@ -244,20 +301,20 @@ function New-AgentEvalPlanValue {
     }
     $expectedProducers = [System.Collections.Generic.List[string]]::new()
     foreach ($shard in $ordinaryShards) { $expectedProducers.Add([string]$shard.id) }
-    foreach ($producer in @('prompt', 'instruction', 'skill')) { $expectedProducers.Add($producer) }
+    $expectedProducers.Add('prompt')
     if ($baselineRequired) {
         $expectedProducers.Add('baseline:gpt-5.6-luna')
         $expectedProducers.Add('baseline:claude-sonnet-5')
     }
 
     $digestPayload = [ordered]@{
-        schemaVersion   = '1.0.0'
+        schemaVersion   = '1.1.0'
         manifestDigests = [ordered]@{
             changedArtifacts = Get-AgentEvalFileDigest -Path $ManifestPath
             changedSpecs     = Get-AgentEvalFileDigest -Path $ChangedSpecManifestPath
         }
         baseline        = $baseline
-        ordinaryShards  = $ordinaryShards
+        ordinaryShards  = @($ordinaryShards)
         expectedProducers = $expectedProducers
     }
     return [ordered]@{
@@ -291,6 +348,8 @@ if ($MyInvocation.InvocationName -ne '.') {
             -ChangedSpecManifestPath $resolvedChangedSpec `
             -EvalRoot $resolvedEvalRoot `
             -ShardCount $OrdinaryShardCount `
+            -InstructionShardCount $InstructionShardCount `
+            -SkillShardCount $SkillShardCount `
             -BaselineSubject $BaselineSubject
         $outputDirectory = Split-Path -Parent $resolvedOutput
         if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {

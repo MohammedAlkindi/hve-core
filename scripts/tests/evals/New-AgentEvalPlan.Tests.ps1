@@ -46,6 +46,17 @@ BeforeAll {
         ) -join "`n"
         return "name: $Agent`ndefaults:`n  runs: $Runs`nstimuli:`n$rows"
     }
+
+    function New-ArtifactSpec {
+        param([string]$Kind, [string]$ArtifactId, [int]$Runs, [int]$Stimuli)
+
+        $rows = @(
+            for ($indexValue = 1; $indexValue -le $Stimuli; $indexValue++) {
+                "  - name: $ArtifactId-$indexValue`n    prompt: test`n    tags:`n      ${Kind}: $ArtifactId"
+            }
+        ) -join "`n"
+        return "name: $ArtifactId`ndefaults:`n  runs: $Runs`nstimuli:`n$rows"
+    }
 }
 
 Describe 'New-AgentEvalPlan.ps1' -Tag 'Unit' {
@@ -57,9 +68,13 @@ Describe 'New-AgentEvalPlan.ps1' -Tag 'Unit' {
         $first = New-AgentEvalPlanValue -ManifestPath $fixture.ManifestPath -ChangedSpecManifestPath $fixture.ChangedSpecPath -EvalRoot $fixture.EvalRoot -ShardCount 4 -BaselineSubject 'rpi-agent'
         $second = New-AgentEvalPlanValue -ManifestPath $fixture.ManifestPath -ChangedSpecManifestPath $fixture.ChangedSpecPath -EvalRoot $fixture.EvalRoot -ShardCount 4 -BaselineSubject 'rpi-agent'
 
-        @($first.ordinaryShards) | Should -HaveCount 1
-        $first.ordinaryShards[0].id | Should -Be 'ordinary-01'
-        $first.ordinaryShards[0].expectedTrialWeight | Should -Be 10
+        @($first.ordinaryShards) | Should -HaveCount 3
+        $agentShard = @($first.ordinaryShards | Where-Object { $_.kind -eq 'agent' })[0]
+        $agentShard.id | Should -Be 'ordinary-01'
+        $agentShard.expectedTrialWeight | Should -Be 10
+        @($first.ordinaryShards | Where-Object { $_.kind -eq 'instruction' }).artifacts | Should -BeNullOrEmpty
+        @($first.ordinaryShards | Where-Object { $_.kind -eq 'skill' }).artifacts | Should -BeNullOrEmpty
+        $first.schemaVersion | Should -Be '1.1.0'
         $first.planDigest | Should -BeExactly $second.planDigest
         Test-AgentEvalPlanDigest -Plan ([pscustomobject]$first) | Should -BeTrue
     }
@@ -79,10 +94,11 @@ Describe 'New-AgentEvalPlan.ps1' -Tag 'Unit' {
 
         $plan = New-AgentEvalPlanValue -ManifestPath $fixture.ManifestPath -ChangedSpecManifestPath $fixture.ChangedSpecPath -EvalRoot $fixture.EvalRoot -ShardCount 4 -BaselineSubject 'rpi-agent'
 
-        @($plan.ordinaryShards.expectedTrialWeight) | Should -Be @(15, 10, 5)
-        @($plan.ordinaryShards[0].artifacts) | Should -Be @('agent:alpha')
-        @($plan.ordinaryShards[1].artifacts) | Should -Be @('agent:beta')
-        @($plan.ordinaryShards[2].artifacts) | Should -Be @('agent:gamma')
+        $agentShards = @($plan.ordinaryShards | Where-Object { $_.kind -eq 'agent' })
+        @($agentShards.expectedTrialWeight) | Should -Be @(15, 10, 5)
+        @($agentShards[0].artifacts) | Should -Be @('agent:alpha')
+        @($agentShards[1].artifacts) | Should -Be @('agent:beta')
+        @($agentShards[2].artifacts) | Should -Be @('agent:gamma')
     }
 
     It 'keeps artifacts sharing an identical run key in one component' {
@@ -131,8 +147,66 @@ Describe 'New-AgentEvalPlan.ps1' -Tag 'Unit' {
         $plan.baseline.reason | Should -Be 'agent-not-affected:rpi-agent'
         @($plan.baseline.models) | Should -HaveCount 0
         @($plan.expectedProducers | Where-Object { $_ -like 'baseline:*' }) | Should -HaveCount 0
-        @($plan.expectedProducers) | Should -Be @('prompt', 'instruction', 'skill')
+        @($plan.expectedProducers) | Should -Be @('instruction-01', 'skill-01', 'prompt')
         @($plan.expectedProducers | Where-Object { [string]::IsNullOrWhiteSpace([string]$_) }) | Should -HaveCount 0
+    }
+
+    It 'balances instruction and skill components and preserves one-shard rollback' {
+        $artifacts = [System.Collections.Generic.List[hashtable]]::new()
+        $specs = [System.Collections.Generic.List[hashtable]]::new()
+        foreach ($definition in @(
+                @{ Kind = 'instruction'; Id = 'instruction-heavy'; Stimuli = 2 }
+                @{ Kind = 'instruction'; Id = 'instruction-a'; Stimuli = 1 }
+                @{ Kind = 'instruction'; Id = 'instruction-b'; Stimuli = 1 }
+                @{ Kind = 'instruction'; Id = 'instruction-c'; Stimuli = 1 }
+                @{ Kind = 'instruction'; Id = 'instruction-d'; Stimuli = 1 }
+                @{ Kind = 'skill'; Id = 'skill-a'; Stimuli = 11 }
+                @{ Kind = 'skill'; Id = 'skill-b'; Stimuli = 11 }
+                @{ Kind = 'skill'; Id = 'skill-small'; Stimuli = 1 }
+            )) {
+            $path = if ($definition.Kind -eq 'skill') {
+                ".github/skills/test/$($definition.Id)/SKILL.md"
+            }
+            else {
+                ".github/instructions/test/$($definition.Id).instructions.md"
+            }
+            $artifacts.Add(@{ kind = $definition.Kind; artifactId = $definition.Id; path = $path; status = 'M' })
+            $specs.Add(@{
+                    Path = "$($definition.Kind)-$($definition.Id).yaml"
+                    Yaml = New-ArtifactSpec -Kind $definition.Kind -ArtifactId $definition.Id -Runs 3 -Stimuli $definition.Stimuli
+                })
+        }
+        $fixture = New-PlanFixture -Artifacts $artifacts.ToArray() -Specs $specs.ToArray()
+
+        $plan = New-AgentEvalPlanValue `
+            -ManifestPath $fixture.ManifestPath `
+            -ChangedSpecManifestPath $fixture.ChangedSpecPath `
+            -EvalRoot $fixture.EvalRoot `
+            -ShardCount 4 `
+            -InstructionShardCount 2 `
+            -SkillShardCount 2 `
+            -BaselineSubject 'rpi-agent'
+
+        $instructionShards = @($plan.ordinaryShards | Where-Object { $_.kind -eq 'instruction' })
+        $skillShards = @($plan.ordinaryShards | Where-Object { $_.kind -eq 'skill' })
+        @($instructionShards.id) | Should -Be @('instruction-01', 'instruction-02')
+        @($instructionShards.expectedTrialWeight) | Should -Be @(9, 9)
+        @($skillShards.id) | Should -Be @('skill-01', 'skill-02')
+        @($skillShards.expectedTrialWeight) | Should -Be @(36, 33)
+
+        $rollback = New-AgentEvalPlanValue `
+            -ManifestPath $fixture.ManifestPath `
+            -ChangedSpecManifestPath $fixture.ChangedSpecPath `
+            -EvalRoot $fixture.EvalRoot `
+            -ShardCount 4 `
+            -InstructionShardCount 1 `
+            -SkillShardCount 1 `
+            -BaselineSubject 'rpi-agent'
+
+        @($rollback.ordinaryShards | Where-Object { $_.kind -eq 'instruction' }).expectedTrialWeight | Should -Be 18
+        @($rollback.ordinaryShards | Where-Object { $_.kind -eq 'skill' }).expectedTrialWeight | Should -Be 69
+        @($rollback.expectedProducers) | Should -Contain 'instruction-01'
+        @($rollback.expectedProducers) | Should -Contain 'skill-01'
     }
 
     It 'rejects an artifact without coverage' {

@@ -71,6 +71,14 @@ function Merge-EvalSummaryValue {
     foreach ($shard in @($Plan.ordinaryShards)) {
         $summaryItem = $byProducer[[string]$shard.id]
         if ([string]$summaryItem.planDigest -cne [string]$Plan.planDigest) { throw "Shard '$($shard.id)' has the wrong plan digest." }
+        $summaryKinds = @($summaryItem.kindFilter | ForEach-Object { [string]$_ })
+        if ($summaryKinds.Count -ne 1 -or $summaryKinds[0] -cne [string]$shard.kind) {
+            throw "Shard '$($shard.id)' has the wrong kind."
+        }
+        if ([string]$summaryItem.manifestDigests.changedArtifacts -cne [string]$Plan.manifestDigests.changedArtifacts -or
+            [string]$summaryItem.manifestDigests.changedSpecs -cne [string]$Plan.manifestDigests.changedSpecs) {
+            throw "Shard '$($shard.id)' has the wrong manifest digests."
+        }
         foreach ($artifact in @($summaryItem.perArtifact)) {
             $key = "$([string]$artifact.kind):$([string]$artifact.artifactId)"
             if ($artifactOwners.ContainsKey($key)) { throw "Duplicate artifact evidence '$key'." }
