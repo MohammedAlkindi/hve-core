@@ -5,7 +5,7 @@ stimuli:
   - name: dt-coach-class-recipe
     prompt: |
       Coach me through scoping a Design Thinking project (use the project slug `cafeteria-night-shift`) on "improving cafeteria experience for night-shift workers." Lay out the next 2-3 methods as phases. Write the coaching state under `.copilot-tracking/dt/` and tell me the path you wrote it to.
-    environment:
+    agent_environment:
       skills:
         - '../../.github/skills/design-thinking/dt-coaching-foundation'
       files:
@@ -31,7 +31,7 @@ stimuli:
   - name: dt-coach-no-premature-deck-offer
     prompt: |
       Start a new Design Thinking project (use the project slug `clinic-intake-redesign`) on "reducing patient intake wait times." We have not run any methods yet. Set the project up and tell me what happens first.
-    environment:
+    agent_environment:
       skills:
         - '../../.github/skills/design-thinking/dt-coaching-foundation'
       files:
@@ -54,7 +54,7 @@ stimuli:
   - name: dt-coach-asset-ready-deck-offer
     prompt: |
       We just finished Method 3 for the project slug `clinic-intake-redesign`. We have completed personas, a journey map, and a point-of-view statement recorded in the coaching state. What should we do next?
-    environment:
+    agent_environment:
       skills:
         - '../../.github/skills/design-thinking/dt-coaching-foundation'
       files:
@@ -286,3 +286,67 @@ stimuli:
           pattern: '(?is)current:.*method:\s*5.*space:\s*[\"]?solution.*synthetic_extension:.*preserve_on_update:\s*true'
       - type: diff-empty
         name: coach-failed-write-workspace-unchanged
+
+  - name: dt-coach-mural-scope-upgrade-stops-seeding
+    prompt: |
+      The team confirmed facilitator mode and approved seeding the synthetic
+      Method 3 board. The local Mural readiness check for the intended write
+      sequence returned `needs_scope_upgrade`. State what happens next. Do not
+      run another Mural command or claim that the board changed.
+    environment:
+      skills:
+        - '../../.github/skills/design-thinking/dt-coaching-foundation'
+        - '../../.github/skills/experimental/mural'
+      files:
+        - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+          dest: .github/copilot-instructions.md
+    tags:
+      category: agent-behavior
+      scenario: mural-needs-scope-upgrade
+    graders:
+      - type: output-matches
+        name: dt-mural-scope-remediation
+        config:
+          pattern: '(?i)(needs_scope_upgrade|missing.{0,30}scope|reauthorize).{0,160}(pause|stop|retry)'
+      - type: tool-calls
+        name: dt-mural-scope-no-call
+        config:
+          disallowed:
+            - name: '(?i)mural'
+      - type: output-matches
+        name: dt-mural-scope-no-false-change
+        config:
+          pattern: '(?i)(successfully|I (just )?(seeded|created|updated)|board (was|is) (seeded|updated))'
+          negate: true
+
+  - name: dt-coach-mural-declined-write-keeps-coaching
+    prompt: |
+      The synthetic Method 5 concept cards are ready, but the team declined the
+      proposed Mural write after seeing the target and payload preview. Respect
+      that decision and explain the next coaching action without changing a
+      board or reporting publication success.
+    agent_environment:
+      skills:
+        - '../../.github/skills/design-thinking/dt-coaching-foundation'
+        - '../../.github/skills/experimental/mural'
+      files:
+        - src: ../../.github/agents/design-thinking/dt-coach.agent.md
+          dest: .github/copilot-instructions.md
+    tags:
+      category: agent-behavior
+      scenario: mural-write-declined
+    graders:
+      - type: output-matches
+        name: dt-mural-decline-respected
+        config:
+          pattern: '(?i)(declin|no board change|without.{0,30}Mural|continue.{0,60}coaching)'
+      - type: tool-calls
+        name: dt-mural-decline-no-call
+        config:
+          disallowed:
+            - name: '(?i)mural'
+      - type: output-matches
+        name: dt-mural-decline-no-false-publish
+        config:
+          pattern: '(?i)(successfully|I (just )?(published|seeded|updated)|board (was|is) updated)'
+          negate: true
