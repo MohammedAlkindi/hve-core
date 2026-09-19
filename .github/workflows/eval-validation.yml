@@ -25,6 +25,16 @@ on:
         required: false
         type: number
         default: 4
+      instruction-shard-count:
+        description: "Instruction shard count (1 or 2)"
+        required: false
+        type: number
+        default: 2
+      skill-shard-count:
+        description: "Skill shard count (1 or 2)"
+        required: false
+        type: number
+        default: 2
       baseline-max-parallel:
         description: "Maximum simultaneous isolated baseline model jobs (1 or 2)"
         required: false
@@ -374,11 +384,19 @@ jobs:
         shell: pwsh
         env:
           ORDINARY_SHARD_COUNT: ${{ inputs.ordinary-shard-count }}
+          INSTRUCTION_SHARD_COUNT: ${{ inputs.instruction-shard-count }}
+          SKILL_SHARD_COUNT: ${{ inputs.skill-shard-count }}
           BASELINE_MAX_PARALLEL: ${{ inputs.baseline-max-parallel }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.copilot-github-token }}
         run: |
           if ($env:ORDINARY_SHARD_COUNT -notin @('1', '4')) {
             throw "ordinary-shard-count must be 1 or 4; received '$env:ORDINARY_SHARD_COUNT'."
+          }
+          if ($env:INSTRUCTION_SHARD_COUNT -notin @('1', '2')) {
+            throw "instruction-shard-count must be 1 or 2; received '$env:INSTRUCTION_SHARD_COUNT'."
+          }
+          if ($env:SKILL_SHARD_COUNT -notin @('1', '2')) {
+            throw "skill-shard-count must be 1 or 2; received '$env:SKILL_SHARD_COUNT'."
           }
           if ($env:BASELINE_MAX_PARALLEL -notin @('1', '2')) {
             throw "baseline-max-parallel must be 1 or 2; received '$env:BASELINE_MAX_PARALLEL'."
@@ -387,15 +405,17 @@ jobs:
             -ManifestPath logs/changed-ai-artifacts.json `
             -ChangedSpecManifestPath logs/changed-spec-stimuli.json `
             -OutputPath logs/agent-eval-plan.json `
-            -OrdinaryShardCount ([int]$env:ORDINARY_SHARD_COUNT)
+            -OrdinaryShardCount ([int]$env:ORDINARY_SHARD_COUNT) `
+            -InstructionShardCount ([int]$env:INSTRUCTION_SHARD_COUNT) `
+            -SkillShardCount ([int]$env:SKILL_SHARD_COUNT)
           if ($LASTEXITCODE -ne 0) { throw 'Canonical agent eval planning failed.' }
           $plan = Get-Content -LiteralPath logs/agent-eval-plan.json -Raw | ConvertFrom-Json -Depth 50
           $include = [System.Collections.Generic.List[object]]::new()
-          foreach ($kind in @('prompt', 'instruction', 'skill')) {
-            $include.Add([ordered]@{ kind = $kind; producer = $kind; shard = '' })
-          }
-          foreach ($shard in @($plan.ordinaryShards)) {
-            $include.Add([ordered]@{ kind = 'agent'; producer = [string]$shard.id; shard = [string]$shard.id })
+          $include.Add([ordered]@{ kind = 'prompt'; producer = 'prompt'; shard = '' })
+          # Matrix order determines job creation order, so emit the heaviest shards before the concurrency cap fills.
+          $orderedShards = @($plan.ordinaryShards | Sort-Object @{ Expression = { [int]$_.expectedTrialWeight }; Descending = $true }, @{ Expression = { [string]$_.id }; Ascending = $true })
+          foreach ($shard in $orderedShards) {
+            $include.Add([ordered]@{ kind = [string]$shard.kind; producer = [string]$shard.id; shard = [string]$shard.id })
           }
           $matrix = [ordered]@{ include = @($include) } | ConvertTo-Json -Depth 5 -Compress
           "execution-matrix=$matrix" >> $env:GITHUB_OUTPUT
@@ -535,7 +555,7 @@ jobs:
             logs/eval-summary.json
             logs/eval-results-*.json
           retention-days: 30
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Fail job if eval execution failed
         if: env.EVAL_EXECUTE == 'true' && env.EVAL_EXECUTE_FAILED == 'true' && !inputs.soft-fail

@@ -28,10 +28,8 @@ Authors Vally conformance test stimuli in two modes: from-artifact (read a promp
 
 ## When to use it
 
-<!-- asset-docs:stub -->
-Describe the situations where this asset is the right choice, and when to reach for a different asset instead.
+The Vally authoring workflow dispatches this worker to draft conformance stimuli from an artifact or import an approved corpus. It routes tests by artifact kind, applies safety checks, deduplicates them, and appends advisory cases. It does not execute Vally or promote cases to authoritative status.
 
 ## Example usage
 
-<!-- asset-docs:stub -->
-Provide a concrete example that shows the asset in action, including representative input and the resulting output.
+The parent supplies `mode=from-artifact`, a supported target artifact, and the requested documented behaviors. The worker resolves the suite through the Vally skill, checks safety and duplicate hashes, and appends eligible advisory stimuli with an output summary. The source artifact remains unchanged, and unsuitable stimuli are rejected rather than stored as executable test payloads.

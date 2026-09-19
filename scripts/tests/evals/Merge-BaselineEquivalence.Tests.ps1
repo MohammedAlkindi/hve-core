@@ -284,6 +284,24 @@ Describe 'Eval validation workflow contract' -Tag 'Unit' {
         $script:Workflow | Should -Match ([regex]::Escape($shardArguments))
     }
 
+    It 'defines reversible target shard controls and derives target rows from the canonical plan' {
+        $script:Workflow | Should -Match '(?s)instruction-shard-count:.*?default: 2.*?skill-shard-count:.*?default: 2'
+        $script:Workflow | Should -Match "INSTRUCTION_SHARD_COUNT -notin @\('1', '2'\)"
+        $script:Workflow | Should -Match "SKILL_SHARD_COUNT -notin @\('1', '2'\)"
+        $script:Workflow | Should -Match ([regex]::Escape("instruction-shard-count must be 1 or 2; received '"))
+        $script:Workflow | Should -Match ([regex]::Escape("skill-shard-count must be 1 or 2; received '"))
+        $script:Workflow | Should -Match '-InstructionShardCount \(\[int\]\$env:INSTRUCTION_SHARD_COUNT\)'
+        $script:Workflow | Should -Match '-SkillShardCount \(\[int\]\$env:SKILL_SHARD_COUNT\)'
+        $script:Workflow | Should -Match ([regex]::Escape("`$include.Add([ordered]@{ kind = 'prompt'; producer = 'prompt'; shard = '' })"))
+    }
+
+    It 'emits planned producer rows heaviest first with a stable tie break' {
+        $script:Workflow | Should -Match ([regex]::Escape("Expression = { [int]`$_.expectedTrialWeight }; Descending = `$true"))
+        $script:Workflow | Should -Match ([regex]::Escape("Expression = { [string]`$_.id }; Ascending = `$true"))
+        $script:Workflow | Should -Match ([regex]::Escape("foreach (`$shard in `$orderedShards)"))
+        $script:Workflow | Should -Not -Match ([regex]::Escape("foreach (`$kind in @('instruction', 'skill', 'agent'))"))
+    }
+
     It 'makes global fan-in authoritative for reporting' {
         $script:Workflow | Should -Match '(?s)eval-fan-in:.*?needs: \[eval-validation, agent-plan, eval-execute, equivalence-fan-in\]'
         $script:Workflow | Should -Match '(?s)eval-fan-in:.*?Merge-EvalExecution\.ps1.*?Authoritative eval fan-in failed closed'
@@ -297,6 +315,7 @@ Describe 'Eval validation workflow contract' -Tag 'Unit' {
     }
 
     It 'encodes fail-closed producer, cancellation, upload, not-required, and reporting branches' {
+        $script:Workflow | Should -Match '(?s)Upload eval execution results.*?if: always\(\).*?if-no-files-found: error'
         $script:Workflow | Should -Match '(?s)Upload isolated model evidence.*?if: always\(\).*?if-no-files-found: error'
         $script:Workflow | Should -Match "env\.EQUIVALENCE_FAILED == 'true' && !inputs\.soft-fail"
         $script:Workflow | Should -Match '(?s)equivalence-fan-in:.*?always\(\) && !cancelled\(\)'

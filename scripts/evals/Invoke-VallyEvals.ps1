@@ -40,7 +40,7 @@
     root when not absolute. Ignored when empty or missing.
 
 .PARAMETER PlanPath
-    Optional canonical agent eval plan. Must be supplied with ShardId. Agent
+    Optional canonical eval plan. Must be supplied with ShardId. Planned
     workers validate plan and manifest digests plus exact artifact and run-key
     ownership before model-backed execution.
 
@@ -434,9 +434,23 @@ if ($resolvedPlanPath) {
         exit 2
     }
     try {
+        $expectedArtifacts = @(
+            foreach ($shard in @($canonicalPlan.ordinaryShards)) {
+                foreach ($artifactKey in @($shard.artifacts)) {
+                    if ($null -ne $artifactKey) { [string]$artifactKey }
+                }
+            }
+        )
+        $expectedRunKeys = @(
+            foreach ($shard in @($canonicalPlan.ordinaryShards)) {
+                foreach ($runKey in @($shard.runKeys)) {
+                    if ($null -ne $runKey) { [string]$runKey }
+                }
+            }
+        )
         Assert-AgentEvalOwnership `
-            -ExpectedArtifact @($canonicalPlan.ordinaryShards.artifacts | ForEach-Object { [string]$_ } | Sort-Object -Unique) `
-            -ExpectedRunKey @($canonicalPlan.ordinaryShards.runKeys | ForEach-Object { [string]$_ } | Sort-Object -Unique) `
+            -ExpectedArtifact @($expectedArtifacts | Sort-Object -Unique) `
+            -ExpectedRunKey @($expectedRunKeys | Sort-Object -Unique) `
             -Shard @($canonicalPlan.ordinaryShards)
     }
     catch {
@@ -509,12 +523,13 @@ if ($kindFilter.Count -gt 0) {
     $artifacts = @($artifacts | Where-Object { $kindFilter -contains [string]$_.kind })
 }
 if ($assignedShard) {
-    if ($kindFilter.Count -ne 1 -or $kindFilter[0] -ne 'agent') {
-        Write-Host '::error::Canonical ordinary shards require Kind agent.'
+    $assignedKind = [string]$assignedShard.kind
+    if ([string]::IsNullOrWhiteSpace($assignedKind) -or $kindFilter.Count -ne 1 -or $kindFilter[0] -cne $assignedKind) {
+        Write-Host "::error::Canonical shard '$ShardId' requires Kind '$assignedKind'."
         exit 2
     }
     $assignedArtifactKeys = @($assignedShard.artifacts | ForEach-Object { [string]$_ } | Sort-Object -Unique)
-    $artifacts = @($artifacts | Where-Object { "agent:$([string]$_.artifactId)" -in $assignedArtifactKeys })
+    $artifacts = @($artifacts | Where-Object { "${assignedKind}:$([string]$_.artifactId)" -in $assignedArtifactKeys })
     $observedArtifactKeys = @($artifacts | ForEach-Object { "$([string]$_.kind):$([string]$_.artifactId)" } | Sort-Object -Unique)
     if (@(Compare-Object -ReferenceObject $assignedArtifactKeys -DifferenceObject $observedArtifactKeys).Count -gt 0) {
         Write-Host "::error::Worker artifact set does not match canonical shard '$ShardId'."

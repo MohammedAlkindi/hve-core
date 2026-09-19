@@ -787,6 +787,41 @@ Describe 'Invoke-VallyEvals.ps1 entry script' -Tag 'Integration' {
         $summary.perArtifact.Count | Should -Be 0
     }
 
+    It 'executes an empty canonical <Kind> shard without manufacturing ownership keys' -ForEach @(
+        @{ Kind = 'instruction' }
+        @{ Kind = 'skill' }
+    ) {
+        $fx = New-EvalFixture -Artifacts @() -Specs @(@{ Name = 'noop.yaml'; Yaml = 'name: noop' })
+        $planPath = Join-Path $fx.Root 'agent-eval-plan.json'
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '../../evals/New-AgentEvalPlan.ps1') `
+            -ManifestPath $fx.ManifestPath `
+            -ChangedSpecManifestPath $fx.ChangedSpecManifestPath `
+            -EvalRoot $fx.EvalRoot `
+            -OutputPath $planPath `
+            -RepoRoot $fx.Root *> $null
+        $LASTEXITCODE | Should -Be 0
+        $plan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json -Depth 50
+        $shard = @($plan.ordinaryShards | Where-Object { $_.kind -eq $Kind })[0]
+
+        & pwsh -NoProfile -File $script:ScriptPath `
+            -ManifestPath $fx.ManifestPath `
+            -ChangedSpecManifestPath $fx.ChangedSpecManifestPath `
+            -PlanPath $planPath `
+            -ShardId $shard.id `
+            -Kind $Kind `
+            -EvalRoot $fx.EvalRoot `
+            -LogsDir $fx.LogsDir `
+            -RepoRoot $fx.Root `
+            -VallyCommand $script:StubPath *> $null
+
+        $LASTEXITCODE | Should -Be 0
+        $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
+        $summary.producer | Should -Be $shard.id
+        $summary.planDigest | Should -Be $plan.planDigest
+        @($summary.perArtifact) | Should -HaveCount 0
+        $summary.totals.artifacts | Should -Be 0
+    }
+
     It 'Exits 0 and aggregates passing trials per artifact' {
         $spec = @'
 name: skill-cover
@@ -1005,6 +1040,75 @@ stimuli:
         $summary.planDigest | Should -Be $plan.planDigest
         @($summary.perArtifact) | Should -HaveCount 1
         $summary.perArtifact[0].artifactId | Should -Be 'alpha'
+    }
+
+    It 'executes one canonical <Kind> shard and stamps its planned producer identity' -ForEach @(
+        @{ Kind = 'instruction'; ArtifactId = 'sample-instruction'; Path = '.github/instructions/test/sample-instruction.instructions.md' }
+        @{ Kind = 'skill'; ArtifactId = 'sample-skill'; Path = '.github/skills/test/sample-skill/SKILL.md' }
+    ) {
+        $spec = "name: $ArtifactId`ndefaults:`n  runs: 1`nstimuli:`n  - name: $ArtifactId`n    prompt: hi`n    tags:`n      ${Kind}: $ArtifactId"
+        $fx = New-EvalFixture `
+            -Artifacts @(@{ kind = $Kind; artifactId = $ArtifactId; path = $Path; status = 'M' }) `
+            -Specs @(@{ Name = "$Kind.yaml"; Yaml = $spec })
+        $planPath = Join-Path $fx.Root 'agent-eval-plan.json'
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '../../evals/New-AgentEvalPlan.ps1') `
+            -ManifestPath $fx.ManifestPath `
+            -ChangedSpecManifestPath $fx.ChangedSpecManifestPath `
+            -EvalRoot $fx.EvalRoot `
+            -OutputPath $planPath `
+            -RepoRoot $fx.Root *> $null
+        $LASTEXITCODE | Should -Be 0
+        $plan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json -Depth 50
+        $shard = @($plan.ordinaryShards | Where-Object { $_.kind -eq $Kind -and @($_.artifacts) -contains "${Kind}:$ArtifactId" })[0]
+
+        $env:STUB_VALLY_MODE = 'pass'
+        try {
+            & pwsh -NoProfile -File $script:ScriptPath `
+                -ManifestPath $fx.ManifestPath `
+                -ChangedSpecManifestPath $fx.ChangedSpecManifestPath `
+                -PlanPath $planPath `
+                -ShardId $shard.id `
+                -Kind $Kind `
+                -EvalRoot $fx.EvalRoot `
+                -LogsDir $fx.LogsDir `
+                -RepoRoot $fx.Root `
+                -VallyCommand $script:StubPath `
+                -SkipInputModeration -SkipOutputModeration *> $null
+        }
+        finally {
+            Remove-Item Env:\STUB_VALLY_MODE -ErrorAction SilentlyContinue
+        }
+
+        $LASTEXITCODE | Should -Be 0
+        $summary = Get-Content -LiteralPath $fx.SummaryPath -Raw | ConvertFrom-Json
+        $summary.producer | Should -Be $shard.id
+        $summary.planDigest | Should -Be $plan.planDigest
+        @($summary.perArtifact) | Should -HaveCount 1
+        $summary.perArtifact[0].kind | Should -Be $Kind
+        $summary.perArtifact[0].artifactId | Should -Be $ArtifactId
+    }
+
+    It 'rejects a matrix kind that differs from the canonical shard kind' {
+        $artifactId = 'sample-instruction'
+        $spec = "name: $artifactId`ndefaults:`n  runs: 1`nstimuli:`n  - name: $artifactId`n    prompt: hi`n    tags:`n      instruction: $artifactId"
+        $fx = New-EvalFixture `
+            -Artifacts @(@{ kind = 'instruction'; artifactId = $artifactId; path = '.github/instructions/test/sample-instruction.instructions.md'; status = 'M' }) `
+            -Specs @(@{ Name = 'instruction.yaml'; Yaml = $spec })
+        $planPath = Join-Path $fx.Root 'agent-eval-plan.json'
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '../../evals/New-AgentEvalPlan.ps1') `
+            -ManifestPath $fx.ManifestPath -ChangedSpecManifestPath $fx.ChangedSpecManifestPath `
+            -EvalRoot $fx.EvalRoot -OutputPath $planPath -RepoRoot $fx.Root *> $null
+        $plan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json -Depth 50
+        $shard = @($plan.ordinaryShards | Where-Object { $_.kind -eq 'instruction' })[0]
+
+        $output = & pwsh -NoProfile -File $script:ScriptPath `
+            -ManifestPath $fx.ManifestPath -ChangedSpecManifestPath $fx.ChangedSpecManifestPath `
+            -PlanPath $planPath -ShardId $shard.id -Kind skill `
+            -EvalRoot $fx.EvalRoot -LogsDir $fx.LogsDir -RepoRoot $fx.Root `
+            -VallyCommand $script:StubPath -SkipInputModeration -SkipOutputModeration 2>&1
+
+        $LASTEXITCODE | Should -Be 2
+        $output -join "`n" | Should -Match "requires Kind 'instruction'"
     }
 
     It 'rejects manifest drift before canonical shard execution' {
