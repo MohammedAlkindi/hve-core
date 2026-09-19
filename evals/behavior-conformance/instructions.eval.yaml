@@ -79,23 +79,73 @@ stimuli:
 
   - name: instruction-dt-coach-telemetry-conformance
     prompt: |
-      You are revising an observable production behavior in a Design Thinking
-      session artifact under `.copilot-tracking/dt/payments-service/`. Which
-      `.github/instructions/**/*.instructions.md` file applies (cite its path),
-      and what telemetry decisions does it require before implementation?
+      Apply the staged Design Thinking telemetry instruction to
+      `.copilot-tracking/dt/synthetic-renewal-lab/observable-input.txt`.
+      Write `.copilot-tracking/dt/synthetic-renewal-lab/telemetry-decision.md`
+      with the required trace, metric instrument and UCUM unit, PII handling,
+      and cardinality decisions. Keep the fixture's evidence ceiling and do not
+      change settings or claim that telemetry was emitted.
+    agent_environment:
+      skills:
+        - ../../.github/skills/design-thinking/dt-methods
+        - ../../.github/skills/shared/telemetry-foundations
+      files:
+        - src: ../../.github/instructions/design-thinking/dt-coach-telemetry.instructions.md
+          dest: .github/instructions/design-thinking/dt-coach-telemetry.instructions.md
+        - src: fixtures/dt-destination-intent/telemetry-observable.txt
+          dest: .copilot-tracking/dt/synthetic-renewal-lab/observable-input.txt
+    tags:
+      category: behavior-conformance
+      instruction: dt-coach-telemetry
+      advisory: "true"
+    graders:
+      - type: file-matches
+        name: dt-telemetry-signal-shapes
+        config:
+          path: .copilot-tracking/dt/synthetic-renewal-lab/telemetry-decision.md
+          pattern: '(?is)(?=.*(?:trace|span))(?=.*histogram)(?=.*(?:\bs\b|second|UCUM))(?=.*(?:service boundary|crosses.*service))'
+      - type: file-matches
+        name: dt-telemetry-pii-cardinality
+        config:
+          path: .copilot-tracking/dt/synthetic-renewal-lab/telemetry-decision.md
+          pattern: '(?is)(?=.*user\.email.*(?:hash|drop))(?=.*user\.phone.*drop)(?=.*auth\.token.*drop)(?=.*(?:review\.free_text|renewal\.request_id).*(?:log|demote|demoted))'
+      - type: file-matches
+        name: dt-telemetry-evidence-ceiling
+        config:
+          path: .copilot-tracking/dt/synthetic-renewal-lab/telemetry-decision.md
+          pattern: '(?is)(?=.*synthetic)(?=.*(?:not|no).*(?:emitted|production evidence|control effectiveness|proof))'
+
+  - name: instruction-dt-coach-telemetry-not-observable
+    prompt: |
+      Apply the staged Design Thinking telemetry instruction to
+      `.copilot-tracking/dt/synthetic-renewal-lab/not-observable-input.txt`.
+      Explain the required decision. The behavior is not observable in
+      production, so stop at the instruction's first branch: do not invent a
+      span, metric, log event, settings change, or telemetry decision file.
+    agent_environment:
+      skills:
+        - ../../.github/skills/design-thinking/dt-methods
+        - ../../.github/skills/shared/telemetry-foundations
+      files:
+        - src: ../../.github/instructions/design-thinking/dt-coach-telemetry.instructions.md
+          dest: .github/instructions/design-thinking/dt-coach-telemetry.instructions.md
+        - src: fixtures/dt-destination-intent/telemetry-not-observable.txt
+          dest: .copilot-tracking/dt/synthetic-renewal-lab/not-observable-input.txt
     tags:
       category: behavior-conformance
       instruction: dt-coach-telemetry
       advisory: "true"
     graders:
       - type: output-matches
-        name: instruction-dt-coach-telemetry-conformance-applyto-evidence
+        name: dt-telemetry-stop-no-signal
         config:
-          pattern: "(?i)dt-coach-telemetry\\.instructions\\.md|\\.copilot-tracking/dt/"
-      - type: output-matches
-        name: instruction-dt-coach-telemetry-conformance-scope-language
+          pattern: '(?is)(?:not observable|not production.observable).*(?:stop|no telemetry|telemetry.*not required)'
+      - type: file-not-exists
+        name: dt-telemetry-no-decision-file
         config:
-          pattern: "(?i)telemetry-foundations|trace|span|metric|UCUM|PII|cardinality"
+          path: .copilot-tracking/dt/synthetic-renewal-lab/telemetry-decision.md
+      - type: diff-empty
+        name: dt-telemetry-stop-no-diff
 
   - name: instruction-experiment-designer-conformance
     prompt: |
@@ -1365,6 +1415,111 @@ stimuli:
         name: instruction-mural-seeding-patterns-conformance-scop-6a413577
         config:
           pattern: "(?i)duplicate-then-populate|anchor\\s+inheritance|probe-before-bulk|z-order"
+
+  - name: instruction-mural-bootstrap-scope-conformance
+    prompt: |
+      You are preparing a fresh-session Mural sequence that instantiates a
+      template and then creates widgets. Which Mural bootstrap instruction
+      applies, what exact local doctor scope arguments are required, and what
+      must happen when the verdict is not `ready`?
+    tags:
+      category: behavior-conformance
+      instruction: mural-bootstrap
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: mural-bootstrap-instruction
+        config:
+          pattern: '(?i)mural-bootstrap\.instructions\.md|Mural Bootstrap'
+      - type: output-matches
+        name: mural-bootstrap-scopes
+        config:
+          pattern: '(?is)mural doctor(?=.*--require-scope\s+templates:read)(?=.*--require-scope\s+murals:write)'
+      - type: output-matches
+        name: mural-bootstrap-not-ready-stop
+        config:
+          pattern: '(?i)(not ready|non-ready|needs_setup|needs_login|needs_scope_upgrade|wrong_cwd|deps_missing).{0,160}(pause|stop|do not proceed)'
+
+  - name: instruction-mural-human-writeback-conformance
+    prompt: |
+      A Mural extractor is preparing metadata writeback to an existing widget
+      that lacks the `authored-by-ai` tag. Which Mural instructions govern the
+      operation, which fields are permitted, and what explicit override would
+      be required before updating a human-authored widget?
+    tags:
+      category: behavior-conformance
+      instruction: mural-human-record
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: mural-writeback-instructions
+        config:
+          pattern: '(?i)(mural-human-record|mural-writeback-hygiene)\.instructions\.md'
+      - type: output-matches
+        name: mural-writeback-fields
+        config:
+          pattern: '(?is)(tags).*(hyperlink).*(parentId|parent id)'
+      - type: output-matches
+        name: mural-writeback-default-protection
+        config:
+          pattern: '(?i)(MuralHumanAuthoredProtected|protected by default|fail).{0,160}--force-human'
+      - type: output-matches
+        name: mural-writeback-no-old-flag
+        config:
+          pattern: '(?i)--require-author-tag'
+          negate: true
+
+  - name: instruction-mural-writeback-hygiene-conformance
+    prompt: |
+      A Mural extractor is closing a workshop and needs to update an existing
+      AI-authored widget whose tags have drifted from the saved manifest. Which
+      Mural instruction governs writeback, which fields may change, and how
+      must reserved tags and participant-added tags be protected?
+    tags:
+      category: behavior-conformance
+      instruction: mural-writeback-hygiene
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: mural-hygiene-instruction
+        config:
+          pattern: '(?i)mural-writeback-hygiene\.instructions\.md|Mural Writeback Hygiene'
+      - type: output-matches
+        name: mural-hygiene-stable-fields
+        config:
+          pattern: '(?is)(tags).*(hyperlink).*(parentId|parent id).*(never|do not|must not).{0,80}(text)'
+      - type: output-matches
+        name: mural-hygiene-reserved-tag-protection
+        config:
+          pattern: '(?i)(authored-by-ai|reserved tag).{0,160}--force-reserved'
+      - type: output-matches
+        name: mural-hygiene-additive-repair
+        config:
+          pattern: '(?is)(_ensure_tag_manifest|repair-tag-drift|tag manifest).{0,160}(additive|does not strip|missing)'
+
+  - name: instruction-mural-destination-routing-conformance
+    prompt: |
+      A Mural extractor has a hydrated synthetic action record but the caller
+      has supplied neither a destination nor an action intent. Which Mural
+      destination instruction applies, what must the dispatcher do, and what
+      evidence limit applies to a local test-double result?
+    tags:
+      category: behavior-conformance
+      instruction: mural-destinations
+      advisory: "true"
+    graders:
+      - type: output-matches
+        name: mural-destination-instruction
+        config:
+          pattern: '(?i)mural-destinations\.instructions\.md|Mural Destinations'
+      - type: output-matches
+        name: mural-destination-explicit-route
+        config:
+          pattern: '(?i)(destination).{0,120}(action intent|create|mutate|append|no-op).{0,160}(no-dispatch|do not dispatch|never guesses)'
+      - type: output-matches
+        name: mural-destination-evidence-ceiling
+        config:
+          pattern: '(?i)(local test double|LOCAL_TEST_DOUBLE).{0,160}(not|does not).{0,80}(native Mural|real destination|production)'
 
   - name: instruction-licensing-posture-conformance
     prompt: |
