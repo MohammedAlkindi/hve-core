@@ -68,6 +68,8 @@ You can retain follow-up selection through the second option or a custom answer.
 
 With the stop-before-Implementation option, the agent completes Planning, including its required critique and decision gates, then returns to manual mode in Plan. It walks you through the research and plan, including trade-offs and readiness, and offers refinement or an explicit Implementation request. Iteration preserves the task and consumed critique gate. Resuming the conversation alone does not start Implementation.
 
+If a critique was interrupted after reservation without a terminal result, `rpi-plan` owns reconciliation and may offer one task-specific, explicitly confirmed recovery after verifying that the original worker ended. A missing result is not a pass. Terminal assessments are not retried, and recovery does not remove your stop-before-Implementation boundary.
+
 ## Example usage
 
 ```text
