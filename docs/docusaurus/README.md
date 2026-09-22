@@ -93,7 +93,7 @@ Layers 3 and 4 both run on Playwright, so the four layers are covered by three t
 ### Custom Mermaid theme
 
 `src/theme/Mermaid` swizzles `@docusaurus/theme-mermaid` so diagrams stay accessible
-across re-renders. Renders are serialised through a module-level queue, so a rapid
+across re-renders. Renders are serialized through a module-level queue, so a rapid
 color-mode toggle cannot interleave two `mermaid.render` calls and leave a diagram
 blank; a failed render removes its orphaned node rather than leaving it in the DOM.
 
