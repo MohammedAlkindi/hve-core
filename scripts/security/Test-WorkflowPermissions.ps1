@@ -308,6 +308,12 @@ function Test-WorkflowPermissions {
     $violations = @()
 
     if ($Model.WorkflowState -eq 'Absent') {
+        $jobsMissingPermissions = @($Model.Jobs | Where-Object { -not $_.HasPermissions })
+
+        if ($jobsMissingPermissions.Count -eq 0) {
+            return @()
+        }
+
         $violation = [DependencyViolation]::new()
         $violation.File = $Model.FilePath
         $violation.Line = 0

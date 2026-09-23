@@ -152,6 +152,16 @@ jobs:
 
             $result | Should -HaveCount 0
         }
+
+        It 'Row 4: absent workflow-level and present job-level yields no violation' {
+            $testPath = Join-Path $TestDrive 'matrix-row4-absent-workflow'
+            New-Item -ItemType Directory -Path $testPath -Force | Out-Null
+            Copy-Item -Path (Join-Path $script:FixturesPath 'workflow-job-only-permissions.yml') -Destination $testPath
+
+            $result = @(Test-WorkflowPermissions -FilePath (Join-Path $testPath 'workflow-job-only-permissions.yml'))
+
+            $result | Should -HaveCount 0
+        }
     }
 
     Context 'Permissions value shapes' {
