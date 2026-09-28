@@ -272,8 +272,17 @@ Describe 'Eval validation workflow contract' -Tag 'Unit' {
     }
 
     It 'defines the exact bounded fixed-model matrix' {
-        $script:Workflow | Should -Match '(?s)equivalence-execute:.*?fail-fast: false.*?max-parallel: \$\{\{ inputs\.baseline-max-parallel \}\}.*?model: gpt-6-luna.*?model: claude-sonnet-5'
+        $script:Workflow | Should -Match '(?s)equivalence-execute:.*?fail-fast: false.*?max-parallel: \$\{\{ inputs\.baseline-max-parallel \|\| 2 \}\}.*?model: gpt-6-luna.*?model: claude-sonnet-5'
         $script:Workflow | Should -Match 'CalibrationModel \$env:SELECTED_MODEL'
+    }
+
+    It 'keeps ordinary manual execution enabled for dispatched callers' {
+        $workflow = ConvertFrom-Yaml -Yaml $script:Workflow
+        foreach ($jobName in @('agent-plan', 'eval-execute', 'equivalence-execute', 'equivalence-fan-in', 'eval-fan-in')) {
+            $condition = [string]$workflow.jobs[$jobName]['if']
+            $condition | Should -Match "github.event_name == 'workflow_dispatch'"
+            $condition | Should -Match "github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false"
+        }
     }
 
     It 'uses one canonical plan for mixed execution and baseline applicability' {
