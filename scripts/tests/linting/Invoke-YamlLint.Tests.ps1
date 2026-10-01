@@ -203,6 +203,18 @@ Describe 'File Discovery' -Tag 'Unit' {
             # Should only count 2 workflow files
             Should -Invoke Set-CIOutput -Times 1 -ParameterFilter { $Name -eq 'count' -and $Value -eq '2' }
         }
+
+        It 'Analyzes all workflow files when the actionlint config changed' {
+            Mock Get-ChangedFilesFromGit { @('.github/actionlint.yaml') }
+            Mock Test-Path { $true } -ParameterFilter { $Path -eq '.github/workflows' }
+            Mock Get-ChildItem {
+                @([PSCustomObject]@{ FullName = '.github/workflows/ci.yml'; Extension = '.yml' })
+            } -ParameterFilter { $Path -eq '.github/workflows' }
+
+            Invoke-YamlLintCore -ChangedFilesOnly
+            Should -Invoke actionlint -Times 1
+            Should -Invoke Set-CIOutput -Times 1 -ParameterFilter { $Name -eq 'count' -and $Value -eq '1' }
+        }
     }
 
     Context 'No files found' {
@@ -318,6 +330,10 @@ Describe 'actionlint Output Parsing' -Tag 'Unit' {
     }
 
     Context 'actionlint failures' {
+        BeforeEach {
+            Mock Remove-Item {}
+        }
+
         It 'Throws with stderr text when actionlint exits 3 without JSON output' {
             Mock actionlint {
                 $global:LASTEXITCODE = 3
@@ -325,7 +341,7 @@ Describe 'actionlint Output Parsing' -Tag 'Unit' {
             }
 
             { Invoke-YamlLintCore } | Should -Throw '*exit code 3*could not parse config file*'
-            Should -Invoke Write-CIStepSummary -Times 0
+            Should -Invoke Write-CIStepSummary -Times 1 -ParameterFilter { $Content -like '*exit code 3*' }
         }
 
         It 'Throws with stderr text when actionlint exits 2 on invalid options' {
@@ -338,10 +354,14 @@ Describe 'actionlint Output Parsing' -Tag 'Unit' {
         }
 
         It 'Throws when actionlint exits 1 but no issues can be parsed' {
-            Mock actionlint { $global:LASTEXITCODE = 1; 'not valid json {{{' }
+            Mock actionlint {
+                $global:LASTEXITCODE = 1
+                Write-Error 'some stderr text' -ErrorAction Continue
+                'not valid json {{{'
+            }
             Mock Write-Warning {}
 
-            { Invoke-YamlLintCore } | Should -Throw '*exited with code 1*no issues could be parsed*'
+            { Invoke-YamlLintCore } | Should -Throw '*no issues could be parsed*some stderr text*'
         }
     }
 }
