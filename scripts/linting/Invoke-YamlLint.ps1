@@ -147,6 +147,8 @@ function Invoke-YamlLintCore {
 
     if ($actionlintExitCode -eq 1 -and $issues.Count -eq 0) {
         $detail = if ($errorOutput) { ": $errorOutput" } else { '' }
+        Remove-Item -Path $OutputPath, 'logs/yaml-lint-summary.json' -ErrorAction SilentlyContinue
+        Write-CIStepSummary -Content "## YAML Lint Results`n`n❌ **Status**: actionlint exited with code 1 but no issues could be parsed"
         throw "actionlint exited with code 1 but no issues could be parsed from its output$detail"
     }
 

@@ -362,6 +362,8 @@ Describe 'actionlint Output Parsing' -Tag 'Unit' {
             Mock Write-Warning {}
 
             { Invoke-YamlLintCore } | Should -Throw '*no issues could be parsed*some stderr text*'
+            Should -Invoke Write-CIStepSummary -Times 1 -ParameterFilter { $Content -like '*no issues could be parsed*' }
+            Should -Invoke Remove-Item -Times 1
         }
     }
 }
