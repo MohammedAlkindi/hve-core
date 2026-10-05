@@ -2,6 +2,9 @@
 # Copyright (c) 2026 Microsoft Corporation. All rights reserved.
 # SPDX-License-Identifier: MIT
 
+# Discovery-time capability probe: the Bash parity tests execute the real read-diff.sh.
+$script:BashAvailable = [bool](Get-Command bash -ErrorAction SilentlyContinue)
+
 BeforeAll {
     . (Join-Path -Path $PSScriptRoot -ChildPath '../scripts/read-diff.ps1')
 
@@ -217,6 +220,56 @@ Describe 'Get-DiffSummary' {
         $result = Get-DiffSummary -Content $content
         # Only 1 addition and 1 deletion; --- and +++ are excluded
         $result | Should -Match 'file.ts \(\+1/-1\)'
+    }
+}
+
+Describe 'read-diff PowerShell and Bash summary parity' -Skip:(-not $script:BashAvailable) {
+    BeforeAll {
+        $script:BashScript = Join-Path $PSScriptRoot '../scripts/read-diff.sh'
+    }
+
+    It 'Prints one line per file with the same counts as Get-DiffSummary' {
+        $bashLines = @(& bash $script:BashScript --input $script:FixturePath --summary)
+        $LASTEXITCODE | Should -Be 0
+        $bashLines | Should -Be @(
+            'Changed files:'
+            '  src/alpha.ts (+4/-0)'
+            '  src/beta.ts (+3/-1)'
+            '  src/gamma.ts (+0/-3)'
+        )
+        $powerShellOutput = Get-DiffSummary -Content @(Get-Content -LiteralPath $script:FixturePath)
+        ($bashLines -join "`n") | Should -Be ($powerShellOutput -replace "`r`n", "`n")
+    }
+
+    It 'Matches Get-DiffSummary ordering for mixed-case paths and CRLF input' {
+        $crlfPath = Join-Path $script:TempDir 'pr-reference-crlf.xml'
+        $crlfContent = @(
+            'diff --git a/src/zeta.ts b/src/zeta.ts'
+            '@@ -1 +1,2 @@'
+            '-old'
+            '+new'
+            '+'
+            'diff --git a/README.md b/README.md'
+            '@@ -1 +1 @@'
+            '-old'
+            '+new'
+            'diff --git a/docs/guide.md b/docs/guide.md'
+            '@@ -0,0 +1 @@'
+            '+line'
+        ) -join "`r`n"
+        Set-Content -Path $crlfPath -Value $crlfContent -NoNewline
+
+        $bashLines = @(& bash $script:BashScript --input $crlfPath --summary)
+        $LASTEXITCODE | Should -Be 0
+        # Case-insensitive order, and the bare + line is excluded even with a trailing CR
+        $bashLines | Should -Be @(
+            'Changed files:'
+            '  docs/guide.md (+1/-0)'
+            '  README.md (+1/-1)'
+            '  src/zeta.ts (+1/-1)'
+        )
+        $powerShellOutput = Get-DiffSummary -Content @(Get-Content -LiteralPath $crlfPath)
+        ($bashLines -join "`n") | Should -Be ($powerShellOutput -replace "`r`n", "`n")
     }
 }
 
