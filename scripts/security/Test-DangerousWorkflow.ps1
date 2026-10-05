@@ -126,9 +126,61 @@ function ConvertTo-CanonicalExpression {
     # Index and bracket syntax reach the same attacker-controlled fields as the dotted
     # and wildcard spellings the patterns are written for (commits[0].message and
     # commits.*.message, inputs['name'] and inputs.name). Rewrite quoted keys as property
-    # access and numeric or wildcard indexes as .* so one set of patterns covers both.
-    # The result is for matching only; line lookup still needs the expression as written.
-    return $Expression -replace "\[\s*'([^']*)'\s*\]", '.$1' -replace '\[\s*(\d+|\*)\s*\]', '.*'
+    # access and every other index, including a computed one such as
+    # commits[github.run_attempt], as .* so one set of patterns covers them all. A computed
+    # index is appended after a space so references inside it are still matched, and
+    # brackets inside string literals are left alone. The result is for matching only;
+    # line lookup still needs the expression as written.
+    $text = $Expression
+    $canonical = [System.Text.StringBuilder]::new()
+    $computedIndexes = [System.Collections.Generic.List[string]]::new()
+    $depth = 0
+    $indexStart = 0
+    $inString = $false
+    for ($position = 0; $position -lt $text.Length; $position++) {
+        $character = $text[$position]
+        if ($character -eq "'") {
+            $inString = -not $inString
+        }
+        elseif (-not $inString -and $character -eq '[') {
+            if ($depth -eq 0) {
+                # commits [0] evaluates like commits[0]
+                while ($canonical.Length -gt 0 -and [char]::IsWhiteSpace($canonical.Chars($canonical.Length - 1))) {
+                    $canonical.Length--
+                }
+                $indexStart = $position + 1
+            }
+            $depth++
+            continue
+        }
+        elseif (-not $inString -and $character -eq ']' -and $depth -gt 0) {
+            $depth--
+            if ($depth -eq 0) {
+                $index = $text.Substring($indexStart, $position - $indexStart).Trim()
+                if ($index -match "^'((?:[^']|'')*)'$") {
+                    [void]$canonical.Append('.').Append($Matches[1].Replace("''", "'"))
+                }
+                else {
+                    [void]$canonical.Append('.*')
+                    if ($index -notmatch '^(\d+|\*)$') {
+                        $computedIndexes.Add((ConvertTo-CanonicalExpression -Expression $index))
+                    }
+                }
+            }
+            continue
+        }
+
+        if ($depth -eq 0) {
+            [void]$canonical.Append($character)
+        }
+    }
+
+    if ($depth -gt 0) {
+        # Unbalanced brackets: keep the unparsed remainder visible to the patterns.
+        [void]$canonical.Append($text.Substring($indexStart - 1))
+    }
+
+    return (@($canonical.ToString()) + $computedIndexes) -join ' '
 }
 
 function Test-IsUntrustedInjectionExpression {

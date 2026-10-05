@@ -277,6 +277,80 @@ jobs:
         @($report.Violations) | Should -HaveCount 0
     }
 
+    It 'flags template injection through a computed index' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'computed-index-injection' -WorkflowContent @'
+name: test
+on:
+  push:
+  gollum:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "safe"
+      - run: echo "${{ github.event.commits[github.run_attempt].message }}"
+      - run: echo "${{ github.event.pages[steps.x.outputs.i].page_name }}"
+      - run: echo "${{ github.event.commits [0].message }}"
+      - run: echo "${{ steps.x.outputs[github.event.issue.title] }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'computed-index-injection.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 1
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        $report.Violations | Should -HaveCount 4
+        $report.Violations[0].Description | Should -Match ([regex]::Escape('github.event.commits[github.run_attempt].message'))
+        @($report.Violations | ForEach-Object { $_.Line }) | Should -Be @(10, 11, 12, 13)
+    }
+
+    It 'keeps string literals and quoted keys intact around index syntax' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'index-syntax-literals' -WorkflowContent @'
+name: test
+on:
+  issues:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "safe"
+      - run: echo "${{ format('{0}{1}{2}', '[', github.event.commits[0].message, ']') }}"
+      - run: echo "${{ format('{0}{1}', steps.x.outputs['['], github.event.commits[0].message) }}"
+      - run: echo "${{ github.event.issue ['title'] }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'index-syntax-literals.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 1
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        @($report.Violations | ForEach-Object { $_.Line }) | Should -Be @(10, 11, 12)
+    }
+
+    It 'does not flag computed indexes on fields an attacker cannot set' {
+        $fixturePath = New-DangerousWorkflowFixture -Name 'computed-index-trusted' -WorkflowContent @'
+name: test
+on:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "${{ github.event.commits[github.run_attempt].id }}"
+          echo "${{ fromJSON(steps.setup.outputs.list)[steps.setup.outputs.i] }}"
+          echo "${{ format('[{0}]', github.sha) }}"
+'@
+
+        $outputPath = Join-Path $TestDrive 'computed-index-trusted.json'
+        $exitCode = Invoke-DangerousWorkflowFixture -FixturePath $fixturePath -Format json -OutputPath $outputPath -FailOnViolation
+
+        $exitCode | Should -Be 0
+        $report = Get-Content -Path $outputPath -Raw | ConvertFrom-Json
+        @($report.Violations) | Should -HaveCount 0
+    }
+
     It 'continues scanning when one workflow file is malformed YAML' {
         $fixturePath = Join-Path $TestDrive 'malformed-yaml'
         New-Item -ItemType Directory -Path $fixturePath -Force | Out-Null
