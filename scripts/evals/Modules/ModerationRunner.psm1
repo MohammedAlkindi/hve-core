@@ -90,7 +90,7 @@ function ConvertTo-ModerationRecords {
             Write-Warning "File not found: $filePath"
             continue
         }
-        $relativePath = (Resolve-Path -LiteralPath $filePath -Relative -RelativeBasePath $RepoRoot).TrimStart('.', '\', '/')
+        $relativePath = (Resolve-Path -LiteralPath $filePath -Relative -RelativeBasePath $RepoRoot) -replace '^\.[\\/]', ''
         $content = Get-Content -LiteralPath $filePath -Raw -Encoding utf8
         $records += @{
             id   = $relativePath

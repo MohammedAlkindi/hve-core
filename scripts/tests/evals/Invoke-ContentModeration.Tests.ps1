@@ -229,6 +229,46 @@ Describe 'ConvertTo-ModerationRecords' -Tag 'Unit' {
         }
     }
 
+    Context 'when relativizing ids against the repo root' {
+        BeforeAll {
+            $script:IdRoot = Join-Path $TestDrive 'id-repo'
+            $script:DotDirFile = Join-Path $script:IdRoot '.github/agents/pkg/foo.agent.md'
+            $script:RootFile = Join-Path $script:IdRoot 'root.md'
+            $script:NestedFile = Join-Path $script:IdRoot 'docs/guides/nested.md'
+            foreach ($file in @($script:DotDirFile, $script:RootFile, $script:NestedFile)) {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $file) -Force | Out-Null
+                Set-Content -Path $file -Value 'Content' -Encoding utf8NoBOM
+            }
+            $script:DotDirId = [System.IO.Path]::Combine('.github', 'agents', 'pkg', 'foo.agent.md')
+        }
+
+        It 'Keeps the leading dot of a dot-directory' {
+            $records = @(ConvertTo-ModerationRecords -FileList @($script:DotDirFile) -RepoRoot $script:IdRoot)
+            $records[0].id | Should -Be $script:DotDirId
+        }
+
+        It 'Returns the file name for a file at the repo root' {
+            $records = @(ConvertTo-ModerationRecords -FileList @($script:RootFile) -RepoRoot $script:IdRoot)
+            $records[0].id | Should -Be 'root.md'
+        }
+
+        It 'Returns a prefix-free path for a nested file' {
+            $records = @(ConvertTo-ModerationRecords -FileList @($script:NestedFile) -RepoRoot $script:IdRoot)
+            $records[0].id | Should -Be ([System.IO.Path]::Combine('docs', 'guides', 'nested.md'))
+        }
+
+        It 'Resolves a relative RepoRoot against the current location' {
+            Push-Location -LiteralPath $TestDrive
+            try {
+                $records = @(ConvertTo-ModerationRecords -FileList @($script:DotDirFile) -RepoRoot 'id-repo')
+            }
+            finally {
+                Pop-Location
+            }
+            $records[0].id | Should -Be $script:DotDirId
+        }
+    }
+
     Context 'when a file does not exist' {
         It 'Skips the missing file and warns' {
             Mock Write-Warning {} -ModuleName ModerationRunner
