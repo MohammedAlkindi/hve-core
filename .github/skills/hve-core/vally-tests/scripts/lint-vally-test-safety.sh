@@ -37,6 +37,11 @@ if [[ ! -f "$taxonomy" ]]; then
     exit 2
 fi
 
+if ! command -v perl >/dev/null 2>&1; then
+    printf 'perl is required to evaluate the refusal taxonomy patterns\n' >&2
+    exit 2
+fi
+
 extract_categories() {
     awk '
         BEGIN { category=""; in_block=0; buf="" }
@@ -71,7 +76,7 @@ if [[ ${#entries[@]} -eq 0 ]]; then
 fi
 
 declare -A combined
-declare -A counts
+declare -A counts=()
 for entry in "${entries[@]}"; do
     cat_name="${entry%%	*}"
     pattern="${entry#*	}"
@@ -103,11 +108,33 @@ while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     for cat_name in "${!combined[@]}"; do
         pattern="${combined[$cat_name]}"
-        if matches=$(grep -EnIo "$pattern" "$file" 2>/dev/null); then
+        # The taxonomy patterns are PCRE, which grep -E misreads. Like the
+        # PowerShell lint, match them verbatim against the whole file decoded
+        # as UTF-8, so \s also spans line breaks. Binary files are skipped. The
+        # file is opened explicitly because perl -n would parse its name as a mode.
+        matches=$(VALLY_PATTERN="$pattern" perl -CO -e '
+            my $f = $ARGV[0];
+            open(my $fh, "<", $f) or die "cannot read $f: $!\n";
+            exit 0 if -B $fh;
+            local $/;
+            $_ = <$fh>;
+            close $fh;
+            utf8::decode($_);
+            while (/$ENV{VALLY_PATTERN}/g) {
+                my $line = 1 + (substr($_, 0, $-[0]) =~ tr/\n//);
+                (my $hit = $&) =~ tr/\r\n/  /;
+                print "$line:$hit\n";
+            }' -- "$file") || {
+            printf "Could not evaluate category '%s' against %s\n" "$cat_name" "$file" >&2
+            exit 2
+        }
+        if [[ -n "$matches" ]]; then
             count=$(printf '%s\n' "$matches" | wc -l | tr -d ' ')
             if [[ "$count" -gt 0 ]]; then
                 printf 'vally-test-safety: category=%s count=%d file=%s\n' "$cat_name" "$count" "$file"
-                printf '%s\n' "$matches" | sed "s|^|  $file:|"
+                while IFS= read -r match; do
+                    printf '  %s:%s\n' "$file" "$match"
+                done <<< "$matches"
                 counts[$cat_name]=$(( ${counts[$cat_name]:-0} + count ))
                 total_matches=$(( total_matches + count ))
             fi
