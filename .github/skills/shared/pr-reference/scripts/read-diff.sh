@@ -113,11 +113,13 @@ fi
 # Show summary mode
 if [[ "${SHOW_SUMMARY}" == "true" ]]; then
   echo "Changed files:"
-  # Count lines changed per file, matching Get-DiffSummary in read-diff.ps1
+  # Count lines changed per file, matching Get-DiffSummary counts in read-diff.ps1
   awk '
     { sub(/\r$/, "") }
     /^diff --git a\/.+ b\// {
       if (file != "") { printf "  %s (+%d/-%d)\n", file, added, removed }
+      # Skip the 13-char "diff --git a/" prefix; search " b/" from char 2
+      # to mirror the lazy (.+?) b/ match in Get-DiffSummary.
       rest = substr($0, 14)
       file = substr(rest, 1, index(substr(rest, 2), " b/"))
       added = 0
@@ -127,7 +129,7 @@ if [[ "${SHOW_SUMMARY}" == "true" ]]; then
     file != "" && /^\+[^+]/ { added++ }
     file != "" && /^-[^-]/ { removed++ }
     END { if (file != "") { printf "  %s (+%d/-%d)\n", file, added, removed } }
-  ' "${INPUT_FILE}" | LC_ALL=C sort -f
+  ' < "${INPUT_FILE}" | LC_ALL=C sort -f
   exit 0
 fi
 
