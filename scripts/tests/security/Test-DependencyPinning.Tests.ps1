@@ -2067,6 +2067,10 @@ Describe 'Test-NpmCommandLine' -Tag 'Unit' {
         @{ Line = 'npm --prefix=dir install'; Expected = 'npm --prefix=dir install' }
         @{ Line = 'npm -g install foo'; Expected = 'npm -g install' }
         @{ Line = 'npm --prefix dir i'; Expected = 'npm --prefix dir i' }
+        @{ Line = 'npm --prefix ${{ matrix.dir }} install'; Expected = 'npm --prefix ${{ matrix.dir }} install' }
+        @{ Line = 'npm --prefix "${{ github.workspace }}/ext" install'; Expected = 'npm --prefix "${{ github.workspace }}/ext" install' }
+        @{ Line = 'npm --prefix="${{ matrix.dir }}" install'; Expected = 'npm --prefix="${{ matrix.dir }}" install' }
+        @{ Line = 'npm --omit dev install'; Expected = 'npm --omit dev install' }
     ) {
         Test-NpmCommandLine -Line $Line | Should -Be $Expected
     }
@@ -2074,6 +2078,7 @@ Describe 'Test-NpmCommandLine' -Tag 'Unit' {
     It 'Does not match <Line>' -ForEach @(
         @{ Line = 'npm ci' }
         @{ Line = 'npm --prefix dir ci' }
+        @{ Line = 'npm --prefix ${{ matrix.dir }} ci' }
         @{ Line = 'npm --prefix update-dir ci' }
         @{ Line = 'npm --silent ci' }
         @{ Line = 'npm --prefix docs run build' }

@@ -202,7 +202,10 @@ function Test-NpmCommandLine {
     # npm options may precede the subcommand (npm --prefix dir install, npm -g install).
     # Only options known to take a value consume the next word; any other flag is boolean,
     # so 'run' in 'npm -s run update-snapshots' is not read as a flag value.
-    $options = '(?>\s+(?:(?:--prefix|-C|--workspace|-w|--loglevel|--cache|--registry|--userconfig)(?:=\S+|\s+[^\s-]\S*)|-{1,2}[\w-]+(?:=\S+)?))*'
+    # A value is a quoted string, a GitHub Actions expression, or a bare token, with an optional suffix.
+    $value = '(?:"[^"]*"|''[^'']*''|\$\{\{.*?\}\}|[^\s-])\S*'
+    $valueOptions = '--prefix|-C|--workspace|-w|--loglevel|--cache|--registry|--userconfig|--globalconfig|--omit|--include|--tag|--location|--before|--install-strategy'
+    $options = "(?>\s+(?:(?:$valueOptions)(?:=$value|\s+$value)|-{1,2}[\w-]+(?:=\S+)?))*"
 
     if ($Line -match "\bnpm$options\s+(install-test|install|update)\b") {
         return $Matches[0]
@@ -323,10 +326,6 @@ function Get-WorkflowNpmCommandViolations {
         if ($inRunBlock) {
             if ($currentIndent -le $runBlockIndent) {
                 $inRunBlock = $false
-                if ($trimmed -match '^run:\s*(.*)$') {
-                    $i--
-                    continue
-                }
             } else {
                 if ($trimmed.StartsWith('#')) {
                     continue
