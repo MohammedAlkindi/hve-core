@@ -459,8 +459,8 @@ function Compare-PluginManifest {
         }
         $expectedPaths = @($Expected[$kind])
 
-        $missing = @($expectedPaths | Where-Object { $_ -notin $committedPaths })
-        $extra = @($committedPaths | Where-Object { $_ -notin $expectedPaths })
+        $missing = @($expectedPaths | Where-Object { $_ -cnotin $committedPaths })
+        $extra = @($committedPaths | Where-Object { $_ -cnotin $expectedPaths })
 
         if ($missing.Count -gt 0) {
             $differences += "$kind missing $($missing.Count): $($missing -join ', ')"
@@ -826,7 +826,7 @@ function Invoke-PluginManifestSync {
     $committedJson = ($committedRaw -replace "`r`n", "`n").TrimEnd("`n") + "`n"
 
     $violations = @($trackedIndex.Violations)
-    $changed = $expectedJson -ne $committedJson
+    $changed = $expectedJson -cne $committedJson
 
     $violations += @(Get-PluginCatalogViolations -RepoRoot $RepoRoot -Manifest $manifest)
 

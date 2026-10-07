@@ -481,6 +481,40 @@ Describe 'Invoke-PluginManifestSync check mode' -Tag 'Unit' {
             Should -Match 'no supported drift detail is available'
     }
 
+    It 'Reports a path that differs only in case as drift' {
+        Set-FixtureManifest -Root $script:CheckRoot -Transform {
+            param($m) $m['agents'] = @($m['agents'] -creplace '/one\.agent\.md$', '/One.agent.md'); $m
+        }
+
+        $result = Invoke-PluginManifestSync -RepoRoot $script:CheckRoot -Check
+
+        $result.Changed | Should -BeTrue
+        $result.Violations -join "`n" | Should -MatchExactly 'agents missing 1: \.github/agents/alpha/one\.agent\.md'
+        $result.Violations -join "`n" | Should -MatchExactly 'agents unexpected 1: \.github/agents/alpha/One\.agent\.md'
+    }
+
+    It 'Rewrites a path that differs only in case on synchronization' {
+        $synchronized = (Get-FileHash $script:CheckManifestPath -Algorithm SHA256).Hash
+        Set-FixtureManifest -Root $script:CheckRoot -Transform {
+            param($m) $m['agents'] = @($m['agents'] -creplace '/one\.agent\.md$', '/One.agent.md'); $m
+        }
+
+        $result = Invoke-PluginManifestSync -RepoRoot $script:CheckRoot
+
+        $result.Changed | Should -BeTrue
+        (Get-FileHash $script:CheckManifestPath -Algorithm SHA256).Hash | Should -BeExactly $synchronized
+    }
+
+    It 'Treats line-ending-only differences as in sync' {
+        $content = [System.IO.File]::ReadAllText($script:CheckManifestPath)
+        [System.IO.File]::WriteAllText($script:CheckManifestPath, ($content -replace "`n", "`r`n"))
+
+        $result = Invoke-PluginManifestSync -RepoRoot $script:CheckRoot -Check
+
+        $result.Changed | Should -BeFalse
+        $result.Violations | Should -HaveCount 0
+    }
+
     AfterEach {
         [System.IO.File]::WriteAllBytes($script:CheckManifestPath, $script:CheckManifestBytes)
     }
