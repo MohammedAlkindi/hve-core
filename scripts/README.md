@@ -2,7 +2,7 @@
 title: Scripts
 description: PowerShell scripts for linting, validation, and security automation
 author: HVE Core Team
-ms.date: 2026-10-05
+ms.date: 2026-10-07
 ms.topic: reference
 keywords:
   - powershell
@@ -20,6 +20,7 @@ This directory contains PowerShell scripts for automating linting, validation, a
 ```text
 scripts/
 ├── agentic-workflows/ Runtime support for compiled Agentic Workflows
+├── ci/              Workflow change-range resolution and skill dependency installs
 ├── lib/             Shared artifact and CI helpers
 ├── evals/           Eval runner and moderation automation
 ├── release/         Release version normalization and assurance helpers
@@ -49,6 +50,24 @@ Shared utility modules used across scripts.
 | Script                     | Purpose                              |
 |----------------------------|--------------------------------------|
 | `Get-VerifiedDownload.ps1` | Download files with SHA verification |
+
+## CI
+
+Helpers that workflows call directly. Neither has a package-script wrapper.
+
+| Script                            | Purpose                                                                                      |
+|-----------------------------------|----------------------------------------------------------------------------------------------|
+| `Resolve-WorkflowChangeRange.ps1` | Resolve a verified change range for the triggering event, or select full validation          |
+| `install-skill-node-deps.sh`      | Install committed Node lockfiles beneath a skill directory without running lifecycle scripts |
+
+`Resolve-WorkflowChangeRange.ps1` takes `-EventName`, `-BaseSha`, `-HeadSha`,
+`-PullRequestHeadSha`, `-DefaultBranch`, and `-RepoRoot`, and writes `mode`,
+`base-sha`, and `head-sha` as step outputs. For `pull_request` the base is the
+first parent of the test-merge commit, for `merge_group` it comes from the
+merge-group payload, and for `workflow_dispatch` it is the merge base with the
+default branch. An unknown event or any failed check selects full validation
+with empty commit IDs. The `change-range` job in `pr-validation.yml` runs it,
+and the lint, test, and validation jobs scope themselves to its outputs.
 
 ## Agentic Workflows
 
@@ -275,6 +294,7 @@ Pester test organization matching the scripts structure.
 | Directory            | Tests For                                 |
 |----------------------|-------------------------------------------|
 | `agentic-workflows/` | Compiled Agentic Workflow runtime support |
+| `ci/`                | Workflow change-range resolver tests      |
 | `lib/`               | Shared helper tests                       |
 | `devcontainer/`      | Devcontainer validation tests             |
 | `extension/`         | Extension packaging tests                 |
