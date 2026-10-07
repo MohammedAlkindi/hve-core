@@ -377,7 +377,7 @@ Purpose: Ensure all PowerShell, shell, and Python scripts include the required M
 * `-FileExtensions` (string[]) - File extensions to check (default: `@('*.ps1', '*.psm1', '*.psd1', '*.sh', '*.py')`)
 * `-OutputPath` (string) - Path for JSON results (default: `logs/copyright-header-results.json`)
 * `-FailOnMissing` (switch) - Exit with code 1 if any files lack required headers
-* `-ExcludePaths` (string[]) - Directories to exclude (default: `@('node_modules', '.git', 'vendor', 'logs')`)
+* `-ExcludePaths` (string[]) - Directory names to exclude at any depth; a leading `/` matches only at the repository root (default: `@('node_modules', '.git', 'vendor', 'logs', '.venv', '.copilot-tracking', '/plugins', '.docusaurus')`)
 * `-Fix` (switch) - Rewrite non-canonical headers and insert missing ones in place using the comment prefix appropriate to each file. Idempotent. Default is validation-only.
 
 ##### Usage

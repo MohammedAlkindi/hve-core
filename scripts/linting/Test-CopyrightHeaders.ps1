@@ -23,7 +23,8 @@
     Exit with error code if any files are missing required headers. Default is false.
 
 .PARAMETER ExcludePaths
-    Array of paths to exclude from scanning (supports wildcards).
+    Array of directory names to exclude from scanning. A name matches that directory
+    at any depth; a name with a leading '/' matches only at the repository root.
 
 .PARAMETER Fix
     Rewrite non-canonical headers and insert missing headers in place using the
@@ -89,7 +90,9 @@ Import-Module (Join-Path $PSScriptRoot "../lib/Modules/CIHelpers.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "../lib/Modules/CopyrightHeader.psm1") -Force
 
 # Canonical default exclusions shared between script-level param and Invoke-CopyrightHeaderCheck
-$DefaultExcludePaths = @('node_modules', '.git', 'vendor', 'logs', '.venv', '.copilot-tracking', 'plugins', '.docusaurus')
+# A leading '/' anchors an entry to the repository root: the generated plugins/ output lives
+# there, while nested plugins/ directories such as scripts/plugins hold source.
+$DefaultExcludePaths = @('node_modules', '.git', 'vendor', 'logs', '.venv', '.copilot-tracking', '/plugins', '.docusaurus')
 
 if (-not $PSBoundParameters.ContainsKey('ExcludePaths')) {
     $ExcludePaths = $DefaultExcludePaths
@@ -252,11 +255,31 @@ function Get-FilesToCheck {
 
     $files = @()
 
-    $excludeRegex = $null
     $validExcludes = @($Exclude | Where-Object { $_ })
-    if ($validExcludes.Count -gt 0) {
+    $anyDepthExcludes = @($validExcludes | Where-Object { -not $_.StartsWith('/') })
+    $rootExcludes = @($validExcludes | Where-Object { $_.StartsWith('/') } | ForEach-Object { $_.TrimStart('/') } | Where-Object { $_ })
+
+    # Root-anchored entries match paths relative to the repository root, so scanning a
+    # subdirectory still checks its nested plugins/. Outside a git work tree the scan root
+    # stands in for the repository root. If the scan root cannot be resolved, the entries
+    # apply at any depth rather than not at all.
+    $rootExcludeRegex = $null
+    if ($rootExcludes.Count -gt 0) {
+        $scanRoot = if ($RootPath) { Convert-Path -LiteralPath $RootPath -ErrorAction SilentlyContinue } else { (Get-Location).ProviderPath }
+        if ($scanRoot) {
+            $repoPrefix = [string](git -C $scanRoot rev-parse --show-prefix 2>$null)
+            $rootAlternation = ($rootExcludes | ForEach-Object { [regex]::Escape($_) }) -join '|'
+            $rootExcludeRegex = "^(?:${rootAlternation})(?:/|$)"
+        }
+        else {
+            $anyDepthExcludes += $rootExcludes
+        }
+    }
+
+    $excludeRegex = $null
+    if ($anyDepthExcludes.Count -gt 0) {
         $sepPattern = '[/\\]'
-        $excludeAlternation = ($validExcludes | ForEach-Object { [regex]::Escape($_) }) -join '|'
+        $excludeAlternation = ($anyDepthExcludes | ForEach-Object { [regex]::Escape($_) }) -join '|'
         $excludeRegex = "${sepPattern}(?:${excludeAlternation})(?:${sepPattern}|$)"
     }
 
@@ -265,6 +288,13 @@ function Get-FilesToCheck {
 
         if ($excludeRegex) {
             $found = $found | Where-Object { $_.FullName -notmatch $excludeRegex }
+        }
+
+        if ($rootExcludeRegex) {
+            $found = $found | Where-Object {
+                $repoRelative = $repoPrefix + ([System.IO.Path]::GetRelativePath($scanRoot, $_.FullName) -replace '\\', '/')
+                $repoRelative -notmatch $rootExcludeRegex
+            }
         }
 
         $files += $found

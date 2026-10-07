@@ -1008,6 +1008,111 @@ Describe 'Get-FilesToCheck Exclusion Logic' -Tag 'Unit' {
     }
 }
 
+Describe 'Get-FilesToCheck Root-Anchored Exclusions' -Tag 'Unit' {
+    BeforeAll {
+        $script:AnchorRepo = Join-Path $TestDrive 'repo'
+        $fileLocations = @(
+            'plugins/generated/agent.ps1',
+            'plugins-archive/old.ps1',
+            'logs/output.ps1',
+            'scripts/plugins/Sync-Manifest.ps1',
+            'scripts/logs/Write-Log.ps1',
+            'src/main.ps1'
+        )
+        foreach ($f in $fileLocations) {
+            $target = Join-Path $script:AnchorRepo $f
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            Set-Content -Path $target -Value "Write-Host 'test'"
+        }
+        git init --quiet $script:AnchorRepo 2>$null
+
+        function Get-RepoRelativePath {
+            param([object[]]$Files)
+            @($Files | Where-Object { $_ } | ForEach-Object {
+                [System.IO.Path]::GetRelativePath($script:AnchorRepo, $_.FullName) -replace '\\', '/'
+            })
+        }
+    }
+
+    It 'Excludes the root plugins/ and logs/ trees for entries with a leading slash' {
+        $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath $script:AnchorRepo -Extensions @('*.ps1') -Exclude @('/plugins', '/logs'))
+        $files | Should -Not -Contain 'plugins/generated/agent.ps1'
+        $files | Should -Not -Contain 'logs/output.ps1'
+    }
+
+    It 'Scans nested plugins/ and logs/ directories for entries with a leading slash' {
+        $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath $script:AnchorRepo -Extensions @('*.ps1') -Exclude @('/plugins', '/logs'))
+        $files | Should -Contain 'scripts/plugins/Sync-Manifest.ps1'
+        $files | Should -Contain 'scripts/logs/Write-Log.ps1'
+        $files | Should -HaveCount 4
+    }
+
+    It 'Keeps root directories whose names only start with an anchored name' {
+        $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath $script:AnchorRepo -Extensions @('*.ps1') -Exclude @('/plugins'))
+        $files | Should -Contain 'plugins-archive/old.ps1'
+    }
+
+    It 'Scans the current location when the root path is empty' {
+        Push-Location $script:AnchorRepo
+        try {
+            $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath '' -Extensions @('*.ps1') -Exclude @('/plugins'))
+        }
+        finally {
+            Pop-Location
+        }
+        $files | Should -Not -Contain 'plugins/generated/agent.ps1'
+        $files | Should -Contain 'scripts/plugins/Sync-Manifest.ps1'
+    }
+
+    It 'Applies anchored names at any depth when the root path cannot be resolved' {
+        $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath (Join-Path $script:AnchorRepo '*') -Extensions @('*.ps1') -Exclude @('/plugins'))
+        $files | Should -Not -Contain 'plugins/generated/agent.ps1'
+        $files | Should -Not -Contain 'scripts/plugins/Sync-Manifest.ps1'
+        $files | Should -Contain 'src/main.ps1'
+    }
+
+    It 'Anchors to the repository root when scanning a subdirectory' {
+        $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath (Join-Path $script:AnchorRepo 'scripts') -Extensions @('*.ps1') -Exclude @('/plugins', '/logs'))
+        $files | Should -Contain 'scripts/plugins/Sync-Manifest.ps1'
+        $files | Should -Contain 'scripts/logs/Write-Log.ps1'
+    }
+
+    It 'Anchors to the scan root outside a git work tree' {
+        Mock git {}
+        $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath (Join-Path $script:AnchorRepo 'scripts') -Extensions @('*.ps1') -Exclude @('/plugins'))
+        $files | Should -Not -Contain 'scripts/plugins/Sync-Manifest.ps1'
+        $files | Should -Contain 'scripts/logs/Write-Log.ps1'
+    }
+
+    It 'Excludes a name without a leading slash at any depth' {
+        $files = Get-RepoRelativePath (Get-FilesToCheck -RootPath $script:AnchorRepo -Extensions @('*.ps1') -Exclude @('plugins'))
+        $files | Should -Not -Contain 'plugins/generated/agent.ps1'
+        $files | Should -Not -Contain 'scripts/plugins/Sync-Manifest.ps1'
+    }
+
+    Context 'with the script default exclusions' {
+        BeforeAll {
+            Mock Write-CIAnnotation {}
+            Mock Write-CIStepSummary {}
+            $script:DefaultsOutput = Join-Path $TestDrive 'defaults.json'
+            & $script:ScriptPath -Path $script:AnchorRepo -FileExtensions @('*.ps1') -OutputPath $script:DefaultsOutput
+            $script:DefaultsChecked = @((Get-Content -Path $script:DefaultsOutput -Raw | ConvertFrom-Json).results | ForEach-Object {
+                [PSCustomObject]@{ File = $_.file -replace '\\', '/'; Valid = $_.valid }
+            })
+        }
+
+        It 'Reports a nested plugins/ file that lacks headers' {
+            $nested = @($script:DefaultsChecked | Where-Object { $_.File -match '(^|/)scripts/plugins/Sync-Manifest\.ps1$' })
+            $nested | Should -HaveCount 1
+            $nested[0].Valid | Should -BeFalse
+        }
+
+        It 'Skips the generated root plugins/ tree and logs/ at any depth' {
+            $script:DefaultsChecked | Where-Object { $_.File -match '(^|/)(plugins/generated/agent|logs/output|scripts/logs/Write-Log)\.ps1$' } | Should -BeNullOrEmpty
+        }
+    }
+}
+
 #endregion
 
 #region Default Exclusion Tests
@@ -1042,6 +1147,11 @@ Describe 'Invoke-CopyrightHeaderCheck Default Exclusions' -Tag 'Unit' {
     It 'Has default ExcludePaths including .venv and .copilot-tracking' {
         $script:DefaultExcludeValues | Should -Contain '.venv'
         $script:DefaultExcludeValues | Should -Contain '.copilot-tracking'
+    }
+
+    It 'Anchors the generated plugins default to the repository root' {
+        $script:DefaultExcludeValues | Should -Contain '/plugins'
+        $script:DefaultExcludeValues | Should -Not -Contain 'plugins'
     }
 
     It 'Invoke-CopyrightHeaderCheck function default references the shared variable' {
