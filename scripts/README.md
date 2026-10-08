@@ -2,7 +2,7 @@
 title: Scripts
 description: PowerShell scripts for linting, validation, and security automation
 author: HVE Core Team
-ms.date: 2026-10-07
+ms.date: 2026-10-08
 ms.topic: reference
 keywords:
   - powershell
@@ -20,7 +20,7 @@ This directory contains PowerShell scripts for automating linting, validation, a
 ```text
 scripts/
 ├── agentic-workflows/ Runtime support for compiled Agentic Workflows
-├── ci/              Workflow change-range resolution and skill dependency installs
+├── ci/              Workflow change-range resolution and Node dependency installs
 ├── lib/             Shared artifact and CI helpers
 ├── evals/           Eval runner and moderation automation
 ├── release/         Release version normalization and assurance helpers
@@ -53,21 +53,24 @@ Shared utility modules used across scripts.
 
 ## CI
 
-Helpers that workflows call directly. Neither has a package-script wrapper.
+A PowerShell resolver and a bash installer that workflows call directly.
+Neither has a package-script wrapper.
 
-| Script                            | Purpose                                                                                      |
-|-----------------------------------|----------------------------------------------------------------------------------------------|
-| `Resolve-WorkflowChangeRange.ps1` | Resolve a verified change range for the triggering event, or select full validation          |
-| `install-skill-node-deps.sh`      | Install committed Node lockfiles beneath a skill directory without running lifecycle scripts |
+| Script                            | Purpose                                                                                  |
+|-----------------------------------|------------------------------------------------------------------------------------------|
+| `Resolve-WorkflowChangeRange.ps1` | Resolve a verified change range for the triggering event, or select full validation      |
+| `install-skill-node-deps.sh`      | Install committed Node lockfiles beneath `SEARCH_ROOT` without running lifecycle scripts |
 
-`Resolve-WorkflowChangeRange.ps1` takes `-EventName`, `-BaseSha`, `-HeadSha`,
-`-PullRequestHeadSha`, `-DefaultBranch`, and `-RepoRoot`, and writes `mode`,
-`base-sha`, and `head-sha` as step outputs. For `pull_request` the base is the
-first parent of the test-merge commit, for `merge_group` it comes from the
-merge-group payload, and for `workflow_dispatch` it is the merge base with the
-default branch. An unknown event or any failed check selects full validation
-with empty commit IDs. The `change-range` job in `pr-validation.yml` runs it,
-and the lint, test, and validation jobs scope themselves to its outputs.
+`Resolve-WorkflowChangeRange.ps1` takes `-EventName`, `-HeadSha` and
+`-RepoRoot`, plus three event-specific parameters: `-BaseSha` for
+`merge_group`, `-PullRequestHeadSha` for `pull_request`, and `-DefaultBranch`
+for `workflow_dispatch`. It writes `mode`, `base-sha`, and `head-sha` as step
+outputs. For `pull_request` the base is the first parent of the test-merge
+commit, for `merge_group` it comes from the merge-group payload, and for
+`workflow_dispatch` it is the merge base with the default branch. An unknown
+event or any failed check selects full validation with empty commit IDs. The
+`change-range` job in `pr-validation.yml` runs it, and every job that takes
+`change-mode`, `base-sha` and `head-sha` inputs scopes itself to its outputs.
 
 ## Agentic Workflows
 

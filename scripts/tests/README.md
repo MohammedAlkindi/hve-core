@@ -2,7 +2,7 @@
 title: Test Scripts
 description: Pester test runner, changed-file detection, and test directory organization
 author: HVE Core Team
-ms.date: 2026-08-21
+ms.date: 2026-10-08
 ms.topic: reference
 keywords:
   - powershell
@@ -110,6 +110,7 @@ Test suites mirror the production `scripts/` layout:
 
 ```text
 tests/
+├── ci/              Workflow change-range resolver tests
 ├── extension/       Extension packaging tests
 ├── lib/             Library utility tests
 ├── linting/         Linting script tests
