@@ -3,7 +3,7 @@ title: Build Workflows
 description: GitHub Actions CI/CD pipeline architecture for validation, security, and release automation
 sidebar_position: 3
 author: WilliamBerryiii
-ms.date: 2026-10-07
+ms.date: 2026-10-12
 ms.topic: overview
 keywords:
   - github actions
