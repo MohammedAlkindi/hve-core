@@ -102,6 +102,11 @@ function Get-FileChanges {
     $content = Get-Content -LiteralPath $XmlPath -Raw
     $changes = @()
 
+    # Commit bodies sit at the same indent as diff headers, so match only inside the
+    # <full_diff> block that follows </commits>.
+    $section = [regex]::Match($content, '(?ms)^\s*</commits>\s*$.*?^\s*<full_diff>\s*$(.*)^\s*</full_diff>\s*$')
+    if ($section.Success) { $content = $section.Groups[1].Value + '</full_diff>' }
+
     # Match diff headers and analyze change type. Headers start a line: at column 0
     # from generate.sh, or indented two spaces by generate.ps1. Anchoring there keeps
     # 'diff --git' text inside diff content from being read as a header.

@@ -270,6 +270,51 @@ index 1313131..1414141 100644
         }
     }
 
+    Context 'Header-like text inside commit messages' {
+        BeforeAll {
+            $commitLines = @(
+                '<commit hash="abc1234" date="2026-01-15"><message><subject><![CDATA[fix: probe]]></subject><body><![CDATA[Body line'
+                'diff --git a/phantom.txt b/phantom.txt'
+                'new file mode 100644'
+                ']]></body></message></commit>'
+            )
+            $diffLines = @(
+                'diff --git a/src/real.ts b/src/real.ts'
+                'index 1111111..2222222 100644'
+                '--- a/src/real.ts'
+                '+++ b/src/real.ts'
+                '@@ -1 +1 @@'
+                '-old line'
+                '+new line'
+            )
+
+            # generate.sh writes commits and diff at column 0; generate.ps1 indents both by two spaces
+            $writeFixture = {
+                param([string]$Name, [string]$Prefix, [string]$NewLine)
+                $path = Join-Path $TestDrive $Name
+                $xml = @('<commit_history>', '  <commits>') +
+                    ($commitLines | ForEach-Object { "$Prefix$_" }) +
+                    @('  </commits>', '', '  <full_diff>') +
+                    ($diffLines | ForEach-Object { "$Prefix$_" }) +
+                    @('  </full_diff>', '</commit_history>')
+                Set-Content -Path $path -Value ($xml -join $NewLine) -NoNewline
+                return $path
+            }
+            $script:CommitTextFixtures = @{
+                Unindented = & $writeFixture 'commit-text.xml' '' "`n"
+                Indented   = & $writeFixture 'commit-text-indented.xml' '  ' "`r`n"
+            }
+        }
+
+        It 'Ignores diff headers written in commit bodies (<Fixture>)' -ForEach @(
+            @{ Fixture = 'Unindented' }
+            @{ Fixture = 'Indented' }
+        ) {
+            $changes = Get-FileChanges -XmlPath $script:CommitTextFixtures[$Fixture]
+            @($changes | ForEach-Object { "$($_.Path)=$($_.Type)" }) | Should -Be @('src/real.ts=Modified')
+        }
+    }
+
     Context 'Empty diff' {
         BeforeAll {
             $xml = @'
