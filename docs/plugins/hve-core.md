@@ -54,7 +54,7 @@ The complete plugin includes:
 
 * RPI lifecycle coordination, research, planning, implementation, review, and walkthroughs
 * HVE Builder authoring, review, validation, and Vally conformance support
-* Coding standards and code review for multiple languages and infrastructure formats
+* Coding standards and code review for multiple languages and infrastructure formats, including contract-focused TypeScript documentation comments
 * Security, TM7 threat-model generation, supply-chain security, privacy, accessibility, and Responsible AI planning and review
 * Outcome hypotheses, business requirements, product requirements, architecture decisions, performance, proposal and RFP responses, and backlog workflows
 * Azure DevOps, GitHub, GitLab, and Jira integrations
