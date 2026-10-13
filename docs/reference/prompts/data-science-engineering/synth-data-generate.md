@@ -32,7 +32,7 @@ Use this prompt when you need a notebook that produces realistic fictional data 
 
 ## How to use it
 
-Describe the subject and optionally provide an example schema or sample structure. Confirm before generating PII-like fields, keep values fictional, and review any proposed update to an existing data source.
+Describe the subject and optionally provide an example schema or sample structure. Step 0 is a blocking gate: the prompt requires a current approved `SYNTHETIC_DATA_OPERATION_V1` preflight record, validated by the `dataops` `validate` command, before it creates a project, accesses a source, or generates data. A failed gate stops the run before any write or source access, and an authorized `replace-local` update routes its final replacement through the `dataops` `commit-local` command.
 
 ## Example usage
 

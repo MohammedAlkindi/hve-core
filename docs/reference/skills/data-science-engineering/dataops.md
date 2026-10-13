@@ -34,6 +34,7 @@ Reach for this skill when the work touches data movement, transformation, or the
 * Deciding where schema and quality validation belongs relative to a Bronze-to-Silver boundary, and why replayability constrains that placement.
 * Writing or reviewing pytest suites for data-science and MLOps code, including which outside calls to mock and which to leave real.
 * Distinguishing a data-validation failure from model or data drift, and routing each to its own remediation path.
+* Authorizing and evidencing a synthetic-data operation, where the `synthetic-data-operation-contract` reference governs preflight authority, field lineage, conditional subgroup evidence, result linkage, and guarded local replacement.
 
 Choose a different asset when:
 
@@ -53,3 +54,5 @@ and what does that imply for replay?
 The skill grounds the answer in its reference pack: validation runs at the Bronze-to-Silver boundary so Bronze retains the raw landed record, which preserves two distinct replay paths (replaying to exercise changed validation logic, and replaying to recover from a transformation defect).
 
 It also flags the notebook-extraction trigger when transformation logic outgrows an interactive cell, and separates transformation code from data-access code so the transformation is unit-testable without mocking storage.
+
+The skill applies a blocking gate to synthetic-data work. Generation stops before source access or any write unless the applicable `SYNTHETIC_DATA_OPERATION_V1` preflight passes deterministic validation under the `validate` command. An authorized `replace-local` update reaches its target only through `commit-local`, which creates a recoverable predecessor before performing one replacement.
