@@ -2,7 +2,7 @@
 title: Test Scripts
 description: Pester test runner, changed-file detection, and test directory organization
 author: HVE Core Team
-ms.date: 2026-08-21
+ms.date: 2026-10-13
 ms.topic: reference
 keywords:
   - powershell
@@ -82,18 +82,27 @@ changed production scripts.
 
 #### Parameters
 
-* `-BaseBranch` - Git branch to compare against (defaults to `main`)
-* `-FileFilter` - Glob pattern for filtering changed files
-* `-SkillsRoot` - Root path for skill scripts
-* `-TestRoot` - Root path for test files
+* `-BaseBranch` - Git branch to compare against (required when the script runs
+  directly; changes are diffed against `origin/<BaseBranch>`)
+* `-FileFilter` - Glob patterns for filtering changed files (defaults to
+  `*.ps1`, `*.psm1`)
+* `-SkillsRoot` - Root path for skill scripts (defaults to `.github/skills`)
+* `-TestRoot` - Root path for test files (defaults to `scripts/tests`)
+
+#### Outputs
+
+When run directly, the script publishes its results through `Set-CIEnv`:
+
+* `HAS_CHANGES` - `True` when at least one matching test file was found
+* `TEST_PATHS` - Semicolon-separated list of test file paths
 
 #### Usage
 
 ```powershell
-# Get test files for all changed scripts
-./scripts/tests/Get-ChangedTestFiles.ps1
+# Get test files for scripts changed relative to origin/main
+./scripts/tests/Get-ChangedTestFiles.ps1 -BaseBranch main
 
-# Compare against a specific branch
+# Compare against a different branch (origin/develop)
 ./scripts/tests/Get-ChangedTestFiles.ps1 -BaseBranch develop
 ```
 
