@@ -1300,3 +1300,72 @@ Describe 'Invoke-SHAStalenessCheck' -Tag 'Unit' {
         }
     }
 }
+
+Describe 'Staleness report consumers' -Tag 'Unit' {
+    BeforeAll {
+        Save-CIEnvironment
+        $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
+
+        # Produce a report entry the way the script does, then round-trip it
+        # through the JSON file the workflows read.
+        $workflowDir = Join-Path $TestDrive 'consumer-project/.github/workflows'
+        New-Item -ItemType Directory -Path $workflowDir -Force | Out-Null
+        $sha = 'b' * 40
+        Set-Content (Join-Path $workflowDir 'pinned.yml') -Value @"
+name: test
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@$sha
+"@
+        $jsonPath = Join-Path $TestDrive 'consumer-report.json'
+        Push-Location (Join-Path $TestDrive 'consumer-project')
+        try {
+            Mock Write-SecurityLog { }
+            Mock Get-BulkGitHubActionsStaleness {
+                return @(@{
+                        ActionRepo = 'actions/checkout'
+                        CurrentSHA = $sha
+                        LatestSHA  = 'c' * 40
+                        DaysOld    = 45
+                        IsStale    = $true
+                        File       = '.github/workflows/pinned.yml'
+                    })
+            }
+            $script:StaleDependencies = [System.Collections.Generic.List[PSCustomObject]]::new()
+            Test-GitHubActionsForStaleness
+            Write-SecurityOutput -Dependencies $script:StaleDependencies -OutputFormat 'json' -OutputPath $jsonPath
+        }
+        finally {
+            Pop-Location
+        }
+        $script:ReportEntry = (Get-Content $jsonPath -Raw | ConvertFrom-Json).Dependencies | Select-Object -First 1
+    }
+
+    AfterAll {
+        Restore-CIEnvironment
+    }
+
+    It 'Reports the action repository as Name' {
+        $script:ReportEntry.Name | Should -Be 'actions/checkout'
+    }
+
+    It 'Only reads report properties that exist: <_>' -ForEach @('.github/workflows/sha-staleness-check.yml', '.github/workflows/weekly-security-maintenance.yml') {
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $_) -Raw
+        $read = [regex]::Matches($text, '\$\(\$(?:staleDep|dep)\.(\w+)\)') |
+            ForEach-Object { $_.Groups[1].Value } |
+            Sort-Object -Unique
+        $read | Should -Not -BeNullOrEmpty
+        $available = $script:ReportEntry.PSObject.Properties.Name
+        foreach ($property in $read) {
+            $available | Should -Contain $property -Because "$_ reads '$property' from the staleness report"
+        }
+    }
+
+    It 'Does not tell maintainers to run a missing npm script' {
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot '.github/workflows/weekly-security-maintenance.yml') -Raw
+        $text | Should -Not -Match 'npm run sha-staleness'
+    }
+}

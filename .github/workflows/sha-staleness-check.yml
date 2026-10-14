@@ -76,7 +76,7 @@ jobs:
             # Fire warnings for each stale dependency
             foreach ($staleDep in $report.Dependencies) {
               if ($staleDep.DaysOld -gt $thresholdDays) {
-                Write-Output "::warning file=$($staleDep.File)::Stale SHA detected: $($staleDep.Action)@$($staleDep.CurrentVersion) is $($staleDep.DaysOld) days old (latest: $($staleDep.LatestVersion))"
+                Write-Output "::warning file=$($staleDep.File)::Stale SHA detected: $($staleDep.Name)@$($staleDep.CurrentVersion) is $($staleDep.DaysOld) days old (latest: $($staleDep.LatestVersion))"
               }
             }
           } else {
