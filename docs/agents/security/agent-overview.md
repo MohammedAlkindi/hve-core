@@ -11,7 +11,7 @@ tags:
   - agents
   - security
 author: Microsoft
-ms.date: 2026-10-02
+ms.date: 2026-10-13
 ms.topic: reference
 estimated_reading_time: 7
 ---
@@ -63,41 +63,46 @@ All state lives in `.copilot-tracking/security-plans/{project-slug}/state.json`.
 
 ### State Fields
 
-The state file tracks 21 fields across scoping, analysis, and handoff concerns.
+The state file tracks 26 fields across scoping, analysis, and handoff concerns. Twenty-one are required in every state file and five are optional, appearing once the planner reaches the step that sets them.
 
-| Field                    | Type     | Description                                                   |
-|--------------------------|----------|---------------------------------------------------------------|
-| `projectSlug`            | string   | Kebab-case project identifier                                 |
-| `securityPlanFile`       | string   | Path to the main plan markdown file                           |
-| `currentPhase`           | number   | Current phase (1-6)                                           |
-| `entryMode`              | string   | `from-prd` or `capture`                                       |
-| `phaseGates`             | object   | Per-phase gate status; phases 1, 4, 6 are hard gates          |
-| `bucketsCompleted`       | string[] | Operational buckets that have been classified                 |
-| `standardsMapped`        | string[] | Buckets with completed standards mapping                      |
-| `riskSurfaceStarted`     | boolean  | Whether Phase 4 threat modeling has begun                     |
-| `handoffGenerated`       | object   | `{ado: boolean, github: boolean}`                             |
-| `context`                | object   | Tech stack, deployment model, data classification, compliance |
-| `referencesProcessed`    | string[] | Paths to PRD/BRD artifacts that were consumed                 |
-| `nextActions`            | string[] | Pending actions for the current or next phase                 |
-| `disclaimerShownAt`      | string   | ISO 8601 time the full disclaimer was last shown, or null     |
-| `noticeLog`              | object[] | Immutable record of every disclaimer/attribution display      |
-| `userPreferences`        | object   | Autonomy preference: `guided`, `partial`, or `full`           |
-| `raiEnabled`             | boolean  | Whether AI/ML components were detected                        |
-| `raiScope`               | string   | `none`, `embedded`, or `delegated`                            |
-| `raiTier`                | string   | `none`, `basic`, `standard`, or `comprehensive`               |
-| `raiRecommendationShown` | boolean  | Whether the RAI recommendation has been presented             |
-| `raiPlannerDispatched`   | boolean  | Whether the user actually started the RAI Planner handoff     |
-| `aiComponents`           | string[] | List of detected AI/ML components                             |
+| Field                      | Type     | Description                                                                           |
+|----------------------------|----------|---------------------------------------------------------------------------------------|
+| `projectSlug`              | string   | Kebab-case project identifier                                                         |
+| `securityPlanFile`         | string   | Path to the main plan markdown file                                                   |
+| `currentPhase`             | number   | Current phase (1-6)                                                                   |
+| `entryMode`                | string   | `from-prd` or `capture`                                                               |
+| `phaseGates`               | object   | Per-phase gate status; phases 1, 4, 6 are hard gates                                  |
+| `bucketsCompleted`         | string[] | Operational buckets that have been classified                                         |
+| `standardsMapped`          | string[] | Buckets with completed standards mapping                                              |
+| `riskSurfaceStarted`       | boolean  | Whether Phase 4 threat modeling has begun                                             |
+| `handoffGenerated`         | object   | `{ado: boolean, github: boolean}`                                                     |
+| `context`                  | object   | Tech stack, deployment model, data classification, compliance                         |
+| `referencesProcessed`      | string[] | Paths to PRD/BRD artifacts that were consumed                                         |
+| `nextActions`              | string[] | Pending actions for the current or next phase                                         |
+| `disclaimerShownAt`        | string   | ISO 8601 time the full disclaimer was last shown, or null                             |
+| `noticeLog`                | object[] | Immutable record of every disclaimer/attribution display                              |
+| `userPreferences`          | object   | Autonomy preference: `guided`, `partial`, or `full`                                   |
+| `raiEnabled`               | boolean  | Whether AI/ML components were detected                                                |
+| `raiScope`                 | string   | `none`, `embedded`, or `delegated`                                                    |
+| `raiTier`                  | string   | `none`, `basic`, `standard`, or `comprehensive`                                       |
+| `raiRecommendationShown`   | boolean  | Whether the RAI recommendation has been presented                                     |
+| `raiPlannerDispatched`     | boolean  | Whether the user actually started the RAI Planner handoff                             |
+| `aiComponents`             | string[] | List of detected AI/ML components                                                     |
+| `dataClassificationScheme` | string   | Data-classification scheme in use; optional, defaults to the public taxonomy          |
+| `overlayConfigPath`        | string   | Path to an out-of-repo private overlay config, or null; optional                      |
+| `completenessReview`       | object   | Phase 6 threat-model review: `{status: PASS or INCOMPLETE, gaps: string[]}`; optional |
+| `signingRequested`         | boolean  | Whether the user requested artifact signing at handoff; optional, defaults to false   |
+| `signingManifestPath`      | string   | Path to the signing manifest, or null if signing was not performed; optional          |
 
 ## Interaction Model
 
 The agent follows strict question rules during each phase:
 
-| Guardrail                             | Description                                                                                        |
-|---------------------------------------|----------------------------------------------------------------------------------------------------|
-| 3-5 questions per turn                | Enough to make progress without overwhelming the user                                              |
-| Emoji checklists                      | Questions use ❓ for pending, ✅ for answered, and ❌ for blocked items                               |
-| No phase advance without confirmation | The agent summarizes phase findings and asks for explicit approval before moving to the next phase |
+| Guardrail              | Description                                                                                                                                                                                                                          |
+|------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 3-5 questions per turn | Enough to make progress without overwhelming the user                                                                                                                                                                                |
+| Emoji checklists       | Questions use ❓ for pending, ✅ for answered, and ❌ for blocked items                                                                                                                                                                 |
+| Tiered phase gates     | Phases 1, 4, and 6 are hard gates: the agent stops for explicit approval and records `phaseGates.phaseN.confirmedAt`. Phases 2, 3, and 5 are summary-and-advance: the agent summarizes findings and proceeds unless the user objects |
 
 ## Session Resume
 
