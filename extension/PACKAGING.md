@@ -2,7 +2,7 @@
 title: Extension Packaging Guide
 description: Developer guide for packaging and publishing the HVE Core VS Code extension
 author: Microsoft
-ms.date: 2026-10-14
+ms.date: 2026-10-15
 ms.topic: reference
 ---
 
@@ -190,7 +190,7 @@ pwsh ./scripts/extension/Prepare-Extension.ps1
 # Or use npm script
 npm run extension:prepare
 
-# Alias of extension:prepare (identical on every channel)
+# Channel-neutral alias of extension:prepare
 npm run extension:prepare:prerelease
 ```
 
@@ -388,7 +388,7 @@ observations, not results of local packaging or documentation validation.
 Package for the pre-release channel with the `-PreRelease` switch:
 
 ```bash
-# Prepare (identical on every channel)
+# Prepare (channel-neutral)
 pwsh ./scripts/extension/Prepare-Extension.ps1
 # Or use npm script
 npm run extension:prepare:prerelease
