@@ -2,7 +2,7 @@
 title: Test Scripts
 description: Pester test runner, changed-file detection, and test directory organization
 author: HVE Core Team
-ms.date: 2026-10-13
+ms.date: 2026-10-15
 ms.topic: reference
 keywords:
   - powershell
@@ -89,12 +89,22 @@ changed production scripts.
 * `-SkillsRoot` - Root path for skill scripts (defaults to `.github/skills`)
 * `-TestRoot` - Root path for test files (defaults to `scripts/tests`)
 
+The root defaults, the `git diff` pathspec and the lookup for directly changed
+test files all resolve against the current working directory rather than the
+script location, so run the script from the repository root. Absolute root
+paths alone do not make a run from elsewhere correct.
+
 #### Outputs
 
-When run directly, the script publishes its results through `Set-CIEnv`:
+When run directly in a supported CI environment, the script publishes its
+results through `Set-CIEnv`:
 
 * `HAS_CHANGES` - `True` when at least one matching test file was found
 * `TEST_PATHS` - Semicolon-separated list of test file paths
+
+Outside a supported CI environment, `Set-CIEnv` writes a verbose message
+instead, so neither value is published; the matching test files are still
+listed on the console.
 
 #### Usage
 
