@@ -38,7 +38,7 @@ jobs:
         run: mkdir -p continuous-sbom
 
       - name: Generate main dependency SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           format: spdx-json
@@ -93,7 +93,7 @@ jobs:
           persist-credentials: false
 
       - name: Submit uv.lock dependencies
-        uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2 # v0.1.6
+        uses: advanced-security/component-detection-dependency-submission-action@a02aeda7a175ad4dd38a13c4d3ff2df9da8f2cf0 # v0.2.0
         with:
           detectorArgs: "UvLock=EnableIfDefaultOff"
 
@@ -262,12 +262,18 @@ jobs:
           # does not relicense separately authored repository code. This
           # package-scoped exception requires organizational approval before
           # merge and does not allow EPL-2.0 repository-wide.
+          # pkg:pypi/cairosvg is LGPL-3.0-or-later. The PowerPoint skill
+          # installs the unmodified wheel into its uv environment at use time;
+          # plugin and extension artifacts do not redistribute it. This
+          # package-scoped exception requires organizational approval before
+          # merge and does not allow LGPL-3.0-or-later repository-wide.
           allow-dependencies-licenses: >-
             pkg:pypi/lxml,
             pkg:pypi/typing-extensions,
             pkg:pypi/certifi,
             pkg:pypi/charset-normalizer,
             pkg:pypi/shapely,
+            pkg:pypi/cairosvg,
             pkg:pypi/backports-tarfile,
             pkg:pypi/cryptography,
             pkg:pypi/jaraco-classes,
