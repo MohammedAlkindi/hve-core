@@ -3,7 +3,7 @@ title: Roadmap
 description: Project direction and priorities for HVE Core over the next 12-18 months
 sidebar_position: 10
 author: HVE Core Team
-ms.date: 2026-07-15
+ms.date: 2026-10-19
 ms.topic: reference
 keywords:
   - roadmap
@@ -157,7 +157,7 @@ Progress is measured by:
 ## Timeline Overview
 
 ```text
-Q1 2026 (Current)
+Q1 2026
 ├── MCP integration groundwork
 ├── Agent metrics foundation
 └── Security-focused instructions
@@ -195,7 +195,7 @@ The roadmap evolves based on community input:
 ## Version History
 
 | Version | Date       | Changes                     |
-|---------|------------|-----------------------------||
+|---------|------------|-----------------------------|
 | 1.0     | 2026-01-21 | Initial roadmap publication |
 
 *This roadmap satisfies OpenSSF Best Practices Badge Silver criterion `documentation_roadmap`.*
