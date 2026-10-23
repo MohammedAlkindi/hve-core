@@ -1436,6 +1436,33 @@ jobs:
         }
     }
 
+    It 'Renders report entries into Markdown through Format-StaleDependencyLine' {
+        $path = '.github/workflows/weekly-security-maintenance.yml'
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot $path) -Raw
+        $read = Get-ReportPropertyRead -WorkflowText $text
+        $read.LoopVariables | Should -Not -BeNullOrEmpty -Because "$path must iterate the staleness report"
+        ([regex]::Matches($text, 'Format-StaleDependencyLine')).Count | Should -BeGreaterOrEqual 2
+        foreach ($variable in $read.LoopVariables) {
+            $text | Should -Not -Match ('\$\(\$' + [regex]::Escape($variable) + '\.(?:Name|CurrentVersion|LatestVersion|File)\)') -Because "$path must not interpolate report fields into Markdown unescaped"
+        }
+    }
+
+    It 'Keeps a hostile report entry inert in the Markdown both consumers emit: <_>' -ForEach @('Summary', 'Issue') {
+        $entry = [pscustomobject]@{
+            File           = $script:ReportEntry.File
+            Name           = 'actions/checkout`` [click](https://evil.example) ``'
+            CurrentVersion = $script:ReportEntry.CurrentVersion
+            LatestVersion  = $script:ReportEntry.LatestVersion
+            DaysOld        = $script:ReportEntry.DaysOld
+        }
+        $line = Format-StaleDependencyLine -Dependency $entry -Style $_
+        $line | Should -Not -Match 'evil\.example'
+        $line | Should -Not -Match 'click'
+        $line | Should -Match 'invalid value omitted'
+        $clean = Format-StaleDependencyLine -Dependency $script:ReportEntry -Style $_
+        $clean | Should -Match 'actions/checkout\\?@'
+    }
+
     It 'Points maintainers at a staleness script that exists' {
         $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot '.github/workflows/weekly-security-maintenance.yml') -Raw
         $text | Should -Not -Match 'npm run sha-staleness'
