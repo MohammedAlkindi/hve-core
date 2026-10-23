@@ -272,11 +272,9 @@ index 1313131..1414141 100644
 
     Context 'Header-like text inside commit messages' {
         BeforeAll {
-            $commitLines = @(
-                '<commit hash="abc1234" date="2026-01-15"><message><subject><![CDATA[fix: probe]]></subject><body><![CDATA[Body line'
+            $phantom = @(
                 'diff --git a/phantom.txt b/phantom.txt'
                 'new file mode 100644'
-                ']]></body></message></commit>'
             )
             $diffLines = @(
                 'diff --git a/src/real.ts b/src/real.ts'
@@ -288,27 +286,47 @@ index 1313131..1414141 100644
                 '+new line'
             )
 
-            # generate.sh writes commits and diff at column 0; generate.ps1 indents both by two spaces
+            # generate.sh writes commits and diff at column 0; generate.ps1 indents both by two spaces.
+            # git log writes no newline after the last entry, so generate.sh closes </commits> on that line.
             $writeFixture = {
-                param([string]$Name, [string]$Prefix, [string]$NewLine)
+                param([string]$Name, [string]$Prefix, [string]$NewLine, [string[]]$BodyLines, [bool]$JoinClose = $false)
                 $path = Join-Path $TestDrive $Name
-                $xml = @('<commit_history>', '  <commits>') +
-                    ($commitLines | ForEach-Object { "$Prefix$_" }) +
-                    @('  </commits>', '', '  <full_diff>') +
+                $commitLines = @('<commit hash="abc1234" date="2026-01-15"><message><subject><![CDATA[fix: probe]]></subject><body><![CDATA[Body line') +
+                    $BodyLines +
+                    @(']]></body></message></commit>')
+                $entries = @($commitLines | ForEach-Object { "$Prefix$_" })
+                $closeLines = @('  </commits>', '', '  <full_diff>')
+                if ($JoinClose) {
+                    $entries[-1] += $closeLines[0]
+                    $closeLines = $closeLines[1..2]
+                }
+                $xml = @('<commit_history>', '  <commits>') + $entries + $closeLines +
                     ($diffLines | ForEach-Object { "$Prefix$_" }) +
                     @('  </full_diff>', '</commit_history>')
                 Set-Content -Path $path -Value ($xml -join $NewLine) -NoNewline
                 return $path
             }
+
+            # Bodies are not escaped, so one can also repeat the markers that frame the diff block
+            $bareMarkers = @('</commits>', '<full_diff>')
+            $generatorMarkers = @('  </commits>', '', '  <full_diff>')
             $script:CommitTextFixtures = @{
-                Unindented = & $writeFixture 'commit-text.xml' '' "`n"
-                Indented   = & $writeFixture 'commit-text-indented.xml' '  ' "`r`n"
+                Unindented             = & $writeFixture 'commit-text.xml' '' "`n" $phantom
+                Indented               = & $writeFixture 'commit-text-indented.xml' '  ' "`r`n" $phantom
+                ClosedOnLastCommitLine = & $writeFixture 'commit-text-joined.xml' '' "`n" $phantom $true
+                BareMarkers            = & $writeFixture 'commit-text-bare.xml' '' "`n" ($bareMarkers + $phantom)
+                BareMarkersIndented    = & $writeFixture 'commit-text-bare-indented.xml' '  ' "`r`n" ($bareMarkers + $phantom)
+                GeneratorMarkers       = & $writeFixture 'commit-text-markers.xml' '' "`n" ($generatorMarkers + $phantom)
             }
         }
 
         It 'Ignores diff headers written in commit bodies (<Fixture>)' -ForEach @(
             @{ Fixture = 'Unindented' }
             @{ Fixture = 'Indented' }
+            @{ Fixture = 'ClosedOnLastCommitLine' }
+            @{ Fixture = 'BareMarkers' }
+            @{ Fixture = 'BareMarkersIndented' }
+            @{ Fixture = 'GeneratorMarkers' }
         ) {
             $changes = Get-FileChanges -XmlPath $script:CommitTextFixtures[$Fixture]
             @($changes | ForEach-Object { "$($_.Path)=$($_.Type)" }) | Should -Be @('src/real.ts=Modified')
