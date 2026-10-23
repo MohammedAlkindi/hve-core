@@ -89,7 +89,7 @@ changed production scripts.
 * `-SkillsRoot` - Root path for skill scripts (defaults to `.github/skills`)
 * `-TestRoot` - Root path for test files (defaults to `scripts/tests`)
 
-The root defaults, the `git diff` pathspec and the lookup for directly changed
+The root defaults, the `git diff` path filter and the lookup for directly changed
 test files all resolve against the current working directory rather than the
 script location, so run the script from the repository root. Absolute root
 paths alone do not make a run from elsewhere correct.
