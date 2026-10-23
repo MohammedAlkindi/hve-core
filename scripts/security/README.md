@@ -2,7 +2,7 @@
 title: Security Scripts
 description: PowerShell scripts for dependency pinning validation, SHA staleness monitoring, supply chain security, and centralized PS module installation
 author: HVE Core Team
-ms.date: 2026-10-13
+ms.date: 2026-10-23
 ms.topic: reference
 keywords:
   - powershell
@@ -50,6 +50,8 @@ The security scripts share common modules and follow a consistent pattern:
 * [`Install-PSModules.ps1`](#install-psmodulesps1): centralized PS module install with retry
 * [`Test-PSModulePins.ps1`](#test-psmodulepinsps1): PS module version pin enforcement
 * [`Sign-PlannerArtifacts.ps1`](#sign-plannerartifactsps1): planner artifact manifest and signing
+* [`Invoke-ScannerGate.ps1`](#invoke-scannergateps1): run a SARIF scanner and gate it on the exception register
+* [`Assert-WorkflowProjectDirectory.ps1`](#assert-workflowprojectdirectoryps1): workflow project directory path validation
 * [`Modules/SecurityClasses.psm1`](#modulessecurityclassespsm1): shared data types
 * [`Modules/SecurityHelpers.psm1`](#modulessecurityhelperspsm1): shared utilities
 
@@ -751,6 +753,77 @@ Under the `-SessionPath` parameter set, the manifest's `projectSlug` field is
 populated from the session directory leaf. The field name is retained for
 back-compatibility with existing RAI manifest consumers; callers that need to
 distinguish project slug from session label should rely on `sessionPath`.
+
+### `Invoke-ScannerGate.ps1`
+
+Runs one SARIF scanner, then gates its findings on the code-scanning exception register.
+
+Purpose: Reproduce the CI decision locally, so a branch whose findings are all
+excused in `security/code-scanning-exceptions.yml` passes, and a branch with a
+new finding or a stale exception fails.
+
+#### Features
+
+* Runs the workflow validator, `Test-ToolVersionConsistency.ps1`, or
+  `Test-DependencyPinning.ps1` to SARIF under `logs/`
+* Passes the SARIF to `Test-CodeQLSarifThreshold.ps1 -Threshold All`
+* Ignores the scanner's own findings exit code, and treats the scanner as
+  failed when it exits with a code it never uses for findings or writes no SARIF
+* Exits with the gate's exit code, or 1 when the scanner failed
+* Integrates with `npm run lint:workflows:gated`,
+  `npm run lint:tool-version-consistency:gated`, and
+  `npm run lint:dependency-pinning:gated`
+
+#### Parameters
+
+* `-Scanner` - Scanner to run: `workflows`, `tool-version-consistency`, `dependency-pinning`
+* `-RepoRoot` - Repository root (defaults to the git top-level directory)
+* `-ExceptionsPath` - Exception register passed to the gate (defaults to the gate's own default)
+
+#### Usage
+
+```powershell
+./scripts/security/Invoke-ScannerGate.ps1 -Scanner workflows
+```
+
+### `Assert-WorkflowProjectDirectory.ps1`
+
+Validates repository-derived project directories before they become workflow data.
+
+Purpose: Workflow discovery steps publish project directories found in the
+checked-out repository as a JSON matrix through `GITHUB_OUTPUT`. On a pull
+request those names are contributor-controlled, and `fromJson` decodes them
+before downstream interpolation, so this script enforces a path contract at
+that boundary.
+
+#### Features
+
+* Accepts only `.` or a normalized repository-relative POSIX path built from
+  `[A-Za-z0-9._/-]`
+* Rejects empty values, surrounding whitespace, control characters,
+  backslashes, absolute and drive-qualified paths, empty segments, and `.` or
+  `..` segments
+* Validates the whole list and throws on any rejection rather than filtering,
+  so the discovery step stops before writing workflow output
+* Dot-sourced by the project discovery steps in `pr-validation.yml` and
+  `weekly-validation.yml`
+* Exits 0 and prints each accepted path when invoked directly, or exits 1 on a rejection
+
+#### Parameters
+
+* `-Path` - Candidate repository-relative project directories to validate
+* `-Quiet` (switch) - Suppress the per-path output when invoked directly
+
+#### Usage
+
+```powershell
+# Inside a workflow discovery step
+. ./scripts/security/Assert-WorkflowProjectDirectory.ps1
+$validated = Assert-WorkflowProjectDirectory -Path $projectList
+
+# From the command line
+./scripts/security/Assert-WorkflowProjectDirectory.ps1 -Path 'scripts', 'docs/docusaurus'
+```
 
 ## Modules
 
