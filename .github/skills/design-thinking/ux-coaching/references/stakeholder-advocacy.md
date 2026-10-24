@@ -32,7 +32,7 @@ Honest boundary, and state it whenever the practitioner asks how to win the argu
 
 **Find the real objection.** Ask what the sceptic actually said, in their words. Then ask what might sit underneath it. A challenge to a research method is often a concern about cost, timeline, or ownership. Aiming at the stated objection when the real one is different is why most of these conversations fail.
 
-**Understand what they are accountable for.** Ask what this person is measured on and what happens to them if the recommendation is adopted and goes badly. Skepticism is usually rational from where the sceptic sits.
+**Understand what they are accountable for.** Ask what this person is measured on and what happens to them if the recommendation is adopted and goes badly. Doubt is usually rational from where the sceptic sits.
 
 **Inventory the evidence honestly.** For each piece, ask what it actually shows and how strong it is. Five users is not a trend. A support-ticket spike is not a cause. Coach the practitioner to describe evidence at its real strength, because a sceptic who finds one overstatement will discount everything else.
 
