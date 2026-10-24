@@ -2,7 +2,7 @@
 title: Test Scripts
 description: Pester test runner, changed-file detection, and test directory organization
 author: HVE Core Team
-ms.date: 2026-10-15
+ms.date: 2026-10-24
 ms.topic: reference
 keywords:
   - powershell
@@ -83,7 +83,8 @@ changed production scripts.
 #### Parameters
 
 * `-BaseBranch` - Git branch to compare against (required when the script runs
-  directly; changes are diffed against `origin/<BaseBranch>`)
+  directly; changes are diffed against `origin/<BaseBranch>`, which must be
+  fetched locally, for example with `git fetch origin <BaseBranch>`)
 * `-FileFilter` - Glob patterns for filtering changed files (defaults to
   `*.ps1`, `*.psm1`)
 * `-SkillsRoot` - Root path for skill scripts (defaults to `.github/skills`)
@@ -96,15 +97,15 @@ paths alone do not make a run from elsewhere correct.
 
 #### Outputs
 
-When run directly in a supported CI environment, the script publishes its
-results through `Set-CIEnv`:
+When run directly under GitHub Actions (with `GITHUB_ENV` set) or Azure
+DevOps, the script publishes its results through `Set-CIEnv`:
 
 * `HAS_CHANGES` - `True` when at least one matching test file was found
 * `TEST_PATHS` - Semicolon-separated list of test file paths
 
-Outside a supported CI environment, `Set-CIEnv` writes a verbose message
-instead, so neither value is published; the matching test files are still
-listed on the console.
+Outside those environments, `Set-CIEnv` only writes a verbose message
+(visible with `-Verbose`), so neither value is published. The changed and
+matching test files are still listed on the console.
 
 #### Usage
 
