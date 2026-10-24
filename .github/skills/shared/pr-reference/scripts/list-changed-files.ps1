@@ -105,6 +105,8 @@ function Get-FileChanges {
     # Commit bodies sit at the same indent as diff headers and are not escaped, but they
     # always come before the diff. Both generators write <full_diff> on its own line at a
     # two-space indent, so the last such line opens the real diff block.
+    # Known limit: generate.sh does not indent the diff, so a hunk context line for a file
+    # line that is exactly ' <full_diff>' also matches, and files listed before it are dropped.
     $opens = [regex]::Matches($content, '(?m)^  <full_diff>[ \t]*\r?$')
     if ($opens.Count -gt 0) { $content = $content.Substring($opens[$opens.Count - 1].Index) }
 
