@@ -102,13 +102,18 @@ function Get-FileChanges {
     $content = Get-Content -LiteralPath $XmlPath -Raw
     $changes = @()
 
-    # Commit bodies sit at the same indent as diff headers and are not escaped, but they
-    # always come before the diff. Both generators write <full_diff> on its own line at a
-    # two-space indent, so the last such line opens the real diff block.
-    # Known limit: generate.sh does not indent the diff, so a hunk context line for a file
-    # line that is exactly ' <full_diff>' also matches, and files listed before it are dropped.
-    $opens = [regex]::Matches($content, '(?m)^  <full_diff>[ \t]*\r?$')
-    if ($opens.Count -gt 0) { $content = $content.Substring($opens[$opens.Count - 1].Index) }
+    # Pair the commit-section close with the diff opener so standalone opening tags in
+    # hunk context cannot move the boundary. The final pair follows unescaped commit bodies;
+    # generate.sh can append </commits> to the last commit line.
+    $boundaries = [regex]::Matches($content, '(?m)</commits>[ \t]*\r?\n(?:[ \t]*\r?\n)*  <full_diff>[ \t]*\r?$')
+    if ($boundaries.Count -gt 0) {
+        $boundary = $boundaries[$boundaries.Count - 1]
+        $content = $content.Substring($boundary.Index + $boundary.Length)
+    } else {
+        # References without commit metadata start at their first diff opener.
+        $open = [regex]::Match($content, '(?m)^  <full_diff>[ \t]*\r?$')
+        if ($open.Success) { $content = $content.Substring($open.Index + $open.Length) }
+    }
 
     # Match diff headers and analyze change type. Headers start a line: at column 0
     # from generate.sh, or indented two spaces by generate.ps1. Anchoring there keeps

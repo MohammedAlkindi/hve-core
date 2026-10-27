@@ -74,7 +74,7 @@ AfterAll {
     Remove-Item -Path $script:TempDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-Describe 'Get-FileChanges' {
+Describe 'Get-FileChanges' -Tag 'Unit' {
     Context 'All change types' {
         It 'Returns all four changed files when filtering by All' {
             $changes = Get-FileChanges -XmlPath $script:FixturePath -FilterType 'All'
@@ -330,6 +330,64 @@ index 1313131..1414141 100644
         ) {
             $changes = Get-FileChanges -XmlPath $script:CommitTextFixtures[$Fixture]
             @($changes | ForEach-Object { "$($_.Path)=$($_.Type)" }) | Should -Be @('src/real.ts=Modified')
+        }
+    }
+
+    Context 'Full-diff opening tags inside hunk context' {
+        It 'Preserves files before a context tag (<Fixture>)' -ForEach @(
+            @{ Fixture = 'unindented-lf-middle'; Prefix = ''; NewLine = "`n"; AtEnd = $false; IncludeCommits = $true }
+            @{ Fixture = 'unindented-lf-end'; Prefix = ''; NewLine = "`n"; AtEnd = $true; IncludeCommits = $true }
+            @{ Fixture = 'unindented-crlf-middle'; Prefix = ''; NewLine = "`r`n"; AtEnd = $false; IncludeCommits = $true }
+            @{ Fixture = 'unindented-crlf-end'; Prefix = ''; NewLine = "`r`n"; AtEnd = $true; IncludeCommits = $true }
+            @{ Fixture = 'indented-lf-middle'; Prefix = '  '; NewLine = "`n"; AtEnd = $false; IncludeCommits = $true }
+            @{ Fixture = 'indented-lf-end'; Prefix = '  '; NewLine = "`n"; AtEnd = $true; IncludeCommits = $true }
+            @{ Fixture = 'indented-crlf-middle'; Prefix = '  '; NewLine = "`r`n"; AtEnd = $false; IncludeCommits = $true }
+            @{ Fixture = 'indented-crlf-end'; Prefix = '  '; NewLine = "`r`n"; AtEnd = $true; IncludeCommits = $true }
+            @{ Fixture = 'no-commits-lf-middle'; Prefix = ''; NewLine = "`n"; AtEnd = $false; IncludeCommits = $false }
+            @{ Fixture = 'no-commits-lf-end'; Prefix = ''; NewLine = "`n"; AtEnd = $true; IncludeCommits = $false }
+            @{ Fixture = 'no-commits-crlf-middle'; Prefix = ''; NewLine = "`r`n"; AtEnd = $false; IncludeCommits = $false }
+            @{ Fixture = 'no-commits-crlf-end'; Prefix = ''; NewLine = "`r`n"; AtEnd = $true; IncludeCommits = $false }
+        ) {
+            $diffLines = @(
+                'diff --git a/docs/a.md b/docs/a.md'
+                'index 1111111..2222222 100644'
+                '--- a/docs/a.md'
+                '+++ b/docs/a.md'
+                '@@ -1,3 +1,3 @@'
+            )
+            $diffLines += if ($AtEnd) {
+                @(' before', '-old line', '+new line', '  <full_diff>')
+            } else {
+                @('  <full_diff>', '-old line', '+new line', ' after')
+            }
+            $diffLines += @(
+                'diff --git a/src/after.ts b/src/after.ts'
+                'new file mode 100644'
+                'index 0000000..3333333'
+                '--- /dev/null'
+                '+++ b/src/after.ts'
+                '@@ -0,0 +1 @@'
+                '+new content'
+            )
+
+            $xml = @('<commit_history>')
+            if ($IncludeCommits) {
+                $xml += '  <commits>'
+                $entry = "${Prefix}" + '<commit hash="abc1234" date="2026-01-15"><message><subject><![CDATA[update]]></subject><body><![CDATA[]]></body></message></commit>'
+                # The Bash generator appends the closing tag to the final commit line.
+                $xml += if ($Prefix -eq '') { @("$entry  </commits>") } else { @($entry, '  </commits>') }
+            }
+            $xml += @('', '  <full_diff>') +
+                @($diffLines | ForEach-Object { "$Prefix$_" }) +
+                @('  </full_diff>', '</commit_history>')
+            $path = Join-Path $TestDrive "$Fixture.xml"
+            Set-Content -LiteralPath $path -Value ($xml -join $NewLine) -NoNewline
+
+            $changes = Get-FileChanges -XmlPath $path
+            @($changes | ForEach-Object { "$($_.Path)=$($_.Type)" }) | Should -Be @(
+                'docs/a.md=Modified'
+                'src/after.ts=Added'
+            )
         }
     }
 
